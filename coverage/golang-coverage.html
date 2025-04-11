@@ -1,0 +1,3325 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>jobs: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/gemyago/oke-gateway-api/cmd/jobs/echo.go (94.1%)</option>
+				
+				<option value="file1">github.com/gemyago/oke-gateway-api/cmd/jobs/main.go (57.1%)</option>
+				
+				<option value="file2">github.com/gemyago/oke-gateway-api/cmd/jobs/root.go (100.0%)</option>
+				
+				<option value="file3">github.com/gemyago/oke-gateway-api/cmd/server/main.go (57.1%)</option>
+				
+				<option value="file4">github.com/gemyago/oke-gateway-api/cmd/server/root.go (100.0%)</option>
+				
+				<option value="file5">github.com/gemyago/oke-gateway-api/cmd/server/start.go (91.7%)</option>
+				
+				<option value="file6">github.com/gemyago/oke-gateway-api/internal/api/http/middleware/chain.go (100.0%)</option>
+				
+				<option value="file7">github.com/gemyago/oke-gateway-api/internal/api/http/middleware/recover.go (100.0%)</option>
+				
+				<option value="file8">github.com/gemyago/oke-gateway-api/internal/api/http/middleware/tracing.go (100.0%)</option>
+				
+				<option value="file9">github.com/gemyago/oke-gateway-api/internal/api/http/server/register.go (100.0%)</option>
+				
+				<option value="file10">github.com/gemyago/oke-gateway-api/internal/api/http/server/router.go (100.0%)</option>
+				
+				<option value="file11">github.com/gemyago/oke-gateway-api/internal/api/http/server/server.go (100.0%)</option>
+				
+				<option value="file12">github.com/gemyago/oke-gateway-api/internal/api/http/v1controllers/echo.go (100.0%)</option>
+				
+				<option value="file13">github.com/gemyago/oke-gateway-api/internal/api/http/v1controllers/health.go (100.0%)</option>
+				
+				<option value="file14">github.com/gemyago/oke-gateway-api/internal/api/http/v1controllers/register.go (100.0%)</option>
+				
+				<option value="file15">github.com/gemyago/oke-gateway-api/internal/api/http/v1routes.go (100.0%)</option>
+				
+				<option value="file16">github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/handlers/echo_controller.go (100.0%)</option>
+				
+				<option value="file17">github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/handlers/echo_params.go (100.0%)</option>
+				
+				<option value="file18">github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/handlers/handlers.go (30.6%)</option>
+				
+				<option value="file19">github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/handlers/health_controller.go (100.0%)</option>
+				
+				<option value="file20">github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/internal/echo_request_payload_validation.go (100.0%)</option>
+				
+				<option value="file21">github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/internal/echo_response_payload_validation.go (0.0%)</option>
+				
+				<option value="file22">github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/internal/error_validation.go (0.0%)</option>
+				
+				<option value="file23">github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/internal/health_response_payload_validation.go (0.0%)</option>
+				
+				<option value="file24">github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/internal/validators.go (13.3%)</option>
+				
+				<option value="file25">github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/models/health_response_payload.go (0.0%)</option>
+				
+				<option value="file26">github.com/gemyago/oke-gateway-api/internal/app/echo.go (100.0%)</option>
+				
+				<option value="file27">github.com/gemyago/oke-gateway-api/internal/app/models/health_response_payload.go (0.0%)</option>
+				
+				<option value="file28">github.com/gemyago/oke-gateway-api/internal/app/register.go (100.0%)</option>
+				
+				<option value="file29">github.com/gemyago/oke-gateway-api/internal/config/load.go (95.8%)</option>
+				
+				<option value="file30">github.com/gemyago/oke-gateway-api/internal/config/provide.go (100.0%)</option>
+				
+				<option value="file31">github.com/gemyago/oke-gateway-api/internal/di/dig.go (100.0%)</option>
+				
+				<option value="file32">github.com/gemyago/oke-gateway-api/internal/diag/attributes.go (100.0%)</option>
+				
+				<option value="file33">github.com/gemyago/oke-gateway-api/internal/diag/mock_slog_handler.go (34.7%)</option>
+				
+				<option value="file34">github.com/gemyago/oke-gateway-api/internal/diag/slog.go (96.6%)</option>
+				
+				<option value="file35">github.com/gemyago/oke-gateway-api/internal/diag/testing.go (75.0%)</option>
+				
+				<option value="file36">github.com/gemyago/oke-gateway-api/internal/services/register.go (100.0%)</option>
+				
+				<option value="file37">github.com/gemyago/oke-gateway-api/internal/services/shutdown.go (95.8%)</option>
+				
+				<option value="file38">github.com/gemyago/oke-gateway-api/internal/services/testing.go (12.5%)</option>
+				
+				<option value="file39">github.com/gemyago/oke-gateway-api/internal/services/time.go (100.0%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">no coverage</span>
+				<span class="cov1">low coverage</span>
+				<span class="cov2">*</span>
+				<span class="cov3">*</span>
+				<span class="cov4">*</span>
+				<span class="cov5">*</span>
+				<span class="cov6">*</span>
+				<span class="cov7">*</span>
+				<span class="cov8">*</span>
+				<span class="cov9">*</span>
+				<span class="cov10">high coverage</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package main
+
+import (
+        "context"
+        "errors"
+        "fmt"
+        "log/slog"
+
+        "github.com/gemyago/oke-gateway-api/internal/api/http"
+        "github.com/gemyago/oke-gateway-api/internal/api/http/server"
+        "github.com/gemyago/oke-gateway-api/internal/app"
+        "github.com/spf13/cobra"
+        "go.uber.org/dig"
+)
+
+// This is an example of minimalistic job. In real world it would do something more useful.
+
+type echoJobParams struct {
+        dig.In `ignore-unexported:"true"`
+
+        RootLogger *slog.Logger
+
+        *app.EchoService
+
+        noop bool
+}
+
+func runEchoJob(ctx context.Context, params echoJobParams) error <span class="cov1" title="1">{
+        rootLogger := params.RootLogger
+        echoService := params.EchoService
+        res, err := echoService.SendEcho(ctx, &amp;app.EchoData{Message: "Hello, World!"})
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to send echo: %w", err)
+        }</span>
+        <span class="cov1" title="1">rootLogger.InfoContext(ctx, "Echo succeeded", slog.String("response", res.Message))
+        return nil</span>
+}
+
+func newStartServerCmd(container *dig.Container) *cobra.Command <span class="cov10" title="3">{
+        cmd := &amp;cobra.Command{
+                Use:   "echo",
+                Short: "Command run echo job",
+        }
+        noop := false
+        cmd.Flags().BoolVar(
+                &amp;noop,
+                "noop",
+                false,
+                "Run in noop mode. Useful for testing if setup is all working.",
+        )
+        cmd.PreRunE = func(_ *cobra.Command, _ []string) error </span><span class="cov1" title="1">{
+                return errors.Join(
+                        server.Register(container),
+                        http.Register(container),
+                )
+        }</span>
+        <span class="cov10" title="3">cmd.RunE = func(cmd *cobra.Command, _ []string) error </span><span class="cov1" title="1">{
+                return container.Invoke(func(params echoJobParams) error </span><span class="cov1" title="1">{
+                        params.noop = noop
+                        return runEchoJob(cmd.Context(), params)
+                }</span>)
+        }
+        <span class="cov10" title="3">return cmd</span>
+}
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package main
+
+import (
+        "os"
+
+        "github.com/spf13/cobra"
+        "go.uber.org/dig"
+)
+
+func setupCommands() *cobra.Command <span class="cov10" title="3">{
+        container := dig.New()
+        rootCmd := newRootCmd(container)
+        rootCmd.AddCommand(
+                newStartServerCmd(container),
+        )
+        return rootCmd
+}</span>
+
+func main() <span class="cov0" title="0">{ // coverage-ignore
+        rootCmd := setupCommands()
+        if err := rootCmd.Execute(); err != nil </span><span class="cov0" title="0">{
+                // cobra will print error to stdout
+                os.Exit(1)
+        }</span>
+}
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">package main
+
+import (
+        "errors"
+        "fmt"
+        "log/slog"
+
+        "github.com/gemyago/oke-gateway-api/internal/app"
+        "github.com/gemyago/oke-gateway-api/internal/config"
+        "github.com/gemyago/oke-gateway-api/internal/di"
+        "github.com/gemyago/oke-gateway-api/internal/diag"
+        "github.com/gemyago/oke-gateway-api/internal/services"
+        "github.com/samber/lo"
+        "github.com/spf13/cobra"
+        "go.uber.org/dig"
+)
+
+func newRootCmd(container *dig.Container) *cobra.Command <span class="cov10" title="3">{
+        logsOutputFile := ""
+
+        cmd := &amp;cobra.Command{
+                Use:   "jobs",
+                Short: "Command to run jobs",
+        }
+        cmd.SilenceUsage = true
+        cmd.PersistentFlags().StringP("log-level", "l", "", "Produce logs with given level. Default is env specific.")
+        cmd.PersistentFlags().StringVar(
+                &amp;logsOutputFile,
+                "logs-file",
+                "",
+                "Produce logs to file instead of stdout. Used for tests only.",
+        )
+        cmd.PersistentFlags().Bool(
+                "json-logs",
+                false,
+                "Indicates if logs should be in JSON format or text (default)",
+        )
+        cmd.PersistentFlags().StringP(
+                "env",
+                "e",
+                "",
+                "Env that the process is running in.",
+        )
+        cfg := config.New()
+        lo.Must0(cfg.BindPFlags(cmd.PersistentFlags()))
+        cmd.PersistentPreRunE = func(_ *cobra.Command, _ []string) error </span><span class="cov10" title="3">{
+                err := config.Load(cfg, config.NewLoadOpts().WithEnv(cfg.GetString("env")))
+                if err != nil </span><span class="cov1" title="1">{
+                        return err
+                }</span>
+
+                <span class="cov6" title="2">var logLevel slog.Level
+                if err = logLevel.UnmarshalText([]byte(cfg.GetString("defaultLogLevel"))); err != nil </span><span class="cov1" title="1">{
+                        return err
+                }</span>
+
+                <span class="cov1" title="1">rootLogger := diag.SetupRootLogger(
+                        diag.NewRootLoggerOpts().
+                                WithJSONLogs(cfg.GetBool("jsonLogs")).
+                                WithLogLevel(logLevel).
+                                WithOptionalOutputFile(logsOutputFile),
+                )
+
+                err = errors.Join(
+                        config.Provide(container, cfg),
+
+                        // app layer
+                        app.Register(container),
+
+                        // services
+                        services.Register(container),
+
+                        di.ProvideAll(container,
+                                di.ProvideValue(rootLogger),
+                        ),
+                )
+
+                return lo.
+                        If(err != nil, fmt.Errorf("failed to inject dependencies: %w", err)).
+                        Else(nil)</span>
+        }
+        <span class="cov10" title="3">return cmd</span>
+}
+</pre>
+		
+		<pre class="file" id="file3" style="display: none">package main
+
+import (
+        "os"
+
+        "github.com/spf13/cobra"
+        "go.uber.org/dig"
+)
+
+func setupCommands() *cobra.Command <span class="cov10" title="3">{
+        container := dig.New()
+        rootCmd := newRootCmd(container)
+        rootCmd.AddCommand(
+                newStartServerCmd(container),
+        )
+        return rootCmd
+}</span>
+
+func main() <span class="cov0" title="0">{ // coverage-ignore
+        rootCmd := setupCommands()
+        if err := rootCmd.Execute(); err != nil </span><span class="cov0" title="0">{
+                // cobra will print error to stdout
+                os.Exit(1)
+        }</span>
+}
+</pre>
+		
+		<pre class="file" id="file4" style="display: none">package main
+
+import (
+        "errors"
+        "fmt"
+        "log/slog"
+
+        "github.com/gemyago/oke-gateway-api/internal/app"
+        "github.com/gemyago/oke-gateway-api/internal/config"
+        "github.com/gemyago/oke-gateway-api/internal/di"
+        "github.com/gemyago/oke-gateway-api/internal/diag"
+        "github.com/gemyago/oke-gateway-api/internal/services"
+        "github.com/samber/lo"
+        "github.com/spf13/cobra"
+        "go.uber.org/dig"
+)
+
+func newRootCmd(container *dig.Container) *cobra.Command <span class="cov10" title="3">{
+        logsOutputFile := ""
+
+        cmd := &amp;cobra.Command{
+                Use:   "server",
+                Short: "Command to start the server",
+        }
+        cmd.SilenceUsage = true
+        cmd.PersistentFlags().StringP("log-level", "l", "", "Produce logs with given level. Default is env specific.")
+        cmd.PersistentFlags().StringVar(
+                &amp;logsOutputFile,
+                "logs-file",
+                "",
+                "Produce logs to file instead of stdout. Used for tests only.",
+        )
+        cmd.PersistentFlags().Bool(
+                "json-logs",
+                false,
+                "Indicates if logs should be in JSON format or text (default)",
+        )
+        cmd.PersistentFlags().StringP(
+                "env",
+                "e",
+                "",
+                "Env that the process is running in.",
+        )
+        cfg := config.New()
+        lo.Must0(cfg.BindPFlags(cmd.PersistentFlags()))
+        cmd.PersistentPreRunE = func(_ *cobra.Command, _ []string) error </span><span class="cov10" title="3">{
+                err := config.Load(cfg, config.NewLoadOpts().WithEnv(cfg.GetString("env")))
+                if err != nil </span><span class="cov1" title="1">{
+                        return err
+                }</span>
+
+                <span class="cov6" title="2">var logLevel slog.Level
+                if err = logLevel.UnmarshalText([]byte(cfg.GetString("defaultLogLevel"))); err != nil </span><span class="cov1" title="1">{
+                        return err
+                }</span>
+
+                <span class="cov1" title="1">rootLogger := diag.SetupRootLogger(
+                        diag.NewRootLoggerOpts().
+                                WithJSONLogs(cfg.GetBool("jsonLogs")).
+                                WithLogLevel(logLevel).
+                                WithOptionalOutputFile(logsOutputFile),
+                )
+
+                err = errors.Join(
+                        config.Provide(container, cfg),
+
+                        // app layer
+                        app.Register(container),
+
+                        // services
+                        services.Register(container),
+
+                        di.ProvideAll(container,
+                                di.ProvideValue(rootLogger),
+                        ),
+                )
+
+                return lo.
+                        If(err != nil, fmt.Errorf("failed to inject dependencies: %w", err)).
+                        Else(nil)</span>
+        }
+        <span class="cov10" title="3">return cmd</span>
+}
+</pre>
+		
+		<pre class="file" id="file5" style="display: none">package main
+
+import (
+        "context"
+        "errors"
+        "log/slog"
+        "os/signal"
+        "time"
+
+        "github.com/gemyago/oke-gateway-api/internal/api/http"
+        "github.com/gemyago/oke-gateway-api/internal/api/http/server"
+        "github.com/gemyago/oke-gateway-api/internal/diag"
+        "github.com/gemyago/oke-gateway-api/internal/services"
+        "github.com/spf13/cobra"
+        "go.uber.org/dig"
+        "golang.org/x/sys/unix"
+)
+
+type startServerParams struct {
+        dig.In `ignore-unexported:"true"`
+
+        RootLogger *slog.Logger
+
+        HTTPServer *server.HTTPServer
+
+        *services.ShutdownHooks
+
+        noop bool
+}
+
+func startServer(params startServerParams) error <span class="cov1" title="1">{
+        rootLogger := params.RootLogger
+        httpServer := params.HTTPServer
+        rootCtx := context.Background()
+
+        shutdown := func() error </span><span class="cov1" title="1">{
+                rootLogger.InfoContext(rootCtx, "Trying to shut down gracefully")
+                ts := time.Now()
+
+                err := params.ShutdownHooks.PerformShutdown(rootCtx)
+                if err != nil </span><span class="cov0" title="0">{
+                        rootLogger.ErrorContext(rootCtx, "Failed to shut down gracefully", diag.ErrAttr(err))
+                }</span>
+
+                <span class="cov1" title="1">rootLogger.InfoContext(rootCtx, "Service stopped",
+                        slog.Duration("duration", time.Since(ts)),
+                )
+                return err</span>
+        }
+
+        <span class="cov1" title="1">signalCtx, cancel := signal.NotifyContext(rootCtx, unix.SIGINT, unix.SIGTERM)
+        defer cancel()
+
+        const startedComponents = 2
+        startupErrors := make(chan error, startedComponents)
+        go func() </span><span class="cov1" title="1">{
+                if params.noop </span><span class="cov1" title="1">{
+                        rootLogger.InfoContext(signalCtx, "NOOP: Starting http server")
+                        startupErrors &lt;- nil
+                        return
+                }</span>
+                <span class="cov0" title="0">startupErrors &lt;- httpServer.Start(signalCtx)</span>
+        }()
+
+        <span class="cov1" title="1">var startupErr error
+        select </span>{
+        case startupErr = &lt;-startupErrors:<span class="cov1" title="1">
+                if startupErr != nil </span><span class="cov0" title="0">{
+                        rootLogger.ErrorContext(rootCtx, "Server startup failed", "err", startupErr)
+                }</span>
+        case &lt;-signalCtx.Done():<span class="cov0" title="0"></span> // coverage-ignore
+                // We will attempt to shut down in both cases
+                // so doing it once on a next line
+        }
+        <span class="cov1" title="1">return errors.Join(startupErr, shutdown())</span>
+}
+
+func newStartServerCmd(container *dig.Container) *cobra.Command <span class="cov10" title="3">{
+        cmd := &amp;cobra.Command{
+                Use:   "start",
+                Short: "Command to start server",
+        }
+        noop := false
+        cmd.Flags().BoolVar(
+                &amp;noop,
+                "noop",
+                false,
+                "Do not start. Just setup deps and exit. Useful for testing if setup is all working.",
+        )
+        cmd.PreRunE = func(_ *cobra.Command, _ []string) error </span><span class="cov1" title="1">{
+                return errors.Join(
+                        server.Register(container),
+                        http.Register(container),
+                )
+        }</span>
+        <span class="cov10" title="3">cmd.RunE = func(_ *cobra.Command, _ []string) error </span><span class="cov1" title="1">{
+                return container.Invoke(func(params startServerParams) error </span><span class="cov1" title="1">{
+                        params.noop = noop
+                        return startServer(params)
+                }</span>)
+        }
+        <span class="cov10" title="3">return cmd</span>
+}
+</pre>
+		
+		<pre class="file" id="file6" style="display: none">package middleware
+
+import "net/http"
+
+type Middleware func(http.Handler) http.Handler
+
+func Chain(middlewares ...Middleware) func(http.Handler) http.Handler <span class="cov5" title="3">{
+        return func(h http.Handler) http.Handler </span><span class="cov5" title="3">{
+                for i := len(middlewares) - 1; i &gt;= 0; i-- </span><span class="cov10" title="9">{
+                        h = middlewares[i](h)
+                }</span>
+                <span class="cov5" title="3">return h</span>
+        }
+}
+</pre>
+		
+		<pre class="file" id="file7" style="display: none">package middleware
+
+import (
+        "errors"
+        "log/slog"
+        "net/http"
+        "runtime/debug"
+)
+
+// NewRecovererMiddleware creates a middleware that will handle panics
+// log them and respond with 500 to client. This should be the last in a chain.
+func NewRecovererMiddleware(rootLogger *slog.Logger) Middleware <span class="cov10" title="5">{
+        return func(next http.Handler) http.Handler </span><span class="cov10" title="5">{
+                fn := func(w http.ResponseWriter, r *http.Request) </span><span class="cov8" title="4">{
+                        defer func() </span><span class="cov8" title="4">{
+                                if rvr := recover(); rvr != nil </span><span class="cov4" title="2">{
+                                        if err, ok := rvr.(error); ok &amp;&amp; errors.Is(err, http.ErrAbortHandler) </span><span class="cov1" title="1">{
+                                                rootLogger.InfoContext(r.Context(), "Request aborted")
+                                                return
+                                        }</span>
+                                        <span class="cov1" title="1">rootLogger.ErrorContext(
+                                                r.Context(),
+                                                "Unhandled panic",
+                                                slog.Any("panic", rvr),
+                                                slog.String("stack", string(debug.Stack())),
+                                        )
+                                        // TODO: Do not write header if already written
+                                        w.WriteHeader(http.StatusInternalServerError)</span>
+                                }
+                        }()
+
+                        <span class="cov8" title="4">next.ServeHTTP(w, r)</span>
+                }
+
+                <span class="cov10" title="5">return http.HandlerFunc(fn)</span>
+        }
+}
+</pre>
+		
+		<pre class="file" id="file8" style="display: none">package middleware
+
+import (
+        "log/slog"
+        "net/http"
+
+        "github.com/gemyago/oke-gateway-api/internal/diag"
+        "github.com/gofrs/uuid/v5"
+)
+
+type TracingMiddlewareCfg struct {
+        generateUUID func() string
+}
+
+func NewTracingMiddlewareCfg() *TracingMiddlewareCfg <span class="cov10" title="4">{
+        return &amp;TracingMiddlewareCfg{
+                generateUUID: func() string </span><span class="cov5" title="2">{
+                        return uuid.Must(uuid.NewV4()).String()
+                }</span>,
+        }
+}
+
+func NewTracingMiddleware(cfg *TracingMiddlewareCfg) Middleware <span class="cov10" title="4">{
+        generateUUID := cfg.generateUUID
+        return func(next http.Handler) http.Handler </span><span class="cov10" title="4">{
+                return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) </span><span class="cov8" title="3">{
+                        correlationID := req.Header.Get("x-correlation-id")
+                        if correlationID == "" </span><span class="cov5" title="2">{
+                                correlationID = generateUUID()
+                        }</span>
+                        <span class="cov8" title="3">logAttributes := diag.GetLogAttributesFromContext(req.Context())
+                        logAttributes.CorrelationID = slog.StringValue(correlationID)
+                        nextCtx := diag.SetLogAttributesToContext(req.Context(), logAttributes)
+                        next.ServeHTTP(w, req.WithContext(nextCtx))</span>
+                })
+        }
+}
+</pre>
+		
+		<pre class="file" id="file9" style="display: none">package server
+
+import (
+        "github.com/gemyago/oke-gateway-api/internal/di"
+        "go.uber.org/dig"
+)
+
+func Register(container *dig.Container) error <span class="cov10" title="2">{
+        return di.ProvideAll(
+                container,
+                NewHTTPServer,
+        )
+}</span>
+</pre>
+		
+		<pre class="file" id="file10" style="display: none">package server
+
+import "net/http"
+
+type HTTPRouter http.ServeMux
+
+func (*HTTPRouter) PathValue(r *http.Request, paramName string) string <span class="cov1" title="1">{
+        return r.PathValue(paramName)
+}</span>
+
+func (router *HTTPRouter) HandleRoute(method, pathPattern string, h http.Handler) <span class="cov10" title="5">{
+        (*http.ServeMux)(router).Handle(method+" "+pathPattern, h)
+}</span>
+
+func (router *HTTPRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) <span class="cov7" title="3">{
+        (*http.ServeMux)(router).ServeHTTP(w, r)
+}</span>
+</pre>
+		
+		<pre class="file" id="file11" style="display: none">package server
+
+import (
+        "context"
+        "fmt"
+        "log/slog"
+        "net/http"
+        "time"
+
+        "github.com/gemyago/oke-gateway-api/internal/api/http/middleware"
+        "github.com/gemyago/oke-gateway-api/internal/services"
+        sloghttp "github.com/samber/slog-http"
+        "go.uber.org/dig"
+)
+
+type HTTPServerDeps struct {
+        dig.In
+
+        RootLogger *slog.Logger
+
+        // config
+        Host              string        `name:"config.httpServer.host"`
+        Port              int           `name:"config.httpServer.port"`
+        IdleTimeout       time.Duration `name:"config.httpServer.idleTimeout"`
+        ReadHeaderTimeout time.Duration `name:"config.httpServer.readHeaderTimeout"`
+        ReadTimeout       time.Duration `name:"config.httpServer.readTimeout"`
+        WriteTimeout      time.Duration `name:"config.httpServer.writeTimeout"`
+
+        Handler http.Handler
+
+        // services
+        *services.ShutdownHooks
+}
+
+type HTTPServer struct {
+        httpSrv *http.Server
+        deps    HTTPServerDeps
+        logger  *slog.Logger
+}
+
+func (srv *HTTPServer) Start(ctx context.Context) error <span class="cov1" title="1">{
+        srv.logger.InfoContext(ctx, "Starting http listener",
+                slog.String("addr", srv.httpSrv.Addr),
+                slog.String("idleTimeout", srv.deps.IdleTimeout.String()),
+                slog.String("readHeaderTimeout", srv.deps.ReadHeaderTimeout.String()),
+                slog.String("readTimeout", srv.deps.ReadTimeout.String()),
+                slog.String("writeTimeout", srv.deps.WriteTimeout.String()),
+        )
+        return srv.httpSrv.ListenAndServe()
+}</span>
+
+func buildMiddlewareChain(logger *slog.Logger, handler http.Handler) http.Handler <span class="cov10" title="2">{
+        // Router wire-up
+        chain := middleware.Chain(
+                middleware.NewTracingMiddleware(middleware.NewTracingMiddlewareCfg()),
+                sloghttp.NewWithConfig(logger, sloghttp.Config{
+                        DefaultLevel:     slog.LevelInfo,
+                        ClientErrorLevel: slog.LevelWarn,
+                        ServerErrorLevel: slog.LevelError,
+
+                        WithUserAgent:      true,
+                        WithRequestID:      false, // We handle it ourselves (tracing middleware)
+                        WithRequestHeader:  true,
+                        WithResponseHeader: true,
+                        WithSpanID:         true,
+                        WithTraceID:        true,
+                }),
+                middleware.NewRecovererMiddleware(logger),
+        )
+        return chain(handler)
+}</span>
+
+// NewHTTPServer constructor factory for general use *http.Server.
+func NewHTTPServer(deps HTTPServerDeps) *HTTPServer <span class="cov10" title="2">{
+        address := fmt.Sprintf("%s:%d", deps.Host, deps.Port)
+        srv := &amp;http.Server{
+                Addr:              address,
+                IdleTimeout:       deps.IdleTimeout,
+                ReadHeaderTimeout: deps.ReadHeaderTimeout,
+                ReadTimeout:       deps.ReadTimeout,
+                WriteTimeout:      deps.WriteTimeout,
+                Handler:           buildMiddlewareChain(deps.RootLogger, deps.Handler),
+                ErrorLog:          slog.NewLogLogger(deps.RootLogger.Handler(), slog.LevelError),
+        }
+
+        deps.ShutdownHooks.Register("http-server", srv.Shutdown)
+
+        return &amp;HTTPServer{
+                deps:    deps,
+                httpSrv: srv,
+                logger:  deps.RootLogger.WithGroup("http-server"),
+        }
+}</span>
+</pre>
+		
+		<pre class="file" id="file12" style="display: none">package v1controllers
+
+import (
+        "context"
+        "net/http"
+
+        "github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/handlers"
+        "github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/models"
+        "github.com/gemyago/oke-gateway-api/internal/app"
+)
+
+type EchoController struct {
+        *app.EchoService
+}
+
+type sendEchoTransformer struct{}
+
+func (sendEchoTransformer) TransformRequest(
+        _ *http.Request,
+        echoReq *handlers.EchoSendEchoRequest,
+) (*app.EchoData, error) <span class="cov1" title="1">{
+        return (*app.EchoData)(echoReq.Payload), nil
+}</span>
+
+func (sendEchoTransformer) TransformResponse(
+        _ context.Context,
+        echoRes *app.EchoData,
+) (*models.EchoResponsePayload, error) <span class="cov1" title="1">{
+        return (*models.EchoResponsePayload)(echoRes), nil
+}</span>
+
+func (c EchoController) SendEcho(b handlers.HandlerBuilder[
+        *handlers.EchoSendEchoRequest,
+        *models.EchoResponsePayload,
+]) http.Handler <span class="cov10" title="2">{
+        return b.HandleWith(
+                handlers.TransformAction(c.EchoService.SendEcho, sendEchoTransformer{}),
+        )
+}</span>
+
+var _ handlers.EchoController = (*EchoController)(nil)
+
+func newEchoController(echoService *app.EchoService) *EchoController <span class="cov1" title="1">{
+        return &amp;EchoController{EchoService: echoService}
+}</span>
+</pre>
+		
+		<pre class="file" id="file13" style="display: none">package v1controllers
+
+import (
+        "context"
+        "net/http"
+
+        "github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/handlers"
+        "github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/models"
+)
+
+type HealthController struct{}
+
+func (HealthController) HealthCheck(
+        b handlers.NoParamsHandlerBuilder[*models.HealthResponsePayload],
+) http.Handler <span class="cov10" title="2">{
+        return b.HandleWith(func(_ context.Context) (*models.HealthResponsePayload, error) </span><span class="cov1" title="1">{
+                return &amp;models.HealthResponsePayload{
+                        Status: models.HealthResponsePayloadStatusOK,
+                }, nil
+        }</span>)
+}
+
+var _ handlers.HealthController = (*HealthController)(nil)
+</pre>
+		
+		<pre class="file" id="file14" style="display: none">package v1controllers
+
+import (
+        "github.com/gemyago/oke-gateway-api/internal/di"
+        "go.uber.org/dig"
+)
+
+func Register(container *dig.Container) error <span class="cov10" title="2">{
+        return di.ProvideAll(container,
+                newEchoController,
+                di.ProvideValue(&amp;HealthController{}),
+        )
+}</span>
+</pre>
+		
+		<pre class="file" id="file15" style="display: none">package http
+
+import (
+        "errors"
+        "log/slog"
+        "net/http"
+
+        "github.com/gemyago/oke-gateway-api/internal/api/http/server"
+        "github.com/gemyago/oke-gateway-api/internal/api/http/v1controllers"
+        "github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/handlers"
+        "github.com/gemyago/oke-gateway-api/internal/di"
+        "go.uber.org/dig"
+)
+
+// Use apigen to generate v1routes
+//go:generate go run github.com/gemyago/apigen ./v1routes.yaml ./v1routes
+
+type V1RoutesDeps struct {
+        dig.In
+
+        RootLogger *slog.Logger
+
+        *v1controllers.HealthController
+        *v1controllers.EchoController
+}
+
+func NewRootHandler(deps V1RoutesDeps) http.Handler <span class="cov1" title="1">{ // coverage-ignore // Little value in testing wireup code.
+        logger := deps.RootLogger.WithGroup("http")
+
+        rootHandler := handlers.NewRootHandler(
+                (*server.HTTPRouter)(http.NewServeMux()),
+                handlers.WithLogger(logger),
+        )
+        rootHandler.RegisterHealthRoutes(deps.HealthController)
+        rootHandler.RegisterEchoRoutes(deps.EchoController)
+
+        return rootHandler
+}</span>
+
+func Register(container *dig.Container) error <span class="cov10" title="2">{
+        return errors.Join(
+                v1controllers.Register(container),
+                di.ProvideAll(container,
+                        NewRootHandler,
+                ),
+        )
+}</span>
+</pre>
+		
+		<pre class="file" id="file16" style="display: none">// Code generated by apigen DO NOT EDIT.
+
+package handlers
+
+import (
+        "encoding/json"
+        "fmt"
+        "net/http"
+        "time"
+
+        . "github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/models"
+)
+
+// Below is to workaround unused imports.
+var _ = http.MethodGet
+var _ = time.Time{}
+var _ = json.Unmarshal
+var _ = fmt.Sprint
+type _ func() EchoRequestPayload
+
+// EchoSendEchoRequest represents params for sendEcho operation
+//
+// Request: POST /echo.
+type EchoSendEchoRequest struct {
+        // Payload is parsed from request body and declared as payload.
+        Payload *EchoRequestPayload
+}
+
+type echoControllerBuilder struct {
+        // POST /echo
+        //
+        // Request type: EchoSendEchoRequest,
+        //
+        // Response type: EchoResponsePayload
+        SendEcho genericHandlerBuilder[
+                *EchoSendEchoRequest,
+                *EchoResponsePayload,
+                handlerActionFunc[*EchoSendEchoRequest, *EchoResponsePayload],
+                httpHandlerActionFunc[*EchoSendEchoRequest, *EchoResponsePayload],
+        ]
+}
+
+func newEchoControllerBuilder(app *RootHandler) *echoControllerBuilder <span class="cov10" title="2">{
+        return &amp;echoControllerBuilder{
+                // POST /echo
+                SendEcho: newGenericHandlerBuilder(
+                        app,
+                        newHandlerAdapter[
+                                *EchoSendEchoRequest,
+                                *EchoResponsePayload,
+                        ](),
+                        newHTTPHandlerAdapter[
+                                *EchoSendEchoRequest,
+                                *EchoResponsePayload,
+                        ](),
+                        makeActionBuilderParams[
+                                *EchoSendEchoRequest,
+                                *EchoResponsePayload,
+                        ]{
+                                defaultStatus: 200,
+                                paramsParser:  newParamsParserEchoSendEcho(app),
+                        },
+                ),
+        }
+}</span>
+
+type EchoController interface {
+        // POST /echo
+        //
+        // Request type: EchoSendEchoRequest,
+        //
+        // Response type: EchoResponsePayload
+        SendEcho(HandlerBuilder[
+                *EchoSendEchoRequest,
+                *EchoResponsePayload,
+        ]) http.Handler
+}
+
+// RegisterEchoRoutes will attach the following routes to the root handler:
+// 
+// - POST /echo
+// 
+// Routes will use provided controller to handle requests.
+func(rootHandler *RootHandler) RegisterEchoRoutes(controller EchoController) *RootHandler <span class="cov10" title="2">{
+        builder := newEchoControllerBuilder(rootHandler)
+        rootHandler.router.HandleRoute("POST", "/echo", controller.SendEcho(builder.SendEcho))
+        return rootHandler
+}</pre>
+		
+		<pre class="file" id="file17" style="display: none">// Code generated by apigen DO NOT EDIT.
+
+package handlers
+
+import (
+        "net/http"
+        "time"
+
+        . "github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/models"
+        . "github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/internal"
+)
+
+// Below is to workaround unused imports if that happens.
+var _ = BindingContext{}
+var _ = http.MethodGet
+var _ = time.Time{}
+type _ func() EchoRequestPayload
+
+type paramsParserEchoSendEcho struct {
+        bindPayload requestParamBinder[*http.Request, *EchoRequestPayload]
+}
+
+func (p *paramsParserEchoSendEcho) parse(router httpRouter, req *http.Request) (*EchoSendEchoRequest, error) <span class="cov1" title="1">{
+        bindingCtx := BindingContext{}
+        reqParams := &amp;EchoSendEchoRequest{}
+        // body params
+        p.bindPayload(bindingCtx.Fork("body"), readRequestBodyValue(req), &amp;reqParams.Payload)
+        return reqParams, bindingCtx.AggregatedError()
+}</span>
+
+func newParamsParserEchoSendEcho(rootHandler *RootHandler) paramsParser[*EchoSendEchoRequest] <span class="cov10" title="2">{
+        return &amp;paramsParserEchoSendEcho{
+                bindPayload: newRequestParamBinder(binderParams[*http.Request, *EchoRequestPayload]{
+                        required: true,
+                        parseValue: parseSoloValueParamAsSoloValue(
+                                parseJSONPayload[*EchoRequestPayload],
+                        ),
+                        validateValue: NewEchoRequestPayloadValidator(),
+                }),
+        }
+}</span>
+</pre>
+		
+		<pre class="file" id="file18" style="display: none">// Code generated by apigen DO NOT EDIT.
+
+package handlers
+
+import (
+        "context"
+        "encoding/json"
+        "errors"
+        "fmt"
+        "log/slog"
+        "net/http"
+        "net/url"
+        "strconv"
+        "strings"
+        "time"
+
+        "github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/internal"
+        "golang.org/x/exp/constraints"
+)
+
+type trackedResponseWriter interface {
+        // HeaderWritten returns true if headers were written.
+        HeaderWritten() bool
+
+        // BodyWritten returns true if body was written.
+        BodyWritten() bool
+}
+
+type httpRouter interface {
+        // PathValue returns a named path parameter of a given name
+        PathValue(r *http.Request, paramName string) string
+
+        // HandleRoute register a given handler function to handle given route
+        HandleRoute(method, pathPattern string, h http.Handler)
+
+        // ServeHTTP is a standard http.Handler method
+        ServeHTTP(w http.ResponseWriter, r *http.Request)
+}
+
+type errorHandlerFunc func(w http.ResponseWriter, r *http.Request, err error)
+
+// slogLogger is a fully compatible with slog and used to allow injecting the instance.
+type slogLogger interface {
+        Log(ctx context.Context, level slog.Level, msg string, args ...any)
+        LogAttrs(ctx context.Context, level slog.Level, msg string, attrs ...slog.Attr)
+}
+
+// RootHandler is a central point of the generated HTTP server. It is responsible for
+// registering routes and customizing router behavior.
+// The RootHandler implements http.Handler interface and can be used as a standard
+// http.Handler in any context that expects it.
+type RootHandler struct {
+        router               httpRouter
+        handleParsingErrors  errorHandlerFunc
+        handleActionErrors   errorHandlerFunc
+        handleResponseErrors errorHandlerFunc
+        knownParsers         *knownParsersDef
+        logger               slogLogger
+}
+
+type RootHandlerOpt func(*RootHandler)
+
+// WithLogger allows to set custom logger for the root handler.
+// The default logger is slog.Default().
+func WithLogger(logger slogLogger) RootHandlerOpt <span class="cov1" title="1">{
+        return func(r *RootHandler) </span><span class="cov1" title="1">{
+                r.logger = logger
+        }</span>
+}
+
+// WithParsingErrorHandler allows to set custom handler for parsing errors.
+// Parsing errors are errors that occur during request parsing and validation.
+// The default implementation will respond with 400 status code and validation
+// errors serialized as JSON. No sensitive information is exposed, just field names.
+// The default implementation will also log the error using configured logger.
+func WithParsingErrorHandler(handler errorHandlerFunc) RootHandlerOpt <span class="cov0" title="0">{
+        return func(h *RootHandler) </span><span class="cov0" title="0">{
+                h.handleParsingErrors = handler
+        }</span>
+}
+
+// WithActionErrorHandler allows to set custom handler for action errors.
+// Action errors are errors that occur during controller action execution.
+// The default implementation will respond with 500 status code and no output.
+// The default implementation will also log the error using configured logger.
+func WithActionErrorHandler(handler errorHandlerFunc) RootHandlerOpt <span class="cov0" title="0">{
+        return func(h *RootHandler) </span><span class="cov0" title="0">{
+                h.handleActionErrors = handler
+        }</span>
+}
+
+// WithResponseErrorHandler allows to set custom handler for response errors.
+// Response errors are errors that occur while writing response.
+// The default implementation will attempt to respond with 500 status code and no output.
+// The default implementation will also log the error using configured logger.
+func WithResponseErrorHandler(handler errorHandlerFunc) RootHandlerOpt <span class="cov0" title="0">{
+        return func(h *RootHandler) </span><span class="cov0" title="0">{
+                h.handleResponseErrors = handler
+        }</span>
+}
+
+// NewRootHandler creates a new instance of the root handler.
+func NewRootHandler(router httpRouter, opts ...RootHandlerOpt) *RootHandler <span class="cov4" title="3">{
+        rootHandler := &amp;RootHandler{
+                router:       router,
+                logger:       slog.Default(),
+                knownParsers: newKnownParsers(),
+        }
+        rootHandler.handleActionErrors = func(w http.ResponseWriter, r *http.Request, err error) </span><span class="cov0" title="0">{
+                rootHandler.logger.LogAttrs(r.Context(), slog.LevelError, "Failed to process request", slog.Any("error", err))
+                if tw, ok := w.(trackedResponseWriter); ok &amp;&amp; !tw.HeaderWritten() </span><span class="cov0" title="0">{
+                        w.WriteHeader(http.StatusInternalServerError)
+                }</span>
+        }
+        <span class="cov4" title="3">rootHandler.handleResponseErrors = func(w http.ResponseWriter, r *http.Request, err error) </span><span class="cov0" title="0">{
+                rootHandler.logger.LogAttrs(r.Context(), slog.LevelError, "Failed to write response", slog.Any("err", err))
+                if tw, ok := w.(trackedResponseWriter); ok &amp;&amp; !tw.HeaderWritten() </span><span class="cov0" title="0">{
+                        w.WriteHeader(http.StatusInternalServerError)
+                }</span>
+        }
+        <span class="cov4" title="3">rootHandler.handleParsingErrors = func(w http.ResponseWriter, r *http.Request, err error) </span><span class="cov0" title="0">{
+                w.Header().Add("Content-Type", "application/json; charset=utf-8")
+                w.WriteHeader(http.StatusBadRequest)
+                rootHandler.logger.LogAttrs(r.Context(), slog.LevelWarn, "Failed to parse request", slog.Any("err", err))
+                var aggregatedErr internal.AggregatedBindingError
+                if ok := errors.As(err, &amp;aggregatedErr); ok </span><span class="cov0" title="0">{
+                        if writeErr := json.NewEncoder(w).Encode(aggregatedErr); writeErr != nil </span><span class="cov0" title="0">{
+                                rootHandler.handleResponseErrors(w, r, writeErr)
+                        }</span>
+                        <span class="cov0" title="0">return</span>
+                }
+        }
+        <span class="cov4" title="3">for _, opt := range opts </span><span class="cov1" title="1">{
+                opt(rootHandler)
+        }</span>
+        <span class="cov4" title="3">return rootHandler</span>
+}
+
+func (rootHandler *RootHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) <span class="cov3" title="2">{
+        rootHandler.router.ServeHTTP(w, r)
+}</span>
+
+type paramsParser[TReqParams any] interface {
+        parse(router httpRouter, req *http.Request) (TReqParams, error)
+}
+
+type void *int
+
+type voidParamsParser struct{}
+
+func (p voidParamsParser) parse(_ httpRouter, _ *http.Request) (void, error) <span class="cov1" title="1">{
+        return void(nil), nil
+}</span>
+
+func makeVoidParamsParser(_ *RootHandler) paramsParser[void] <span class="cov3" title="2">{
+        return voidParamsParser{}
+}</span>
+
+func readPathValue(key string, router httpRouter, req *http.Request) internal.OptionalVal[string] <span class="cov0" title="0">{
+        return internal.OptionalVal[string]{Value: router.PathValue(req, key), Assigned: true}
+}</span>
+
+func readQueryValue(key string, values url.Values) internal.OptionalVal[[]string] <span class="cov0" title="0">{
+        if values.Has(key) </span><span class="cov0" title="0">{
+                return internal.OptionalVal[[]string]{Value: values[key], Assigned: true}
+        }</span>
+        <span class="cov0" title="0">return internal.OptionalVal[[]string]{}</span>
+}
+
+func readRequestBodyValue(req *http.Request) internal.OptionalVal[*http.Request] <span class="cov1" title="1">{
+        // We may need a different method to check if the body is empty
+        // if content length approach will be causing issues. For this case
+        // best would be to read the body to buffer and check its length. It will be fully consumed anyway.
+        if req.ContentLength &gt; 0 </span><span class="cov1" title="1">{
+                return internal.OptionalVal[*http.Request]{Value: req, Assigned: true}
+        }</span>
+        <span class="cov0" title="0">return internal.OptionalVal[*http.Request]{}</span>
+}
+
+type rawValueParser[TRawVal any, TTargetVal any] func(TRawVal, *TTargetVal) error
+
+func parseJSONPayload[TTargetVal any](req *http.Request, target *TTargetVal) error <span class="cov1" title="1">{
+        return json.NewDecoder(req.Body).Decode(target)
+}</span>
+
+var _ rawValueParser[*http.Request, string] = parseJSONPayload
+
+func newStringToNumberParser[TTargetVal constraints.Integer | constraints.Float](
+        bitSize int, parseFn func(string, int) (TTargetVal, error),
+) rawValueParser[string, TTargetVal] <span class="cov10" title="12">{
+        return func(ov string, target *TTargetVal) error </span><span class="cov0" title="0">{
+                val, err := parseFn(ov, bitSize)
+                if err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+                <span class="cov0" title="0">*target = val
+                return nil</span>
+        }
+}
+
+func newStringToDateTimeParser(isDateOnly bool) rawValueParser[string, time.Time] <span class="cov7" title="6">{
+        return func(ov string, t *time.Time) error </span><span class="cov0" title="0">{
+                format := time.RFC3339Nano
+                if isDateOnly </span><span class="cov0" title="0">{
+                        format = time.DateOnly
+                }</span>
+                <span class="cov0" title="0">val, err := time.Parse(format, ov)
+                if err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+                <span class="cov0" title="0">*t = val
+                return nil</span>
+        }
+}
+
+func parseDecInt[TInt constraints.Integer](str string, bitSize int) (TInt, error) <span class="cov0" title="0">{
+        res, err := strconv.ParseInt(str, 10, bitSize)
+        return (TInt)(res), err
+}</span>
+
+func parseFloat[TFloat constraints.Float](str string, bitSize int) (TFloat, error) <span class="cov0" title="0">{
+        res, err := strconv.ParseFloat(str, bitSize)
+        return (TFloat)(res), err
+}</span>
+
+func parseMultiValueParamAsSoloValue[TTargetVal any](
+        targetParser rawValueParser[string, TTargetVal],
+) rawValueParser[[]string, TTargetVal] <span class="cov0" title="0">{
+        return func(s []string, tv *TTargetVal) error </span><span class="cov0" title="0">{
+                return targetParser(s[0], tv)
+        }</span>
+}
+
+// parseSoloValueParamAsSoloValue is noop and used just to simplify templates.
+func parseSoloValueParamAsSoloValue[TRawVal any, TTargetVal any](
+        targetParser rawValueParser[TRawVal, TTargetVal],
+) rawValueParser[TRawVal, TTargetVal] <span class="cov3" title="2">{
+        return targetParser
+}</span>
+
+// parseSoloValueParamAsSlice will always parse the input as csv string.
+func parseSoloValueParamAsSlice[TTargetVal any](
+        targetParser rawValueParser[string, TTargetVal],
+) rawValueParser[string, []TTargetVal] <span class="cov0" title="0">{
+        return func(s string, tv *[]TTargetVal) error </span><span class="cov0" title="0">{
+                items := strings.Split(s, ",")
+                resultingSlice := make([]TTargetVal, 0, len(items))
+                for i, item := range items </span><span class="cov0" title="0">{
+                        var val TTargetVal
+                        if err := targetParser(item, &amp;val); err != nil </span><span class="cov0" title="0">{
+                                return fmt.Errorf("failed to parse value at index %d: %w", i, err)
+                        }</span>
+                        <span class="cov0" title="0">resultingSlice = append(resultingSlice, val)</span>
+                }
+                <span class="cov0" title="0">*tv = resultingSlice
+                return nil</span>
+        }
+}
+
+// parseMultiValueParamAsSlice will parse each value in the input slice separately.
+func parseMultiValueParamAsSlice[TTargetVal any](
+        targetParser rawValueParser[string, TTargetVal],
+) rawValueParser[[]string, []TTargetVal] <span class="cov0" title="0">{
+        return func(s []string, tv *[]TTargetVal) error </span><span class="cov0" title="0">{
+                resultingSlice := make([]TTargetVal, 0, len(s))
+                for i, item := range s </span><span class="cov0" title="0">{
+                        var val TTargetVal
+                        if err := targetParser(item, &amp;val); err != nil </span><span class="cov0" title="0">{
+                                return fmt.Errorf("failed to parse value at index %d: %w", i, err)
+                        }</span>
+                        <span class="cov0" title="0">resultingSlice = append(resultingSlice, val)</span>
+                }
+                <span class="cov0" title="0">*tv = resultingSlice
+                return nil</span>
+        }
+}
+
+func parseNullableParam[TTargetVal any](
+        targetParser rawValueParser[string, TTargetVal],
+) rawValueParser[string, *TTargetVal] <span class="cov0" title="0">{
+        return func(s string, tv **TTargetVal) error </span><span class="cov0" title="0">{
+                if s == "" || s == "null" </span><span class="cov0" title="0">{
+                        return nil
+                }</span>
+                <span class="cov0" title="0">*tv = new(TTargetVal)
+                return targetParser(s, *tv)</span>
+        }
+}
+
+type knownParsersDef struct {
+        stringParser  rawValueParser[string, string]
+        dateParser    rawValueParser[string, time.Time]
+        timeParser    rawValueParser[string, time.Time]
+        int32Parser   rawValueParser[string, int32]
+        int64Parser   rawValueParser[string, int64]
+        float32Parser rawValueParser[string, float32]
+        float64Parser rawValueParser[string, float64]
+        boolParser    rawValueParser[string, bool]
+}
+
+const bitSize32 = 32
+const bitSize64 = 64
+
+func newKnownParsers() *knownParsersDef <span class="cov4" title="3">{
+        return &amp;knownParsersDef{
+                stringParser: func(ov string, s *string) error </span><span class="cov0" title="0">{
+                        *s = ov
+                        return nil
+                }</span>,
+                dateParser:    newStringToDateTimeParser(true),
+                timeParser:    newStringToDateTimeParser(false),
+                int32Parser:   newStringToNumberParser[int32](bitSize32, parseDecInt),
+                int64Parser:   newStringToNumberParser[int64](bitSize64, parseDecInt),
+                float32Parser: newStringToNumberParser[float32](bitSize32, parseFloat),
+                float64Parser: newStringToNumberParser(bitSize64, strconv.ParseFloat),
+                boolParser: func(ov string, s *bool) error <span class="cov0" title="0">{
+                        switch ov </span>{
+                        case "true":<span class="cov0" title="0">
+                                *s = true</span>
+                        case "false":<span class="cov0" title="0">
+                                *s = false</span>
+                        default:<span class="cov0" title="0">
+                                return fmt.Errorf("unexpected boolean format %v", ov)</span>
+                        }
+                        <span class="cov0" title="0">return nil</span>
+                },
+        }
+}
+
+type requestParamBinder[TRawVal any, TTargetVal any] func(
+        bindingCtx *internal.BindingContext,
+        rawVal internal.OptionalVal[TRawVal],
+        receiver *TTargetVal,
+)
+
+type binderParams[TRawVal any, TTargetVal any] struct {
+        required      bool
+        parseValue    rawValueParser[TRawVal, TTargetVal]
+        validateValue internal.FieldValidator[TTargetVal]
+}
+
+func newRequestParamBinder[TRawVal any, TTargetVal any](
+        params binderParams[TRawVal, TTargetVal],
+) requestParamBinder[TRawVal, TTargetVal] <span class="cov3" title="2">{
+        return func(
+                bindingCtx *internal.BindingContext,
+                rawVal internal.OptionalVal[TRawVal],
+                receiver *TTargetVal,
+        ) </span><span class="cov1" title="1">{
+                if !rawVal.Assigned </span><span class="cov0" title="0">{
+                        if params.required </span><span class="cov0" title="0">{
+                                bindingCtx.AppendFieldError(internal.FieldBindingError{
+                                        Location: bindingCtx.BuildPath(),
+                                        Code:     internal.ErrValueRequired.Error(),
+                                })
+                        }</span>
+                        <span class="cov0" title="0">return</span>
+                }
+                <span class="cov1" title="1">if err := params.parseValue(rawVal.Value, receiver); err != nil </span><span class="cov0" title="0">{
+                        bindingCtx.AppendFieldError(internal.FieldBindingError{
+                                Location: bindingCtx.BuildPath(),
+                                Code:     internal.ErrBadValueFormat.Error(),
+                                Err:      err,
+                        })
+                        return
+                }</span>
+                <span class="cov1" title="1">params.validateValue(bindingCtx, *receiver)</span>
+        }
+}
+
+type universalActionHandlerFunc[
+        TReq any,
+        TRes any,
+] func(http.ResponseWriter, *http.Request, TReq) (TRes, error)
+
+// action handlers without http context exposed.
+type handlerActionFunc[TReq any, TRes any] = func(context.Context, TReq) (TRes, error)
+type handlerActionFuncNoParams[TReq void, TRes any] = func(context.Context) (TRes, error)
+type handlerActionFuncNoResponse[TReq any, TRes void] = func(context.Context, TReq) error
+type handlerActionFuncNoParamsNoResponse[TReq void, TRes void] = func(context.Context) error
+
+// action handlers with http context exposed.
+type httpHandlerActionFunc[TReq any, TRes any] = func(http.ResponseWriter, *http.Request, TReq) (TRes, error)
+type httpHandlerActionFuncNoParams[TReq void, TRes any] = func(http.ResponseWriter, *http.Request) (TRes, error)
+type httpHandlerActionFuncNoResponse[TReq any, TRes void] = func(http.ResponseWriter, *http.Request, TReq) error
+type httpHandlerActionFuncNoParamsNoResponse[TReq void, TRes void] = func(http.ResponseWriter, *http.Request) error
+
+// handlerActionFuncConstraint represents possible combination of handler action functions.
+// Each function can be with or without parameters and with or without response.
+// Additionally each function can have access to http objects for possible direct manipulation.
+type handlerActionFuncConstraint[TReq any, TRes any] interface {
+        handlerActionFunc[TReq, TRes] |
+                handlerActionFuncNoParams[void, TRes] |
+                handlerActionFuncNoResponse[TReq, void] |
+                handlerActionFuncNoParamsNoResponse[void, void] |
+
+                httpHandlerActionFunc[TReq, TRes] |
+                httpHandlerActionFuncNoParams[void, TRes] |
+                httpHandlerActionFuncNoResponse[TReq, void] |
+                httpHandlerActionFuncNoParamsNoResponse[void, void]
+}
+
+type handlerRequestTransformer[TReq any, TAppReq any] interface {
+        TransformRequest(*http.Request, TReq) (TAppReq, error)
+}
+
+type handlerResponseTransformer[TRes any, TAppRes any] interface {
+        TransformResponse(context.Context, TAppRes) (TRes, error)
+}
+
+type handlerTransformer[TReq any, TRes any, TAppReq any, TAppRes any] interface {
+        handlerRequestTransformer[TReq, TAppReq]
+        handlerResponseTransformer[TRes, TAppRes]
+}
+
+// TransformAction can be used to transform generated action handler to satisfy
+// application layer implementation. Use it to reduce boilerplate code in the
+// controller layer and keep controller slim and declarative.
+//
+// Errors produced during request or response transformation will be handled with
+// action error handler. You can customize error handling using WithActionErrorHandler option
+// when initializing RootHandler with NewRootHandler method.
+//
+// Please note that the TransformAction is tightly coupled with the generated code
+// and should not be used outside of the controller layer.
+func TransformAction[
+        TReqGenerated any,
+        TReqApplication any,
+        TResGenerated any,
+        TResApplication any,
+        TActionGenerated handlerActionFunc[TReqGenerated, TResGenerated],
+        TActionApplication handlerActionFunc[TReqApplication, TResApplication],
+](
+        appAction TActionApplication,
+        transformer handlerTransformer[TReqGenerated, TResGenerated, TReqApplication, TResApplication],
+) TActionGenerated <span class="cov3" title="2">{
+        return func(ctx context.Context, rec TReqGenerated) (TResGenerated, error) </span><span class="cov1" title="1">{
+                var emptyRes TResGenerated
+                contextualReq, ok := ctx.(contextualRequest)
+                if !ok </span><span class="cov0" title="0">{
+                        return emptyRes, errors.New("could not obtain http.Request during request params transformation")
+                }</span>
+
+                <span class="cov1" title="1">req, err := transformer.TransformRequest(contextualReq.req, rec)
+                if err != nil </span><span class="cov0" title="0">{
+                        return emptyRes, err
+                }</span>
+                <span class="cov1" title="1">res, err := appAction(ctx, req)
+                if err != nil </span><span class="cov0" title="0">{
+                        return emptyRes, err
+                }</span>
+                <span class="cov1" title="1">return transformer.TransformResponse(ctx, res)</span>
+        }
+}
+
+// TransformNoParamsAction is a variation of TransformAction for actions without parameters.
+// Please see the TransformAction for more details.
+func TransformNoParamsAction[
+        TResGenerated any,
+        TResApplication any,
+        TActionGenerated handlerActionFuncNoParams[void, TResGenerated],
+        TActionApplication handlerActionFuncNoParams[void, TResApplication],
+](
+        appAction TActionApplication,
+        transformer handlerResponseTransformer[TResGenerated, TResApplication],
+) TActionGenerated <span class="cov0" title="0">{
+        return func(ctx context.Context) (TResGenerated, error) </span><span class="cov0" title="0">{
+                var emptyRes TResGenerated
+                res, err := appAction(ctx)
+                if err != nil </span><span class="cov0" title="0">{
+                        return emptyRes, err
+                }</span>
+                <span class="cov0" title="0">return transformer.TransformResponse(ctx, res)</span>
+        }
+}
+
+// TransformNoResponseAction is a variation of TransformAction for actions without response body.
+// Please see the TransformAction for more details.
+func TransformNoResponseAction[
+        TReqGenerated any,
+        TReqApplication any,
+        TActionGenerated handlerActionFuncNoResponse[TReqGenerated, void],
+        TActionApplication handlerActionFuncNoResponse[TReqApplication, void],
+](
+        appAction TActionApplication,
+        transformer handlerRequestTransformer[TReqGenerated, TReqApplication],
+) TActionGenerated <span class="cov0" title="0">{
+        return func(ctx context.Context, rec TReqGenerated) error </span><span class="cov0" title="0">{
+                contextualReq, ok := ctx.(contextualRequest)
+                if !ok </span><span class="cov0" title="0">{
+                        return errors.New("could not obtain http.Request during request params transformation")
+                }</span>
+
+                <span class="cov0" title="0">req, err := transformer.TransformRequest(contextualReq.req, rec)
+                if err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+                <span class="cov0" title="0">return appAction(ctx, req)</span>
+        }
+}
+
+type genericHandlerBuilder[
+        TReq any,
+        TRes any,
+        TPlainHandler handlerActionFuncConstraint[TReq, TRes],
+        THttpHandler handlerActionFuncConstraint[TReq, TRes],
+] interface {
+        // HandleWith creates a new http.Handler from a given func.
+        //
+        // The action handler is not supposed to have access to http objects and
+        // in most scenarios can just delegate the work to the application logic layer.
+        // If you need access to http objects use HandleWithHTTP
+        HandleWith(TPlainHandler) http.Handler
+
+        // HandleWithHTTP creates a new http.Handler from a given func.
+        //
+        // The action handler allows direct access to http.ResponseWriter and *http.Request.
+        // It also provides parsed request parameters and allows sending structured response.
+        // If you need fully customized behavior, feel free not to use the builder and
+        // return the handler directly.
+        HandleWithHTTP(THttpHandler) http.Handler
+}
+
+type HandlerBuilder[TReq any, TRes any] genericHandlerBuilder[
+        TReq,
+        TRes,
+        handlerActionFunc[TReq, TRes],
+        httpHandlerActionFunc[TReq, TRes],
+]
+
+type NoParamsHandlerBuilder[TRes any] genericHandlerBuilder[
+        void,
+        TRes,
+        handlerActionFuncNoParams[void, TRes],
+        httpHandlerActionFuncNoParams[void, TRes],
+]
+
+type NoResponseHandlerBuilder[TReq any] genericHandlerBuilder[
+        TReq,
+        void,
+        handlerActionFuncNoResponse[TReq, void],
+        httpHandlerActionFuncNoResponse[TReq, void],
+]
+
+type NoParamsNoResponseHandlerBuilder genericHandlerBuilder[
+        void,
+        void,
+        handlerActionFuncNoParamsNoResponse[void, void],
+        httpHandlerActionFuncNoParamsNoResponse[void, void],
+]
+
+type makeActionBuilderParams[
+        TReqParams any,
+        TResData any,
+] struct {
+        defaultStatus int
+        voidResult    bool
+        paramsParser  paramsParser[TReqParams]
+}
+
+type actionBuilderHandlerAdapter[
+        TReq any,
+        TRes any,
+        THandler handlerActionFuncConstraint[TReq, TRes],
+] func(THandler) universalActionHandlerFunc[TReq, TRes]
+
+// Allows accessing underlying http.Request in certain scenarios (transformers)
+// where just context is available but http.Request is needed.
+type contextualRequest struct{ req *http.Request }
+
+func (cr contextualRequest) Deadline() (time.Time, bool) <span class="cov0" title="0">{
+        return cr.req.Context().Deadline()
+}</span>
+
+func (cr contextualRequest) Done() &lt;-chan struct{} <span class="cov0" title="0">{
+        return cr.req.Context().Done()
+}</span>
+
+func (cr contextualRequest) Err() error <span class="cov0" title="0">{
+        return cr.req.Context().Err()
+}</span>
+
+func (cr contextualRequest) Value(key any) any <span class="cov1" title="1">{
+        return cr.req.Context().Value(key)
+}</span>
+
+var _ context.Context = (*contextualRequest)(nil)
+
+func newHandlerAdapter[
+        TReq any,
+        TRes any,
+        THandler handlerActionFunc[TReq, TRes],
+]() actionBuilderHandlerAdapter[TReq, TRes, THandler] <span class="cov3" title="2">{
+        return func(t THandler) universalActionHandlerFunc[TReq, TRes] </span><span class="cov3" title="2">{
+                return func(_ http.ResponseWriter, httpReq *http.Request, req TReq) (TRes, error) </span><span class="cov1" title="1">{
+                        return t(contextualRequest{req: httpReq}, req)
+                }</span>
+        }
+}
+
+func newHandlerAdapterNoParams[
+        TReq any,
+        TRes any,
+        THandler handlerActionFuncNoParams[void, TRes],
+]() actionBuilderHandlerAdapter[TReq, TRes, THandler] <span class="cov3" title="2">{
+        return func(t THandler) universalActionHandlerFunc[TReq, TRes] </span><span class="cov3" title="2">{
+                return func(_ http.ResponseWriter, r *http.Request, _ TReq) (TRes, error) </span><span class="cov1" title="1">{
+                        return t(r.Context())
+                }</span>
+        }
+}
+
+func newHandlerAdapterNoResponse[
+        TReq any,
+        TRes any,
+        THandler handlerActionFuncNoResponse[TReq, void],
+]() actionBuilderHandlerAdapter[TReq, TRes, THandler] <span class="cov0" title="0">{
+        return func(t THandler) universalActionHandlerFunc[TReq, TRes] </span><span class="cov0" title="0">{
+                return func(_ http.ResponseWriter, r *http.Request, req TReq) (TRes, error) </span><span class="cov0" title="0">{
+                        var emptyRes TRes
+                        if err := t(contextualRequest{req: r}, req); err != nil </span><span class="cov0" title="0">{
+                                return emptyRes, err
+                        }</span>
+                        <span class="cov0" title="0">return emptyRes, nil</span>
+                }
+        }
+}
+
+func newHandlerAdapterNoParamsNoResponse[
+        TReq any,
+        TRes any,
+        THandler handlerActionFuncNoParamsNoResponse[void, void],
+]() actionBuilderHandlerAdapter[TReq, TRes, THandler] <span class="cov0" title="0">{
+        return func(t THandler) universalActionHandlerFunc[TReq, TRes] </span><span class="cov0" title="0">{
+                return func(_ http.ResponseWriter, r *http.Request, _ TReq) (TRes, error) </span><span class="cov0" title="0">{
+                        var emptyRes TRes
+                        return emptyRes, t(r.Context())
+                }</span>
+        }
+}
+
+func newHTTPHandlerAdapter[
+        TReq any,
+        TRes any,
+        THandler httpHandlerActionFunc[TReq, TRes],
+]() actionBuilderHandlerAdapter[TReq, TRes, THandler] <span class="cov3" title="2">{
+        return func(t THandler) universalActionHandlerFunc[TReq, TRes] </span><span class="cov0" title="0">{
+                return func(w http.ResponseWriter, r *http.Request, req TReq) (TRes, error) </span><span class="cov0" title="0">{
+                        return t(w, r, req)
+                }</span>
+        }
+}
+
+func newHTTPHandlerAdapterNoParams[
+        TReq any,
+        TRes any,
+        THandler httpHandlerActionFuncNoParams[void, TRes],
+]() actionBuilderHandlerAdapter[TReq, TRes, THandler] <span class="cov3" title="2">{
+        return func(t THandler) universalActionHandlerFunc[TReq, TRes] </span><span class="cov0" title="0">{
+                return func(w http.ResponseWriter, r *http.Request, _ TReq) (TRes, error) </span><span class="cov0" title="0">{
+                        return t(w, r)
+                }</span>
+        }
+}
+
+func newHTTPHandlerAdapterNoResponse[
+        TReq any,
+        TRes any,
+        THandler httpHandlerActionFuncNoResponse[TReq, void],
+]() actionBuilderHandlerAdapter[TReq, TRes, THandler] <span class="cov0" title="0">{
+        return func(t THandler) universalActionHandlerFunc[TReq, TRes] </span><span class="cov0" title="0">{
+                return func(w http.ResponseWriter, r *http.Request, req TReq) (TRes, error) </span><span class="cov0" title="0">{
+                        var emptyRes TRes
+                        if err := t(w, r, req); err != nil </span><span class="cov0" title="0">{
+                                return emptyRes, err
+                        }</span>
+                        <span class="cov0" title="0">return emptyRes, nil</span>
+                }
+        }
+}
+
+func newHTTPHandlerAdapterNoParamsNoResponse[
+        TReq any,
+        TRes any,
+        THandler httpHandlerActionFuncNoParamsNoResponse[void, void],
+]() actionBuilderHandlerAdapter[TReq, TRes, THandler] <span class="cov0" title="0">{
+        return func(t THandler) universalActionHandlerFunc[TReq, TRes] </span><span class="cov0" title="0">{
+                return func(w http.ResponseWriter, r *http.Request, _ TReq) (TRes, error) </span><span class="cov0" title="0">{
+                        var emptyRes TRes
+                        return emptyRes, t(w, r)
+                }</span>
+        }
+}
+
+type actionsResponseWriter struct {
+        targetWriter  http.ResponseWriter
+        headerWritten bool
+        bodyWritten   bool
+        defaultStatus int
+}
+
+func (w *actionsResponseWriter) HeaderWritten() bool <span class="cov0" title="0">{
+        return w.headerWritten
+}</span>
+
+func (w *actionsResponseWriter) BodyWritten() bool <span class="cov3" title="2">{
+        return w.bodyWritten
+}</span>
+
+func (w *actionsResponseWriter) Header() http.Header <span class="cov0" title="0">{
+        return w.targetWriter.Header()
+}</span>
+
+func (w *actionsResponseWriter) WriteHeader(statusCode int) <span class="cov3" title="2">{
+        w.headerWritten = true
+        w.targetWriter.WriteHeader(statusCode)
+}</span>
+
+func (w *actionsResponseWriter) Write(data []byte) (int, error) <span class="cov3" title="2">{
+        if !w.headerWritten </span><span class="cov3" title="2">{
+                w.WriteHeader(w.defaultStatus)
+        }</span>
+        <span class="cov3" title="2">w.bodyWritten = true
+        return w.targetWriter.Write(data)</span>
+}
+
+var _ trackedResponseWriter = &amp;actionsResponseWriter{}
+var _ http.ResponseWriter = &amp;actionsResponseWriter{}
+
+type genericHandlerBuilderImpl[
+        TReq any,
+        TRes any,
+        TPlainHandler handlerActionFuncConstraint[TReq, TRes],
+        THttpHandler handlerActionFuncConstraint[TReq, TRes],
+] struct {
+        rootHandler        *RootHandler
+        handlerAdapter     actionBuilderHandlerAdapter[TReq, TRes, TPlainHandler]
+        httpHandlerAdapter actionBuilderHandlerAdapter[TReq, TRes, THttpHandler]
+        params             makeActionBuilderParams[TReq, TRes]
+}
+
+func (ab genericHandlerBuilderImpl[TReq, TRes, TPlainHandler, THttpHandler]) createHandler(
+        handler universalActionHandlerFunc[TReq, TRes],
+) http.Handler <span class="cov6" title="4">{
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) </span><span class="cov3" title="2">{
+                aw := &amp;actionsResponseWriter{
+                        targetWriter:  w,
+                        defaultStatus: ab.params.defaultStatus,
+                }
+
+                reqParams, err := ab.params.paramsParser.parse(ab.rootHandler.router, r)
+                if err != nil </span><span class="cov0" title="0">{
+                        ab.rootHandler.handleParsingErrors(aw, r, err)
+                        return
+                }</span>
+
+                <span class="cov3" title="2">resData, err := handler(aw, r, reqParams)
+                if err != nil </span><span class="cov0" title="0">{
+                        ab.rootHandler.handleActionErrors(aw, r, err)
+                        return
+                }</span>
+
+                <span class="cov3" title="2">if ab.params.voidResult </span><span class="cov0" title="0">{
+                        // Do not write header twice
+                        if !aw.HeaderWritten() </span><span class="cov0" title="0">{
+                                aw.WriteHeader(ab.params.defaultStatus)
+                        }</span>
+                        <span class="cov0" title="0">return</span>
+                }
+
+                // This means the action handler has written the response itself.
+                <span class="cov3" title="2">if aw.BodyWritten() </span><span class="cov0" title="0">{
+                        return
+                }</span>
+
+                <span class="cov3" title="2">w.Header().Add("Content-Type", "application/json; charset=utf-8")
+                // Not sending the status here. The action writer will send it in case of
+                // success. If error has happened while encoding, then the error handler will have
+                // a chance to set the status.
+                if encodingErr := json.NewEncoder(aw).Encode(resData); encodingErr != nil </span><span class="cov0" title="0">{
+                        ab.rootHandler.handleResponseErrors(aw, r, encodingErr)
+                }</span>
+        })
+}
+
+func (ab genericHandlerBuilderImpl[TReq, TRes, TPlainHandler, THttpHandler]) HandleWith(
+        inputHandler TPlainHandler,
+) http.Handler <span class="cov6" title="4">{
+        return ab.createHandler(ab.handlerAdapter(inputHandler))
+}</span>
+
+func (ab genericHandlerBuilderImpl[TReq, TRes, TPlainHandler, THttpHandler]) HandleWithHTTP(
+        handler THttpHandler,
+) http.Handler <span class="cov0" title="0">{
+        return ab.createHandler(ab.httpHandlerAdapter(handler))
+}</span>
+
+func newGenericHandlerBuilder[
+        TReq any,
+        TRes any,
+        TPlainHandler handlerActionFuncConstraint[TReq, TRes],
+        THttpHandler handlerActionFuncConstraint[TReq, TRes],
+](
+        rootHandler *RootHandler,
+        handlerAdapter actionBuilderHandlerAdapter[TReq, TRes, TPlainHandler],
+        httpHandlerAdapter actionBuilderHandlerAdapter[TReq, TRes, THttpHandler],
+        params makeActionBuilderParams[TReq, TRes],
+) genericHandlerBuilder[TReq, TRes, TPlainHandler, THttpHandler] <span class="cov6" title="4">{
+        return genericHandlerBuilderImpl[TReq, TRes, TPlainHandler, THttpHandler]{
+                rootHandler:        rootHandler,
+                handlerAdapter:     handlerAdapter,
+                httpHandlerAdapter: httpHandlerAdapter,
+                params:             params,
+        }
+}</span>
+</pre>
+		
+		<pre class="file" id="file19" style="display: none">// Code generated by apigen DO NOT EDIT.
+
+package handlers
+
+import (
+        "encoding/json"
+        "fmt"
+        "net/http"
+        "time"
+
+        . "github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/models"
+)
+
+// Below is to workaround unused imports.
+var _ = http.MethodGet
+var _ = time.Time{}
+var _ = json.Unmarshal
+var _ = fmt.Sprint
+type _ func() Error
+
+
+
+type healthControllerBuilder struct {
+        // GET /health
+        //
+        // Request type: none
+        //
+        // Response type: HealthResponsePayload
+        HealthCheck genericHandlerBuilder[
+                void,
+                *HealthResponsePayload,
+                handlerActionFuncNoParams[void, *HealthResponsePayload],
+                httpHandlerActionFuncNoParams[void, *HealthResponsePayload],
+        ]
+}
+
+func newHealthControllerBuilder(app *RootHandler) *healthControllerBuilder <span class="cov10" title="2">{
+        return &amp;healthControllerBuilder{
+                // GET /health
+                HealthCheck: newGenericHandlerBuilder(
+                        app,
+                        newHandlerAdapterNoParams[
+                                void,
+                                *HealthResponsePayload,
+                        ](),
+                        newHTTPHandlerAdapterNoParams[
+                                void,
+                                *HealthResponsePayload,
+                        ](),
+                        makeActionBuilderParams[
+                                void,
+                                *HealthResponsePayload,
+                        ]{
+                                defaultStatus: 200,
+                                paramsParser:  makeVoidParamsParser(app),
+                        },
+                ),
+        }
+}</span>
+
+type HealthController interface {
+        // GET /health
+        //
+        // Request type: none
+        //
+        // Response type: HealthResponsePayload
+        HealthCheck(NoParamsHandlerBuilder[
+                *HealthResponsePayload,
+        ]) http.Handler
+}
+
+// RegisterHealthRoutes will attach the following routes to the root handler:
+// 
+// - GET /health
+// 
+// Routes will use provided controller to handle requests.
+func(rootHandler *RootHandler) RegisterHealthRoutes(controller HealthController) *RootHandler <span class="cov10" title="2">{
+        builder := newHealthControllerBuilder(rootHandler)
+        rootHandler.router.HandleRoute("GET", "/health", controller.HealthCheck(builder.HealthCheck))
+        return rootHandler
+}</pre>
+		
+		<pre class="file" id="file20" style="display: none">// Code generated by apigen DO NOT EDIT.
+
+package internal
+
+import (
+        "time"
+        . "github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/models"
+)
+
+// Below is to workaround unused imports.
+var _ = time.Time{}
+
+func NewEchoRequestPayloadValidator() FieldValidator[*EchoRequestPayload] <span class="cov10" title="2">{
+        validateMessage := NewSimpleFieldValidator[string](
+                EnsureNonDefault[string],
+        )
+        
+        return func(bindingCtx *BindingContext, value *EchoRequestPayload) </span><span class="cov1" title="1">{
+                validateMessage(bindingCtx.Fork("message"), value.Message)
+        }</span>
+}
+</pre>
+		
+		<pre class="file" id="file21" style="display: none">// Code generated by apigen DO NOT EDIT.
+
+package internal
+
+import (
+        "time"
+        . "github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/models"
+)
+
+// Below is to workaround unused imports.
+var _ = time.Time{}
+
+func NewEchoResponsePayloadValidator() FieldValidator[*EchoResponsePayload] <span class="cov0" title="0">{
+        validateMessage := NewSimpleFieldValidator[string](
+                EnsureNonDefault[string],
+        )
+        
+        return func(bindingCtx *BindingContext, value *EchoResponsePayload) </span><span class="cov0" title="0">{
+                validateMessage(bindingCtx.Fork("message"), value.Message)
+        }</span>
+}
+</pre>
+		
+		<pre class="file" id="file22" style="display: none">// Code generated by apigen DO NOT EDIT.
+
+package internal
+
+import (
+        "time"
+        . "github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/models"
+)
+
+// Below is to workaround unused imports.
+var _ = time.Time{}
+
+func NewErrorValidator() FieldValidator[*Error] <span class="cov0" title="0">{
+        validateCode := NewSimpleFieldValidator[*interface{}](
+                SkipNullValidator(EnsureNonDefault[interface{}]),
+        )
+        validateMessage := NewSimpleFieldValidator[string](
+        )
+        
+        return func(bindingCtx *BindingContext, value *Error) </span><span class="cov0" title="0">{
+                validateCode(bindingCtx.Fork("code"), value.Code)
+                validateMessage(bindingCtx.Fork("message"), value.Message)
+        }</span>
+}
+</pre>
+		
+		<pre class="file" id="file23" style="display: none">// Code generated by apigen DO NOT EDIT.
+
+package internal
+
+import (
+        "time"
+        . "github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/models"
+)
+
+// Below is to workaround unused imports.
+var _ = time.Time{}
+
+func NewHealthResponsePayloadValidator() FieldValidator[*HealthResponsePayload] <span class="cov0" title="0">{
+        validateStatus := NewSimpleFieldValidator[HealthResponsePayloadStatus](
+                EnsureNonDefault[HealthResponsePayloadStatus],
+        )
+        
+        return func(bindingCtx *BindingContext, value *HealthResponsePayload) </span><span class="cov0" title="0">{
+                validateStatus(bindingCtx.Fork("status"), value.Status)
+        }</span>
+}
+</pre>
+		
+		<pre class="file" id="file24" style="display: none">// Code generated by apigen DO NOT EDIT.
+
+package internal
+
+import (
+        "errors"
+        "fmt"
+        "regexp"
+        "strconv"
+
+        "golang.org/x/exp/constraints"
+)
+
+type BindingError string
+
+const (
+        // ErrBadValueFormat error means data provided can not be parsed to a target type.
+        ErrBadValueFormat BindingError = "BAD_FORMAT"
+
+        // ErrValueRequired error code indicates that the required value has not been provided.
+        ErrValueRequired BindingError = "INVALID_REQUIRED"
+
+        // ErrInvalidValueOutOfRange error code indicates that the value is out of range of allowable values
+        // this is usually when number is out of min/max range, or string is outside of limits.
+        ErrInvalidValueOutOfRange BindingError = "INVALID_OUT_OF_RANGE"
+
+        // ErrInvalidValue error code a generic validation error.
+        ErrInvalidValue BindingError = "INVALID"
+)
+
+func (c BindingError) Error() string <span class="cov0" title="0">{
+        return string(c)
+}</span>
+
+// FieldBindingError occurs at parsing/validation stage and holds
+// context on field that the error is related to.
+type FieldBindingError struct {
+        Location string `json:"location"`
+        Err      error  `json:"-"`
+        Code     string `json:"code"`
+}
+
+func (be FieldBindingError) Error() string <span class="cov0" title="0">{
+        return fmt.Sprintf("field %s code=%s, error: %v", be.Location, be.Code, be.Err)
+}</span>
+
+type AggregatedBindingError struct {
+        Errors []FieldBindingError `json:"errors"`
+}
+
+func (c AggregatedBindingError) Error() string <span class="cov0" title="0">{
+        errs := make([]error, len(c.Errors))
+        for i, err := range c.Errors </span><span class="cov0" title="0">{
+                errs[i] = err
+        }</span>
+        <span class="cov0" title="0">return errors.Join(errs...).Error()</span>
+}
+
+type BindingContext struct {
+        parent       *BindingContext
+        field        string
+        memoizedPath string
+        errors       []FieldBindingError
+}
+
+func (c *BindingContext) Fork(field string) *BindingContext <span class="cov10" title="2">{
+        return &amp;BindingContext{
+                parent: c,
+                field:  field,
+        }
+}</span>
+
+func (c *BindingContext) BuildPath() string <span class="cov0" title="0">{
+        if c.memoizedPath != "" </span><span class="cov0" title="0">{
+                return c.memoizedPath
+        }</span>
+        <span class="cov0" title="0">if c.parent == nil </span><span class="cov0" title="0">{
+                return c.field
+        }</span>
+        <span class="cov0" title="0">parentPath := c.parent.BuildPath()
+        if parentPath == "" </span><span class="cov0" title="0">{
+                c.memoizedPath = c.field
+        }</span> else<span class="cov0" title="0"> {
+                c.memoizedPath = parentPath + "." + c.field
+        }</span>
+        <span class="cov0" title="0">return c.memoizedPath</span>
+}
+
+func (c *BindingContext) AppendFieldError(err FieldBindingError) <span class="cov0" title="0">{
+        if c.parent != nil </span><span class="cov0" title="0">{
+                c.parent.AppendFieldError(err)
+                return
+        }</span>
+        <span class="cov0" title="0">c.errors = append(c.errors, err)</span>
+}
+
+func (c BindingContext) AggregatedError() error <span class="cov1" title="1">{
+        if c.parent != nil </span><span class="cov0" title="0">{
+                return c.parent.AggregatedError()
+        }</span>
+        <span class="cov1" title="1">if len(c.errors) == 0 </span><span class="cov1" title="1">{
+                return nil
+        }</span>
+        <span class="cov0" title="0">return AggregatedBindingError{Errors: c.errors}</span>
+}
+
+type OptionalVal[TVal any] struct {
+        Value    TVal
+        Assigned bool
+}
+
+type ValueValidator[TTargetVal any] func(TTargetVal) error
+
+// EnsureNonDefault will validate if given value is non default for given type.
+//
+// There is no easy way to make a truly required validation (e.g if field is present)
+// without a custom marshaler and shadow models, which will impact performance.
+// So keeping a non default validation as a reasonable tradeoff.
+func EnsureNonDefault[TTargetVal comparable](val TTargetVal) error <span class="cov1" title="1">{
+        var empty TTargetVal
+        if val == empty </span><span class="cov0" title="0">{
+                return fmt.Errorf("provided value %v is default for given type and considered empty: %w", val, ErrValueRequired)
+        }</span>
+        <span class="cov1" title="1">return nil</span>
+}
+
+var _ = EnsureNonDefault[int]
+
+// EnsureArrayFieldRequired will validate if given array is not empty.
+func EnsureArrayFieldRequired[TTargetVal any](val []TTargetVal) error <span class="cov0" title="0">{
+        if len(val) == 0 </span><span class="cov0" title="0">{
+                return fmt.Errorf("provided array is empty: %w", ErrValueRequired)
+        }</span>
+        <span class="cov0" title="0">return nil</span>
+}
+
+var _ = EnsureArrayFieldRequired[int]
+
+func SkipNullValidator[TTargetVal any](target ValueValidator[TTargetVal]) ValueValidator[*TTargetVal] <span class="cov0" title="0">{
+        return func(tv *TTargetVal) error </span><span class="cov0" title="0">{
+                if tv == nil </span><span class="cov0" title="0">{
+                        return nil
+                }</span>
+
+                <span class="cov0" title="0">return target(*tv)</span>
+        }
+}
+
+func SkipNullFieldValidator[TTargetVal any](target FieldValidator[*TTargetVal]) FieldValidator[*TTargetVal] <span class="cov0" title="0">{
+        return func(bindingCtx *BindingContext, value *TTargetVal) </span><span class="cov0" title="0">{
+                if value == nil </span><span class="cov0" title="0">{
+                        return
+                }</span>
+
+                <span class="cov0" title="0">target(bindingCtx, value)</span>
+        }
+}
+
+func NewMinMaxValueValidator[TTargetVal constraints.Ordered](
+        threshold TTargetVal,
+        exclusive bool,
+        isMin bool,
+) ValueValidator[TTargetVal] <span class="cov0" title="0">{
+        return func(tv TTargetVal) error </span><span class="cov0" title="0">{
+                // From OpenAPI spec:
+                // exclusiveMinimum: false or not included        value ≥ minimum
+                // exclusiveMinimum: true        value &gt; minimum
+                // exclusiveMaximum: false or not included        value ≤ maximum
+                // exclusiveMaximum: true        value &lt; maximum
+
+                if isMin &amp;&amp; ((exclusive &amp;&amp; tv &lt;= threshold) || (!exclusive &amp;&amp; tv &lt; threshold)) </span><span class="cov0" title="0">{
+                        return fmt.Errorf("value %v is less than minimum %v: %w", tv, threshold, ErrInvalidValueOutOfRange)
+                }</span>
+                <span class="cov0" title="0">if !isMin &amp;&amp; ((exclusive &amp;&amp; tv &gt;= threshold) || (!exclusive &amp;&amp; tv &gt; threshold)) </span><span class="cov0" title="0">{
+                        return fmt.Errorf("value %v is greater than maximum %v: %w", tv, threshold, ErrInvalidValueOutOfRange)
+                }</span>
+
+                <span class="cov0" title="0">return nil</span>
+        }
+}
+
+type Measurable[T any] interface {
+        ~string | ~[]T
+}
+
+func NewMinMaxLengthValidator[TTargetVal any, TValidatorVal Measurable[TTargetVal]](
+        threshold int,
+        isMin bool,
+) ValueValidator[TValidatorVal] <span class="cov0" title="0">{
+        return func(tv TValidatorVal) error </span><span class="cov0" title="0">{
+                targetLen := len(tv)
+                if isMin &amp;&amp; targetLen &lt; threshold </span><span class="cov0" title="0">{
+                        return fmt.Errorf(
+                                "value %v has length (%d) less than minimum %v: %w",
+                                tv, targetLen, threshold, ErrInvalidValueOutOfRange,
+                        )
+                }</span>
+                <span class="cov0" title="0">if !isMin &amp;&amp; targetLen &gt; threshold </span><span class="cov0" title="0">{
+                        return fmt.Errorf(
+                                "value %v has length (%d) more than maximum %v: %w", tv,
+                                targetLen, threshold, ErrInvalidValueOutOfRange,
+                        )
+                }</span>
+
+                <span class="cov0" title="0">return nil</span>
+        }
+}
+
+func NewPatternValidator[TTargetValue string](patternStr string) ValueValidator[string] <span class="cov0" title="0">{
+        pattern := regexp.MustCompile(patternStr)
+        return func(v string) error </span><span class="cov0" title="0">{
+                if !pattern.MatchString(v) </span><span class="cov0" title="0">{
+                        return fmt.Errorf("value %v does not match pattern %v: %w", v, patternStr, ErrInvalidValue)
+                }</span>
+                <span class="cov0" title="0">return nil</span>
+        }
+}
+
+type FieldValidator[TValue any] func(
+        bindingCtx *BindingContext,
+        value TValue,
+)
+
+func NewSimpleFieldValidator[
+        TValue any,
+](validators ...ValueValidator[TValue]) FieldValidator[TValue] <span class="cov10" title="2">{
+        return func(
+                bindingCtx *BindingContext,
+                value TValue,
+        ) </span><span class="cov1" title="1">{
+                for _, v := range validators </span><span class="cov1" title="1">{
+                        if err := v(value); err != nil </span><span class="cov0" title="0">{
+                                errCode := ErrInvalidValue
+                                errors.As(err, &amp;errCode)
+                                bindingCtx.AppendFieldError(FieldBindingError{
+                                        Location: bindingCtx.BuildPath(),
+                                        Code:     errCode.Error(),
+                                        Err:      err,
+                                })
+                                return
+                        }</span>
+                }
+        }
+}
+
+type ObjectFieldValidatorParams struct {
+        Nullable bool
+        Required bool
+}
+
+func NewObjectFieldValidator[TTargetVal any](
+        params ObjectFieldValidatorParams,
+        modelValidator FieldValidator[*TTargetVal],
+) FieldValidator[*TTargetVal] <span class="cov0" title="0">{
+        return func(bindingCtx *BindingContext, value *TTargetVal) </span><span class="cov0" title="0">{
+                if value == nil </span><span class="cov0" title="0">{
+                        if params.Required &amp;&amp; !params.Nullable </span><span class="cov0" title="0">{
+                                bindingCtx.AppendFieldError(FieldBindingError{
+                                        Location: bindingCtx.BuildPath(),
+                                        Code:     ErrValueRequired.Error(),
+                                })
+                        }</span>
+                        <span class="cov0" title="0">return</span>
+                }
+
+                <span class="cov0" title="0">modelValidator(bindingCtx, value)</span>
+        }
+}
+
+func NewArrayValidator[
+        TValue any,
+](
+        validateField FieldValidator[[]TValue],
+        validateItems FieldValidator[TValue],
+) FieldValidator[[]TValue] <span class="cov0" title="0">{
+        return func(
+                bindingCtx *BindingContext,
+                value []TValue,
+        ) </span><span class="cov0" title="0">{
+                validateField(bindingCtx, value)
+                for i, v := range value </span><span class="cov0" title="0">{
+                        // TODO: Consider fmt.Stringer approach, defer conversion and benchmark if makes noticeable difference.
+                        validateItems(bindingCtx.Fork(strconv.Itoa(i)), v)
+                }</span>
+        }
+}
+</pre>
+		
+		<pre class="file" id="file25" style="display: none">// Code generated by apigen DO NOT EDIT.
+
+package models
+
+import (
+        "encoding/json"
+        "fmt"
+        "time"
+)
+
+// Unused imports workaround.
+var _ = time.Time{}
+var _ = json.Unmarshal
+var _ = fmt.Sprint
+type HealthResponsePayloadStatus string
+
+// List of HealthResponsePayloadStatus values.
+const (
+        HealthResponsePayloadStatusOK HealthResponsePayloadStatus = "OK"
+)
+
+func(v HealthResponsePayloadStatus) IsOK() bool <span class="cov0" title="0">{
+  return v == HealthResponsePayloadStatusOK
+}</span>
+
+func(v HealthResponsePayloadStatus) String() string <span class="cov0" title="0">{
+        return string(v)
+}</span>
+
+type assignableHealthResponsePayloadStatus interface {
+        IsOK() bool
+        String() string
+}
+
+func AsHealthResponsePayloadStatus(v assignableHealthResponsePayloadStatus) (HealthResponsePayloadStatus) <span class="cov0" title="0">{
+        return HealthResponsePayloadStatus(v.String())
+}</span>
+
+func ParseHealthResponsePayloadStatus(str string, target *HealthResponsePayloadStatus) error <span class="cov0" title="0">{
+        switch str </span>{
+        case "OK":<span class="cov0" title="0">
+                *target = HealthResponsePayloadStatusOK</span>
+        default:<span class="cov0" title="0">
+                return fmt.Errorf("unexpected HealthResponsePayloadStatus value: %s", str)</span>
+        }
+        <span class="cov0" title="0">return nil</span>
+}
+
+func (v *HealthResponsePayloadStatus) UnmarshalJSON(data []byte) error <span class="cov0" title="0">{
+        var str string
+        if err := json.Unmarshal(data, &amp;str); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov0" title="0">return ParseHealthResponsePayloadStatus(str, v)</span>
+}
+
+// All allowed values of HealthResponsePayloadStatus enum.
+var AllowableHealthResponsePayloadStatusValues = []HealthResponsePayloadStatus{
+        HealthResponsePayloadStatusOK,
+}
+
+type HealthResponsePayload struct { 
+        Status HealthResponsePayloadStatus `json:"status"`
+}
+</pre>
+		
+		<pre class="file" id="file26" style="display: none">package app
+
+import (
+        "context"
+        "log/slog"
+
+        "go.uber.org/dig"
+)
+
+// Minimalistic application layer service example.
+
+type EchoData struct {
+        Message string
+}
+
+type EchoServiceDeps struct {
+        dig.In
+
+        RootLogger *slog.Logger
+}
+
+type EchoService struct {
+        logger *slog.Logger
+}
+
+func (svc *EchoService) SendEcho(ctx context.Context, data *EchoData) (*EchoData, error) <span class="cov8" title="3">{
+        svc.logger.InfoContext(ctx, "Going to echo data", slog.String("message", data.Message))
+        return &amp;EchoData{
+                Message: data.Message,
+        }, nil
+}</span>
+
+func NewEchoService(deps EchoServiceDeps) *EchoService <span class="cov10" title="4">{
+        return &amp;EchoService{
+                logger: deps.RootLogger.WithGroup("app.echo-service"),
+        }
+}</span>
+</pre>
+		
+		<pre class="file" id="file27" style="display: none">// Code generated by apigen DO NOT EDIT.
+
+package models
+
+import (
+        "encoding/json"
+        "fmt"
+        "time"
+)
+
+// Unused imports workaround.
+var _ = time.Time{}
+var _ = json.Unmarshal
+var _ = fmt.Sprint
+type HealthResponsePayloadStatus string
+
+// List of HealthResponsePayloadStatus values.
+const (
+        HealthResponsePayloadStatusOK HealthResponsePayloadStatus = "OK"
+)
+
+func(v HealthResponsePayloadStatus) IsOK() bool <span class="cov0" title="0">{
+  return v == HealthResponsePayloadStatusOK
+}</span>
+
+func(v HealthResponsePayloadStatus) String() string <span class="cov0" title="0">{
+        return string(v)
+}</span>
+
+type assignableHealthResponsePayloadStatus interface {
+        IsOK() bool
+        String() string
+}
+
+func AsHealthResponsePayloadStatus(v assignableHealthResponsePayloadStatus) (HealthResponsePayloadStatus) <span class="cov0" title="0">{
+        return HealthResponsePayloadStatus(v.String())
+}</span>
+
+func ParseHealthResponsePayloadStatus(str string, target *HealthResponsePayloadStatus) error <span class="cov0" title="0">{
+        switch str </span>{
+        case "OK":<span class="cov0" title="0">
+                *target = HealthResponsePayloadStatusOK</span>
+        default:<span class="cov0" title="0">
+                return fmt.Errorf("unexpected HealthResponsePayloadStatus value: %s", str)</span>
+        }
+        <span class="cov0" title="0">return nil</span>
+}
+
+func (v *HealthResponsePayloadStatus) UnmarshalJSON(data []byte) error <span class="cov0" title="0">{
+        var str string
+        if err := json.Unmarshal(data, &amp;str); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov0" title="0">return ParseHealthResponsePayloadStatus(str, v)</span>
+}
+
+// All allowed values of HealthResponsePayloadStatus enum.
+var AllowableHealthResponsePayloadStatusValues = []HealthResponsePayloadStatus{
+        HealthResponsePayloadStatusOK,
+}
+
+type HealthResponsePayload struct { 
+        Status HealthResponsePayloadStatus `json:"status"`
+}
+</pre>
+		
+		<pre class="file" id="file28" style="display: none">package app
+
+import (
+        "github.com/gemyago/oke-gateway-api/internal/di"
+        "go.uber.org/dig"
+)
+
+func Register(container *dig.Container) error <span class="cov10" title="2">{
+        return di.ProvideAll(container, NewEchoService)
+}</span>
+</pre>
+		
+		<pre class="file" id="file29" style="display: none">package config
+
+import (
+        "embed"
+        "fmt"
+        "strings"
+
+        "github.com/spf13/viper"
+)
+
+//go:embed *.json
+var resources embed.FS
+
+func mergeResourceCfg(cfg *viper.Viper, resourceName string) error <span class="cov10" title="19">{
+        resourceStream, err := resources.Open(resourceName)
+        if err != nil </span><span class="cov5" title="4">{
+                return fmt.Errorf("failed to read config %v: %w", resourceName, err)
+        }</span>
+        <span class="cov9" title="15">defer resourceStream.Close()
+
+        if err = cfg.MergeConfig(resourceStream); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to load config %v: %w", resourceName, err)
+        }</span>
+        <span class="cov9" title="15">return nil</span>
+}
+
+type LoadOpts struct {
+        env                   string
+        defaultConfigFileName string
+}
+
+func (opts *LoadOpts) WithEnv(val string) *LoadOpts <span class="cov7" title="8">{
+        if val != "" </span><span class="cov5" title="4">{
+                opts.env = val
+        }</span>
+        <span class="cov7" title="8">return opts</span>
+}
+
+func NewLoadOpts() *LoadOpts <span class="cov8" title="10">{
+        return &amp;LoadOpts{
+                env:                   "local",
+                defaultConfigFileName: "default.json",
+        }
+}</span>
+
+func New() *viper.Viper <span class="cov8" title="10">{
+        v := viper.New()
+        v.SetEnvPrefix("APP")
+        v.SetConfigType("json")
+        v.SetEnvKeyReplacer(
+                strings.NewReplacer("-", "_", ".", "_"),
+        )
+        v.AutomaticEnv()
+        return v
+}</span>
+
+func Load(cfg *viper.Viper, opts *LoadOpts) error <span class="cov8" title="10">{
+        if err := mergeResourceCfg(cfg, opts.defaultConfigFileName); err != nil </span><span class="cov1" title="1">{
+                return err
+        }</span>
+
+        <span class="cov7" title="9">if err := mergeResourceCfg(cfg, opts.env+".json"); err != nil </span><span class="cov4" title="3">{
+                return err
+        }</span>
+
+        // Some common aliases to have cli params with the same name as config keys
+        <span class="cov6" title="6">cfg.RegisterAlias("defaultLogLevel", "log-level")
+        cfg.RegisterAlias("jsonLogs", "json-logs")
+
+        return nil</span>
+}
+</pre>
+		
+		<pre class="file" id="file30" style="display: none">package config
+
+import (
+        "fmt"
+
+        "github.com/gemyago/oke-gateway-api/internal/di"
+        "github.com/spf13/viper"
+        "go.uber.org/dig"
+)
+
+type configValueProvider struct {
+        cfg        *viper.Viper
+        configPath string
+        diPath     string
+}
+
+func provideConfigValue(cfg *viper.Viper, path string) configValueProvider <span class="cov10" title="20">{
+        if !cfg.IsSet(path) </span><span class="cov1" title="1">{
+                panic(fmt.Errorf("config key not found: %s", path))</span>
+        }
+        <span class="cov9" title="19">return configValueProvider{cfg, path, "config." + path}</span>
+}
+
+func (p configValueProvider) asInt() di.ConstructorWithOpts <span class="cov4" title="3">{
+        return di.ProvideValue(p.cfg.GetInt(p.configPath), dig.Name(p.diPath))
+}</span>
+
+func (p configValueProvider) asInt32() di.ConstructorWithOpts <span class="cov1" title="1">{
+        return di.ProvideValue(p.cfg.GetInt32(p.configPath), dig.Name(p.diPath))
+}</span>
+
+func (p configValueProvider) asString() di.ConstructorWithOpts <span class="cov4" title="3">{
+        return di.ProvideValue(p.cfg.GetString(p.configPath), dig.Name(p.diPath))
+}</span>
+
+func (p configValueProvider) asBool() di.ConstructorWithOpts <span class="cov1" title="1">{
+        return di.ProvideValue(p.cfg.GetBool(p.configPath), dig.Name(p.diPath))
+}</span>
+
+func (p configValueProvider) asDuration() di.ConstructorWithOpts <span class="cov8" title="11">{
+        return di.ProvideValue(p.cfg.GetDuration(p.configPath), dig.Name(p.diPath))
+}</span>
+
+func Provide(container *dig.Container, cfg *viper.Viper) error <span class="cov3" title="2">{
+        return di.ProvideAll(container,
+                provideConfigValue(cfg, "gracefulShutdownTimeout").asDuration(),
+
+                // http server config
+                provideConfigValue(cfg, "httpServer.host").asString(),
+                provideConfigValue(cfg, "httpServer.port").asInt(),
+                provideConfigValue(cfg, "httpServer.idleTimeout").asDuration(),
+                provideConfigValue(cfg, "httpServer.readHeaderTimeout").asDuration(),
+                provideConfigValue(cfg, "httpServer.readTimeout").asDuration(),
+                provideConfigValue(cfg, "httpServer.writeTimeout").asDuration(),
+        )
+}</span>
+</pre>
+		
+		<pre class="file" id="file31" style="display: none">package di
+
+import (
+        "fmt"
+        "reflect"
+
+        "go.uber.org/dig"
+)
+
+// Dig is used as DI toolkit https://pkg.go.dev/go.uber.org/dig
+// we are not creating any abstraction over it, but we do have a set of tools to make it easier to use
+
+type ConstructorWithOpts struct {
+        Constructor interface{}
+        Options     []dig.ProvideOption
+}
+
+func ProvideAll(container *dig.Container, providers ...interface{}) error <span class="cov8" title="26">{
+        for i, provider := range providers </span><span class="cov10" title="52">{
+                switch p := provider.(type) </span>{
+                case ConstructorWithOpts:<span class="cov8" title="30">
+                        if err := container.Provide(p.Constructor, p.Options...); err != nil </span><span class="cov1" title="1">{
+                                return fmt.Errorf("failed to provide %d-th dependency: %w", i, err)
+                        }</span>
+                default:<span class="cov8" title="22">
+                        if err := container.Provide(provider); err != nil </span><span class="cov1" title="1">{
+                                return fmt.Errorf("failed to provide %d-th dependency: %w", i, err)
+                        }</span>
+                }
+        }
+        <span class="cov8" title="24">return nil</span>
+}
+
+// ProvideValue will create a constructor (e.g func) from a given value.
+func ProvideValue[T any](val T, opts ...dig.ProvideOption) ConstructorWithOpts <span class="cov8" title="31">{
+        return ConstructorWithOpts{
+                Constructor: func() T </span><span class="cov7" title="19">{ return val }</span>,
+                Options:     opts,
+        }
+}
+
+// ProvideWithArg will create a constructor with a first arg explicitly provided
+// supposed return no error.
+func ProvideWithArg[
+        TArg any,
+        TConstructorArg any,
+        TRes any,
+](
+        arg TArg,
+        constructor func(arg TArg, cArg TConstructorArg) TRes,
+) func(TConstructorArg) TRes <span class="cov1" title="1">{
+        return func(cArg TConstructorArg) TRes </span><span class="cov1" title="1">{
+                return constructor(arg, cArg)
+        }</span>
+}
+
+// ProvideWithArgErr will create a constructor with a first arg explicitly provided
+// supposed return an error.
+func ProvideWithArgErr[
+        TArg any,
+        TConstructorArg any,
+        TDep any,
+](
+        arg TArg,
+        constructor func(arg TArg, cArg TConstructorArg) (TDep, error),
+) func(TConstructorArg) (TDep, error) <span class="cov1" title="1">{
+        return func(cArg TConstructorArg) (TDep, error) </span><span class="cov1" title="1">{
+                return constructor(arg, cArg)
+        }</span>
+}
+
+// ProvideAs is used to provide one type as another, typically
+// used to provide implementation struct as particular interface.
+func ProvideAs[TSource any, TTarget any](source TSource) (TTarget, error) <span class="cov2" title="2">{
+        target, ok := any(source).(TTarget)
+        if !ok </span><span class="cov1" title="1">{
+                var src TSource
+                var tgt TTarget
+                return target, fmt.Errorf("failed to cast %s to %s", reflect.TypeOf(src), reflect.TypeOf(tgt))
+        }</span>
+        <span class="cov1" title="1">return target, nil</span>
+}
+</pre>
+		
+		<pre class="file" id="file32" style="display: none">package diag
+
+import "log/slog"
+
+func ErrAttr(err error) slog.Attr <span class="cov8" title="1">{
+        return slog.Any("err", err)
+}</span>
+</pre>
+		
+		<pre class="file" id="file33" style="display: none">// Code generated by mockery. DO NOT EDIT.
+
+//go:build !release
+
+package diag
+
+import (
+        context "context"
+        slog "log/slog"
+
+        mock "github.com/stretchr/testify/mock"
+)
+
+// MockSlogHandler is an autogenerated mock type for the Handler type
+type MockSlogHandler struct {
+        mock.Mock
+}
+
+type MockSlogHandler_Expecter struct {
+        mock *mock.Mock
+}
+
+func (_m *MockSlogHandler) EXPECT() *MockSlogHandler_Expecter <span class="cov8" title="3">{
+        return &amp;MockSlogHandler_Expecter{mock: &amp;_m.Mock}
+}</span>
+
+// Enabled provides a mock function with given fields: _a0, _a1
+func (_m *MockSlogHandler) Enabled(_a0 context.Context, _a1 slog.Level) bool <span class="cov0" title="0">{
+        ret := _m.Called(_a0, _a1)
+
+        if len(ret) == 0 </span><span class="cov0" title="0">{
+                panic("no return value specified for Enabled")</span>
+        }
+
+        <span class="cov0" title="0">var r0 bool
+        if rf, ok := ret.Get(0).(func(context.Context, slog.Level) bool); ok </span><span class="cov0" title="0">{
+                r0 = rf(_a0, _a1)
+        }</span> else<span class="cov0" title="0"> {
+                r0 = ret.Get(0).(bool)
+        }</span>
+
+        <span class="cov0" title="0">return r0</span>
+}
+
+// MockSlogHandler_Enabled_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Enabled'
+type MockSlogHandler_Enabled_Call struct {
+        *mock.Call
+}
+
+// Enabled is a helper method to define mock.On call
+//   - _a0 context.Context
+//   - _a1 slog.Level
+func (_e *MockSlogHandler_Expecter) Enabled(_a0 interface{}, _a1 interface{}) *MockSlogHandler_Enabled_Call <span class="cov0" title="0">{
+        return &amp;MockSlogHandler_Enabled_Call{Call: _e.mock.On("Enabled", _a0, _a1)}
+}</span>
+
+func (_c *MockSlogHandler_Enabled_Call) Run(run func(_a0 context.Context, _a1 slog.Level)) *MockSlogHandler_Enabled_Call <span class="cov0" title="0">{
+        _c.Call.Run(func(args mock.Arguments) </span><span class="cov0" title="0">{
+                run(args[0].(context.Context), args[1].(slog.Level))
+        }</span>)
+        <span class="cov0" title="0">return _c</span>
+}
+
+func (_c *MockSlogHandler_Enabled_Call) Return(_a0 bool) *MockSlogHandler_Enabled_Call <span class="cov0" title="0">{
+        _c.Call.Return(_a0)
+        return _c
+}</span>
+
+func (_c *MockSlogHandler_Enabled_Call) RunAndReturn(run func(context.Context, slog.Level) bool) *MockSlogHandler_Enabled_Call <span class="cov0" title="0">{
+        _c.Call.Return(run)
+        return _c
+}</span>
+
+// Handle provides a mock function with given fields: _a0, _a1
+func (_m *MockSlogHandler) Handle(_a0 context.Context, _a1 slog.Record) error <span class="cov5" title="2">{
+        ret := _m.Called(_a0, _a1)
+
+        if len(ret) == 0 </span><span class="cov0" title="0">{
+                panic("no return value specified for Handle")</span>
+        }
+
+        <span class="cov5" title="2">var r0 error
+        if rf, ok := ret.Get(0).(func(context.Context, slog.Record) error); ok </span><span class="cov0" title="0">{
+                r0 = rf(_a0, _a1)
+        }</span> else<span class="cov5" title="2"> {
+                r0 = ret.Error(0)
+        }</span>
+
+        <span class="cov5" title="2">return r0</span>
+}
+
+// MockSlogHandler_Handle_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Handle'
+type MockSlogHandler_Handle_Call struct {
+        *mock.Call
+}
+
+// Handle is a helper method to define mock.On call
+//   - _a0 context.Context
+//   - _a1 slog.Record
+func (_e *MockSlogHandler_Expecter) Handle(_a0 interface{}, _a1 interface{}) *MockSlogHandler_Handle_Call <span class="cov5" title="2">{
+        return &amp;MockSlogHandler_Handle_Call{Call: _e.mock.On("Handle", _a0, _a1)}
+}</span>
+
+func (_c *MockSlogHandler_Handle_Call) Run(run func(_a0 context.Context, _a1 slog.Record)) *MockSlogHandler_Handle_Call <span class="cov0" title="0">{
+        _c.Call.Run(func(args mock.Arguments) </span><span class="cov0" title="0">{
+                run(args[0].(context.Context), args[1].(slog.Record))
+        }</span>)
+        <span class="cov0" title="0">return _c</span>
+}
+
+func (_c *MockSlogHandler_Handle_Call) Return(_a0 error) *MockSlogHandler_Handle_Call <span class="cov5" title="2">{
+        _c.Call.Return(_a0)
+        return _c
+}</span>
+
+func (_c *MockSlogHandler_Handle_Call) RunAndReturn(run func(context.Context, slog.Record) error) *MockSlogHandler_Handle_Call <span class="cov0" title="0">{
+        _c.Call.Return(run)
+        return _c
+}</span>
+
+// WithAttrs provides a mock function with given fields: attrs
+func (_m *MockSlogHandler) WithAttrs(attrs []slog.Attr) slog.Handler <span class="cov1" title="1">{
+        ret := _m.Called(attrs)
+
+        if len(ret) == 0 </span><span class="cov0" title="0">{
+                panic("no return value specified for WithAttrs")</span>
+        }
+
+        <span class="cov1" title="1">var r0 slog.Handler
+        if rf, ok := ret.Get(0).(func([]slog.Attr) slog.Handler); ok </span><span class="cov0" title="0">{
+                r0 = rf(attrs)
+        }</span> else<span class="cov1" title="1"> {
+                if ret.Get(0) != nil </span><span class="cov1" title="1">{
+                        r0 = ret.Get(0).(slog.Handler)
+                }</span>
+        }
+
+        <span class="cov1" title="1">return r0</span>
+}
+
+// MockSlogHandler_WithAttrs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WithAttrs'
+type MockSlogHandler_WithAttrs_Call struct {
+        *mock.Call
+}
+
+// WithAttrs is a helper method to define mock.On call
+//   - attrs []slog.Attr
+func (_e *MockSlogHandler_Expecter) WithAttrs(attrs interface{}) *MockSlogHandler_WithAttrs_Call <span class="cov1" title="1">{
+        return &amp;MockSlogHandler_WithAttrs_Call{Call: _e.mock.On("WithAttrs", attrs)}
+}</span>
+
+func (_c *MockSlogHandler_WithAttrs_Call) Run(run func(attrs []slog.Attr)) *MockSlogHandler_WithAttrs_Call <span class="cov0" title="0">{
+        _c.Call.Run(func(args mock.Arguments) </span><span class="cov0" title="0">{
+                run(args[0].([]slog.Attr))
+        }</span>)
+        <span class="cov0" title="0">return _c</span>
+}
+
+func (_c *MockSlogHandler_WithAttrs_Call) Return(_a0 slog.Handler) *MockSlogHandler_WithAttrs_Call <span class="cov1" title="1">{
+        _c.Call.Return(_a0)
+        return _c
+}</span>
+
+func (_c *MockSlogHandler_WithAttrs_Call) RunAndReturn(run func([]slog.Attr) slog.Handler) *MockSlogHandler_WithAttrs_Call <span class="cov0" title="0">{
+        _c.Call.Return(run)
+        return _c
+}</span>
+
+// WithGroup provides a mock function with given fields: name
+func (_m *MockSlogHandler) WithGroup(name string) slog.Handler <span class="cov0" title="0">{
+        ret := _m.Called(name)
+
+        if len(ret) == 0 </span><span class="cov0" title="0">{
+                panic("no return value specified for WithGroup")</span>
+        }
+
+        <span class="cov0" title="0">var r0 slog.Handler
+        if rf, ok := ret.Get(0).(func(string) slog.Handler); ok </span><span class="cov0" title="0">{
+                r0 = rf(name)
+        }</span> else<span class="cov0" title="0"> {
+                if ret.Get(0) != nil </span><span class="cov0" title="0">{
+                        r0 = ret.Get(0).(slog.Handler)
+                }</span>
+        }
+
+        <span class="cov0" title="0">return r0</span>
+}
+
+// MockSlogHandler_WithGroup_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WithGroup'
+type MockSlogHandler_WithGroup_Call struct {
+        *mock.Call
+}
+
+// WithGroup is a helper method to define mock.On call
+//   - name string
+func (_e *MockSlogHandler_Expecter) WithGroup(name interface{}) *MockSlogHandler_WithGroup_Call <span class="cov0" title="0">{
+        return &amp;MockSlogHandler_WithGroup_Call{Call: _e.mock.On("WithGroup", name)}
+}</span>
+
+func (_c *MockSlogHandler_WithGroup_Call) Run(run func(name string)) *MockSlogHandler_WithGroup_Call <span class="cov0" title="0">{
+        _c.Call.Run(func(args mock.Arguments) </span><span class="cov0" title="0">{
+                run(args[0].(string))
+        }</span>)
+        <span class="cov0" title="0">return _c</span>
+}
+
+func (_c *MockSlogHandler_WithGroup_Call) Return(_a0 slog.Handler) *MockSlogHandler_WithGroup_Call <span class="cov0" title="0">{
+        _c.Call.Return(_a0)
+        return _c
+}</span>
+
+func (_c *MockSlogHandler_WithGroup_Call) RunAndReturn(run func(string) slog.Handler) *MockSlogHandler_WithGroup_Call <span class="cov0" title="0">{
+        _c.Call.Return(run)
+        return _c
+}</span>
+
+// NewMockSlogHandler creates a new instance of MockSlogHandler. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewMockSlogHandler(t interface {
+        mock.TestingT
+        Cleanup(func())
+}) *MockSlogHandler <span class="cov10" title="4">{
+        mock := &amp;MockSlogHandler{}
+        mock.Mock.Test(t)
+
+        t.Cleanup(func() </span><span class="cov10" title="4">{ mock.AssertExpectations(t) }</span>)
+
+        <span class="cov10" title="4">return mock</span>
+}
+</pre>
+		
+		<pre class="file" id="file34" style="display: none">package diag
+
+import (
+        "context"
+        "io"
+        "log/slog"
+        "os"
+)
+
+type contextKey string
+
+const (
+        contextDiagAttrs = contextKey("diag.context-key.log-attribs")
+)
+
+type LogAttributes struct {
+        CorrelationID slog.Value
+}
+
+func GetLogAttributesFromContext(ctx context.Context) LogAttributes <span class="cov6" title="8">{
+        res, _ := ctx.Value(contextDiagAttrs).(LogAttributes)
+        return res
+}</span>
+
+func SetLogAttributesToContext(ctx context.Context, attributes LogAttributes) context.Context <span class="cov5" title="5">{
+        return context.WithValue(ctx, contextDiagAttrs, attributes)
+}</span>
+
+type diagLogHandler struct {
+        target slog.Handler
+}
+
+func (h *diagLogHandler) Enabled(ctx context.Context, lvl slog.Level) bool <span class="cov9" title="22">{
+        return h.target.Enabled(ctx, lvl)
+}</span>
+
+func (h *diagLogHandler) Handle(ctx context.Context, rec slog.Record) error <span class="cov10" title="24">{
+        if diagAttributes, ok := ctx.Value(contextDiagAttrs).(LogAttributes); ok </span><span class="cov2" title="2">{
+                rec.AddAttrs(
+                        slog.Attr{Key: "correlationId", Value: diagAttributes.CorrelationID},
+                )
+        }</span>
+
+        <span class="cov10" title="24">return h.target.Handle(ctx, rec)</span>
+}
+
+func (h *diagLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler <span class="cov8" title="14">{
+        return &amp;diagLogHandler{target: h.target.WithAttrs(attrs)}
+}</span>
+
+func (h *diagLogHandler) WithGroup(name string) slog.Handler <span class="cov8" title="13">{
+        // Using WithAttrs here since group will nest all the attributes
+        // inside of it (including correlationId), which makes it harder to
+        // filter logs by the correlationId.
+        // Consumers can use slog.Group if some attributes needs to be grouped
+        return h.WithAttrs([]slog.Attr{slog.String("group", name)})
+}</span>
+
+var _ slog.Handler = &amp;diagLogHandler{}
+
+type RootLoggerOpts struct {
+        output io.Writer
+
+        jsonLogs bool
+
+        // Info is default (zero)
+        logLevel slog.Level
+}
+
+func (opts *RootLoggerOpts) WithJSONLogs(value bool) *RootLoggerOpts <span class="cov4" title="3">{
+        opts.jsonLogs = value
+        return opts
+}</span>
+
+func (opts *RootLoggerOpts) WithLogLevel(logLevel slog.Level) *RootLoggerOpts <span class="cov4" title="3">{
+        opts.logLevel = logLevel
+        return opts
+}</span>
+
+func (opts *RootLoggerOpts) WithOutput(output io.Writer) *RootLoggerOpts <span class="cov7" title="10">{
+        opts.output = output
+        return opts
+}</span>
+
+func (opts *RootLoggerOpts) WithOptionalOutputFile(outputFile string) *RootLoggerOpts <span class="cov4" title="3">{
+        if outputFile == "" </span><span class="cov1" title="1">{
+                return opts
+        }</span>
+        <span class="cov2" title="2">f, err := os.OpenFile(outputFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o666)
+        if err != nil </span><span class="cov0" title="0">{
+                panic(err)</span>
+        }
+        <span class="cov2" title="2">opts.output = f
+        return opts</span>
+}
+
+func NewRootLoggerOpts() *RootLoggerOpts <span class="cov8" title="14">{
+        return &amp;RootLoggerOpts{
+                output: os.Stdout,
+        }
+}</span>
+
+func SetupRootLogger(opts *RootLoggerOpts) *slog.Logger <span class="cov8" title="14">{
+        logHandlerOpts := &amp;slog.HandlerOptions{Level: opts.logLevel}
+        var logHandler slog.Handler
+        if opts.jsonLogs </span><span class="cov1" title="1">{
+                logHandler = slog.NewJSONHandler(opts.output, logHandlerOpts)
+        }</span> else<span class="cov8" title="13"> {
+                logHandler = slog.NewTextHandler(opts.output, logHandlerOpts)
+        }</span>
+        <span class="cov8" title="14">return slog.New(&amp;diagLogHandler{target: logHandler})</span>
+}
+</pre>
+		
+		<pre class="file" id="file35" style="display: none">//go:build !release
+
+// TODO: generated code should include "//go:build !release" tags
+//go:generate mockgen -typed -package diag -destination mock_slog_handler_test.go log/slog Handler
+
+package diag
+
+import (
+        "fmt"
+        "log/slog"
+        "os"
+        "path/filepath"
+        "runtime"
+)
+
+// openTestLogFile will open a log file in a project root directory.
+func openTestLogFile() *os.File <span class="cov9" title="8">{
+        _, filename, _, _ := runtime.Caller(0) // Will be current file
+        testFilePath := filepath.Join(filename, "..", "..", "..", "test.log")
+        f, err := os.OpenFile(testFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o666)
+        if err != nil </span><span class="cov0" title="0">{
+                err = fmt.Errorf("fail to open log file %q for test logging: %w", testFilePath, err)
+                panic(err)</span>
+        }
+        <span class="cov9" title="8">return f</span>
+}
+
+var testOutput = openTestLogFile() //nolint:gochecknoglobals //it's ok for tests
+
+func RootTestLogger() *slog.Logger <span class="cov10" title="9">{
+        return SetupRootLogger(
+                NewRootLoggerOpts().WithOutput(testOutput),
+        )
+}</span>
+</pre>
+		
+		<pre class="file" id="file36" style="display: none">package services
+
+import (
+        "time"
+
+        "github.com/gemyago/oke-gateway-api/internal/di"
+        "go.uber.org/dig"
+)
+
+func Register(container *dig.Container) error <span class="cov10" title="2">{
+        return di.ProvideAll(container,
+                NewTimeProvider,
+                di.ProvideValue(time.NewTicker),
+                NewShutdownHooks,
+        )
+}</span>
+</pre>
+		
+		<pre class="file" id="file37" style="display: none">// ShutdownHooks are used to implement a graceful shutdown
+// of the application. This may include closing database connections, flushing pending
+// events to the queue, shutting down the http server, etc.
+
+package services
+
+import (
+        "context"
+        "fmt"
+        "log/slog"
+        "reflect"
+        "time"
+
+        "go.uber.org/dig"
+        "golang.org/x/sync/errgroup"
+)
+
+type shutdownHook struct {
+        name       string
+        shutdownFn func(ctx context.Context) error
+}
+
+type ShutdownHooks struct {
+        logger *slog.Logger
+        hooks  []shutdownHook
+        deps   ShutdownHooksRegistryDeps
+}
+
+// HasHook checks if a shutdown hook with the given name is registered.
+// Typical usage is in tests and must be carefully considered for production scenarios.
+func (h *ShutdownHooks) HasHook(name string, method any) bool <span class="cov6" title="4">{
+        for _, hook := range h.hooks </span><span class="cov4" title="3">{
+                if hook.name == name </span><span class="cov3" title="2">{
+                        return reflect.ValueOf(hook.shutdownFn).Pointer() == reflect.ValueOf(method).Pointer()
+                }</span>
+        }
+        <span class="cov3" title="2">return false</span>
+}
+
+func (h *ShutdownHooks) Register(name string, shutdown func(ctx context.Context) error) <span class="cov10" title="12">{
+        h.hooks = append(h.hooks, shutdownHook{name: name, shutdownFn: shutdown})
+}</span>
+
+func (h *ShutdownHooks) RegisterNoCtx(name string, shutdown func() error) <span class="cov4" title="3">{
+        h.Register(name, func(_ context.Context) error </span><span class="cov4" title="3">{
+                return shutdown()
+        }</span>)
+}
+
+func (h *ShutdownHooks) PerformShutdown(ctx context.Context) error <span class="cov6" title="4">{
+        ctx, cancel := context.WithTimeout(ctx, h.deps.GracefulShutdownTimeout)
+        defer cancel()
+
+        errGrp := errgroup.Group{}
+        for _, hook := range h.hooks </span><span class="cov9" title="10">{
+                errGrp.Go(func() error </span><span class="cov9" title="10">{
+                        hookName := hook.name
+                        h.logger.InfoContext(ctx, fmt.Sprintf("Shutting down %s", hookName))
+                        if err := hook.shutdownFn(ctx); err != nil </span><span class="cov1" title="1">{
+                                return fmt.Errorf("failed to perform shutdown hook %s: %w", hookName, err)
+                        }</span>
+                        <span class="cov8" title="9">return nil</span>
+                })
+        }
+
+        <span class="cov6" title="4">done := make(chan error)
+        go func() </span><span class="cov6" title="4">{
+                done &lt;- errGrp.Wait()
+        }</span>()
+
+        <span class="cov6" title="4">select </span>{
+        case err := &lt;-done:<span class="cov6" title="4">
+                return err</span>
+        case &lt;-ctx.Done():<span class="cov0" title="0">
+                return ctx.Err()</span>
+        }
+}
+
+type ShutdownHooksRegistryDeps struct {
+        dig.In
+
+        RootLogger *slog.Logger
+
+        // config
+        GracefulShutdownTimeout time.Duration `name:"config.gracefulShutdownTimeout"`
+}
+
+func NewShutdownHooks(deps ShutdownHooksRegistryDeps) *ShutdownHooks <span class="cov7" title="6">{
+        return &amp;ShutdownHooks{
+                logger: deps.RootLogger.WithGroup("shutdown"),
+                deps:   deps,
+        }
+}</span>
+</pre>
+		
+		<pre class="file" id="file38" style="display: none">//go:build !release
+
+package services
+
+import (
+        "time"
+
+        "github.com/gemyago/oke-gateway-api/internal/diag"
+        "github.com/go-faker/faker/v4"
+)
+
+type MockNow struct {
+        value time.Time
+}
+
+var _ TimeProvider = &amp;MockNow{}
+
+func (m *MockNow) SetValue(t time.Time) <span class="cov0" title="0">{
+        m.value = t
+}</span>
+
+func (m *MockNow) Now() time.Time <span class="cov0" title="0">{
+        return m.value
+}</span>
+
+func NewMockNow() *MockNow <span class="cov0" title="0">{
+        return &amp;MockNow{
+                value: time.UnixMilli(faker.RandomUnixTime()),
+        }
+}</span>
+
+func MockNowValue(p TimeProvider) time.Time <span class="cov0" title="0">{
+        mp, ok := p.(*MockNow)
+        if !ok </span><span class="cov0" title="0">{
+                panic("provided TimeProvider is not a MockNow")</span>
+        }
+        <span class="cov0" title="0">return mp.value</span>
+}
+
+const defaultTestShutdownTimeout = 30 * time.Second
+
+func NewTestShutdownHooks() *ShutdownHooks <span class="cov8" title="1">{
+        return NewShutdownHooks(ShutdownHooksRegistryDeps{
+                RootLogger:              diag.RootTestLogger(),
+                GracefulShutdownTimeout: defaultTestShutdownTimeout,
+        })
+}</span>
+</pre>
+		
+		<pre class="file" id="file39" style="display: none">package services
+
+import "time"
+
+type TimeProvider interface {
+        Now() time.Time
+}
+
+type timeProviderFn func() time.Time
+
+func (fn timeProviderFn) Now() time.Time <span class="cov8" title="1">{
+        return fn()
+}</span>
+
+func NewTimeProvider() TimeProvider <span class="cov8" title="1">{
+        return timeProviderFn(time.Now)
+}</span>
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>
