@@ -5,8 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gemyago/golang-backend-boilerplate/internal/api/http/server"
-	"github.com/gemyago/golang-backend-boilerplate/internal/api/http/v1routes/handlers"
+	"github.com/gemyago/oke-gateway-api/internal/api/http/server"
+	"github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/handlers"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -1,4 +1,4 @@
-module github.com/gemyago/golang-backend-boilerplate
+module github.com/gemyago/oke-gateway-api
 
 go 1.24
 

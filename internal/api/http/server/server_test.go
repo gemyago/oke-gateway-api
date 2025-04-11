@@ -6,8 +6,8 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/gemyago/golang-backend-boilerplate/internal/diag"
-	"github.com/gemyago/golang-backend-boilerplate/internal/services"
+	"github.com/gemyago/oke-gateway-api/internal/diag"
+	"github.com/gemyago/oke-gateway-api/internal/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

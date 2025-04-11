@@ -5,7 +5,7 @@ package services
 import (
 	"time"
 
-	"github.com/gemyago/golang-backend-boilerplate/internal/diag"
+	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/go-faker/faker/v4"
 )
 
