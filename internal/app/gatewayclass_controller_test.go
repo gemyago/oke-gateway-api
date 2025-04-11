@@ -2,65 +2,60 @@ package app
 
 import (
 	"context"
-	"io"
-	"log/slog"
+	"reflect"
 	"testing"
 
+	"github.com/gemyago/oke-gateway-api/internal/diag"
+	"github.com/go-faker/faker/v4"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	types "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-// clientAdapter adapts a client.Client to our k8sClient interface.
-type clientAdapter struct {
-	client.Client
-}
+func TestGatewayClassController(t *testing.T) {
+	t.Run("Reconcile", func(t *testing.T) {
+		// Create a test GatewayClass
+		gatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: v1.ObjectMeta{
+				Name: faker.DomainName(),
+			},
+			Spec: gatewayv1.GatewayClassSpec{
+				ControllerName: "oracle.com/oke-gateway-controller",
+			},
+		}
 
-func (c *clientAdapter) Get(ctx context.Context, key client.ObjectKey, obj client.Object) error {
-	return c.Client.Get(ctx, key, obj)
-}
+		req := reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Namespace: faker.DomainName(),
+				Name:      gatewayClass.Name,
+			},
+		}
 
-func (c *clientAdapter) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
-	return c.Client.List(ctx, list, opts...)
-}
+		mockClient := NewMockk8sClient(t)
+		mockClient.EXPECT().
+			Get(t.Context(), req.NamespacedName, mock.Anything).
+			RunAndReturn(func(_ context.Context, nn types.NamespacedName, receiver client.Object) error {
+				assert.Equal(t, req.NamespacedName, nn)
+				reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gatewayClass))
+				return nil
+			})
 
-func TestGatewayClassController_Reconcile(t *testing.T) {
-	// Create a test GatewayClass
-	gatewayClass := &gatewayv1.GatewayClass{
-		Spec: gatewayv1.GatewayClassSpec{
-			ControllerName: "oracle.com/oke-gateway-controller",
-		},
-	}
+		// Create the controller
+		controller := &GatewayClassController{
+			client: mockClient,
+			logger: diag.RootTestLogger(),
+		}
 
-	// Create a fake client with the GatewayClass
-	fakeClient := fake.NewClientBuilder().WithObjects(gatewayClass).Build()
+		// Call Reconcile
+		result, err := controller.Reconcile(t.Context(), req)
 
-	// Create an adapter for the fake client
-	clientAdapter := &clientAdapter{fakeClient}
-
-	// Create a test logger that writes to io.Discard
-	testLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	// Create the controller
-	controller := &GatewayClassController{
-		client: clientAdapter,
-		logger: testLogger,
-	}
-
-	// Create a reconcile request
-	req := reconcile.Request{
-		NamespacedName: client.ObjectKey{
-			Name: gatewayClass.Name,
-		},
-	}
-
-	// Call Reconcile
-	result, err := controller.Reconcile(t.Context(), req)
-
-	// Assert results
-	require.NoError(t, err)
-	assert.Equal(t, reconcile.Result{}, result)
+		// Assert results
+		require.NoError(t, err)
+		assert.Equal(t, reconcile.Result{}, result)
+	})
 }

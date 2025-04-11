@@ -4,6 +4,9 @@ filename: "mock_{{.InterfaceNameSnake}}.go"
 mock-build-tags: "!release"
 disable-version-string: true
 packages:
+  github.com/gemyago/oke-gateway-api/internal/app:
+    interfaces:
+      k8sClient:
   log/slog:
     interfaces:
       Handler:

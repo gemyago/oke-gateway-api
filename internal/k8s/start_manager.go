@@ -24,7 +24,7 @@ type ManagerDeps struct {
 }
 
 // StartManager starts the controller manager.
-func StartManager(ctx context.Context, deps ManagerDeps) error {
+func StartManager(ctx context.Context, deps ManagerDeps) error { // coverage-ignore -- challenging to test
 	logger := deps.RootLogger.WithGroup("k8s")
 
 	// Create a new manager
