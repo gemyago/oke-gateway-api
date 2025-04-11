@@ -24,6 +24,8 @@ jobs:
     uses: ./.github/workflows/tests-run.yml
 
   docker-image:
+    permissions:
+      packages: 'write'
     needs: build-artifacts
     name: Docker Image
     uses: ./.github/workflows/build-docker-image.yml
