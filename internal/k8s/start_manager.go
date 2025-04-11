@@ -30,7 +30,9 @@ func StartManager(ctx context.Context, deps ManagerDeps) error { // coverage-ign
 	// Create a new manager
 	mgr, err := manager.New(
 		deps.Config,
-		manager.Options{},
+		manager.Options{
+			Scheme: deps.K8sClient.Scheme(),
+		},
 	)
 	if err != nil {
 		return err
