@@ -39,7 +39,7 @@ func TestGatewayClassController(t *testing.T) {
 		mockClient := NewMockk8sClient(t)
 		mockClient.EXPECT().
 			Get(t.Context(), req.NamespacedName, mock.Anything).
-			RunAndReturn(func(_ context.Context, nn types.NamespacedName, receiver client.Object) error {
+			RunAndReturn(func(_ context.Context, nn types.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
 				assert.Equal(t, req.NamespacedName, nn)
 				reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gatewayClass))
 				return nil

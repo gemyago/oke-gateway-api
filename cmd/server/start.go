@@ -10,7 +10,9 @@ import (
 	"github.com/gemyago/oke-gateway-api/internal/api/http"
 	"github.com/gemyago/oke-gateway-api/internal/api/http/server"
 	"github.com/gemyago/oke-gateway-api/internal/diag"
+	"github.com/gemyago/oke-gateway-api/internal/k8s"
 	"github.com/gemyago/oke-gateway-api/internal/services"
+	"github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
 	"github.com/spf13/cobra"
 	"go.uber.org/dig"
 	"golang.org/x/sys/unix"
@@ -24,6 +26,8 @@ type startServerParams struct {
 	HTTPServer *server.HTTPServer
 
 	*services.ShutdownHooks
+
+	ManagerDeps k8s.ManagerDeps
 
 	noop bool
 }
@@ -61,6 +65,14 @@ func startServer(params startServerParams) error {
 		}
 		startupErrors <- httpServer.Start(signalCtx)
 	}()
+	go func() {
+		if params.noop {
+			rootLogger.InfoContext(signalCtx, "NOOP: Starting k8s controller manager")
+			startupErrors <- nil
+			return
+		}
+		startupErrors <- k8s.StartManager(signalCtx, params.ManagerDeps)
+	}()
 
 	var startupErr error
 	select {
@@ -91,6 +103,7 @@ func newStartServerCmd(container *dig.Container) *cobra.Command {
 		return errors.Join(
 			server.Register(container),
 			http.Register(container),
+			k8sapi.Register(container),
 		)
 	}
 	cmd.RunE = func(_ *cobra.Command, _ []string) error {

@@ -12,7 +12,7 @@ import (
 
 // This is an internal interface used only to describe what we need from the client.
 type k8sClient interface {
-	Get(ctx context.Context, key client.ObjectKey, obj client.Object) error
+	Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error
 	List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error
 }
 

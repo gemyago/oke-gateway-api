@@ -27,17 +27,24 @@ func (_m *Mockk8sClient) EXPECT() *Mockk8sClient_Expecter {
 	return &Mockk8sClient_Expecter{mock: &_m.Mock}
 }
 
-// Get provides a mock function with given fields: ctx, key, obj
-func (_m *Mockk8sClient) Get(ctx context.Context, key types.NamespacedName, obj client.Object) error {
-	ret := _m.Called(ctx, key, obj)
+// Get provides a mock function with given fields: ctx, key, obj, opts
+func (_m *Mockk8sClient) Get(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error {
+	_va := make([]interface{}, len(opts))
+	for _i := range opts {
+		_va[_i] = opts[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, ctx, key, obj)
+	_ca = append(_ca, _va...)
+	ret := _m.Called(_ca...)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Get")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, types.NamespacedName, client.Object) error); ok {
-		r0 = rf(ctx, key, obj)
+	if rf, ok := ret.Get(0).(func(context.Context, types.NamespacedName, client.Object, ...client.GetOption) error); ok {
+		r0 = rf(ctx, key, obj, opts...)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -54,13 +61,21 @@ type Mockk8sClient_Get_Call struct {
 //   - ctx context.Context
 //   - key types.NamespacedName
 //   - obj client.Object
-func (_e *Mockk8sClient_Expecter) Get(ctx interface{}, key interface{}, obj interface{}) *Mockk8sClient_Get_Call {
-	return &Mockk8sClient_Get_Call{Call: _e.mock.On("Get", ctx, key, obj)}
+//   - opts ...client.GetOption
+func (_e *Mockk8sClient_Expecter) Get(ctx interface{}, key interface{}, obj interface{}, opts ...interface{}) *Mockk8sClient_Get_Call {
+	return &Mockk8sClient_Get_Call{Call: _e.mock.On("Get",
+		append([]interface{}{ctx, key, obj}, opts...)...)}
 }
 
-func (_c *Mockk8sClient_Get_Call) Run(run func(ctx context.Context, key types.NamespacedName, obj client.Object)) *Mockk8sClient_Get_Call {
+func (_c *Mockk8sClient_Get_Call) Run(run func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption)) *Mockk8sClient_Get_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(types.NamespacedName), args[2].(client.Object))
+		variadicArgs := make([]client.GetOption, len(args)-3)
+		for i, a := range args[3:] {
+			if a != nil {
+				variadicArgs[i] = a.(client.GetOption)
+			}
+		}
+		run(args[0].(context.Context), args[1].(types.NamespacedName), args[2].(client.Object), variadicArgs...)
 	})
 	return _c
 }
@@ -70,7 +85,7 @@ func (_c *Mockk8sClient_Get_Call) Return(_a0 error) *Mockk8sClient_Get_Call {
 	return _c
 }
 
-func (_c *Mockk8sClient_Get_Call) RunAndReturn(run func(context.Context, types.NamespacedName, client.Object) error) *Mockk8sClient_Get_Call {
+func (_c *Mockk8sClient_Get_Call) RunAndReturn(run func(context.Context, types.NamespacedName, client.Object, ...client.GetOption) error) *Mockk8sClient_Get_Call {
 	_c.Call.Return(run)
 	return _c
 }
