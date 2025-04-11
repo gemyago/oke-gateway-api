@@ -1,0 +1,46 @@
+name: Docker Image
+
+on:
+  workflow_call:
+
+jobs:
+  build-image:
+    name: Perform
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # Required for multi-platform builds
+    # https://docs.docker.com/build/building/multi-platform/#prerequisites
+    - name: Set up Docker
+      uses: docker/setup-docker-action@v4
+      with:
+        daemon-config: |
+          {
+            "features": {
+              "containerd-snapshotter": true
+            }
+          }
+
+    - uses: actions/download-artifact@v4
+      with:
+        name: build-artifacts-pr-${{ github.event.pull_request.node_id }}
+        path: build
+
+    - name: Extract build artifacts
+      working-directory: build
+      run: tar -xf build-artifacts.tar.bz2
+
+    - name: Authenticate container registry
+      run: echo $GITHUB_TOKEN | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build local image
+      working-directory: build
+      run: make docker/local-images
+
+    - name: Push images
+      working-directory: build
+      run: make docker/remote-images

@@ -1,0 +1,29 @@
+name: Build
+
+on: 
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+    # This is target branch filter, not current branch
+    branches:
+      - 'main'
+
+# Allow just a single build to run at a time for a given ref
+concurrency:
+  group: build-flow-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-artifacts:
+    name: Artifacts
+    uses: ./.github/workflows/build-artifacts.yml
+
+  run-tests:
+    needs: build-artifacts
+    name: Tests
+    uses: ./.github/workflows/tests-run.yml
+
+  docker-image:
+    needs: build-artifacts
+    name: Docker Image
+    uses: ./.github/workflows/build-docker-image.yml

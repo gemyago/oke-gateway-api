@@ -1,0 +1,31 @@
+name: Push Test Artifacts
+
+on:
+  pull_request:
+    # to test this flow: add labeled or synchronize for testing and comment job condition
+    types: [closed]
+
+    # Target branch for the PR
+    branches:
+      - "main"
+
+jobs:
+  push-test-artifacts:
+    if: github.event.pull_request.merged == true
+    name: Publish Test Artifacts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'write'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get Test Artifacts
+        run: |
+          gh run download --dir .cover/ -n test-artifacts-pr-${{ github.event.pull_request.node_id }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - run: make push-test-artifacts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

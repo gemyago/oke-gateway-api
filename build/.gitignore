@@ -1,0 +1,8 @@
+.build-artifacts
+build-artifacts.tar.*
+/dist/
+.git-meta/*
+/docker/.labels
+/docker/.local-*
+/docker/.remote-*
+*.pyc

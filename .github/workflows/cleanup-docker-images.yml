@@ -1,0 +1,36 @@
+name: Docker Images
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  cleanup:
+    name: Cleanup
+    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: "read"
+      id-token: "write"
+      packages: "write"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: '.python-version'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+
+      - name: Cleanup Docker Images
+        working-directory: build
+        # TODO - docker build step should produce list of images
+        # Here we should do the cleanup, probably via makefile.
+        run: |
+          ./scripts/ghcr.py cleanup-versions --namespace "users/${GITHUB_REPOSITORY_OWNER}" --package golang-backend-boilerplate-jobs --really-remove
+          ./scripts/ghcr.py cleanup-versions --namespace "users/${GITHUB_REPOSITORY_OWNER}" --package golang-backend-boilerplate-server --really-remove
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

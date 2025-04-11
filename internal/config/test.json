@@ -1,0 +1,6 @@
+{
+  "defaultLogLevel": "DEBUG",
+  "httpServer": {
+    "host": "localhost"
+  }
+}
