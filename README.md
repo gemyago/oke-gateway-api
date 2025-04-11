@@ -26,12 +26,14 @@ Key features:
   # Manually specify desired module name
   find . -name "*.go" -o -name "go.mod" | xargs sed -i 's|github.com/gemyago/golang-backend-boilerplate|<YOUR-MODULE-PATH>|g';
 
-  # Get module name matching repo
+  # Or optionally get module name matching repo
   export module_name=$(git remote get-url origin | sed -E \
     -e 's|^git@([^:]+):|\1/|' \
     -e 's|^https?://||' \
     -e 's|\.git$||')
-   find . -name "*.go" -o -name "go.mod" | xargs gsed -i "s|github.com/gemyago/golang-backend-boilerplate|${module_name}|g";
+  
+  # and specify module name matching repo name
+  find . -name "*.go" -o -name "go.mod" | xargs gsed -i "s|github.com/gemyago/golang-backend-boilerplate|${module_name}|g";
   ```
   Note: on osx you may have to install and use [gnu sed](https://formulae.brew.sh/formula/gnu-sed). In such case you may need to replace `sed` with `gsed` above.
 
