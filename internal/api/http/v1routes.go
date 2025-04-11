@@ -5,10 +5,10 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/gemyago/golang-backend-boilerplate/internal/api/http/server"
-	"github.com/gemyago/golang-backend-boilerplate/internal/api/http/v1controllers"
-	"github.com/gemyago/golang-backend-boilerplate/internal/api/http/v1routes/handlers"
-	"github.com/gemyago/golang-backend-boilerplate/internal/di"
+	"github.com/gemyago/oke-gateway-api/internal/api/http/server"
+	"github.com/gemyago/oke-gateway-api/internal/api/http/v1controllers"
+	"github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/handlers"
+	"github.com/gemyago/oke-gateway-api/internal/di"
 	"go.uber.org/dig"
 )
 

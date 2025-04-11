@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/gemyago/golang-backend-boilerplate/internal/api/http/v1routes/handlers"
-	"github.com/gemyago/golang-backend-boilerplate/internal/api/http/v1routes/models"
+	"github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/handlers"
+	"github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/models"
 )
 
 type HealthController struct{}

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gemyago/golang-backend-boilerplate/internal/di"
+	"github.com/gemyago/oke-gateway-api/internal/di"
 	"github.com/go-faker/faker/v4"
 	"github.com/samber/lo"
 	"github.com/spf13/viper"

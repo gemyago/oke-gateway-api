@@ -6,10 +6,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gemyago/golang-backend-boilerplate/internal/api/http/server"
-	"github.com/gemyago/golang-backend-boilerplate/internal/api/http/v1routes/handlers"
-	"github.com/gemyago/golang-backend-boilerplate/internal/app"
-	"github.com/gemyago/golang-backend-boilerplate/internal/diag"
+	"github.com/gemyago/oke-gateway-api/internal/api/http/server"
+	"github.com/gemyago/oke-gateway-api/internal/api/http/v1routes/handlers"
+	"github.com/gemyago/oke-gateway-api/internal/app"
+	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/go-faker/faker/v4"
 	"github.com/stretchr/testify/assert"
 )

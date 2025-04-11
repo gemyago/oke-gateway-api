@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gemyago/golang-backend-boilerplate/internal/api/http/middleware"
-	"github.com/gemyago/golang-backend-boilerplate/internal/services"
+	"github.com/gemyago/oke-gateway-api/internal/api/http/middleware"
+	"github.com/gemyago/oke-gateway-api/internal/services"
 	sloghttp "github.com/samber/slog-http"
 	"go.uber.org/dig"
 )
