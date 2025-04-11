@@ -1,9 +1,5 @@
 # go-test-coverage tool is used to check for coverage threshold (see https://github.com/vladopajic/go-test-coverage)
 
-# (optional; but recommended to set) 
-# When specified reported file paths will not contain local prefix in the output
-local-prefix: "github.com/gemyago/golang-backend-boilerplate"
-
 # Holds coverage thresholds percentages, values should be in range [0-100]
 threshold:
   # (optional; default 0) 
