@@ -32,9 +32,27 @@ kind: GatewayClass
 metadata:
   name: oke-gateway-api
 spec:
-  controllerName: oke-gateway-api-controller.oracle.com/test
+  controllerName: oke-gateway-api.gemyago.github.io/oke-alb-gateway-controller
 EOF
 ```
+
+Create a Gateway resource:
+```bash
+cat <<EOF | kubectl apply -f -
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: oke-gateway
+spec:
+  gatewayClassName: oke-gateway-api
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+EOF
+```
+
+
 
 ## Contributing
 

@@ -5,10 +5,12 @@ import (
 	"log/slog"
 
 	"github.com/gemyago/oke-gateway-api/internal/app"
+	"github.com/go-logr/logr"
 	"go.uber.org/dig"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
@@ -26,6 +28,10 @@ type ManagerDeps struct {
 // StartManager starts the controller manager.
 func StartManager(ctx context.Context, deps ManagerDeps) error { // coverage-ignore -- challenging to test
 	logger := deps.RootLogger.WithGroup("k8s")
+
+	rlogLogger := logr.FromSlogHandler(logger.Handler())
+	loggerCtx := logr.NewContext(ctx, rlogLogger)
+	log.SetLogger(rlogLogger)
 
 	// Create a new manager
 	mgr, err := manager.New(
@@ -47,6 +53,6 @@ func StartManager(ctx context.Context, deps ManagerDeps) error { // coverage-ign
 	}
 
 	// Start the manager
-	logger.InfoContext(ctx, "Starting controller manager")
-	return mgr.Start(ctx)
+	logger.InfoContext(loggerCtx, "Starting controller manager")
+	return mgr.Start(loggerCtx)
 }
