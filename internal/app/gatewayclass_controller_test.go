@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"math/rand/v2"
 	"reflect"
 	"testing"
 
@@ -19,22 +20,24 @@ import (
 )
 
 func TestGatewayClassController(t *testing.T) {
-	t.Run("Reconcile", func(t *testing.T) {
-		// Create a test GatewayClass
-		gatewayClass := &gatewayv1.GatewayClass{
+	// Helper to create a GatewayClass with random data
+	newRandomGatewayClass := func() *gatewayv1.GatewayClass {
+		return &gatewayv1.GatewayClass{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: faker.DomainName(),
-				Generation: func() int64 {
-					randInts, err := faker.RandomInt(1, 10, 1) // Get one random int between 1 and 10
-					require.NoError(t, err)                    // Fail test if faker errors
-					require.Len(t, randInts, 1)                // Ensure we got one int
-					return int64(randInts[0])
-				}(),
+				Name:            faker.DomainName(),
+				Generation:      rand.Int64(),
+				UID:             types.UID(faker.UUIDHyphenated()), // Add UID for potential future use
+				ResourceVersion: faker.Word(),                      // Add RV for potential future use
 			},
 			Spec: gatewayv1.GatewayClassSpec{
-				ControllerName: "oracle.com/oke-gateway-controller",
+				ControllerName: ControllerClassName,
 			},
 		}
+	}
+
+	t.Run("Reconcile", func(t *testing.T) {
+		// Create a test GatewayClass using the helper
+		gatewayClass := newRandomGatewayClass()
 
 		req := reconcile.Request{
 			NamespacedName: client.ObjectKey{

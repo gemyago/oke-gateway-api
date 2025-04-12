@@ -14,6 +14,8 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
+const ControllerClassName = "oke-gateway-api.gemyago.github.io/oke-alb-gateway-controller"
+
 // This is an internal interface used only to describe what we need from the client.
 type k8sClient interface {
 	Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error
