@@ -13,5 +13,6 @@ func Register(container *dig.Container) error {
 		},
 		NewEchoService,
 		NewGatewayClassController,
+		NewGatewayController,
 	)
 }

@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/gemyago/oke-gateway-api/internal/app"
@@ -19,10 +20,11 @@ import (
 type ManagerDeps struct {
 	dig.In
 
-	RootLogger *slog.Logger
-	K8sClient  client.Client
-	Controller *app.GatewayClassController
-	Config     *rest.Config
+	RootLogger       *slog.Logger
+	K8sClient        client.Client
+	GatewayClassCtrl *app.GatewayClassController
+	GatewayCtrl      *app.GatewayController
+	Config           *rest.Config
 }
 
 // StartManager starts the controller manager.
@@ -44,16 +46,18 @@ func StartManager(ctx context.Context, deps ManagerDeps) error { // coverage-ign
 		return err
 	}
 
-	// Register the controller with the manager
-	// if err = builder.ControllerManagedBy(mgr).
-	// 	For(&gatewayv1.Gateway{}).
-	// 	Complete(deps.Controller); err != nil {
-	// 	return err
-	// }
+	// Register the Gateway controller
+	if err = builder.ControllerManagedBy(mgr).
+		For(&gatewayv1.Gateway{}).
+		Complete(deps.GatewayCtrl); err != nil {
+		return fmt.Errorf("failed to setup Gateway controller: %w", err)
+	}
+
+	// Register the GatewayClass controller
 	if err = builder.ControllerManagedBy(mgr).
 		For(&gatewayv1.GatewayClass{}).
-		Complete(deps.Controller); err != nil {
-		return err
+		Complete(deps.GatewayClassCtrl); err != nil {
+		return fmt.Errorf("failed to setup GatewayClass controller: %w", err)
 	}
 
 	// Start the manager
