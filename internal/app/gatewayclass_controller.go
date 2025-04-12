@@ -7,6 +7,8 @@ import (
 
 	"go.uber.org/dig"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -16,6 +18,7 @@ import (
 type k8sClient interface {
 	Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error
 	List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error
+	Status() client.StatusWriter
 }
 
 // GatewayClassController is a simple controller that watches GatewayClass resources.
@@ -58,5 +61,27 @@ func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Re
 	)
 
 	// For now, we just log the reconciliation and do nothing
+	// Update the status condition
+	acceptedCondition := metav1.Condition{
+		Type:               "Accepted",
+		Status:             metav1.ConditionTrue,
+		Reason:             "Accepted",
+		Message:            "GatewayClass is accepted by this controller",
+		ObservedGeneration: gatewayClass.Generation,
+		LastTransitionTime: metav1.Now(),
+	}
+
+	meta.SetStatusCondition(&gatewayClass.Status.Conditions, acceptedCondition)
+
+	// Update the status subresource
+	if err := r.client.Status().Update(ctx, &gatewayClass); err != nil {
+		r.logger.ErrorContext(ctx, "Failed to update GatewayClass status", slog.Any("error", err))
+		return reconcile.Result{}, fmt.Errorf("failed to update GatewayClass status for %s: %w", req.NamespacedName, err)
+	}
+
+	r.logger.InfoContext(ctx,
+		"Successfully reconciled and accepted GatewayClass",
+		slog.Any("gatewayClass", req.NamespacedName),
+	)
 	return reconcile.Result{}, nil
 }

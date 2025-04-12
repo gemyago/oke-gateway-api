@@ -152,6 +152,53 @@ func (_c *Mockk8sClient_List_Call) RunAndReturn(run func(context.Context, client
 	return _c
 }
 
+// Status provides a mock function with no fields
+func (_m *Mockk8sClient) Status() client.SubResourceWriter {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Status")
+	}
+
+	var r0 client.SubResourceWriter
+	if rf, ok := ret.Get(0).(func() client.SubResourceWriter); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(client.SubResourceWriter)
+		}
+	}
+
+	return r0
+}
+
+// Mockk8sClient_Status_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Status'
+type Mockk8sClient_Status_Call struct {
+	*mock.Call
+}
+
+// Status is a helper method to define mock.On call
+func (_e *Mockk8sClient_Expecter) Status() *Mockk8sClient_Status_Call {
+	return &Mockk8sClient_Status_Call{Call: _e.mock.On("Status")}
+}
+
+func (_c *Mockk8sClient_Status_Call) Run(run func()) *Mockk8sClient_Status_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *Mockk8sClient_Status_Call) Return(_a0 client.SubResourceWriter) *Mockk8sClient_Status_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Mockk8sClient_Status_Call) RunAndReturn(run func() client.SubResourceWriter) *Mockk8sClient_Status_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockk8sClient creates a new instance of Mockk8sClient. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockk8sClient(t interface {
