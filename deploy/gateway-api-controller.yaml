@@ -1,0 +1,81 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: okegw
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: oke-gateway-api-controller-sa
+  namespace: okegw
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: oke-gateway-api-controller-role
+rules:
+# Permissions to watch and update Gateway API resources
+- apiGroups: ["gateway.networking.k8s.io"]
+  # Add other relevant route types like TCPRoute, UDPRoute, TLSRoute if the controller supports them
+  resources: ["gatewayclasses", "gateways", "httproutes", "referencegrants"]
+  verbs: ["get", "list", "watch", "update", "patch"] # Read access + update/patch for finalizers/annotations
+- apiGroups: ["gateway.networking.k8s.io"]
+  # Add status subresources for other supported route types
+  resources: ["gatewayclasses/status", "gateways/status", "httproutes/status"]
+  verbs: ["update", "patch"] # Update status
+# Permissions to read necessary core resources for OCI LB configuration
+- apiGroups: [""]
+  resources: ["services", "endpoints", "secrets", "nodes"]
+  verbs: ["get", "list", "watch"] # Read-only access
+# Permissions for leader election
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: oke-gateway-api-controller-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: oke-gateway-api-controller-role
+subjects:
+- kind: ServiceAccount
+  name: oke-gateway-api-controller-sa
+  namespace: okegw
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oke-gateway-api-controller
+  namespace: okegw
+  labels:
+    app: oke-gateway-api-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oke-gateway-api-controller
+  template:
+    metadata:
+      labels:
+        app: oke-gateway-api-controller
+    spec:
+      serviceAccountName: oke-gateway-api-controller-sa
+      containers:
+      - name: controller
+        image: ghcr.io/gemyago/oke-gateway-api-server:git-commit-9185063
+        imagePullPolicy: IfNotPresent
+        ports: []
+        # Future enhancements:
+        # - Define containerPort for health checks (e.g., 8081)
+        # - Configure livenessProbe (e.g., httpGet on /healthz)
+        # - Configure readinessProbe (e.g., httpGet on /readyz)
+        # - Set resource requests/limits (cpu, memory)
+        # - Add environment variables (e.g., OCI_REGION)

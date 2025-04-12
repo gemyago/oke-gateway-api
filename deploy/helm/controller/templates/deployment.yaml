@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "oke-gateway-api-controller.fullname" . }}
+  namespace: {{ include "oke-gateway-api-controller.namespace" . }}
+  labels:
+    {{- include "oke-gateway-api-controller.labels" . | nindent 4 }}
+spec:
+  replicas: 1 # Consider making this configurable via values.yaml
+  selector:
+    matchLabels:
+      {{- include "oke-gateway-api-controller.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "oke-gateway-api-controller.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.deployment.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.deployment.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "oke-gateway-api-controller.serviceAccountName" . }}
+      containers:
+      - name: controller
+        image: "{{ .Values.deployment.image.repository }}:{{ .Values.deployment.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.deployment.image.pullPolicy }}
+        ports: [] # Add ports if needed for health checks etc.
+        # Add livenessProbe, readinessProbe here if configured
+        resources:
+          {{- toYaml .Values.deployment.resources | nindent 10 }}
+        # Add environment variables if needed 
