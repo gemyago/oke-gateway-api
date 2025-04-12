@@ -11,7 +11,6 @@ func Register(container *dig.Container) error {
 		func(c client.Client) k8sClient {
 			return c
 		},
-		NewEchoService,
 		NewGatewayClassController,
 		NewGatewayController,
 	)
