@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -219,6 +220,52 @@ func TestGatewayClassController(t *testing.T) {
 		result, err := controller.Reconcile(t.Context(), req)
 
 		// Expect no error and an empty result, as the controller should ignore this GatewayClass
+		require.NoError(t, err)
+		assert.Equal(t, reconcile.Result{}, result)
+	})
+
+	t.Run("AlreadyAccepted", func(t *testing.T) {
+		// Create a GatewayClass that is already accepted
+		gatewayClass := newRandomGatewayClass()
+
+		// Manually set the condition as if we had already reconciled it
+		existingCondition := metav1.Condition{
+			Type:               "Accepted",
+			Status:             metav1.ConditionTrue,
+			Reason:             "Accepted",
+			Message:            "GatewayClass is accepted by this controller",
+			ObservedGeneration: gatewayClass.Generation, // Match the current generation
+		}
+		meta.SetStatusCondition(&gatewayClass.Status.Conditions, existingCondition)
+
+		req := reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Name: gatewayClass.Name,
+			},
+		}
+
+		mockClient := NewMockk8sClient(t)
+
+		// Simulate successful Get returning the already-accepted object
+		mockClient.EXPECT().
+			Get(t.Context(), req.NamespacedName, mock.Anything).
+			RunAndReturn(func(_ context.Context, nn types.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
+				assert.Equal(t, req.NamespacedName, nn)
+				reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gatewayClass))
+				return nil
+			})
+
+		// We DO NOT expect Status() or Update() to be called if the status is already correct.
+		// Testify's AssertExpectations (called via t.Cleanup) will fail the test if Status() is called.
+
+		controller := &GatewayClassController{
+			client: mockClient,
+			logger: diag.RootTestLogger(),
+		}
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		// Expect no error and an empty result, as no update should be needed
 		require.NoError(t, err)
 		assert.Equal(t, reconcile.Result{}, result)
 	})

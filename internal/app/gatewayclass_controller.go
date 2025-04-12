@@ -16,6 +16,11 @@ import (
 
 const ControllerClassName = "oke-gateway-api.gemyago.github.io/oke-alb-gateway-controller"
 
+const (
+	AcceptedConditionType   = "Accepted"
+	AcceptedConditionReason = "Accepted"
+)
+
 // This is an internal interface used only to describe what we need from the client.
 type k8sClient interface {
 	Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error
@@ -73,13 +78,22 @@ func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Re
 		slog.Any("gatewayClass", gatewayClass),
 	)
 
-	// For now, we just log the reconciliation and do nothing
-	// Update the status condition
+	// Check if the GatewayClass is already in the desired state
+	existingCondition := meta.FindStatusCondition(gatewayClass.Status.Conditions, "Accepted")
+	if existingCondition != nil &&
+		existingCondition.Status == metav1.ConditionTrue &&
+		existingCondition.Reason == AcceptedConditionReason &&
+		existingCondition.ObservedGeneration == gatewayClass.Generation {
+		r.logger.DebugContext(ctx, "GatewayClass status already up-to-date", slog.Any("gatewayClass", req.NamespacedName))
+		return reconcile.Result{}, nil // Already in desired state
+	}
+
+	// If not already accepted or generation changed, update the status condition
 	acceptedCondition := metav1.Condition{
-		Type:               "Accepted",
+		Type:               AcceptedConditionType,
 		Status:             metav1.ConditionTrue,
-		Reason:             "Accepted",
-		Message:            "GatewayClass is accepted by this controller",
+		Reason:             AcceptedConditionReason,
+		Message:            fmt.Sprintf("GatewayClass %s is accepted by %s", gatewayClass.Name, ControllerClassName),
 		ObservedGeneration: gatewayClass.Generation,
 		LastTransitionTime: metav1.Now(),
 	}
