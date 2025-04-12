@@ -73,7 +73,7 @@ func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Re
 		return reconcile.Result{}, nil // Ignore this GatewayClass
 	}
 
-	r.logger.DebugContext(ctx, "Performing reconciliation",
+	r.logger.DebugContext(ctx, "GatewayClass reconciliation details",
 		slog.Any("req", req),
 		slog.Any("gatewayClass", gatewayClass),
 	)

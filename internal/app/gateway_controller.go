@@ -45,7 +45,7 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 		return reconcile.Result{}, fmt.Errorf("failed to get Gateway %s: %w", req.NamespacedName, err)
 	}
 
-	r.logger.DebugContext(ctx, "Performing Gateway reconciliation",
+	r.logger.DebugContext(ctx, "Gateway reconciliation details",
 		slog.Any("req", req),
 		slog.Any("gateway", gateway),
 	)
