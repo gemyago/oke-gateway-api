@@ -185,4 +185,41 @@ func TestGatewayClassController(t *testing.T) {
 		require.ErrorIs(t, err, statusUpdateErr)    // Check if the original error is wrapped
 		assert.Equal(t, reconcile.Result{}, result) // Expect empty result on error
 	})
+
+	t.Run("WrongControllerName", func(t *testing.T) {
+		// Create a GatewayClass with a controller name this controller shouldn't manage
+		gatewayClass := newRandomGatewayClass()
+		gatewayClass.Spec.ControllerName = gatewayv1.GatewayController(faker.DomainName()) // Different controller name
+
+		req := reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Name: gatewayClass.Name,
+			},
+		}
+
+		mockClient := NewMockk8sClient(t)
+
+		// Simulate successful Get
+		mockClient.EXPECT().
+			Get(t.Context(), req.NamespacedName, mock.Anything).
+			RunAndReturn(func(_ context.Context, nn types.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
+				assert.Equal(t, req.NamespacedName, nn)
+				reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gatewayClass))
+				return nil
+			})
+
+		// We DO NOT expect Status() or Update() to be called for a GatewayClass with the wrong controller name.
+		// Testify's AssertExpectations (called via t.Cleanup) will fail the test if Status() is called.
+
+		controller := &GatewayClassController{
+			client: mockClient,
+			logger: diag.RootTestLogger(),
+		}
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		// Expect no error and an empty result, as the controller should ignore this GatewayClass
+		require.NoError(t, err)
+		assert.Equal(t, reconcile.Result{}, result)
+	})
 }

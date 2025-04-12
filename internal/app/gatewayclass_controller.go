@@ -57,6 +57,17 @@ func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Re
 		return reconcile.Result{}, fmt.Errorf("failed to get GatewayClass %s: %w", req.NamespacedName, err)
 	}
 
+	// Check if the ControllerName matches the one we are responsible for
+	if gatewayClass.Spec.ControllerName != ControllerClassName {
+		r.logger.DebugContext(ctx,
+			"Ignoring GatewayClass because controllerName does not match",
+			slog.String("gatewayClass", req.NamespacedName.String()),
+			slog.String("expectedControllerName", ControllerClassName),
+			slog.String("actualControllerName", string(gatewayClass.Spec.ControllerName)),
+		)
+		return reconcile.Result{}, nil // Ignore this GatewayClass
+	}
+
 	r.logger.DebugContext(ctx, "Performing reconciliation",
 		slog.Any("req", req),
 		slog.Any("gatewayClass", gatewayClass),
