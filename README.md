@@ -7,6 +7,35 @@
 
 Project status: **Early Alpha**
 
+## Getting Started
+
+Install Gateway API CRDs:
+```sh
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.0/standard-install.yaml
+```
+
+Install the OKE Gateway API controller:
+```sh
+kubectl apply -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/gateway-api-controller.yaml
+```
+
+Install the OKE Gateway API controller using Helm:
+```sh
+helm install oke-gateway-api-controller oke-gateway-api/controller --namespace oke-gw
+```
+
+Create a GatewayClass resource:
+```bash
+cat <<EOF | kubectl apply -f -
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: oke-gateway-api
+spec:
+  controllerName: oke-gateway-api-controller.oracle.com/test
+EOF
+```
+
 ## Contributing
 
 ### Project Setup
