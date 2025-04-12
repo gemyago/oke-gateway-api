@@ -21,6 +21,10 @@ kubectl apply -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/
 
 Install the OKE Gateway API controller using Helm:
 ```sh
+# Create namespace
+kubectl create namespace oke-gw
+
+# Install controller
 helm install oke-gateway-api-controller oke-gateway-api/controller --namespace oke-gw
 ```
 
