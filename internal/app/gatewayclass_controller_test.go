@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -79,6 +80,33 @@ func TestGatewayClassController(t *testing.T) {
 
 		result, err := controller.Reconcile(t.Context(), req)
 
+		require.NoError(t, err)
+		assert.Equal(t, reconcile.Result{}, result)
+	})
+
+	t.Run("NotFound", func(t *testing.T) {
+		req := reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Name: faker.DomainName(),
+			},
+		}
+
+		mockClient := NewMockk8sClient(t)
+
+		// Simulate client returning NotFound error
+		notFoundErr := apierrors.NewNotFound(gatewayv1.Resource("gatewayclasses"), req.Name)
+		mockClient.EXPECT().
+			Get(t.Context(), req.NamespacedName, mock.AnythingOfType("*v1.GatewayClass")).
+			Return(notFoundErr)
+
+		controller := &GatewayClassController{
+			client: mockClient,
+			logger: diag.RootTestLogger(),
+		}
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		// Expect no error and an empty result when NotFound
 		require.NoError(t, err)
 		assert.Equal(t, reconcile.Result{}, result)
 	})
