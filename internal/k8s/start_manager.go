@@ -45,10 +45,14 @@ func StartManager(ctx context.Context, deps ManagerDeps) error { // coverage-ign
 	}
 
 	// Register the controller with the manager
-	err = builder.ControllerManagedBy(mgr).
+	// if err = builder.ControllerManagedBy(mgr).
+	// 	For(&gatewayv1.Gateway{}).
+	// 	Complete(deps.Controller); err != nil {
+	// 	return err
+	// }
+	if err = builder.ControllerManagedBy(mgr).
 		For(&gatewayv1.GatewayClass{}).
-		Complete(deps.Controller)
-	if err != nil {
+		Complete(deps.Controller); err != nil {
 		return err
 	}
 

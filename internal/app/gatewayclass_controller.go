@@ -46,8 +46,8 @@ func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Re
 	}
 
 	r.logger.InfoContext(ctx, "Reconciling GatewayClass",
-		"name", gatewayClass.Name,
-		"controller", gatewayClass.Spec.ControllerName,
+		slog.Any("req", req),
+		slog.Any("gatewayClass", gatewayClass),
 	)
 
 	// For now, we just log the reconciliation and do nothing
