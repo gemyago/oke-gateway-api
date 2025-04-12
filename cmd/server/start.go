@@ -7,8 +7,6 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/gemyago/oke-gateway-api/internal/api/http"
-	"github.com/gemyago/oke-gateway-api/internal/api/http/server"
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/gemyago/oke-gateway-api/internal/k8s"
 	"github.com/gemyago/oke-gateway-api/internal/services"
@@ -23,8 +21,6 @@ type startServerParams struct {
 
 	RootLogger *slog.Logger
 
-	HTTPServer *server.HTTPServer
-
 	*services.ShutdownHooks
 
 	ManagerDeps k8s.ManagerDeps
@@ -34,7 +30,6 @@ type startServerParams struct {
 
 func startServer(params startServerParams) error {
 	rootLogger := params.RootLogger
-	httpServer := params.HTTPServer
 	rootCtx := context.Background()
 
 	shutdown := func() error {
@@ -55,16 +50,8 @@ func startServer(params startServerParams) error {
 	signalCtx, cancel := signal.NotifyContext(rootCtx, unix.SIGINT, unix.SIGTERM)
 	defer cancel()
 
-	const startedComponents = 2
+	const startedComponents = 1
 	startupErrors := make(chan error, startedComponents)
-	go func() {
-		if params.noop {
-			rootLogger.InfoContext(signalCtx, "NOOP: Starting http server")
-			startupErrors <- nil
-			return
-		}
-		startupErrors <- httpServer.Start(signalCtx)
-	}()
 	go func() {
 		if params.noop {
 			rootLogger.InfoContext(signalCtx, "NOOP: Starting k8s controller manager")
@@ -101,8 +88,6 @@ func newStartServerCmd(container *dig.Container) *cobra.Command {
 	)
 	cmd.PreRunE = func(_ *cobra.Command, _ []string) error {
 		return errors.Join(
-			server.Register(container),
-			http.Register(container),
 			k8sapi.Register(container),
 		)
 	}
