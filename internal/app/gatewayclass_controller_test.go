@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"testing"
 
+	"errors"
+
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	k8sapi "github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
 	"github.com/go-faker/faker/v4"
@@ -109,5 +111,36 @@ func TestGatewayClassController(t *testing.T) {
 		// Expect no error and an empty result when NotFound
 		require.NoError(t, err)
 		assert.Equal(t, reconcile.Result{}, result)
+	})
+
+	t.Run("GetError", func(t *testing.T) {
+		req := reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Name: faker.DomainName(),
+			},
+		}
+
+		mockClient := NewMockk8sClient(t)
+
+		// Simulate client returning a generic error
+		getErr := errors.New(faker.Sentence())
+		mockClient.EXPECT().
+			Get(t.Context(), req.NamespacedName, mock.AnythingOfType("*v1.GatewayClass")).
+			Return(getErr)
+
+		// Status should not be called if Get fails
+		mockClient.EXPECT().Status().Maybe()
+
+		controller := &GatewayClassController{
+			client: mockClient,
+			logger: diag.RootTestLogger(),
+		}
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		// Expect the specific error to be returned, wrapped
+		require.Error(t, err)
+		require.ErrorIs(t, err, getErr)             // Check if the original error is wrapped
+		assert.Equal(t, reconcile.Result{}, result) // Expect empty result on error
 	})
 }
