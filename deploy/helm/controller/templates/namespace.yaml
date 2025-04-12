@@ -1,8 +1,0 @@
-{{- if .Values.namespace -}}
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: {{ include "oke-gateway-api-controller.namespace" . }}
-  labels:
-    {{- include "oke-gateway-api-controller.labels" . | nindent 4 }}
-{{- end -}} 

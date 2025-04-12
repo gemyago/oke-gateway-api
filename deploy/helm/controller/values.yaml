@@ -4,7 +4,6 @@
 
 # Override the namespace where the controller will be deployed.
 # If not set, it defaults to the release namespace.
-namespace: okegw
 
 nameOverride: ""
 fullnameOverride: ""
@@ -23,21 +22,15 @@ deployment:
   image:
     repository: ghcr.io/gemyago/oke-gateway-api-server
     pullPolicy: IfNotPresent
-    # Overrides the image tag whose default is the chart appVersion.
     tag: "git-commit-9185063"
-  # Resource requests and limits for the controller container
-  # We usually recommend not to specify default resources and to leave this as a conscious
-  # choice for the user. This also increases chances charts run on environments with little
-  # resources, such as Minikube. If you do want to specify resources, uncomment the following
-  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
-  resources: {}
-  # resources:
-  #   limits:
-  #     cpu: 100m
-  #     memory: 128Mi
-  #   requests:
-  #     cpu: 100m
-  #     memory: 128Mi
+
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 200m
+      memory: 256Mi
 
   # Node selector, tolerations, and affinity settings can be added here if needed.
   nodeSelector: {}

@@ -63,12 +63,8 @@ Create the name of the service account to use
 
 {{/*
 Determine the namespace scope
-If a namespace is provided in values, use that. Otherwise, use the release namespace.
+Always use the release namespace provided via Helm's -n flag.
 */}}
 {{- define "oke-gateway-api-controller.namespace" -}}
-{{- if .Values.namespace }}
-{{- .Values.namespace }}
-{{- else }}
 {{- .Release.Namespace }}
-{{- end }}
 {{- end -}} 
