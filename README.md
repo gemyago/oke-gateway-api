@@ -26,7 +26,7 @@ helm install oke-gateway-api-controller oke-gateway-api/controller --namespace o
 
 Create a GatewayClass resource:
 ```bash
-cat <<EOF | kubectl apply -f -
+cat <<EOF | kubectl -n oke-gw apply -f -
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
 metadata:
@@ -38,7 +38,7 @@ EOF
 
 Create a Gateway resource:
 ```bash
-cat <<EOF | kubectl apply -f -
+cat <<EOF | kubectl -n oke-gw apply -f -
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
