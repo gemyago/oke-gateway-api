@@ -143,4 +143,46 @@ func TestGatewayClassController(t *testing.T) {
 		require.ErrorIs(t, err, getErr)             // Check if the original error is wrapped
 		assert.Equal(t, reconcile.Result{}, result) // Expect empty result on error
 	})
+
+	t.Run("StatusUpdateError", func(t *testing.T) {
+		// Create a test GatewayClass
+		gatewayClass := newRandomGatewayClass()
+		req := reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Name: gatewayClass.Name,
+			},
+		}
+
+		mockClient := NewMockk8sClient(t)
+		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+
+		// Simulate successful Get
+		mockClient.EXPECT().
+			Get(t.Context(), req.NamespacedName, mock.Anything).
+			RunAndReturn(func(_ context.Context, nn types.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
+				assert.Equal(t, req.NamespacedName, nn)
+				reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gatewayClass))
+				return nil
+			})
+
+		mockClient.EXPECT().Status().Return(mockStatusWriter)
+
+		// Simulate Status Update error
+		statusUpdateErr := errors.New(faker.Sentence())
+		mockStatusWriter.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.GatewayClass"), mock.Anything).
+			Return(statusUpdateErr)
+
+		controller := &GatewayClassController{
+			client: mockClient,
+			logger: diag.RootTestLogger(),
+		}
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		// Expect the specific error from status update to be returned, wrapped
+		require.Error(t, err)
+		require.ErrorIs(t, err, statusUpdateErr)    // Check if the original error is wrapped
+		assert.Equal(t, reconcile.Result{}, result) // Expect empty result on error
+	})
 }
