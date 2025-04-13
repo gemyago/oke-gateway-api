@@ -91,7 +91,9 @@ func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Re
 		message:    fmt.Sprintf("GatewayClass %s is accepted by %s", gatewayClass.Name, ControllerClassName),
 	}); err != nil {
 		return reconcile.Result{},
-			fmt.Errorf("failed to set accepted condition for GatewayClass %s: %w", req.NamespacedName, err)
+			fmt.Errorf("failed to set accepted condition for GatewayClass %s: %w",
+				req.NamespacedName,
+				err)
 	}
 
 	r.logger.InfoContext(ctx,
