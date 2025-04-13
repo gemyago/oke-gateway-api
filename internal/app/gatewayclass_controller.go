@@ -100,9 +100,7 @@ func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Re
 
 	meta.SetStatusCondition(&gatewayClass.Status.Conditions, acceptedCondition)
 
-	// Update the status subresource
 	if err := r.client.Status().Update(ctx, &gatewayClass); err != nil {
-		r.logger.ErrorContext(ctx, "Failed to update GatewayClass status", slog.Any("error", err))
 		return reconcile.Result{}, fmt.Errorf("failed to update GatewayClass status for %s: %w", req.NamespacedName, err)
 	}
 
