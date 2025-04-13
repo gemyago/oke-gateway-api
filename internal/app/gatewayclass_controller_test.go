@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"math/rand/v2"
 	"reflect"
 	"testing"
@@ -9,7 +10,6 @@ import (
 	"errors"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
-	k8sapi "github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
 	"github.com/go-faker/faker/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -60,9 +60,9 @@ func TestGatewayClassController(t *testing.T) {
 
 		deps := newMockDeps(t)
 		controller := NewGatewayClassController(deps)
-		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
 
 		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
 
 		mockClient.EXPECT().
 			Get(t.Context(), req.NamespacedName, mock.Anything).
@@ -72,19 +72,12 @@ func TestGatewayClassController(t *testing.T) {
 				return nil
 			})
 
-		mockClient.EXPECT().Status().Return(mockStatusWriter)
-
-		mockStatusWriter.EXPECT().
-			Update(t.Context(), mock.MatchedBy(func(gc *gatewayv1.GatewayClass) bool {
-				if len(gc.Status.Conditions) != 1 {
-					return false
-				}
-				condition := gc.Status.Conditions[0]
-				return condition.Type == "Accepted" &&
-					condition.Status == metav1.ConditionTrue &&
-					condition.Reason == "Accepted" &&
-					condition.ObservedGeneration == gatewayClass.Generation
-			}), mock.Anything).
+		mockResourcesModel.EXPECT().
+			setAcceptedCondition(t.Context(), setAcceptedConditionParams{
+				resource:   gatewayClass,
+				conditions: &gatewayClass.Status.Conditions,
+				message:    fmt.Sprintf("GatewayClass %s is accepted by %s", gatewayClass.Name, ControllerClassName),
+			}).
 			Return(nil)
 
 		result, err := controller.Reconcile(t.Context(), req)
@@ -159,7 +152,7 @@ func TestGatewayClassController(t *testing.T) {
 		deps := newMockDeps(t)
 		controller := NewGatewayClassController(deps)
 		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
-		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+		mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
 
 		// Simulate successful Get
 		mockClient.EXPECT().
@@ -170,12 +163,10 @@ func TestGatewayClassController(t *testing.T) {
 				return nil
 			})
 
-		mockClient.EXPECT().Status().Return(mockStatusWriter)
-
 		// Simulate Status Update error
 		statusUpdateErr := errors.New(faker.Sentence())
-		mockStatusWriter.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1.GatewayClass"), mock.Anything).
+		mockResourcesModel.EXPECT().
+			setAcceptedCondition(t.Context(), mock.Anything).
 			Return(statusUpdateErr)
 
 		result, err := controller.Reconcile(t.Context(), req)

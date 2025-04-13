@@ -30,8 +30,9 @@ type k8sClient interface {
 
 // GatewayClassController is a simple controller that watches GatewayClass resources.
 type GatewayClassController struct {
-	client k8sClient
-	logger *slog.Logger
+	client         k8sClient
+	logger         *slog.Logger
+	resourcesModel resourcesModel
 }
 
 // GatewayClassControllerDeps contains the dependencies for the GatewayClassController.
@@ -46,8 +47,9 @@ type GatewayClassControllerDeps struct {
 // NewGatewayClassController creates a new GatewayClassController.
 func NewGatewayClassController(deps GatewayClassControllerDeps) *GatewayClassController {
 	return &GatewayClassController{
-		client: deps.K8sClient,
-		logger: deps.RootLogger,
+		client:         deps.K8sClient,
+		logger:         deps.RootLogger,
+		resourcesModel: deps.ResourcesModel,
 	}
 }
 
@@ -89,20 +91,13 @@ func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Re
 		return reconcile.Result{}, nil // Already in desired state
 	}
 
-	// If not already accepted or generation changed, update the status condition
-	acceptedCondition := metav1.Condition{
-		Type:               AcceptedConditionType,
-		Status:             metav1.ConditionTrue,
-		Reason:             AcceptedConditionReason,
-		Message:            fmt.Sprintf("GatewayClass %s is accepted by %s", gatewayClass.Name, ControllerClassName),
-		ObservedGeneration: gatewayClass.Generation,
-		LastTransitionTime: metav1.Now(),
-	}
-
-	meta.SetStatusCondition(&gatewayClass.Status.Conditions, acceptedCondition)
-
-	if err := r.client.Status().Update(ctx, &gatewayClass); err != nil {
-		return reconcile.Result{}, fmt.Errorf("failed to update GatewayClass status for %s: %w", req.NamespacedName, err)
+	if err := r.resourcesModel.setAcceptedCondition(ctx, setAcceptedConditionParams{
+		resource:   &gatewayClass,
+		conditions: &gatewayClass.Status.Conditions,
+		message:    fmt.Sprintf("GatewayClass %s is accepted by %s", gatewayClass.Name, ControllerClassName),
+	}); err != nil {
+		return reconcile.Result{},
+			fmt.Errorf("failed to set accepted condition for GatewayClass %s: %w", req.NamespacedName, err)
 	}
 
 	r.logger.InfoContext(ctx,
