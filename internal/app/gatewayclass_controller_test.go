@@ -39,6 +39,14 @@ func TestGatewayClassController(t *testing.T) {
 		}
 	}
 
+	newMockDeps := func(t *testing.T) GatewayClassControllerDeps {
+		return GatewayClassControllerDeps{
+			K8sClient:      NewMockk8sClient(t),
+			ResourcesModel: NewMockresourcesModel(t),
+			RootLogger:     diag.RootTestLogger(),
+		}
+	}
+
 	t.Run("Reconcile", func(t *testing.T) {
 		// Create a test GatewayClass using the helper
 		gatewayClass := newRandomGatewayClass()
@@ -50,8 +58,11 @@ func TestGatewayClassController(t *testing.T) {
 			},
 		}
 
-		mockClient := NewMockk8sClient(t)
+		deps := newMockDeps(t)
+		controller := NewGatewayClassController(deps)
 		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 
 		mockClient.EXPECT().
 			Get(t.Context(), req.NamespacedName, mock.Anything).
@@ -76,11 +87,6 @@ func TestGatewayClassController(t *testing.T) {
 			}), mock.Anything).
 			Return(nil)
 
-		controller := &GatewayClassController{
-			client: mockClient,
-			logger: diag.RootTestLogger(),
-		}
-
 		result, err := controller.Reconcile(t.Context(), req)
 
 		require.NoError(t, err)
@@ -94,18 +100,16 @@ func TestGatewayClassController(t *testing.T) {
 			},
 		}
 
-		mockClient := NewMockk8sClient(t)
+		deps := newMockDeps(t)
+		controller := NewGatewayClassController(deps)
+
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 
 		// Simulate client returning NotFound error
 		notFoundErr := apierrors.NewNotFound(gatewayv1.Resource("gatewayclasses"), req.Name)
 		mockClient.EXPECT().
 			Get(t.Context(), req.NamespacedName, mock.AnythingOfType("*v1.GatewayClass")).
 			Return(notFoundErr)
-
-		controller := &GatewayClassController{
-			client: mockClient,
-			logger: diag.RootTestLogger(),
-		}
 
 		result, err := controller.Reconcile(t.Context(), req)
 
@@ -121,7 +125,10 @@ func TestGatewayClassController(t *testing.T) {
 			},
 		}
 
-		mockClient := NewMockk8sClient(t)
+		deps := newMockDeps(t)
+		controller := NewGatewayClassController(deps)
+
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 
 		// Simulate client returning a generic error
 		getErr := errors.New(faker.Sentence())
@@ -131,11 +138,6 @@ func TestGatewayClassController(t *testing.T) {
 
 		// Status should not be called if Get fails
 		mockClient.EXPECT().Status().Maybe()
-
-		controller := &GatewayClassController{
-			client: mockClient,
-			logger: diag.RootTestLogger(),
-		}
 
 		result, err := controller.Reconcile(t.Context(), req)
 
@@ -154,7 +156,9 @@ func TestGatewayClassController(t *testing.T) {
 			},
 		}
 
-		mockClient := NewMockk8sClient(t)
+		deps := newMockDeps(t)
+		controller := NewGatewayClassController(deps)
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
 
 		// Simulate successful Get
@@ -173,11 +177,6 @@ func TestGatewayClassController(t *testing.T) {
 		mockStatusWriter.EXPECT().
 			Update(t.Context(), mock.AnythingOfType("*v1.GatewayClass"), mock.Anything).
 			Return(statusUpdateErr)
-
-		controller := &GatewayClassController{
-			client: mockClient,
-			logger: diag.RootTestLogger(),
-		}
 
 		result, err := controller.Reconcile(t.Context(), req)
 
@@ -198,7 +197,9 @@ func TestGatewayClassController(t *testing.T) {
 			},
 		}
 
-		mockClient := NewMockk8sClient(t)
+		deps := newMockDeps(t)
+		controller := NewGatewayClassController(deps)
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 
 		// Simulate successful Get
 		mockClient.EXPECT().
@@ -211,11 +212,6 @@ func TestGatewayClassController(t *testing.T) {
 
 		// We DO NOT expect Status() or Update() to be called for a GatewayClass with the wrong controller name.
 		// Testify's AssertExpectations (called via t.Cleanup) will fail the test if Status() is called.
-
-		controller := &GatewayClassController{
-			client: mockClient,
-			logger: diag.RootTestLogger(),
-		}
 
 		result, err := controller.Reconcile(t.Context(), req)
 
@@ -244,7 +240,9 @@ func TestGatewayClassController(t *testing.T) {
 			},
 		}
 
-		mockClient := NewMockk8sClient(t)
+		deps := newMockDeps(t)
+		controller := NewGatewayClassController(deps)
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 
 		// Simulate successful Get returning the already-accepted object
 		mockClient.EXPECT().
@@ -254,14 +252,6 @@ func TestGatewayClassController(t *testing.T) {
 				reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gatewayClass))
 				return nil
 			})
-
-		// We DO NOT expect Status() or Update() to be called if the status is already correct.
-		// Testify's AssertExpectations (called via t.Cleanup) will fail the test if Status() is called.
-
-		controller := &GatewayClassController{
-			client: mockClient,
-			logger: diag.RootTestLogger(),
-		}
 
 		result, err := controller.Reconcile(t.Context(), req)
 

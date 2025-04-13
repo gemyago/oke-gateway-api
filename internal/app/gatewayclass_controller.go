@@ -38,8 +38,9 @@ type GatewayClassController struct {
 type GatewayClassControllerDeps struct {
 	dig.In
 
-	RootLogger *slog.Logger
-	K8sClient  k8sClient
+	RootLogger     *slog.Logger
+	K8sClient      k8sClient
+	ResourcesModel resourcesModel
 }
 
 // NewGatewayClassController creates a new GatewayClassController.
