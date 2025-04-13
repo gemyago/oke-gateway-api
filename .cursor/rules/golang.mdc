@@ -1,0 +1,15 @@
+---
+description: 
+globs: *.go
+alwaysApply: false
+---
+# golang project rules
+
+- Build plan, confirm before proceeding
+- TDD must be followed if adding new stuff, which means:
+  1. Add stub declarations (for struct function panic not implemented)
+  2. Add or extend tests that are testing desired logic
+  3. Implement the logic
+- Use mockery to create mocks for dependencies
+  - add mocks to @.mockery.yaml
+  - run `mockery` from root to regenerate
