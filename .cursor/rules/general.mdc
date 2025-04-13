@@ -1,0 +1,9 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# General rules when suggesting code
+
+- Do not include a lot of comments. Only for most complex or weird cases.
