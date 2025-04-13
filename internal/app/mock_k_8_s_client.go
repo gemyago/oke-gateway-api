@@ -199,6 +199,68 @@ func (_c *Mockk8sClient_Status_Call) RunAndReturn(run func() client.SubResourceW
 	return _c
 }
 
+// Update provides a mock function with given fields: ctx, obj, opts
+func (_m *Mockk8sClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	_va := make([]interface{}, len(opts))
+	for _i := range opts {
+		_va[_i] = opts[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, ctx, obj)
+	_ca = append(_ca, _va...)
+	ret := _m.Called(_ca...)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Update")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, client.Object, ...client.UpdateOption) error); ok {
+		r0 = rf(ctx, obj, opts...)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Mockk8sClient_Update_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Update'
+type Mockk8sClient_Update_Call struct {
+	*mock.Call
+}
+
+// Update is a helper method to define mock.On call
+//   - ctx context.Context
+//   - obj client.Object
+//   - opts ...client.UpdateOption
+func (_e *Mockk8sClient_Expecter) Update(ctx interface{}, obj interface{}, opts ...interface{}) *Mockk8sClient_Update_Call {
+	return &Mockk8sClient_Update_Call{Call: _e.mock.On("Update",
+		append([]interface{}{ctx, obj}, opts...)...)}
+}
+
+func (_c *Mockk8sClient_Update_Call) Run(run func(ctx context.Context, obj client.Object, opts ...client.UpdateOption)) *Mockk8sClient_Update_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		variadicArgs := make([]client.UpdateOption, len(args)-2)
+		for i, a := range args[2:] {
+			if a != nil {
+				variadicArgs[i] = a.(client.UpdateOption)
+			}
+		}
+		run(args[0].(context.Context), args[1].(client.Object), variadicArgs...)
+	})
+	return _c
+}
+
+func (_c *Mockk8sClient_Update_Call) Return(_a0 error) *Mockk8sClient_Update_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Mockk8sClient_Update_Call) RunAndReturn(run func(context.Context, client.Object, ...client.UpdateOption) error) *Mockk8sClient_Update_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockk8sClient creates a new instance of Mockk8sClient. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockk8sClient(t interface {

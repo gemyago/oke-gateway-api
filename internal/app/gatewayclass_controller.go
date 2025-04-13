@@ -24,6 +24,7 @@ type k8sClient interface {
 	Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error
 	List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error
 	Status() client.StatusWriter
+	Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error
 }
 
 // GatewayClassController is a simple controller that watches GatewayClass resources.
