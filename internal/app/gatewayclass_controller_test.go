@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -71,6 +70,10 @@ func TestGatewayClassController(t *testing.T) {
 				reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gatewayClass))
 				return nil
 			})
+
+		mockResourcesModel.EXPECT().
+			isConditionSet(gatewayClass, gatewayClass.Status.Conditions, AcceptedConditionType).
+			Return(false)
 
 		mockResourcesModel.EXPECT().
 			setAcceptedCondition(t.Context(), setAcceptedConditionParams{
@@ -163,6 +166,10 @@ func TestGatewayClassController(t *testing.T) {
 				return nil
 			})
 
+		mockResourcesModel.EXPECT().
+			isConditionSet(gatewayClass, gatewayClass.Status.Conditions, AcceptedConditionType).
+			Return(false)
+
 		// Simulate Status Update error
 		statusUpdateErr := errors.New(faker.Sentence())
 		mockResourcesModel.EXPECT().
@@ -215,16 +222,6 @@ func TestGatewayClassController(t *testing.T) {
 		// Create a GatewayClass that is already accepted
 		gatewayClass := newRandomGatewayClass()
 
-		// Manually set the condition as if we had already reconciled it
-		existingCondition := metav1.Condition{
-			Type:               "Accepted",
-			Status:             metav1.ConditionTrue,
-			Reason:             "Accepted",
-			Message:            "GatewayClass is accepted by this controller",
-			ObservedGeneration: gatewayClass.Generation, // Match the current generation
-		}
-		meta.SetStatusCondition(&gatewayClass.Status.Conditions, existingCondition)
-
 		req := reconcile.Request{
 			NamespacedName: client.ObjectKey{
 				Name: gatewayClass.Name,
@@ -234,6 +231,7 @@ func TestGatewayClassController(t *testing.T) {
 		deps := newMockDeps(t)
 		controller := NewGatewayClassController(deps)
 		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
 
 		// Simulate successful Get returning the already-accepted object
 		mockClient.EXPECT().
@@ -243,6 +241,11 @@ func TestGatewayClassController(t *testing.T) {
 				reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gatewayClass))
 				return nil
 			})
+
+		// We expect the new isConditionSet method to be called and return true
+		mockResourcesModel.EXPECT().
+			isConditionSet(gatewayClass, gatewayClass.Status.Conditions, AcceptedConditionType).
+			Return(true)
 
 		result, err := controller.Reconcile(t.Context(), req)
 

@@ -7,8 +7,6 @@ import (
 
 	"go.uber.org/dig"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -82,12 +80,7 @@ func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Re
 	)
 
 	// Check if the GatewayClass is already in the desired state
-	existingCondition := meta.FindStatusCondition(gatewayClass.Status.Conditions, "Accepted")
-	if existingCondition != nil &&
-		existingCondition.Status == metav1.ConditionTrue &&
-		existingCondition.Reason == AcceptedConditionReason &&
-		existingCondition.ObservedGeneration == gatewayClass.Generation {
-		r.logger.DebugContext(ctx, "GatewayClass status already up-to-date", slog.Any("gatewayClass", req.NamespacedName))
+	if r.resourcesModel.isConditionSet(&gatewayClass, gatewayClass.Status.Conditions, AcceptedConditionType) {
 		return reconcile.Result{}, nil // Already in desired state
 	}
 

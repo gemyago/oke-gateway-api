@@ -23,6 +23,9 @@ type resourcesModel interface {
 	// SetAcceptedCondition sets the 'Accepted' status condition on a given resource.
 	// It's designed to be generic but initially targets Gateway API resources.
 	setAcceptedCondition(ctx context.Context, params setAcceptedConditionParams) error
+
+	// isConditionSet checks if a specific condition is already set, true, and observed at the correct generation.
+	isConditionSet(resource client.Object, conditions []metav1.Condition, conditionType string) bool
 }
 
 type resourcesModelImpl struct {
@@ -55,6 +58,19 @@ func (m *resourcesModelImpl) setAcceptedCondition(ctx context.Context, params se
 	}
 
 	return nil
+}
+
+func (m *resourcesModelImpl) isConditionSet(
+	resource client.Object,
+	conditions []metav1.Condition,
+	conditionType string) bool {
+	existingCondition := meta.FindStatusCondition(conditions, conditionType)
+	if existingCondition != nil &&
+		existingCondition.Status == metav1.ConditionTrue &&
+		existingCondition.ObservedGeneration == resource.GetGeneration() {
+		return true
+	}
+	return false
 }
 
 type resourcesModelDeps struct {

@@ -138,3 +138,81 @@ func TestResourcesModelImpl_setAcceptedCondition(t *testing.T) {
 		require.ErrorIs(t, err, expectedError, "Returned error should wrap the original update error")
 	})
 }
+
+func TestResourcesModelImpl_isConditionSet(t *testing.T) {
+	newMockDeps := func(t *testing.T) resourcesModelDeps {
+		return resourcesModelDeps{
+			K8sClient:  NewMockk8sClient(t), // Mock client might not be strictly needed here but kept for consistency
+			RootLogger: diag.RootTestLogger(),
+		}
+	}
+
+	model := newResourcesModel(newMockDeps(t))
+
+	// Shared setup for resource
+	gatewayClass := &gatewayv1.GatewayClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       faker.DomainName(),
+			Generation: rand.Int64(), // Set a specific generation
+		},
+	}
+
+	t.Run("ConditionIsSetAndMatches", func(t *testing.T) {
+		conditions := []metav1.Condition{
+			{
+				Type:               AcceptedConditionType,
+				Status:             metav1.ConditionTrue,
+				Reason:             AcceptedConditionReason,
+				ObservedGeneration: gatewayClass.Generation, // Matches resource generation
+			},
+		}
+
+		result := model.isConditionSet(gatewayClass, conditions, AcceptedConditionType)
+		assert.True(t, result, "Expected isConditionSet to return true when condition matches")
+	})
+
+	t.Run("ConditionNotSet", func(t *testing.T) {
+		conditions := []metav1.Condition{} // No conditions
+		result := model.isConditionSet(gatewayClass, conditions, AcceptedConditionType)
+		assert.False(t, result, "Expected isConditionSet to return false when conditions slice is empty")
+	})
+
+	t.Run("ConditionSet_WrongType", func(t *testing.T) {
+		conditions := []metav1.Condition{
+			{
+				Type:               "SomeOtherType",
+				Status:             metav1.ConditionTrue,
+				Reason:             AcceptedConditionReason,
+				ObservedGeneration: gatewayClass.Generation,
+			},
+		}
+		result := model.isConditionSet(gatewayClass, conditions, AcceptedConditionType)
+		assert.False(t, result, "Expected isConditionSet to return false for wrong condition type")
+	})
+
+	t.Run("ConditionSet_WrongStatus", func(t *testing.T) {
+		conditions := []metav1.Condition{
+			{
+				Type:               AcceptedConditionType,
+				Status:             metav1.ConditionFalse,
+				Reason:             AcceptedConditionReason,
+				ObservedGeneration: gatewayClass.Generation,
+			},
+		}
+		result := model.isConditionSet(gatewayClass, conditions, AcceptedConditionType)
+		assert.False(t, result, "Expected isConditionSet to return false for wrong condition status")
+	})
+
+	t.Run("ConditionSet_WrongGeneration", func(t *testing.T) {
+		conditions := []metav1.Condition{
+			{
+				Type:               AcceptedConditionType,
+				Status:             metav1.ConditionTrue,
+				Reason:             AcceptedConditionReason,
+				ObservedGeneration: gatewayClass.Generation - 1, // Mismatched generation
+			},
+		}
+		result := model.isConditionSet(gatewayClass, conditions, AcceptedConditionType)
+		assert.False(t, result, "Expected isConditionSet to return false for wrong observed generation")
+	})
+}
