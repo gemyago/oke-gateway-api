@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"math/rand/v2"
 	"testing"
 
@@ -18,15 +19,15 @@ import (
 )
 
 func TestResourcesModelImpl_setAcceptedCondition(t *testing.T) {
-	newMockDeps := func() resourcesModelDeps {
+	newMockDeps := func(t *testing.T) resourcesModelDeps {
 		return resourcesModelDeps{
 			K8sClient:  NewMockk8sClient(t),
 			RootLogger: diag.RootTestLogger(),
 		}
 	}
 
-	t.Run("AddNewCondition", func(t *testing.T) {
-		deps := newMockDeps()
+	t.Run("HappyPath_AddNewCondition", func(t *testing.T) {
+		deps := newMockDeps(t)
 		model := newResourcesModel(deps)
 
 		gatewayClass := &gatewayv1.GatewayClass{
@@ -88,5 +89,52 @@ func TestResourcesModelImpl_setAcceptedCondition(t *testing.T) {
 
 		err := model.setAcceptedCondition(t.Context(), params)
 		require.NoError(t, err)
+	})
+
+	t.Run("ErrorPath_StatusUpdateFails", func(t *testing.T) {
+		// Arrange
+		deps := newMockDeps(t)
+		model := newResourcesModel(deps)
+
+		// Get the mock client instance from the deps returned by the helper
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+
+		// Create a mock status writer separately
+		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+
+		gatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       faker.DomainName(),
+				Generation: 1,
+			},
+			Spec: gatewayv1.GatewayClassSpec{
+				ControllerName: ControllerClassName,
+			},
+			Status: gatewayv1.GatewayClassStatus{
+				Conditions: []metav1.Condition{}, // Start with no conditions
+			},
+		}
+
+		message := faker.Sentence()
+		params := setAcceptedConditionParams{
+			resource:   gatewayClass,
+			conditions: &gatewayClass.Status.Conditions,
+			message:    message,
+		}
+
+		expectedError := errors.New(faker.Sentence())
+
+		// Expect Status().Update() to be called and fail
+		mockClient.EXPECT().Status().Return(mockStatusWriter)
+		mockStatusWriter.EXPECT().
+			Update(mock.Anything, mock.AnythingOfType("*v1.GatewayClass"), mock.Anything).
+			Return(expectedError)
+
+		// Act
+		err := model.setAcceptedCondition(t.Context(), params)
+
+		// Assert
+		require.Error(t, err, "Expected an error from setAcceptedCondition")
+		require.ErrorIs(t, err, expectedError, "Returned error should wrap the original update error")
 	})
 }
