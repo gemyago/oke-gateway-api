@@ -13,6 +13,7 @@ import (
 )
 
 const ControllerClassName = "oke-gateway-api.gemyago.github.io/oke-alb-gateway-controller"
+const ManagedByAnnotation = "oke-gateway-api.oraclecloud.com/managed-by"
 
 const (
 	AcceptedConditionType   = "Accepted"
