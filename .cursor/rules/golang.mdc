@@ -9,6 +9,8 @@ alwaysApply: false
 - TDD must be followed if adding new stuff, which means:
   1. Add stub declarations (for struct function panic not implemented)
   2. Add or extend tests that are testing desired logic
+    - after extending, show command to run tests in form: 
+      `gow test -v ./<package path> --run <test name>`
   3. Implement the logic
 - Use mockery to create mocks for dependencies
   - add mocks to @.mockery.yaml
