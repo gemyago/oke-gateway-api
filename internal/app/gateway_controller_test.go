@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"reflect"
@@ -53,55 +54,100 @@ func TestGatewayController(t *testing.T) {
 		}
 	}
 
-	t.Run("ReconcileValidGateway", func(t *testing.T) {
-		// Create a test Gateway using the helper
-		gateway := newRandomGateway()
+	t.Run("Reconcile", func(t *testing.T) {
+		t.Run("ReconcileValidGateway", func(t *testing.T) {
+			// Create a test Gateway using the helper
+			gateway := newRandomGateway()
 
-		req := reconcile.Request{
-			NamespacedName: client.ObjectKey{
-				Namespace: gateway.Namespace,
-				Name:      gateway.Name,
-			},
-		}
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: gateway.Namespace,
+					Name:      gateway.Name,
+				},
+			}
 
-		deps := newMockDeps(t)
-		controller := NewGatewayController(deps)
+			deps := newMockDeps(t)
+			controller := NewGatewayController(deps)
 
-		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
-		mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
-		mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
-		// Mock Get
-		mockClient.EXPECT().
-			Get(t.Context(), req.NamespacedName, mock.Anything).
-			RunAndReturn(func(_ context.Context, nn types.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
-				assert.Equal(t, req.NamespacedName, nn)
-				reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
-				return nil
-			})
+			// Mock Get
+			mockClient.EXPECT().
+				Get(t.Context(), req.NamespacedName, mock.Anything).
+				RunAndReturn(func(_ context.Context, nn types.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
+					assert.Equal(t, req.NamespacedName, nn)
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
+					return nil
+				})
 
-		mockResourcesModel.EXPECT().
-			isConditionSet(gateway, gateway.Status.Conditions, ProgrammedGatewayConditionType).
-			Return(false).Once()
+			mockResourcesModel.EXPECT().
+				isConditionSet(gateway, gateway.Status.Conditions, ProgrammedGatewayConditionType).
+				Return(false).Once()
 
-		mockGatewayModel.EXPECT().
-			programGateway(t.Context(), gateway).
-			Return(nil).Once()
+			mockGatewayModel.EXPECT().
+				programGateway(t.Context(), gateway).
+				Return(nil).Once()
 
-		mockResourcesModel.EXPECT().
-			setCondition(t.Context(), setConditionParams{
-				resource:      gateway,
-				conditions:    &gateway.Status.Conditions,
-				conditionType: ProgrammedGatewayConditionType,
-				status:        metav1.ConditionTrue,
-				reason:        LoadBalancerReconciledReason,
-				message:       fmt.Sprintf("Gateway %s programmed by %s", gateway.Name, ControllerClassName),
-			}).
-			Return(nil).Once()
+			mockResourcesModel.EXPECT().
+				setCondition(t.Context(), setConditionParams{
+					resource:      gateway,
+					conditions:    &gateway.Status.Conditions,
+					conditionType: ProgrammedGatewayConditionType,
+					status:        metav1.ConditionTrue,
+					reason:        LoadBalancerReconciledReason,
+					message:       fmt.Sprintf("Gateway %s programmed by %s", gateway.Name, ControllerClassName),
+				}).
+				Return(nil).Once()
 
-		result, err := controller.Reconcile(t.Context(), req)
+			result, err := controller.Reconcile(t.Context(), req)
 
-		require.NoError(t, err)
-		assert.Equal(t, reconcile.Result{}, result)
+			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("handle porgramGateway errors", func(t *testing.T) {
+			gateway := newRandomGateway()
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: gateway.Namespace,
+					Name:      gateway.Name,
+				},
+			}
+
+			deps := newMockDeps(t)
+			controller := NewGatewayController(deps)
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+
+			// Mock Get
+			mockClient.EXPECT().
+				Get(t.Context(), req.NamespacedName, mock.Anything).
+				RunAndReturn(func(_ context.Context, nn types.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
+					assert.Equal(t, req.NamespacedName, nn)
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
+					return nil
+				})
+
+			mockResourcesModel.EXPECT().
+				isConditionSet(gateway, gateway.Status.Conditions, ProgrammedGatewayConditionType).
+				Return(false).Once()
+
+			wantErr := errors.New(faker.Sentence())
+
+			mockGatewayModel.EXPECT().
+				programGateway(t.Context(), gateway).
+				Return(wantErr).Once()
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, wantErr)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
 	})
 }
