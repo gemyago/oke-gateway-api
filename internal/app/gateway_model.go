@@ -35,7 +35,7 @@ type gatewayData struct {
 type gatewayModel interface {
 	// acceptReconcileRequest accepts a reconcile request and returns true if the request is accepted.
 	// If returns false if the request is not relevant for this controller.
-	// It returns true if the request is accepted and relevant for this controller.
+	// It returns true if the request is relevant for this controller.
 	// It may return an error if there was error accepting the request.
 	// If error happens, it may not be always known if the request is relevant.
 	acceptReconcileRequest(
@@ -44,7 +44,7 @@ type gatewayModel interface {
 		receiver *gatewayData,
 	) (bool, error)
 
-	programGateway(ctx context.Context, gw *gatewayv1.Gateway) error
+	programGateway(ctx context.Context, data *gatewayData) error
 }
 
 type gatewayModelImpl struct {
@@ -77,7 +77,7 @@ func (m *gatewayModelImpl) acceptReconcileRequest(
 	return true, nil
 }
 
-func (m *gatewayModelImpl) programGateway(_ context.Context, gw *gatewayv1.Gateway) error {
+func (m *gatewayModelImpl) programGateway(_ context.Context, data *gatewayData) error {
 	return nil
 }
 

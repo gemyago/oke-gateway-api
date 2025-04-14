@@ -1,11 +1,9 @@
 package app
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"math/rand/v2"
-	"reflect"
 	"testing"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -14,7 +12,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	types "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -55,8 +52,7 @@ func TestGatewayController(t *testing.T) {
 	}
 
 	t.Run("Reconcile", func(t *testing.T) {
-		t.Run("ReconcileValidGateway", func(t *testing.T) {
-			// Create a test Gateway using the helper
+		t.Run("acceptAndProgram", func(t *testing.T) {
 			gateway := newRandomGateway()
 
 			req := reconcile.Request{
@@ -69,25 +65,25 @@ func TestGatewayController(t *testing.T) {
 			deps := newMockDeps(t)
 			controller := NewGatewayController(deps)
 
-			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
 			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
 			// Mock Get
-			mockClient.EXPECT().
-				Get(t.Context(), req.NamespacedName, mock.Anything).
-				RunAndReturn(func(_ context.Context, nn types.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
-					assert.Equal(t, req.NamespacedName, nn)
-					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
-					return nil
-				})
+			mockGatewayModel.EXPECT().
+				acceptReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *gatewayData) bool {
+					receiver.gateway = *gateway
+					return true
+				})).
+				Return(true, nil).Once()
 
 			mockResourcesModel.EXPECT().
 				isConditionSet(gateway, gateway.Status.Conditions, ProgrammedGatewayConditionType).
 				Return(false).Once()
 
 			mockGatewayModel.EXPECT().
-				programGateway(t.Context(), gateway).
+				programGateway(t.Context(), &gatewayData{
+					gateway: *gateway,
+				}).
 				Return(nil).Once()
 
 			mockResourcesModel.EXPECT().
@@ -98,6 +94,82 @@ func TestGatewayController(t *testing.T) {
 					status:        metav1.ConditionTrue,
 					reason:        LoadBalancerReconciledReason,
 					message:       fmt.Sprintf("Gateway %s programmed by %s", gateway.Name, ControllerClassName),
+				}).
+				Return(nil).Once()
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("handle accept errors", func(t *testing.T) {
+			gateway := newRandomGateway()
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: gateway.Namespace,
+					Name:      gateway.Name,
+				},
+			}
+
+			deps := newMockDeps(t)
+			controller := NewGatewayController(deps)
+
+			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+
+			wantErr := errors.New(faker.Sentence())
+			mockGatewayModel.EXPECT().
+				acceptReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *gatewayData) bool {
+					receiver.gateway = *gateway
+					return true
+				})).
+				Return(false, wantErr).Once()
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, wantErr)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("handle accept resource errors", func(t *testing.T) {
+			gateway := newRandomGateway()
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: gateway.Namespace,
+					Name:      gateway.Name,
+				},
+			}
+
+			deps := newMockDeps(t)
+			controller := NewGatewayController(deps)
+
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+
+			wantErr := &resourceStatusError{
+				conditionType: AcceptedConditionType,
+				reason:        faker.Word(),
+				message:       faker.Sentence(),
+			}
+
+			mockGatewayModel.EXPECT().
+				acceptReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *gatewayData) bool {
+					receiver.gateway = *gateway
+					return true
+				})).
+				Return(true, wantErr).Once()
+
+			mockResourcesModel.EXPECT().
+				setCondition(t.Context(), setConditionParams{
+					resource:      gateway,
+					conditions:    &gateway.Status.Conditions,
+					conditionType: wantErr.conditionType,
+					status:        metav1.ConditionFalse,
+					reason:        wantErr.reason,
+					message:       wantErr.message,
 				}).
 				Return(nil).Once()
 
@@ -120,18 +192,15 @@ func TestGatewayController(t *testing.T) {
 			deps := newMockDeps(t)
 			controller := NewGatewayController(deps)
 
-			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
 			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
-			// Mock Get
-			mockClient.EXPECT().
-				Get(t.Context(), req.NamespacedName, mock.Anything).
-				RunAndReturn(func(_ context.Context, nn types.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
-					assert.Equal(t, req.NamespacedName, nn)
-					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
-					return nil
-				})
+			mockGatewayModel.EXPECT().
+				acceptReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *gatewayData) bool {
+					receiver.gateway = *gateway
+					return true
+				})).
+				Return(true, nil).Once()
 
 			mockResourcesModel.EXPECT().
 				isConditionSet(gateway, gateway.Status.Conditions, ProgrammedGatewayConditionType).
@@ -140,7 +209,7 @@ func TestGatewayController(t *testing.T) {
 			wantErr := errors.New(faker.Sentence())
 
 			mockGatewayModel.EXPECT().
-				programGateway(t.Context(), gateway).
+				programGateway(t.Context(), mock.Anything).
 				Return(wantErr).Once()
 
 			result, err := controller.Reconcile(t.Context(), req)
@@ -151,7 +220,7 @@ func TestGatewayController(t *testing.T) {
 		})
 
 		// if error is resourceStatusError then set status to details from the error
-		t.Run("handle resourceStatusError", func(t *testing.T) {
+		t.Run("handle program resourceStatusError", func(t *testing.T) {
 			gateway := newRandomGateway()
 
 			req := reconcile.Request{
@@ -164,17 +233,15 @@ func TestGatewayController(t *testing.T) {
 			deps := newMockDeps(t)
 			controller := NewGatewayController(deps)
 
-			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
 			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
-			mockClient.EXPECT().
-				Get(t.Context(), req.NamespacedName, mock.Anything).
-				RunAndReturn(func(_ context.Context, nn types.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
-					assert.Equal(t, req.NamespacedName, nn)
-					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
-					return nil
-				})
+			mockGatewayModel.EXPECT().
+				acceptReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *gatewayData) bool {
+					receiver.gateway = *gateway
+					return true
+				})).
+				Return(true, nil).Once()
 
 			mockResourcesModel.EXPECT().
 				isConditionSet(gateway, gateway.Status.Conditions, ProgrammedGatewayConditionType).
@@ -187,7 +254,7 @@ func TestGatewayController(t *testing.T) {
 			}
 
 			mockGatewayModel.EXPECT().
-				programGateway(t.Context(), gateway).
+				programGateway(t.Context(), mock.Anything).
 				Return(wantErr).Once()
 
 			mockResourcesModel.EXPECT().

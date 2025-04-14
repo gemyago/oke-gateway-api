@@ -66,7 +66,9 @@ func TestGatewayModelImpl(t *testing.T) {
 			model := newGatewayModel(deps)
 			gateway := newRandomGateway()
 
-			err := model.programGateway(t.Context(), gateway)
+			err := model.programGateway(t.Context(), &gatewayData{
+				gateway: *gateway,
+			})
 
 			require.NoError(t, err)
 		})
