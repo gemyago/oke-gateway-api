@@ -41,6 +41,35 @@ func NewGatewayController(deps GatewayControllerDeps) *GatewayController {
 	}
 }
 
+// processResourceError handles errors from resource programming operations.
+// It checks if the error is a resourceStatusError and updates the condition accordingly.
+// Returns a reconcile result and error to be returned from the Reconcile method.
+func (r *GatewayController) processResourceError(
+	ctx context.Context,
+	err error,
+	gateway *gatewayv1.Gateway,
+) (reconcile.Result, error) {
+	var reasonErr *resourceStatusError
+	if errors.As(err, &reasonErr) {
+		if err = r.resourcesModel.setCondition(ctx, setConditionParams{
+			resource:      gateway,
+			conditions:    &gateway.Status.Conditions,
+			conditionType: reasonErr.conditionType,
+			status:        v1.ConditionFalse,
+			reason:        reasonErr.reason,
+			message:       reasonErr.message,
+		}); err != nil {
+			return reconcile.Result{}, fmt.Errorf("failed to set condition for Gateway %s: %w", gateway.Name, err)
+		}
+		r.logger.WarnContext(ctx, "Failed to program gateway",
+			slog.String("gateway", gateway.GetName()),
+			slog.String("reason", reasonErr.Error()),
+		)
+		return reconcile.Result{}, nil
+	}
+	return reconcile.Result{}, fmt.Errorf("failed to program Gateway %s: %w", gateway.Name, err)
+}
+
 // Reconcile implements the reconcile.Reconciler interface for Gateway resources.
 func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	r.logger.InfoContext(ctx, fmt.Sprintf("Reconciling Gateway %s", req.NamespacedName))
@@ -60,25 +89,7 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 
 	if !r.resourcesModel.isConditionSet(&gateway, gateway.Status.Conditions, ProgrammedGatewayConditionType) {
 		if err := r.gatewayModel.programGateway(ctx, &gateway); err != nil {
-			var reasonErr *resourceStatusError
-			if errors.As(err, &reasonErr) {
-				if err = r.resourcesModel.setCondition(ctx, setConditionParams{
-					resource:      &gateway,
-					conditions:    &gateway.Status.Conditions,
-					conditionType: reasonErr.conditionType,
-					status:        v1.ConditionFalse,
-					reason:        reasonErr.reason,
-					message:       reasonErr.message,
-				}); err != nil {
-					return reconcile.Result{}, fmt.Errorf("failed to set condition for Gateway %s: %w", req.NamespacedName, err)
-				}
-				r.logger.WarnContext(ctx, "Failed to program gateway",
-					slog.String("gateway", req.NamespacedName.String()),
-					slog.String("reason", reasonErr.Error()),
-				)
-				return reconcile.Result{}, nil
-			}
-			return reconcile.Result{}, fmt.Errorf("failed to program Gateway %s: %w", req.NamespacedName, err)
+			return r.processResourceError(ctx, err, &gateway)
 		}
 
 		if err := r.resourcesModel.setCondition(ctx, setConditionParams{
