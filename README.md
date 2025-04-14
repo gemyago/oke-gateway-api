@@ -41,12 +41,15 @@ EOF
 ```
 
 Create a Gateway resource:
-```bash
+```yaml
 cat <<EOF | kubectl -n oke-gw apply -f -
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: oke-gateway
+  annotations:
+    # Specify the OCID of an existing OCI Load Balancer
+    oke-gateway-api.gemyago.github.io/oci-load-balancer-id: "ocid1.loadbalancer.oc1..exampleuniqueID"
 spec:
   gatewayClassName: oke-gateway-api
   listeners:
