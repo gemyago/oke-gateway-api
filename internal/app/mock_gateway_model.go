@@ -24,12 +24,12 @@ func (_m *MockgatewayModel) EXPECT() *MockgatewayModel_Expecter {
 	return &MockgatewayModel_Expecter{mock: &_m.Mock}
 }
 
-// reconcile provides a mock function with given fields: ctx, gw
-func (_m *MockgatewayModel) reconcile(ctx context.Context, gw *v1.Gateway) error {
+// programGateway provides a mock function with given fields: ctx, gw
+func (_m *MockgatewayModel) programGateway(ctx context.Context, gw *v1.Gateway) error {
 	ret := _m.Called(ctx, gw)
 
 	if len(ret) == 0 {
-		panic("no return value specified for reconcile")
+		panic("no return value specified for programGateway")
 	}
 
 	var r0 error
@@ -42,31 +42,31 @@ func (_m *MockgatewayModel) reconcile(ctx context.Context, gw *v1.Gateway) error
 	return r0
 }
 
-// MockgatewayModel_reconcile_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'reconcile'
-type MockgatewayModel_reconcile_Call struct {
+// MockgatewayModel_programGateway_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'programGateway'
+type MockgatewayModel_programGateway_Call struct {
 	*mock.Call
 }
 
-// reconcile is a helper method to define mock.On call
+// programGateway is a helper method to define mock.On call
 //   - ctx context.Context
 //   - gw *v1.Gateway
-func (_e *MockgatewayModel_Expecter) reconcile(ctx interface{}, gw interface{}) *MockgatewayModel_reconcile_Call {
-	return &MockgatewayModel_reconcile_Call{Call: _e.mock.On("reconcile", ctx, gw)}
+func (_e *MockgatewayModel_Expecter) programGateway(ctx interface{}, gw interface{}) *MockgatewayModel_programGateway_Call {
+	return &MockgatewayModel_programGateway_Call{Call: _e.mock.On("programGateway", ctx, gw)}
 }
 
-func (_c *MockgatewayModel_reconcile_Call) Run(run func(ctx context.Context, gw *v1.Gateway)) *MockgatewayModel_reconcile_Call {
+func (_c *MockgatewayModel_programGateway_Call) Run(run func(ctx context.Context, gw *v1.Gateway)) *MockgatewayModel_programGateway_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(*v1.Gateway))
 	})
 	return _c
 }
 
-func (_c *MockgatewayModel_reconcile_Call) Return(_a0 error) *MockgatewayModel_reconcile_Call {
+func (_c *MockgatewayModel_programGateway_Call) Return(_a0 error) *MockgatewayModel_programGateway_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockgatewayModel_reconcile_Call) RunAndReturn(run func(context.Context, *v1.Gateway) error) *MockgatewayModel_reconcile_Call {
+func (_c *MockgatewayModel_programGateway_Call) RunAndReturn(run func(context.Context, *v1.Gateway) error) *MockgatewayModel_programGateway_Call {
 	_c.Call.Return(run)
 	return _c
 }

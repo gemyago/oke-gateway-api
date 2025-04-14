@@ -53,8 +53,7 @@ func TestGatewayController(t *testing.T) {
 		}
 	}
 
-	// Existing test - might need minor adjustments if the old setup is incompatible
-	t.Run("Reconcile_SimpleGet", func(t *testing.T) {
+	t.Run("ReconcileValidGateway", func(t *testing.T) {
 		// Create a test Gateway using the helper
 		gateway := newRandomGateway()
 
@@ -70,6 +69,7 @@ func TestGatewayController(t *testing.T) {
 
 		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 		mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+		mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
 		// Mock Get
 		mockClient.EXPECT().
@@ -80,74 +80,24 @@ func TestGatewayController(t *testing.T) {
 				return nil
 			})
 
-		// Mock isConditionSet to return true (simulating already accepted)
 		mockResourcesModel.EXPECT().
-			isConditionSet(gateway, gateway.Status.Conditions, AcceptedConditionType).
-			Return(true).Maybe() // Use Maybe() if this isn't the primary path tested here
+			isConditionSet(gateway, gateway.Status.Conditions, ProgrammedGatewayConditionType).
+			Return(false).Once()
 
-		// Call Reconcile
-		result, err := controller.Reconcile(t.Context(), req)
-
-		// Assert results
-		require.NoError(t, err)
-		assert.Equal(t, reconcile.Result{}, result)
-	})
-
-	// New Test Case
-	t.Run("Reconcile_SetsAcceptedAndAnnotation", func(t *testing.T) {
-		gateway := newRandomGateway()
-		req := reconcile.Request{
-			NamespacedName: client.ObjectKey{
-				Namespace: gateway.Namespace,
-				Name:      gateway.Name,
-			},
-		}
-
-		deps := newMockDeps(t)
-		controller := NewGatewayController(deps)
-
-		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
-		mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
-
-		// Mock Get
-		mockClient.EXPECT().
-			Get(t.Context(), req.NamespacedName, mock.Anything).
-			RunAndReturn(func(_ context.Context, nn types.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
-				assert.Equal(t, req.NamespacedName, nn)
-				// Crucial: Ensure the receiver gets the Status field initialized
-				// Use reflect to set the value, including the initialized Status
-				reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
-				return nil
-			})
-
-		// Mock isConditionSet to return false (not yet accepted)
-		mockResourcesModel.EXPECT().
-			isConditionSet(mock.AnythingOfType("*v1.Gateway"), mock.Anything, AcceptedConditionType).
-			Run(func(resource client.Object, _ []metav1.Condition, _ string) {
-				// Add assertions here if needed, e.g., check resource name/namespace
-				assert.Equal(t, gateway.Name, resource.GetName())
-			}).
-			Return(false)
-
-		// Mock setAcceptedCondition
-		expectedMessage := fmt.Sprintf("Gateway %s accepted by controller class %s", gateway.Name, ControllerClassName)
-		expectedAnnotations := map[string]string{
-			"oke-gateway-api.oraclecloud.com/managed-by": ControllerClassName,
-		}
+		mockGatewayModel.EXPECT().
+			programGateway(t.Context(), gateway).
+			Return(nil).Once()
 
 		mockResourcesModel.EXPECT().
 			setAcceptedCondition(t.Context(), setAcceptedConditionParams{
-				resource:    gateway,
-				conditions:  &gateway.Status.Conditions,
-				message:     expectedMessage,
-				annotations: expectedAnnotations,
+				resource:   gateway,
+				conditions: &gateway.Status.Conditions,
+				message:    fmt.Sprintf("Gateway %s programmed by %s", gateway.Name, ControllerClassName),
 			}).
-			Return(nil) // Simulate successful update
+			Return(nil).Once()
 
-		// Call Reconcile
 		result, err := controller.Reconcile(t.Context(), req)
 
-		// Assert results
 		require.NoError(t, err)
 		assert.Equal(t, reconcile.Result{}, result)
 	})

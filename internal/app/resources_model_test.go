@@ -138,7 +138,7 @@ func TestResourcesModelImpl_setAcceptedCondition(t *testing.T) {
 		require.ErrorIs(t, err, expectedError, "Returned error should wrap the original update error")
 	})
 
-	t.Run("HappyPath_UpdateAnnotationsAndStatus", func(t *testing.T) {
+	t.Run("HappyPath_UpdateStatus", func(t *testing.T) {
 		deps := newMockDeps(t)
 		model := newResourcesModel(deps)
 		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
@@ -173,10 +173,9 @@ func TestResourcesModelImpl_setAcceptedCondition(t *testing.T) {
 		}
 		message := faker.Sentence()
 		params := setAcceptedConditionParams{
-			resource:    gatewayClass,
-			conditions:  &gatewayClass.Status.Conditions,
-			message:     message,
-			annotations: newAnnotations,
+			resource:   gatewayClass,
+			conditions: &gatewayClass.Status.Conditions,
+			message:    message,
 		}
 
 		// Expect Resource Update (for annotations)
@@ -208,12 +207,10 @@ func TestResourcesModelImpl_setAcceptedCondition(t *testing.T) {
 		// No need for mockStatusWriter as Status().Update() shouldn't be called
 
 		gatewayClass := &gatewayv1.GatewayClass{ /* ... minimal setup ... */ }
-		newAnnotations := map[string]string{"fail": "update"}
 		params := setAcceptedConditionParams{
-			resource:    gatewayClass,
-			conditions:  &gatewayClass.Status.Conditions, // Still needed for the func signature
-			message:     faker.Sentence(),
-			annotations: newAnnotations,
+			resource:   gatewayClass,
+			conditions: &gatewayClass.Status.Conditions, // Still needed for the func signature
+			message:    faker.Sentence(),
 		}
 		expectedError := errors.New(faker.Sentence())
 
@@ -234,12 +231,10 @@ func TestResourcesModelImpl_setAcceptedCondition(t *testing.T) {
 		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
 
 		gatewayClass := &gatewayv1.GatewayClass{ /* ... minimal setup ... */ }
-		newAnnotations := map[string]string{"succeed": "resource", "fail": "status"}
 		params := setAcceptedConditionParams{
-			resource:    gatewayClass,
-			conditions:  &gatewayClass.Status.Conditions,
-			message:     faker.Sentence(),
-			annotations: newAnnotations,
+			resource:   gatewayClass,
+			conditions: &gatewayClass.Status.Conditions,
+			message:    faker.Sentence(),
 		}
 		expectedStatusError := errors.New(faker.Sentence())
 

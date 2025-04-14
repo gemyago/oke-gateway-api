@@ -56,27 +56,24 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 		slog.Any("gateway", gateway),
 	)
 
-	if r.resourcesModel.isConditionSet(&gateway, gateway.Status.Conditions, AcceptedConditionType) {
-		r.logger.DebugContext(ctx, "Gateway already accepted", slog.String("gateway", req.NamespacedName.String()))
-		return reconcile.Result{}, nil
-	}
+	if !r.resourcesModel.isConditionSet(&gateway, gateway.Status.Conditions, ProgrammedGatewayConditionType) {
+		if err := r.gatewayModel.programGateway(ctx, &gateway); err != nil {
+			return reconcile.Result{}, fmt.Errorf("failed to program Gateway %s: %w", req.NamespacedName, err)
+		}
 
-	if err := r.resourcesModel.setAcceptedCondition(ctx, setAcceptedConditionParams{
-		resource:   &gateway,
-		conditions: &gateway.Status.Conditions,
-		message:    fmt.Sprintf("Gateway %s accepted by controller class %s", gateway.Name, ControllerClassName),
-		annotations: map[string]string{
-			"oke-gateway-api.oraclecloud.com/managed-by": ControllerClassName,
-		},
-	}); err != nil {
-		return reconcile.Result{},
-			fmt.Errorf("failed to set accepted condition for Gateway %s: %w", req.NamespacedName, err)
-	}
+		if err := r.resourcesModel.setAcceptedCondition(ctx, setAcceptedConditionParams{
+			resource:   &gateway,
+			conditions: &gateway.Status.Conditions,
+			message:    fmt.Sprintf("Gateway %s programmed by %s", gateway.Name, ControllerClassName),
+		}); err != nil {
+			return reconcile.Result{}, fmt.Errorf("failed to set accepted condition for Gateway %s: %w", req.NamespacedName, err)
+		}
 
-	r.logger.InfoContext(ctx,
-		"Successfully set Accepted condition for Gateway",
-		slog.String("gateway", req.NamespacedName.String()),
-	)
+		r.logger.InfoContext(ctx,
+			"Successfully set Programmed condition for Gateway",
+			slog.String("gateway", req.NamespacedName.String()),
+		)
+	}
 
 	return reconcile.Result{}, nil
 }

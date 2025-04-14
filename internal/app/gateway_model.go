@@ -8,13 +8,13 @@ import (
 )
 
 type gatewayModel interface {
-	reconcile(ctx context.Context, gw *gatewayv1.Gateway) error
+	programGateway(ctx context.Context, gw *gatewayv1.Gateway) error
 }
 
 type gatewayModelImpl struct {
 }
 
-func (m *gatewayModelImpl) reconcile(ctx context.Context, gw *gatewayv1.Gateway) error {
+func (m *gatewayModelImpl) programGateway(ctx context.Context, gw *gatewayv1.Gateway) error {
 	return nil
 }
 

@@ -12,10 +12,9 @@ import (
 )
 
 type setAcceptedConditionParams struct {
-	resource    client.Object
-	conditions  *[]metav1.Condition
-	message     string
-	annotations map[string]string // Optional annotations to set/update
+	resource   client.Object
+	conditions *[]metav1.Condition
+	message    string
 }
 
 type setNotAcceptedConditionParams struct {
@@ -47,28 +46,7 @@ func (m *resourcesModelImpl) setAcceptedCondition(ctx context.Context, params se
 		"Setting Accepted condition",
 		slog.String("resource", params.resource.GetName()),
 		slog.String("message", params.message),
-		slog.Any("annotations", params.annotations), // Log annotations if provided
 	)
-
-	if len(params.annotations) > 0 {
-		m.logger.DebugContext(ctx, "Updating resource annotations", slog.String("resource", params.resource.GetName()))
-
-		currentAnnotations := params.resource.GetAnnotations()
-		if currentAnnotations == nil {
-			currentAnnotations = make(map[string]string)
-		}
-
-		for k, v := range params.annotations {
-			currentAnnotations[k] = v
-		}
-		params.resource.SetAnnotations(currentAnnotations)
-
-		if err := m.client.Update(ctx, params.resource); err != nil {
-			return fmt.Errorf("failed to update resource annotations for %s: %w", params.resource.GetName(), err)
-		}
-
-		m.logger.DebugContext(ctx, "Successfully updated annotations", slog.String("resource", params.resource.GetName()))
-	}
 
 	generation := params.resource.GetGeneration()
 

@@ -7,6 +7,9 @@ const (
 	// AcceptedConditionReason is the reason for the Accepted condition when true.
 	AcceptedConditionReason = "Accepted"
 
+	// ProgrammedGatewayConditionType is the condition type for programmed gateways.
+	ProgrammedGatewayConditionType = "Programmed"
+
 	// InvalidResourceConfigurationReason is the reason for the InvalidResourceConfiguration condition.
 	InvalidResourceConfigurationReason = "InvalidResourceConfiguration"
 
