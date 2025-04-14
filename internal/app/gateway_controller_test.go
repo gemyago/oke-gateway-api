@@ -48,6 +48,7 @@ func TestGatewayController(t *testing.T) {
 		return GatewayControllerDeps{
 			K8sClient:      NewMockk8sClient(t),
 			ResourcesModel: NewMockresourcesModel(t),
+			GatewayModel:   NewMockgatewayModel(t),
 			RootLogger:     diag.RootTestLogger(),
 		}
 	}

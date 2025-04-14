@@ -16,6 +16,7 @@ type GatewayController struct {
 	client         k8sClient // Reusing the k8sClient interface defined in gatewayclass_controller.go
 	logger         *slog.Logger
 	resourcesModel resourcesModel // Add resourcesModel field
+	gatewayModel   gatewayModel
 }
 
 // GatewayControllerDeps contains the dependencies for the GatewayController.
@@ -25,6 +26,7 @@ type GatewayControllerDeps struct {
 	RootLogger     *slog.Logger
 	K8sClient      k8sClient
 	ResourcesModel resourcesModel // Add ResourcesModel dependency
+	GatewayModel   gatewayModel
 }
 
 // NewGatewayController creates a new GatewayController.
@@ -33,6 +35,7 @@ func NewGatewayController(deps GatewayControllerDeps) *GatewayController {
 		client:         deps.K8sClient,
 		logger:         deps.RootLogger,
 		resourcesModel: deps.ResourcesModel, // Initialize resourcesModel
+		gatewayModel:   deps.GatewayModel,
 	}
 }
 
