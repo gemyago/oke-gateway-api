@@ -8,6 +8,8 @@ import (
 	context "context"
 
 	mock "github.com/stretchr/testify/mock"
+	reconcile "sigs.k8s.io/controller-runtime/pkg/reconcile"
+
 	v1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -22,6 +24,64 @@ type MockgatewayModel_Expecter struct {
 
 func (_m *MockgatewayModel) EXPECT() *MockgatewayModel_Expecter {
 	return &MockgatewayModel_Expecter{mock: &_m.Mock}
+}
+
+// acceptReconcileRequest provides a mock function with given fields: ctx, req, receiver
+func (_m *MockgatewayModel) acceptReconcileRequest(ctx context.Context, req reconcile.Request, receiver *gatewayData) (bool, error) {
+	ret := _m.Called(ctx, req, receiver)
+
+	if len(ret) == 0 {
+		panic("no return value specified for acceptReconcileRequest")
+	}
+
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, reconcile.Request, *gatewayData) (bool, error)); ok {
+		return rf(ctx, req, receiver)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, reconcile.Request, *gatewayData) bool); ok {
+		r0 = rf(ctx, req, receiver)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, reconcile.Request, *gatewayData) error); ok {
+		r1 = rf(ctx, req, receiver)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockgatewayModel_acceptReconcileRequest_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'acceptReconcileRequest'
+type MockgatewayModel_acceptReconcileRequest_Call struct {
+	*mock.Call
+}
+
+// acceptReconcileRequest is a helper method to define mock.On call
+//   - ctx context.Context
+//   - req reconcile.Request
+//   - receiver *gatewayData
+func (_e *MockgatewayModel_Expecter) acceptReconcileRequest(ctx interface{}, req interface{}, receiver interface{}) *MockgatewayModel_acceptReconcileRequest_Call {
+	return &MockgatewayModel_acceptReconcileRequest_Call{Call: _e.mock.On("acceptReconcileRequest", ctx, req, receiver)}
+}
+
+func (_c *MockgatewayModel_acceptReconcileRequest_Call) Run(run func(ctx context.Context, req reconcile.Request, receiver *gatewayData)) *MockgatewayModel_acceptReconcileRequest_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(reconcile.Request), args[2].(*gatewayData))
+	})
+	return _c
+}
+
+func (_c *MockgatewayModel_acceptReconcileRequest_Call) Return(_a0 bool, _a1 error) *MockgatewayModel_acceptReconcileRequest_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockgatewayModel_acceptReconcileRequest_Call) RunAndReturn(run func(context.Context, reconcile.Request, *gatewayData) (bool, error)) *MockgatewayModel_acceptReconcileRequest_Call {
+	_c.Call.Return(run)
+	return _c
 }
 
 // programGateway provides a mock function with given fields: ctx, gw

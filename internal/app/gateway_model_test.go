@@ -1,32 +1,74 @@
 package app
 
 import (
-	"fmt"
+	"context"
+	"reflect"
 	"testing"
 
+	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	types "k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-func TestGatewayModelImpl_programGateway(t *testing.T) {
-	t.Run("MissingLoadBalancerAnnotation", func(t *testing.T) {
-		// Arrange
-		model := &gatewayModelImpl{}  // No deps for now
-		gateway := newRandomGateway() // Create gateway without the annotation
+func TestGatewayModelImpl(t *testing.T) {
+	newMockDeps := func(t *testing.T) gatewayModelDeps {
+		return gatewayModelDeps{
+			K8sClient:  NewMockk8sClient(t),
+			RootLogger: diag.RootTestLogger(),
+		}
+	}
 
-		// Act
-		err := model.programGateway(t.Context(), gateway)
+	t.Run("acceptReconcileRequest", func(t *testing.T) {
+		t.Run("missingConfigRef", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			gateway := newRandomGateway()
 
-		// Assert
-		require.Error(t, err)
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: gateway.Namespace,
+					Name:      gateway.Name,
+				},
+			}
 
-		var statusErr *resourceStatusError
-		require.ErrorAs(t, err, &statusErr, "Error should be a resourceStatusError")
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 
-		assert.Equal(t, ProgrammedGatewayConditionType, statusErr.conditionType)
-		assert.Equal(t, MissingAnnotationReason, statusErr.reason)
-		expectedMsg := fmt.Sprintf("Gateway is missing load balancer ID annotation '%s'", LoadBalancerIDAnnotation)
-		assert.Equal(t, expectedMsg, statusErr.message)
-		assert.NoError(t, statusErr.cause)
+			mockClient.EXPECT().
+				Get(t.Context(), req.NamespacedName, mock.Anything).
+				RunAndReturn(func(_ context.Context, nn types.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
+					assert.Equal(t, req.NamespacedName, nn)
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
+					return nil
+				})
+
+			var receiver gatewayData
+			_, err := model.acceptReconcileRequest(t.Context(), req, &receiver)
+
+			require.Error(t, err)
+
+			var statusErr *resourceStatusError
+			require.ErrorAs(t, err, &statusErr, "Error should be a resourceStatusError")
+
+			assert.Equal(t, AcceptedConditionReason, statusErr.conditionType)
+			assert.Equal(t, MissingConfigReason, statusErr.reason)
+			assert.Equal(t, "spec.infrastructure is missing parametersRef", statusErr.message)
+			assert.NoError(t, statusErr.cause)
+		})
+	})
+
+	t.Run("programGateway", func(t *testing.T) {
+		t.Run("Stub", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			gateway := newRandomGateway()
+
+			err := model.programGateway(t.Context(), gateway)
+
+			require.NoError(t, err)
+		})
 	})
 }

@@ -40,6 +40,18 @@ spec:
 EOF
 ```
 
+Prepare a GatewayConfig resource. You will need to specify the OCID of an existing OCI Load Balancer.
+```yaml
+cat <<EOF | kubectl -n oke-gw apply -f -
+apiVersion: oke-gateway-api.gemyago.github.io/v1
+kind: GatewayConfig
+metadata:
+  name: oke-gateway-config
+spec:
+  loadBalancerId: ocid1.loadbalancer.oc1..exampleuniqueID
+EOF
+```
+
 Create a Gateway resource:
 ```yaml
 cat <<EOF | kubectl -n oke-gw apply -f -
@@ -47,11 +59,13 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: oke-gateway
-  annotations:
-    # Specify the OCID of an existing OCI Load Balancer
-    oke-gateway-api.gemyago.github.io/oci-load-balancer-id: "ocid1.loadbalancer.oc1..exampleuniqueID"
 spec:
   gatewayClassName: oke-gateway-api
+  infrastructure:
+    parametersRef:
+      group: oke-gateway-api.gemyago.github.io
+      kind: GatewayConfig
+      name: oke-gateway-config
   listeners:
     - name: http
       port: 80
