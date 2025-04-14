@@ -96,7 +96,7 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 	}
 
 	if !r.resourcesModel.isConditionSet(&data.gateway, data.gateway.Status.Conditions, ProgrammedGatewayConditionType) {
-		r.logger.DebugContext(ctx, "Gateway reconciliation details",
+		r.logger.DebugContext(ctx, "Programming gateway",
 			slog.Any("req", req),
 			slog.Any("gateway", data.gateway),
 			slog.Any("config", data.config),
