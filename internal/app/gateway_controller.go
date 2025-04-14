@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 
 	"go.uber.org/dig"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -106,6 +107,12 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 		r.logger.InfoContext(ctx,
 			"Successfully set Programmed condition for Gateway",
 			slog.String("gateway", req.NamespacedName.String()),
+		)
+	} else {
+		r.logger.DebugContext(ctx,
+			"Programmed condition already set for this Gateway generation",
+			slog.String("gateway", req.NamespacedName.String()),
+			slog.String("generation", strconv.FormatInt(gateway.Generation, 10)),
 		)
 	}
 
