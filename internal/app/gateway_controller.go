@@ -82,13 +82,26 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 		return reconcile.Result{}, nil
 	}
 
-	r.logger.DebugContext(ctx, "Gateway reconciliation details",
-		slog.Any("req", req),
-		slog.Any("gateway", data.gateway),
-		slog.Any("config", data.config),
-	)
+	if !r.resourcesModel.isConditionSet(&data.gateway, data.gateway.Status.Conditions, AcceptedConditionType) {
+		if err = r.resourcesModel.setCondition(ctx, setConditionParams{
+			resource:      &data.gateway,
+			conditions:    &data.gateway.Status.Conditions,
+			conditionType: AcceptedConditionType,
+			status:        v1.ConditionTrue,
+			reason:        AcceptedConditionReason,
+			message:       fmt.Sprintf("Gateway %s accepted by %s", data.gateway.Name, ControllerClassName),
+		}); err != nil {
+			return reconcile.Result{}, fmt.Errorf("failed to set accepted condition for Gateway %s: %w", req.NamespacedName, err)
+		}
+	}
 
 	if !r.resourcesModel.isConditionSet(&data.gateway, data.gateway.Status.Conditions, ProgrammedGatewayConditionType) {
+		r.logger.DebugContext(ctx, "Gateway reconciliation details",
+			slog.Any("req", req),
+			slog.Any("gateway", data.gateway),
+			slog.Any("config", data.config),
+		)
+
 		if err = r.gatewayModel.programGateway(ctx, &data); err != nil {
 			return r.processResourceError(ctx, err, &data.gateway)
 		}

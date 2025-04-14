@@ -77,6 +77,21 @@ func TestGatewayController(t *testing.T) {
 				Return(true, nil).Once()
 
 			mockResourcesModel.EXPECT().
+				isConditionSet(gateway, gateway.Status.Conditions, AcceptedConditionType).
+				Return(false).Once()
+
+			mockResourcesModel.EXPECT().
+				setCondition(t.Context(), setConditionParams{
+					resource:      gateway,
+					conditions:    &gateway.Status.Conditions,
+					conditionType: AcceptedConditionType,
+					status:        metav1.ConditionTrue,
+					reason:        AcceptedConditionReason,
+					message:       fmt.Sprintf("Gateway %s accepted by %s", gateway.Name, ControllerClassName),
+				}).
+				Return(nil).Once()
+
+			mockResourcesModel.EXPECT().
 				isConditionSet(gateway, gateway.Status.Conditions, ProgrammedGatewayConditionType).
 				Return(false).Once()
 
@@ -203,6 +218,10 @@ func TestGatewayController(t *testing.T) {
 				Return(true, nil).Once()
 
 			mockResourcesModel.EXPECT().
+				isConditionSet(gateway, gateway.Status.Conditions, AcceptedConditionType).
+				Return(true).Once()
+
+			mockResourcesModel.EXPECT().
 				isConditionSet(gateway, gateway.Status.Conditions, ProgrammedGatewayConditionType).
 				Return(false).Once()
 
@@ -242,6 +261,10 @@ func TestGatewayController(t *testing.T) {
 					return true
 				})).
 				Return(true, nil).Once()
+
+			mockResourcesModel.EXPECT().
+				isConditionSet(gateway, gateway.Status.Conditions, AcceptedConditionType).
+				Return(true).Once()
 
 			mockResourcesModel.EXPECT().
 				isConditionSet(gateway, gateway.Status.Conditions, ProgrammedGatewayConditionType).

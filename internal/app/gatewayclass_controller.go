@@ -57,11 +57,9 @@ func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Re
 		return reconcile.Result{}, fmt.Errorf("failed to get GatewayClass %s: %w", req.NamespacedName, err)
 	}
 
-	r.logger.InfoContext(ctx, fmt.Sprintf("Reconciling GatewayClass %s", req.NamespacedName))
-
 	// Check if the ControllerName matches the one we are responsible for
 	if gatewayClass.Spec.ControllerName != ControllerClassName {
-		r.logger.DebugContext(ctx,
+		r.logger.InfoContext(ctx,
 			"Ignoring GatewayClass because controllerName does not match",
 			slog.String("gatewayClass", req.NamespacedName.String()),
 			slog.String("expectedControllerName", ControllerClassName),
@@ -70,6 +68,8 @@ func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Re
 		return reconcile.Result{}, nil // Ignore this GatewayClass
 	}
 
+	r.logger.InfoContext(ctx, fmt.Sprintf("Processing reconciliation for GatewayClass %s", req.NamespacedName))
+
 	r.logger.DebugContext(ctx, "GatewayClass reconciliation details",
 		slog.Any("req", req),
 		slog.Any("gatewayClass", gatewayClass),
@@ -77,6 +77,9 @@ func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Re
 
 	// Check if the GatewayClass is already in the desired state
 	if r.resourcesModel.isConditionSet(&gatewayClass, gatewayClass.Status.Conditions, AcceptedConditionType) {
+		r.logger.DebugContext(ctx, "GatewayClass already is already accepted",
+			slog.String("gatewayClass", req.NamespacedName.String()),
+		)
 		return reconcile.Result{}, nil // Already in desired state
 	}
 
