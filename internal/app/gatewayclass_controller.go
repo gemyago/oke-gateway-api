@@ -12,13 +12,18 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-const ControllerClassName = "oke-gateway-api.gemyago.github.io/oke-alb-gateway-controller"
-const ManagedByAnnotation = "oke-gateway-api.oraclecloud.com/managed-by"
-
 const (
-	AcceptedConditionType   = "Accepted"
+	// AcceptedConditionType is the condition type for resource acceptance.
+	AcceptedConditionType = "Accepted"
+	// AcceptedConditionReason is the reason for the Accepted condition when true.
 	AcceptedConditionReason = "Accepted"
+
+	// ControllerClassName is the name of the controller managing resources.
+	ControllerClassName = "oke-gateway-api.oraclecloud.com/oke-gateway-controller"
 )
+
+// ManagedByAnnotation indicates which controller manages the resource.
+const ManagedByAnnotation = "oke-gateway-api.oraclecloud.com/managed-by"
 
 // This is an internal interface used only to describe what we need from the client.
 type k8sClient interface {

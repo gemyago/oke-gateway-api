@@ -11,7 +11,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// SetAcceptedConditionParams holds parameters for the SetAcceptedCondition method.
 type setAcceptedConditionParams struct {
 	resource    client.Object
 	conditions  *[]metav1.Condition
@@ -19,11 +18,20 @@ type setAcceptedConditionParams struct {
 	annotations map[string]string // Optional annotations to set/update
 }
 
+type setNotAcceptedConditionParams struct {
+	resource   client.Object
+	conditions *[]metav1.Condition
+	reason     string
+	message    string
+}
+
 // ResourcesModel handles logic related to Kubernetes resource manipulation.
 type resourcesModel interface {
 	// SetAcceptedCondition sets the 'Accepted' status condition on a given resource.
-	// It's designed to be generic but initially targets Gateway API resources.
 	setAcceptedCondition(ctx context.Context, params setAcceptedConditionParams) error
+
+	// SetNotAcceptedCondition sets the 'Accepted' status condition to 'False' on a given resource.
+	setNotAcceptedCondition(ctx context.Context, params setNotAcceptedConditionParams) error
 
 	// isConditionSet checks if a specific condition is already set, true, and observed at the correct generation.
 	isConditionSet(resource client.Object, conditions []metav1.Condition, conditionType string) bool
@@ -93,6 +101,36 @@ func (m *resourcesModelImpl) isConditionSet(
 		return true
 	}
 	return false
+}
+
+func (m *resourcesModelImpl) setNotAcceptedCondition(
+	ctx context.Context,
+	params setNotAcceptedConditionParams,
+) error {
+	m.logger.DebugContext(ctx,
+		"Setting NotAccepted condition",
+		slog.String("resource", params.resource.GetName()),
+		slog.String("message", params.message),
+	)
+
+	generation := params.resource.GetGeneration()
+
+	notAcceptedCondition := metav1.Condition{
+		Type:               AcceptedConditionType,
+		Status:             metav1.ConditionFalse,
+		Reason:             params.reason,
+		Message:            params.message,
+		ObservedGeneration: generation,
+		LastTransitionTime: metav1.Now(),
+	}
+
+	meta.SetStatusCondition(params.conditions, notAcceptedCondition)
+
+	if err := m.client.Status().Update(ctx, params.resource); err != nil {
+		return fmt.Errorf("failed to update resource status for %s: %w", params.resource.GetName(), err)
+	}
+
+	return nil
 }
 
 type resourcesModelDeps struct {

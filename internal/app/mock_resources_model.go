@@ -122,6 +122,53 @@ func (_c *MockresourcesModel_setAcceptedCondition_Call) RunAndReturn(run func(co
 	return _c
 }
 
+// setNotAcceptedCondition provides a mock function with given fields: ctx, params
+func (_m *MockresourcesModel) setNotAcceptedCondition(ctx context.Context, params setNotAcceptedConditionParams) error {
+	ret := _m.Called(ctx, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for setNotAcceptedCondition")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, setNotAcceptedConditionParams) error); ok {
+		r0 = rf(ctx, params)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockresourcesModel_setNotAcceptedCondition_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'setNotAcceptedCondition'
+type MockresourcesModel_setNotAcceptedCondition_Call struct {
+	*mock.Call
+}
+
+// setNotAcceptedCondition is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params setNotAcceptedConditionParams
+func (_e *MockresourcesModel_Expecter) setNotAcceptedCondition(ctx interface{}, params interface{}) *MockresourcesModel_setNotAcceptedCondition_Call {
+	return &MockresourcesModel_setNotAcceptedCondition_Call{Call: _e.mock.On("setNotAcceptedCondition", ctx, params)}
+}
+
+func (_c *MockresourcesModel_setNotAcceptedCondition_Call) Run(run func(ctx context.Context, params setNotAcceptedConditionParams)) *MockresourcesModel_setNotAcceptedCondition_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(setNotAcceptedConditionParams))
+	})
+	return _c
+}
+
+func (_c *MockresourcesModel_setNotAcceptedCondition_Call) Return(_a0 error) *MockresourcesModel_setNotAcceptedCondition_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockresourcesModel_setNotAcceptedCondition_Call) RunAndReturn(run func(context.Context, setNotAcceptedConditionParams) error) *MockresourcesModel_setNotAcceptedCondition_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockresourcesModel creates a new instance of MockresourcesModel. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockresourcesModel(t interface {
