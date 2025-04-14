@@ -96,7 +96,6 @@ func (m *resourcesModelImpl) isConditionSet(
 	conditionType string) bool {
 	existingCondition := meta.FindStatusCondition(conditions, conditionType)
 	if existingCondition != nil &&
-		existingCondition.Status == metav1.ConditionTrue &&
 		existingCondition.ObservedGeneration == resource.GetGeneration() {
 		return true
 	}

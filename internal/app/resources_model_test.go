@@ -279,7 +279,7 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 			{
 				Type:               AcceptedConditionType,
 				Status:             metav1.ConditionTrue,
-				Reason:             AcceptedConditionReason,
+				Reason:             faker.Word(),
 				ObservedGeneration: gatewayClass.Generation, // Matches resource generation
 			},
 		}
@@ -299,7 +299,7 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 			{
 				Type:               "SomeOtherType",
 				Status:             metav1.ConditionTrue,
-				Reason:             AcceptedConditionReason,
+				Reason:             faker.Word(),
 				ObservedGeneration: gatewayClass.Generation,
 			},
 		}
@@ -307,25 +307,12 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 		assert.False(t, result, "Expected isConditionSet to return false for wrong condition type")
 	})
 
-	t.Run("ConditionSet_WrongStatus", func(t *testing.T) {
-		conditions := []metav1.Condition{
-			{
-				Type:               AcceptedConditionType,
-				Status:             metav1.ConditionFalse,
-				Reason:             AcceptedConditionReason,
-				ObservedGeneration: gatewayClass.Generation,
-			},
-		}
-		result := model.isConditionSet(gatewayClass, conditions, AcceptedConditionType)
-		assert.False(t, result, "Expected isConditionSet to return false for wrong condition status")
-	})
-
 	t.Run("ConditionSet_WrongGeneration", func(t *testing.T) {
 		conditions := []metav1.Condition{
 			{
 				Type:               AcceptedConditionType,
 				Status:             metav1.ConditionTrue,
-				Reason:             AcceptedConditionReason,
+				Reason:             faker.Word(),
 				ObservedGeneration: gatewayClass.Generation - 1, // Mismatched generation
 			},
 		}
