@@ -3,7 +3,7 @@ description:
 globs: *.go
 alwaysApply: false
 ---
-# golang project rules
+# golang project rules, apply in agent mode
 
 ## common rules
 - Build plan, ALWAYS confirm before proceeding

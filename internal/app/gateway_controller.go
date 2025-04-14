@@ -2,11 +2,12 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
 	"go.uber.org/dig"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -45,7 +46,7 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 	r.logger.InfoContext(ctx, fmt.Sprintf("Reconciling Gateway %s", req.NamespacedName))
 	var gateway gatewayv1.Gateway
 	if err := r.client.Get(ctx, req.NamespacedName, &gateway); err != nil {
-		if errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			r.logger.InfoContext(ctx, fmt.Sprintf("Gateway %s removed", req.NamespacedName))
 			return reconcile.Result{}, nil
 		}
@@ -59,6 +60,24 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 
 	if !r.resourcesModel.isConditionSet(&gateway, gateway.Status.Conditions, ProgrammedGatewayConditionType) {
 		if err := r.gatewayModel.programGateway(ctx, &gateway); err != nil {
+			var reasonErr *resourceStatusError
+			if errors.As(err, &reasonErr) {
+				if err = r.resourcesModel.setCondition(ctx, setConditionParams{
+					resource:      &gateway,
+					conditions:    &gateway.Status.Conditions,
+					conditionType: reasonErr.conditionType,
+					status:        v1.ConditionFalse,
+					reason:        reasonErr.reason,
+					message:       reasonErr.message,
+				}); err != nil {
+					return reconcile.Result{}, fmt.Errorf("failed to set condition for Gateway %s: %w", req.NamespacedName, err)
+				}
+				r.logger.WarnContext(ctx, "Failed to program gateway",
+					slog.String("gateway", req.NamespacedName.String()),
+					slog.String("reason", reasonErr.Error()),
+				)
+				return reconcile.Result{}, nil
+			}
 			return reconcile.Result{}, fmt.Errorf("failed to program Gateway %s: %w", req.NamespacedName, err)
 		}
 

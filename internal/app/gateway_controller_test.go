@@ -149,5 +149,62 @@ func TestGatewayController(t *testing.T) {
 			require.ErrorIs(t, err, wantErr)
 			assert.Equal(t, reconcile.Result{}, result)
 		})
+
+		// if error is resourceStatusError then set status to details from the error
+		t.Run("handle resourceStatusError", func(t *testing.T) {
+			gateway := newRandomGateway()
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: gateway.Namespace,
+					Name:      gateway.Name,
+				},
+			}
+
+			deps := newMockDeps(t)
+			controller := NewGatewayController(deps)
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+
+			mockClient.EXPECT().
+				Get(t.Context(), req.NamespacedName, mock.Anything).
+				RunAndReturn(func(_ context.Context, nn types.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
+					assert.Equal(t, req.NamespacedName, nn)
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
+					return nil
+				})
+
+			mockResourcesModel.EXPECT().
+				isConditionSet(gateway, gateway.Status.Conditions, ProgrammedGatewayConditionType).
+				Return(false).Once()
+
+			wantErr := &resourceStatusError{
+				conditionType: ProgrammedGatewayConditionType,
+				reason:        faker.Word(),
+				message:       faker.Sentence(),
+			}
+
+			mockGatewayModel.EXPECT().
+				programGateway(t.Context(), gateway).
+				Return(wantErr).Once()
+
+			mockResourcesModel.EXPECT().
+				setCondition(t.Context(), setConditionParams{
+					resource:      gateway,
+					conditions:    &gateway.Status.Conditions,
+					conditionType: wantErr.conditionType,
+					status:        metav1.ConditionFalse,
+					reason:        wantErr.reason,
+					message:       wantErr.message,
+				}).
+				Return(nil).Once()
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
 	})
 }
