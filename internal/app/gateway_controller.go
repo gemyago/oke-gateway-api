@@ -61,7 +61,7 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 	if err := r.resourcesModel.setAcceptedCondition(ctx, setAcceptedConditionParams{
 		resource:   &gateway,
 		conditions: &gateway.Status.Conditions,
-		message:    fmt.Sprintf("Gateway %s accepted by controller", gateway.Name),
+		message:    fmt.Sprintf("Gateway %s accepted by controller class %s", gateway.Name, ControllerClassName),
 		annotations: map[string]string{
 			"oke-gateway-api.oraclecloud.com/managed-by": ControllerClassName,
 		},

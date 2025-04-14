@@ -129,7 +129,7 @@ func TestGatewayController(t *testing.T) {
 			Return(false)
 
 		// Mock setAcceptedCondition
-		expectedMessage := fmt.Sprintf("Gateway %s accepted by controller", gateway.Name)
+		expectedMessage := fmt.Sprintf("Gateway %s accepted by controller class %s", gateway.Name, ControllerClassName)
 		expectedAnnotations := map[string]string{
 			"oke-gateway-api.oraclecloud.com/managed-by": ControllerClassName,
 		}
