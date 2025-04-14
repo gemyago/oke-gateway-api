@@ -16,9 +16,12 @@ const (
 	// InvalidResourceConfigurationReason is the reason for the InvalidResourceConfiguration condition.
 	InvalidResourceConfigurationReason = "InvalidResourceConfiguration"
 
+	// MissingAnnotationReason is the reason when a required annotation is missing.
+	MissingAnnotationReason = "MissingAnnotation"
+
 	// ControllerClassName is the name of the controller managing resources.
 	ControllerClassName = "oke-gateway-api.gemyago.github.io/oke-alb-gateway-controller"
 )
 
-// ManagedByAnnotation indicates which controller manages the resource.
-const ManagedByAnnotation = "oke-gateway-api.oraclecloud.com/managed-by"
+// LoadBalancerIDAnnotation is the annotation for the load balancer ID.
+const LoadBalancerIDAnnotation = "oke-gateway-api.gemyago.github.io/oci-load-balancer-id"
