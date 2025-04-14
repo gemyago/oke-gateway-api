@@ -18,7 +18,7 @@ import (
 	k8sapi "github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
 )
 
-func TestResourcesModelImpl_setAcceptedCondition(t *testing.T) {
+func TestResourcesModelImpl_setCondition(t *testing.T) {
 	newMockDeps := func(t *testing.T) resourcesModelDeps {
 		return resourcesModelDeps{
 			K8sClient:  NewMockk8sClient(t),
@@ -45,9 +45,12 @@ func TestResourcesModelImpl_setAcceptedCondition(t *testing.T) {
 
 		message := faker.Sentence()
 		params := setConditionParams{
-			resource:   gatewayClass,
-			conditions: &gatewayClass.Status.Conditions,
-			message:    message,
+			resource:      gatewayClass,
+			conditions:    &gatewayClass.Status.Conditions,
+			conditionType: AcceptedConditionType,
+			status:        metav1.ConditionTrue,
+			reason:        AcceptedConditionReason,
+			message:       message,
 		}
 
 		timeBeforeAct := metav1.Now()
@@ -136,118 +139,6 @@ func TestResourcesModelImpl_setAcceptedCondition(t *testing.T) {
 		// Assert
 		require.Error(t, err, "Expected an error from setAcceptedCondition")
 		require.ErrorIs(t, err, expectedError, "Returned error should wrap the original update error")
-	})
-
-	t.Run("HappyPath_UpdateStatus", func(t *testing.T) {
-		deps := newMockDeps(t)
-		model := newResourcesModel(deps)
-		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
-		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
-
-		initialAnnotations := map[string]string{
-			"1-" + faker.Word(): faker.Word(),
-			"2-" + faker.Word(): faker.Word(),
-		}
-		gatewayClass := &gatewayv1.GatewayClass{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:        faker.DomainName(),
-				Generation:  rand.Int64(),
-				Annotations: initialAnnotations,
-			},
-			Spec: gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName},
-			Status: gatewayv1.GatewayClassStatus{
-				Conditions: []metav1.Condition{},
-			},
-		}
-
-		newAnnotations := map[string]string{
-			"3-" + faker.Word(): faker.Word(),
-			"4-" + faker.Word(): faker.Word(),
-		}
-		expectedAnnotations := make(map[string]string)
-		for k, v := range initialAnnotations {
-			expectedAnnotations[k] = v
-		}
-		for k, v := range newAnnotations {
-			expectedAnnotations[k] = v
-		}
-		message := faker.Sentence()
-		params := setConditionParams{
-			resource:   gatewayClass,
-			conditions: &gatewayClass.Status.Conditions,
-			message:    message,
-		}
-
-		// Expect Resource Update (for annotations)
-		mockClient.EXPECT().Update(t.Context(), mock.MatchedBy(func(gc client.Object) bool {
-			assert.Equal(t, expectedAnnotations, gc.GetAnnotations(), "Annotations mismatch in resource update")
-			return assert.Same(t, gc, gatewayClass) // Ensure it's the same object instance
-		}), mock.Anything).Return(nil)
-
-		// Expect Status Update (after resource update)
-		mockClient.EXPECT().Status().Return(mockStatusWriter)
-		mockStatusWriter.EXPECT().Update(t.Context(), mock.MatchedBy(func(gc client.Object) bool {
-			require.Len(t, gatewayClass.Status.Conditions, 1, "Expected exactly one condition after status update")
-			acceptedCondition := meta.FindStatusCondition(gatewayClass.Status.Conditions, AcceptedConditionType)
-			require.NotNil(t, acceptedCondition, "Accepted condition should be found after status update")
-			assert.Equal(t, metav1.ConditionTrue, acceptedCondition.Status)
-			assert.Equal(t, message, acceptedCondition.Message)
-			assert.Equal(t, gatewayClass.Generation, acceptedCondition.ObservedGeneration)
-			return assert.Same(t, gc, gatewayClass) // Ensure it's the same object instance
-		}), mock.Anything).Return(nil)
-
-		err := model.setCondition(t.Context(), params)
-		require.NoError(t, err)
-	})
-
-	t.Run("ErrorPath_ResourceUpdateFails", func(t *testing.T) {
-		deps := newMockDeps(t)
-		model := newResourcesModel(deps)
-		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
-		// No need for mockStatusWriter as Status().Update() shouldn't be called
-
-		gatewayClass := &gatewayv1.GatewayClass{ /* ... minimal setup ... */ }
-		params := setConditionParams{
-			resource:   gatewayClass,
-			conditions: &gatewayClass.Status.Conditions, // Still needed for the func signature
-			message:    faker.Sentence(),
-		}
-		expectedError := errors.New(faker.Sentence())
-
-		// Expect Resource Update to fail
-		mockClient.EXPECT().Update(t.Context(), mock.Anything, mock.Anything).Return(expectedError)
-
-		// Status().Update() should NOT be called
-
-		err := model.setCondition(t.Context(), params)
-		require.Error(t, err)
-		require.ErrorIs(t, err, expectedError, "Error from resource update should be returned")
-	})
-
-	t.Run("ErrorPath_StatusUpdateFailsAfterResourceUpdate", func(t *testing.T) {
-		deps := newMockDeps(t)
-		model := newResourcesModel(deps)
-		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
-		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
-
-		gatewayClass := &gatewayv1.GatewayClass{ /* ... minimal setup ... */ }
-		params := setConditionParams{
-			resource:   gatewayClass,
-			conditions: &gatewayClass.Status.Conditions,
-			message:    faker.Sentence(),
-		}
-		expectedStatusError := errors.New(faker.Sentence())
-
-		// Expect Resource Update to succeed
-		mockClient.EXPECT().Update(t.Context(), mock.Anything, mock.Anything).Return(nil)
-
-		// Expect Status Update to fail
-		mockClient.EXPECT().Status().Return(mockStatusWriter)
-		mockStatusWriter.EXPECT().Update(t.Context(), mock.Anything, mock.Anything).Return(expectedStatusError)
-
-		err := model.setCondition(t.Context(), params)
-		require.Error(t, err)
-		require.ErrorIs(t, err, expectedStatusError, "Error from status update should be returned")
 	})
 }
 

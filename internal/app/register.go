@@ -14,5 +14,6 @@ func Register(container *dig.Container) error {
 		NewGatewayClassController,
 		NewGatewayController,
 		newResourcesModel,
+		newGatewayModel,
 	)
 }

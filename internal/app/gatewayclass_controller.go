@@ -7,6 +7,7 @@ import (
 
 	"go.uber.org/dig"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -79,9 +80,12 @@ func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Re
 	}
 
 	if err := r.resourcesModel.setCondition(ctx, setConditionParams{
-		resource:   &gatewayClass,
-		conditions: &gatewayClass.Status.Conditions,
-		message:    fmt.Sprintf("GatewayClass %s is accepted by %s", gatewayClass.Name, ControllerClassName),
+		resource:      &gatewayClass,
+		conditions:    &gatewayClass.Status.Conditions,
+		conditionType: AcceptedConditionType,
+		status:        metav1.ConditionTrue,
+		reason:        AcceptedConditionReason,
+		message:       fmt.Sprintf("GatewayClass %s is accepted by %s", gatewayClass.Name, ControllerClassName),
 	}); err != nil {
 		return reconcile.Result{},
 			fmt.Errorf("failed to set accepted condition for GatewayClass %s: %w",
