@@ -110,6 +110,7 @@ func (m *resourcesModelImpl) setNotAcceptedCondition(
 		"Setting NotAccepted condition",
 		slog.String("resource", params.resource.GetName()),
 		slog.String("message", params.message),
+		slog.String("reason", params.reason),
 	)
 
 	generation := params.resource.GetGeneration()
