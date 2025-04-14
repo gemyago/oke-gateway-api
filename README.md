@@ -123,3 +123,15 @@ go test -v -count=5 ./internal/api/http/v1controllers/ --run TestHealthCheck
 # Run and watch. Useful when iterating on tests
 gow test -v ./internal/api/http/v1controllers/ --run TestHealthCheck
 ```
+
+### Running in a local cluster
+
+For local development purposes you can run the controller in a local cluster but provision the resources in a real OCI tenancy.
+
+You may want to apply just the CRDs:
+```sh
+kubectl apply -f deploy/helm/controller/templates/gateway-config-crd.yaml
+```
+
+
+
