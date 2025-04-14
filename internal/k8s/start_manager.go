@@ -43,6 +43,8 @@ func StartManager(ctx context.Context, deps ManagerDeps) error { // coverage-ign
 		deps.Config,
 		manager.Options{
 			Scheme: deps.K8sClient.Scheme(),
+
+			// TODO: Per reconciliation correlation is required
 			BaseContext: func() context.Context {
 				return diag.SetLogAttributesToContext(ctx, diag.LogAttributes{
 					CorrelationID: slog.StringValue(uuid.New().String()),
