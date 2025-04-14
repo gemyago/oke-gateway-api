@@ -17,7 +17,7 @@ const (
 	InvalidResourceConfigurationReason = "InvalidResourceConfiguration"
 
 	// ControllerClassName is the name of the controller managing resources.
-	ControllerClassName = "oke-gateway-api.oraclecloud.com/oke-gateway-controller"
+	ControllerClassName = "oke-gateway-api.gemyago.github.io/oke-alb-gateway-controller"
 )
 
 // ManagedByAnnotation indicates which controller manages the resource.

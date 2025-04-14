@@ -48,15 +48,16 @@ func NewGatewayClassController(deps GatewayClassControllerDeps) *GatewayClassCon
 
 // Reconcile implements the reconcile.Reconciler interface.
 func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	r.logger.InfoContext(ctx, fmt.Sprintf("Reconciling GatewayClass %s", req.NamespacedName))
 	var gatewayClass gatewayv1.GatewayClass
 	if err := r.client.Get(ctx, req.NamespacedName, &gatewayClass); err != nil {
 		if errors.IsNotFound(err) {
-			r.logger.InfoContext(ctx, fmt.Sprintf("GatewayClass %s removed", req.NamespacedName))
+			r.logger.DebugContext(ctx, fmt.Sprintf("GatewayClass not present: %s", req.NamespacedName))
 			return reconcile.Result{}, nil
 		}
 		return reconcile.Result{}, fmt.Errorf("failed to get GatewayClass %s: %w", req.NamespacedName, err)
 	}
+
+	r.logger.InfoContext(ctx, fmt.Sprintf("Reconciling GatewayClass %s", req.NamespacedName))
 
 	// Check if the ControllerName matches the one we are responsible for
 	if gatewayClass.Spec.ControllerName != ControllerClassName {
