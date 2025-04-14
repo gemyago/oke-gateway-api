@@ -89,10 +89,13 @@ func TestGatewayController(t *testing.T) {
 			Return(nil).Once()
 
 		mockResourcesModel.EXPECT().
-			setAcceptedCondition(t.Context(), setAcceptedConditionParams{
-				resource:   gateway,
-				conditions: &gateway.Status.Conditions,
-				message:    fmt.Sprintf("Gateway %s programmed by %s", gateway.Name, ControllerClassName),
+			setCondition(t.Context(), setConditionParams{
+				resource:      gateway,
+				conditions:    &gateway.Status.Conditions,
+				conditionType: ProgrammedGatewayConditionType,
+				status:        metav1.ConditionTrue,
+				reason:        LoadBalancerReconciledReason,
+				message:       fmt.Sprintf("Gateway %s programmed by %s", gateway.Name, ControllerClassName),
 			}).
 			Return(nil).Once()
 

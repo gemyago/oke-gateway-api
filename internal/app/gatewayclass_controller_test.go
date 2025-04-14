@@ -76,10 +76,13 @@ func TestGatewayClassController(t *testing.T) {
 			Return(false)
 
 		mockResourcesModel.EXPECT().
-			setAcceptedCondition(t.Context(), setAcceptedConditionParams{
-				resource:   gatewayClass,
-				conditions: &gatewayClass.Status.Conditions,
-				message:    fmt.Sprintf("GatewayClass %s is accepted by %s", gatewayClass.Name, ControllerClassName),
+			setCondition(t.Context(), setConditionParams{
+				resource:      gatewayClass,
+				conditions:    &gatewayClass.Status.Conditions,
+				conditionType: AcceptedConditionType,
+				status:        metav1.ConditionTrue,
+				reason:        AcceptedConditionReason,
+				message:       fmt.Sprintf("GatewayClass %s is accepted by %s", gatewayClass.Name, ControllerClassName),
 			}).
 			Return(nil)
 
@@ -173,7 +176,7 @@ func TestGatewayClassController(t *testing.T) {
 		// Simulate Status Update error
 		statusUpdateErr := errors.New(faker.Sentence())
 		mockResourcesModel.EXPECT().
-			setAcceptedCondition(t.Context(), mock.Anything).
+			setCondition(t.Context(), mock.Anything).
 			Return(statusUpdateErr)
 
 		result, err := controller.Reconcile(t.Context(), req)

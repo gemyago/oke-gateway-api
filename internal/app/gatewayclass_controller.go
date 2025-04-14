@@ -78,7 +78,7 @@ func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Re
 		return reconcile.Result{}, nil // Already in desired state
 	}
 
-	if err := r.resourcesModel.setAcceptedCondition(ctx, setAcceptedConditionParams{
+	if err := r.resourcesModel.setCondition(ctx, setConditionParams{
 		resource:   &gatewayClass,
 		conditions: &gatewayClass.Status.Conditions,
 		message:    fmt.Sprintf("GatewayClass %s is accepted by %s", gatewayClass.Name, ControllerClassName),

@@ -10,6 +10,9 @@ const (
 	// ProgrammedGatewayConditionType is the condition type for programmed gateways.
 	ProgrammedGatewayConditionType = "Programmed"
 
+	// LoadBalancerReconciledReason is the reason for the LoadBalancerReconciled condition when true.
+	LoadBalancerReconciledReason = "LoadBalancerReconciled"
+
 	// InvalidResourceConfigurationReason is the reason for the InvalidResourceConfiguration condition.
 	InvalidResourceConfigurationReason = "InvalidResourceConfiguration"
 

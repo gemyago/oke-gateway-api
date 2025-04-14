@@ -7,6 +7,7 @@ import (
 
 	"go.uber.org/dig"
 	"k8s.io/apimachinery/pkg/api/errors"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
@@ -61,10 +62,13 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 			return reconcile.Result{}, fmt.Errorf("failed to program Gateway %s: %w", req.NamespacedName, err)
 		}
 
-		if err := r.resourcesModel.setAcceptedCondition(ctx, setAcceptedConditionParams{
-			resource:   &gateway,
-			conditions: &gateway.Status.Conditions,
-			message:    fmt.Sprintf("Gateway %s programmed by %s", gateway.Name, ControllerClassName),
+		if err := r.resourcesModel.setCondition(ctx, setConditionParams{
+			resource:      &gateway,
+			conditions:    &gateway.Status.Conditions,
+			conditionType: ProgrammedGatewayConditionType,
+			status:        v1.ConditionTrue,
+			reason:        LoadBalancerReconciledReason,
+			message:       fmt.Sprintf("Gateway %s programmed by %s", gateway.Name, ControllerClassName),
 		}); err != nil {
 			return reconcile.Result{}, fmt.Errorf("failed to set accepted condition for Gateway %s: %w", req.NamespacedName, err)
 		}

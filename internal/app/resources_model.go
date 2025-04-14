@@ -11,26 +11,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type setAcceptedConditionParams struct {
-	resource   client.Object
-	conditions *[]metav1.Condition
-	message    string
+type setConditionParams struct {
+	resource      client.Object
+	conditions    *[]metav1.Condition
+	conditionType string
+	status        metav1.ConditionStatus
+	reason        string
+	message       string
 }
 
-type setNotAcceptedConditionParams struct {
-	resource   client.Object
-	conditions *[]metav1.Condition
-	reason     string
-	message    string
-}
-
-// ResourcesModel handles logic related to Kubernetes resource manipulation.
 type resourcesModel interface {
-	// SetAcceptedCondition sets the 'Accepted' status condition on a given resource.
-	setAcceptedCondition(ctx context.Context, params setAcceptedConditionParams) error
-
-	// SetNotAcceptedCondition sets the 'Accepted' status condition to 'False' on a given resource.
-	setNotAcceptedCondition(ctx context.Context, params setNotAcceptedConditionParams) error
+	// setCondition sets a condition on a given resource.
+	setCondition(ctx context.Context, params setConditionParams) error
 
 	// isConditionSet checks if a specific condition is already set, true, and observed at the correct generation.
 	isConditionSet(resource client.Object, conditions []metav1.Condition, conditionType string) bool
@@ -41,19 +33,21 @@ type resourcesModelImpl struct {
 	logger *slog.Logger
 }
 
-func (m *resourcesModelImpl) setAcceptedCondition(ctx context.Context, params setAcceptedConditionParams) error {
+func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditionParams) error {
 	m.logger.DebugContext(ctx,
-		"Setting Accepted condition",
+		fmt.Sprintf("Setting %s condition", params.conditionType),
 		slog.String("resource", params.resource.GetName()),
+		slog.String("status", string(params.status)),
+		slog.String("reason", params.reason),
 		slog.String("message", params.message),
 	)
 
 	generation := params.resource.GetGeneration()
 
 	acceptedCondition := metav1.Condition{
-		Type:               AcceptedConditionType,
-		Status:             metav1.ConditionTrue,
-		Reason:             AcceptedConditionReason,
+		Type:               params.conditionType,
+		Status:             params.status,
+		Reason:             params.reason,
 		Message:            params.message,
 		ObservedGeneration: generation,
 		LastTransitionTime: metav1.Now(),
@@ -78,37 +72,6 @@ func (m *resourcesModelImpl) isConditionSet(
 		return true
 	}
 	return false
-}
-
-func (m *resourcesModelImpl) setNotAcceptedCondition(
-	ctx context.Context,
-	params setNotAcceptedConditionParams,
-) error {
-	m.logger.DebugContext(ctx,
-		"Setting NotAccepted condition",
-		slog.String("resource", params.resource.GetName()),
-		slog.String("message", params.message),
-		slog.String("reason", params.reason),
-	)
-
-	generation := params.resource.GetGeneration()
-
-	notAcceptedCondition := metav1.Condition{
-		Type:               AcceptedConditionType,
-		Status:             metav1.ConditionFalse,
-		Reason:             params.reason,
-		Message:            params.message,
-		ObservedGeneration: generation,
-		LastTransitionTime: metav1.Now(),
-	}
-
-	meta.SetStatusCondition(params.conditions, notAcceptedCondition)
-
-	if err := m.client.Status().Update(ctx, params.resource); err != nil {
-		return fmt.Errorf("failed to update resource status for %s: %w", params.resource.GetName(), err)
-	}
-
-	return nil
 }
 
 type resourcesModelDeps struct {

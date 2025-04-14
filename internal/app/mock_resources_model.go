@@ -75,16 +75,16 @@ func (_c *MockresourcesModel_isConditionSet_Call) RunAndReturn(run func(client.O
 	return _c
 }
 
-// setAcceptedCondition provides a mock function with given fields: ctx, params
-func (_m *MockresourcesModel) setAcceptedCondition(ctx context.Context, params setAcceptedConditionParams) error {
+// setCondition provides a mock function with given fields: ctx, params
+func (_m *MockresourcesModel) setCondition(ctx context.Context, params setConditionParams) error {
 	ret := _m.Called(ctx, params)
 
 	if len(ret) == 0 {
-		panic("no return value specified for setAcceptedCondition")
+		panic("no return value specified for setCondition")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, setAcceptedConditionParams) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, setConditionParams) error); ok {
 		r0 = rf(ctx, params)
 	} else {
 		r0 = ret.Error(0)
@@ -93,78 +93,31 @@ func (_m *MockresourcesModel) setAcceptedCondition(ctx context.Context, params s
 	return r0
 }
 
-// MockresourcesModel_setAcceptedCondition_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'setAcceptedCondition'
-type MockresourcesModel_setAcceptedCondition_Call struct {
+// MockresourcesModel_setCondition_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'setCondition'
+type MockresourcesModel_setCondition_Call struct {
 	*mock.Call
 }
 
-// setAcceptedCondition is a helper method to define mock.On call
+// setCondition is a helper method to define mock.On call
 //   - ctx context.Context
-//   - params setAcceptedConditionParams
-func (_e *MockresourcesModel_Expecter) setAcceptedCondition(ctx interface{}, params interface{}) *MockresourcesModel_setAcceptedCondition_Call {
-	return &MockresourcesModel_setAcceptedCondition_Call{Call: _e.mock.On("setAcceptedCondition", ctx, params)}
+//   - params setConditionParams
+func (_e *MockresourcesModel_Expecter) setCondition(ctx interface{}, params interface{}) *MockresourcesModel_setCondition_Call {
+	return &MockresourcesModel_setCondition_Call{Call: _e.mock.On("setCondition", ctx, params)}
 }
 
-func (_c *MockresourcesModel_setAcceptedCondition_Call) Run(run func(ctx context.Context, params setAcceptedConditionParams)) *MockresourcesModel_setAcceptedCondition_Call {
+func (_c *MockresourcesModel_setCondition_Call) Run(run func(ctx context.Context, params setConditionParams)) *MockresourcesModel_setCondition_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(setAcceptedConditionParams))
+		run(args[0].(context.Context), args[1].(setConditionParams))
 	})
 	return _c
 }
 
-func (_c *MockresourcesModel_setAcceptedCondition_Call) Return(_a0 error) *MockresourcesModel_setAcceptedCondition_Call {
+func (_c *MockresourcesModel_setCondition_Call) Return(_a0 error) *MockresourcesModel_setCondition_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockresourcesModel_setAcceptedCondition_Call) RunAndReturn(run func(context.Context, setAcceptedConditionParams) error) *MockresourcesModel_setAcceptedCondition_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// setNotAcceptedCondition provides a mock function with given fields: ctx, params
-func (_m *MockresourcesModel) setNotAcceptedCondition(ctx context.Context, params setNotAcceptedConditionParams) error {
-	ret := _m.Called(ctx, params)
-
-	if len(ret) == 0 {
-		panic("no return value specified for setNotAcceptedCondition")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, setNotAcceptedConditionParams) error); ok {
-		r0 = rf(ctx, params)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockresourcesModel_setNotAcceptedCondition_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'setNotAcceptedCondition'
-type MockresourcesModel_setNotAcceptedCondition_Call struct {
-	*mock.Call
-}
-
-// setNotAcceptedCondition is a helper method to define mock.On call
-//   - ctx context.Context
-//   - params setNotAcceptedConditionParams
-func (_e *MockresourcesModel_Expecter) setNotAcceptedCondition(ctx interface{}, params interface{}) *MockresourcesModel_setNotAcceptedCondition_Call {
-	return &MockresourcesModel_setNotAcceptedCondition_Call{Call: _e.mock.On("setNotAcceptedCondition", ctx, params)}
-}
-
-func (_c *MockresourcesModel_setNotAcceptedCondition_Call) Run(run func(ctx context.Context, params setNotAcceptedConditionParams)) *MockresourcesModel_setNotAcceptedCondition_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(setNotAcceptedConditionParams))
-	})
-	return _c
-}
-
-func (_c *MockresourcesModel_setNotAcceptedCondition_Call) Return(_a0 error) *MockresourcesModel_setNotAcceptedCondition_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockresourcesModel_setNotAcceptedCondition_Call) RunAndReturn(run func(context.Context, setNotAcceptedConditionParams) error) *MockresourcesModel_setNotAcceptedCondition_Call {
+func (_c *MockresourcesModel_setCondition_Call) RunAndReturn(run func(context.Context, setConditionParams) error) *MockresourcesModel_setCondition_Call {
 	_c.Call.Return(run)
 	return _c
 }
