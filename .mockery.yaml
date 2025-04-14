@@ -8,6 +8,7 @@ packages:
     interfaces:
       k8sClient:
       resourcesModel:
+      gatewayModel:
   sigs.k8s.io/controller-runtime/pkg/client:
     interfaces:
       SubResourceWriter:
