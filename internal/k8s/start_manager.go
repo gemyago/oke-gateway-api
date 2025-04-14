@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -49,6 +50,7 @@ func StartManager(ctx context.Context, deps ManagerDeps) error { // coverage-ign
 	// Register the Gateway controller
 	if err = builder.ControllerManagedBy(mgr).
 		For(&gatewayv1.Gateway{}).
+		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
 		Complete(deps.GatewayCtrl); err != nil {
 		return fmt.Errorf("failed to setup Gateway controller: %w", err)
 	}
@@ -56,6 +58,7 @@ func StartManager(ctx context.Context, deps ManagerDeps) error { // coverage-ign
 	// Register the GatewayClass controller
 	if err = builder.ControllerManagedBy(mgr).
 		For(&gatewayv1.GatewayClass{}).
+		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
 		Complete(deps.GatewayClassCtrl); err != nil {
 		return fmt.Errorf("failed to setup GatewayClass controller: %w", err)
 	}
