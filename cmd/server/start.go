@@ -11,6 +11,7 @@ import (
 	"github.com/gemyago/oke-gateway-api/internal/k8s"
 	"github.com/gemyago/oke-gateway-api/internal/services"
 	"github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
+	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
 	"github.com/spf13/cobra"
 	"go.uber.org/dig"
 	"golang.org/x/sys/unix"
@@ -89,6 +90,7 @@ func newStartServerCmd(container *dig.Container) *cobra.Command {
 	cmd.PreRunE = func(_ *cobra.Command, _ []string) error {
 		return errors.Join(
 			k8sapi.Register(container),
+			ociapi.Register(container),
 		)
 	}
 	cmd.RunE = func(_ *cobra.Command, _ []string) error {
