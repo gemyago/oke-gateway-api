@@ -109,7 +109,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *gatewayData
 	}
 
 	m.logger.DebugContext(ctx, "Successfully retrieved OCI Load Balancer details",
-		slog.Any("loadBalancer", response),
+		slog.Any("loadBalancer", response.LoadBalancer),
 	)
 
 	return nil
