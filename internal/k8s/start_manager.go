@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/gemyago/oke-gateway-api/internal/app"
 	"github.com/go-logr/logr"
+	"github.com/samber/lo"
 	"go.uber.org/dig"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -14,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -40,6 +43,9 @@ func StartManager(ctx context.Context, deps ManagerDeps) error { // coverage-ign
 	mgr, err := manager.New(
 		deps.Config,
 		manager.Options{
+			// TODO: This doesn't work
+			RetryPeriod: lo.ToPtr(time.Second * 2),
+
 			Scheme: deps.K8sClient.Scheme(),
 
 			// TODO: Per reconciliation correlation is required
@@ -54,11 +60,16 @@ func StartManager(ctx context.Context, deps ManagerDeps) error { // coverage-ign
 		return err
 	}
 
+	middlewares := []controllerMiddleware[reconcile.Request]{
+		newTracingMiddleware(),
+		newErrorHandlingMiddleware(deps.RootLogger),
+	}
+
 	// Register the Gateway controller
 	if err = builder.ControllerManagedBy(mgr).
 		For(&gatewayv1.Gateway{}).
 		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
-		Complete(deps.GatewayCtrl); err != nil {
+		Complete(wireupReconciler(deps.GatewayCtrl, middlewares...)); err != nil {
 		return fmt.Errorf("failed to setup Gateway controller: %w", err)
 	}
 
@@ -66,7 +77,7 @@ func StartManager(ctx context.Context, deps ManagerDeps) error { // coverage-ign
 	if err = builder.ControllerManagedBy(mgr).
 		For(&gatewayv1.GatewayClass{}).
 		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
-		Complete(deps.GatewayClassCtrl); err != nil {
+		Complete(wireupReconciler(deps.GatewayClassCtrl, middlewares...)); err != nil {
 		return fmt.Errorf("failed to setup GatewayClass controller: %w", err)
 	}
 
