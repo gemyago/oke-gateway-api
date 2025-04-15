@@ -80,23 +80,19 @@ EOF
 Please have the following tools installed: 
 * [direnv](https://github.com/direnv/direnv) 
 * [gobrew](https://github.com/kevincobain2000/gobrew#install-or-update)
+* [pyenv](https://github.com/pyenv/pyenv?tab=readme-ov-file#installation).
 
 Install/Update dependencies: 
 ```sh
-# Install
+direnv allow
+
+# Install go dependencies
 go mod download
 go install tool
 
-# Update:
+# or update:
 go get -u ./... && go mod tidy
-```
 
-### Build dependencies
-
-This step is required if you plan to work on the build tooling. In this case please make sure to install:
-* [pyenv](https://github.com/pyenv/pyenv?tab=readme-ov-file#installation).
-
-```sh
 # Install required python version
 pyenv install -s
 
@@ -136,13 +132,42 @@ go test -v -count=5 ./internal/api/http/v1controllers/ --run TestHealthCheck
 gow test -v ./internal/api/http/v1controllers/ --run TestHealthCheck
 ```
 
-### Running in a local cluster
+### Running in a local mode
 
-For local development purposes you can run the controller in a local cluster but provision the resources in a real OCI tenancy.
+For local development purposes you can run the controller fully locally pointing on a local k8s cluster and provision the resources in a real OCI tenancy.
 
-You may want to apply just the CRDs:
+Please follow [OCI SDK CLI Setup](https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm#configfile)
+
+You may want to use alternative SDK config location. In this case please create `.envrc.local` file with the contents similar to below:
+```bash
+# Point to the OCI CLI config file
+export OCI_CLI_CONFIG_FILE=${PWD}/../.oci-cloud-cli/config
+
+# Point to the OCI CLI profile
+export OCI_CLI_PROFILE=DEFAULT
+
+# Point to the OCI CLI config profile
+export OCI_CLI_CONFIG_PROFILE=eu-frankfurt-1
+```
+
+Reload the environment and check if all good:
+```sh
+direnv reload
+
+# Check if the oci sdk is properly configured
+oci iam user list
+```
+
+Make sure to have locally running k8s cluster and `kubectl` configured to point to it.
+
+You may want to apply just the CRDs in the cluster for config resources:
 ```sh
 kubectl apply -f deploy/helm/controller/templates/gateway-config-crd.yaml
+```
+
+Run the controller locally:
+```sh
+go run ./cmd/server/ start
 ```
 
 
