@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/gemyago/oke-gateway-api/internal/app"
 	"github.com/go-logr/logr"
-	"github.com/samber/lo"
 	"go.uber.org/dig"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -43,9 +41,6 @@ func StartManager(ctx context.Context, deps ManagerDeps) error { // coverage-ign
 	mgr, err := manager.New(
 		deps.Config,
 		manager.Options{
-			// TODO: This doesn't work
-			RetryPeriod: lo.ToPtr(time.Second * 2),
-
 			Scheme: deps.K8sClient.Scheme(),
 
 			// TODO: Per reconciliation correlation is required

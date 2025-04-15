@@ -9,7 +9,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-type controllerMiddleware[request comparable] func(next reconcile.TypedReconciler[request]) reconcile.TypedReconciler[request]
+type controllerMiddleware[request comparable] func(
+	next reconcile.TypedReconciler[request],
+) reconcile.TypedReconciler[request]
 
 func newTracingMiddleware() controllerMiddleware[reconcile.Request] {
 	return func(next reconcile.TypedReconciler[reconcile.Request]) reconcile.TypedReconciler[reconcile.Request] {
@@ -28,13 +30,17 @@ func newErrorHandlingMiddleware(
 	logger *slog.Logger,
 ) controllerMiddleware[reconcile.Request] {
 	return func(next reconcile.TypedReconciler[reconcile.Request]) reconcile.TypedReconciler[reconcile.Request] {
-		return reconcile.TypedFunc[reconcile.Request](func(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-			res, err := next.Reconcile(ctx, req)
-			if err != nil {
-				logger.ErrorContext(ctx, "Reconcile failed", "error", err)
-			}
-			return res, err
-		})
+		return reconcile.TypedFunc[reconcile.Request](
+			func(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+				res, err := next.Reconcile(ctx, req)
+				if err != nil {
+					logger.ErrorContext(ctx, "Reconcile failed",
+						slog.Any("request", req),
+						diag.ErrAttr(err),
+					)
+				}
+				return res, err
+			})
 	}
 }
 
