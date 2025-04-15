@@ -143,7 +143,9 @@ func TestGatewayModelImpl(t *testing.T) {
 			gateway := newRandomGateway(
 				randomGatewayWithRandomListenersOpt(),
 			)
-			loadBalancer := makeRandomOCILoadBalancer()
+			loadBalancer := makeRandomOCILoadBalancer(
+				randomOCILoadBalancerWithRandomBackendSetsOpt(),
+			)
 			loadBalancer.Listeners = make(map[string]loadbalancer.Listener)
 			for _, listener := range gateway.Spec.Listeners {
 				loadBalancer.Listeners[string(listener.Name)] = makeRandomOCIListener()
@@ -163,8 +165,9 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			loadBalancerModel.EXPECT().
 				programDefaultBackendSet(t.Context(), programDefaultBackendParams{
-					loadBalancerId: config.Spec.LoadBalancerID,
-					gateway:        gateway,
+					loadBalancerId:   config.Spec.LoadBalancerID,
+					knownBackendSets: loadBalancer.BackendSets,
+					gateway:          gateway,
 				}).
 				Return(defaultBackendSet, nil)
 

@@ -114,8 +114,9 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *gatewayData
 	)
 
 	defaultBackendSet, err := m.ociLoadBalancerModel.programDefaultBackendSet(ctx, programDefaultBackendParams{
-		loadBalancerId: loadBalancerID,
-		gateway:        &data.gateway,
+		loadBalancerId:   loadBalancerID,
+		knownBackendSets: response.LoadBalancer.BackendSets,
+		gateway:          &data.gateway,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to program default backend set: %w", err)

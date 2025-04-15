@@ -95,8 +95,28 @@ func makeRandomOCIListener() loadbalancer.Listener {
 	}
 }
 
-func makeRandomOCILoadBalancer() loadbalancer.LoadBalancer {
-	return loadbalancer.LoadBalancer{
+type randomOCILoadBalancerOpt func(*loadbalancer.LoadBalancer)
+
+func makeRandomOCILoadBalancer(
+	opts ...randomOCILoadBalancerOpt,
+) loadbalancer.LoadBalancer {
+	lb := loadbalancer.LoadBalancer{
 		Id: lo.ToPtr(faker.UUIDHyphenated()),
+	}
+
+	for _, opt := range opts {
+		opt(&lb)
+	}
+
+	return lb
+}
+
+func randomOCILoadBalancerWithRandomBackendSetsOpt() randomOCILoadBalancerOpt {
+	return func(lb *loadbalancer.LoadBalancer) {
+		lb.BackendSets = map[string]loadbalancer.BackendSet{}
+		for range lb.BackendSets {
+			bs := makeRandomOCIBackendSet()
+			lb.BackendSets[*bs.Name] = bs
+		}
 	}
 }
