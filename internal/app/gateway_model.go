@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/gemyago/oke-gateway-api/internal/types"
+	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"go.uber.org/dig"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apitypes "k8s.io/apimachinery/pkg/types"
@@ -50,8 +51,9 @@ type gatewayModel interface {
 }
 
 type gatewayModelImpl struct {
-	client k8sClient
-	logger *slog.Logger
+	client    k8sClient
+	logger    *slog.Logger
+	ociClient ociLoadBalancerClient
 }
 
 func (m *gatewayModelImpl) acceptReconcileRequest(
@@ -86,10 +88,30 @@ func (m *gatewayModelImpl) acceptReconcileRequest(
 		return false, fmt.Errorf("failed to get GatewayConfig %s: %w", configName, err)
 	}
 
+	// TODO: Make sure config is complete
+
 	return true, nil
 }
 
-func (m *gatewayModelImpl) programGateway(_ context.Context, data *gatewayData) error {
+func (m *gatewayModelImpl) programGateway(ctx context.Context, data *gatewayData) error {
+	loadBalancerID := data.config.Spec.LoadBalancerID
+	m.logger.DebugContext(ctx, "Fetching OCI Load Balancer details",
+		slog.String("loadBalancerId", loadBalancerID),
+	)
+
+	request := loadbalancer.GetLoadBalancerRequest{
+		LoadBalancerId: &loadBalancerID,
+	}
+
+	response, err := m.ociClient.GetLoadBalancer(ctx, request)
+	if err != nil {
+		return fmt.Errorf("failed to get OCI Load Balancer %s: %w", loadBalancerID, err)
+	}
+
+	m.logger.DebugContext(ctx, "Successfully retrieved OCI Load Balancer details",
+		slog.Any("loadBalancer", response),
+	)
+
 	return nil
 }
 
@@ -98,11 +120,13 @@ type gatewayModelDeps struct {
 
 	K8sClient  k8sClient
 	RootLogger *slog.Logger
+	OciClient  ociLoadBalancerClient
 }
 
 func newGatewayModel(deps gatewayModelDeps) gatewayModel {
 	return &gatewayModelImpl{
-		client: deps.K8sClient,
-		logger: deps.RootLogger,
+		client:    deps.K8sClient,
+		logger:    deps.RootLogger,
+		ociClient: deps.OciClient,
 	}
 }

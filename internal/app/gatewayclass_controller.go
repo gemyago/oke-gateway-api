@@ -8,18 +8,9 @@ import (
 	"go.uber.org/dig"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
-
-// This is an internal interface used only to describe what we need from the client.
-type k8sClient interface {
-	Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error
-	List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error
-	Status() client.StatusWriter
-	Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error
-}
 
 // GatewayClassController is a simple controller that watches GatewayClass resources.
 type GatewayClassController struct {
