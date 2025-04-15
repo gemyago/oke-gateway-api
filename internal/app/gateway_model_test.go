@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	apiTypes "k8s.io/apimachinery/pkg/types"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -53,18 +53,18 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			mockClient.EXPECT().
 				Get(t.Context(), req.NamespacedName, mock.Anything).
-				RunAndReturn(func(_ context.Context, _ apiTypes.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
+				RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
 					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
 					return nil
 				})
 
-			wantConfigName := apiTypes.NamespacedName{
+			wantConfigName := apitypes.NamespacedName{
 				Namespace: gateway.Namespace,
 				Name:      gateway.Spec.Infrastructure.ParametersRef.Name,
 			}
 			mockClient.EXPECT().
 				Get(t.Context(), wantConfigName, mock.Anything).
-				RunAndReturn(func(_ context.Context, _ apiTypes.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
+				RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
 					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(gatewayConfig))
 					return nil
 				})
@@ -95,7 +95,7 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			mockClient.EXPECT().
 				Get(t.Context(), req.NamespacedName, mock.Anything).
-				RunAndReturn(func(_ context.Context, nn apiTypes.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
+				RunAndReturn(func(_ context.Context, nn apitypes.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
 					assert.Equal(t, req.NamespacedName, nn)
 					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
 					return nil
