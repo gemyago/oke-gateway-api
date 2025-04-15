@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"math/rand/v2"
 	"reflect"
 	"testing"
 
@@ -23,21 +22,6 @@ import (
 )
 
 func TestGatewayClassController(t *testing.T) {
-	// Helper to create a GatewayClass with random data
-	newRandomGatewayClass := func() *gatewayv1.GatewayClass {
-		return &gatewayv1.GatewayClass{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:            faker.DomainName(),
-				Generation:      rand.Int64(),
-				UID:             types.UID(faker.UUIDHyphenated()), // Add UID for potential future use
-				ResourceVersion: faker.Word(),                      // Add RV for potential future use
-			},
-			Spec: gatewayv1.GatewayClassSpec{
-				ControllerName: ControllerClassName,
-			},
-		}
-	}
-
 	newMockDeps := func(t *testing.T) GatewayClassControllerDeps {
 		return GatewayClassControllerDeps{
 			K8sClient:      NewMockk8sClient(t),
