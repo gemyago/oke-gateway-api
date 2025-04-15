@@ -30,6 +30,9 @@ func newErrorHandlingMiddleware(
 	logger *slog.Logger,
 ) controllerMiddleware[reconcile.Request] {
 	return func(next reconcile.TypedReconciler[reconcile.Request]) reconcile.TypedReconciler[reconcile.Request] {
+		// TODO: Handle and do not requeue some errors
+		// like 4xx errors from OCI
+
 		return reconcile.TypedFunc[reconcile.Request](
 			func(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 				res, err := next.Reconcile(ctx, req)
