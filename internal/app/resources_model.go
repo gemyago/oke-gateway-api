@@ -56,7 +56,7 @@ func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditi
 	meta.SetStatusCondition(params.conditions, acceptedCondition)
 
 	if err := m.client.Status().Update(ctx, params.resource); err != nil {
-		return fmt.Errorf("failed to update GatewayClass status for %s: %w", params.resource.GetName(), err)
+		return fmt.Errorf("failed to update status for %s: %w", params.resource.GetName(), err)
 	}
 
 	return nil
