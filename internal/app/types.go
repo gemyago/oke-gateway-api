@@ -1,5 +1,9 @@
 package app
 
+import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 type GatewayConfig struct {
-	LoadBalancerID string `json:"loadBalancerId"`
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+	LoadBalancerID    string `json:"loadBalancerId"`
 }

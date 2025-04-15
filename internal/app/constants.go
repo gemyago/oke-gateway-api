@@ -25,3 +25,6 @@ const (
 
 // LoadBalancerIDAnnotation is the annotation for the load balancer ID.
 const LoadBalancerIDAnnotation = "oke-gateway-api.gemyago.github.io/oci-load-balancer-id"
+
+const ConfigRefGroup = "oke-gateway-api.gemyago.github.io"
+const ConfigRefKind = "GatewayConfig"

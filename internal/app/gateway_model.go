@@ -57,6 +57,7 @@ func (m *gatewayModelImpl) acceptReconcileRequest(
 	req reconcile.Request,
 	receiver *gatewayData,
 ) (bool, error) {
+	receiver.gateway.DeepCopyInto(&receiver.gateway)
 	if err := m.client.Get(ctx, req.NamespacedName, &receiver.gateway); err != nil {
 		if apierrors.IsNotFound(err) {
 			m.logger.InfoContext(ctx, fmt.Sprintf("Gateway %s removed", req.NamespacedName))
@@ -73,6 +74,15 @@ func (m *gatewayModelImpl) acceptReconcileRequest(
 			message:       "spec.infrastructure is missing parametersRef",
 		}
 	}
+
+	// configName := types.NamespacedName{
+	// 	Namespace: receiver.gateway.Namespace,
+	// 	Name:      receiver.gateway.Spec.Infrastructure.ParametersRef.Name,
+	// }
+
+	// if err := m.client.Get(ctx, configName, &receiver.config); err != nil {
+	// 	return false, fmt.Errorf("failed to get GatewayConfig %s: %w", configName, err)
+	// }
 
 	return true, nil
 }
