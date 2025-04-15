@@ -48,6 +48,10 @@ func (m *ociLoadBalancerModelImpl) programDefaultBackendSet(
 ) (loadbalancer.BackendSet, error) {
 	defaultBackendSetName := params.gateway.Name + "-default"
 	if _, ok := params.knownBackendSets[defaultBackendSetName]; ok {
+		m.logger.DebugContext(ctx, "Default backend set already exists",
+			slog.String("loadBalancerId", params.loadBalancerID),
+			slog.String("name", defaultBackendSetName),
+		)
 		return params.knownBackendSets[defaultBackendSetName], nil
 	}
 
