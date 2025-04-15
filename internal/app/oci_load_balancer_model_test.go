@@ -14,8 +14,9 @@ import (
 func TestOciLoadBalancerModelImpl(t *testing.T) {
 	makeMockDeps := func(t *testing.T) ociLoadBalancerModelDeps {
 		return ociLoadBalancerModelDeps{
-			RootLogger: diag.RootTestLogger(),
-			OciClient:  NewMockociLoadBalancerClient(t),
+			RootLogger:          diag.RootTestLogger(),
+			OciClient:           NewMockociLoadBalancerClient(t),
+			WorkRequestsWatcher: NewMockworkRequestsWatcher(t),
 		}
 	}
 
@@ -59,6 +60,10 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			workRequestID := faker.UUIDHyphenated()
+
 			ociLoadBalancerClient.EXPECT().CreateBackendSet(t.Context(), loadbalancer.CreateBackendSetRequest{
 				LoadBalancerId: &params.loadBalancerID,
 				CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
@@ -69,7 +74,11 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					},
 					Policy: lo.ToPtr("ROUND_ROBIN"),
 				},
-			}).Return(loadbalancer.CreateBackendSetResponse{}, nil)
+			}).Return(loadbalancer.CreateBackendSetResponse{
+				OpcWorkRequestId: &workRequestID,
+			}, nil)
+
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
 
 			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
 				BackendSetName: &wantBsName,

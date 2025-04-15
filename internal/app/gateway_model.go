@@ -106,7 +106,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *gatewayData
 	}
 
 	for _, listenerSpec := range data.gateway.Spec.Listeners {
-		_, err = m.ociLoadBalancerModel.programHttpListener(ctx, programHTTPListenerParams{
+		_, err = m.ociLoadBalancerModel.programHTTPListener(ctx, programHTTPListenerParams{
 			loadBalancerID:        loadBalancerID,
 			defaultBackendSetName: *defaultBackendSet.Name,
 			knownListeners:        response.LoadBalancer.Listeners,

@@ -31,15 +31,16 @@ type ociLoadBalancerModel interface {
 		ctx context.Context,
 		params programDefaultBackendParams,
 	) (loadbalancer.BackendSet, error)
-	programHttpListener(
+	programHTTPListener(
 		ctx context.Context,
 		params programHTTPListenerParams,
 	) (loadbalancer.Listener, error)
 }
 
 type ociLoadBalancerModelImpl struct {
-	ociClient ociLoadBalancerClient
-	logger    *slog.Logger
+	ociClient           ociLoadBalancerClient
+	logger              *slog.Logger
+	workRequestsWatcher workRequestsWatcher
 }
 
 func (m *ociLoadBalancerModelImpl) programDefaultBackendSet(
@@ -59,7 +60,7 @@ func (m *ociLoadBalancerModelImpl) programDefaultBackendSet(
 		slog.String("loadBalancerId", params.loadBalancerID),
 		slog.String("name", defaultBackendSetName),
 	)
-	_, err := m.ociClient.CreateBackendSet(ctx, loadbalancer.CreateBackendSetRequest{
+	createRes, err := m.ociClient.CreateBackendSet(ctx, loadbalancer.CreateBackendSetRequest{
 		LoadBalancerId: &params.loadBalancerID,
 		CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
 			Name:   &defaultBackendSetName,
@@ -75,6 +76,14 @@ func (m *ociLoadBalancerModelImpl) programDefaultBackendSet(
 			fmt.Errorf("failed to create default backend set %s: %w", defaultBackendSetName, err)
 	}
 
+	if err = m.workRequestsWatcher.WaitFor(
+		ctx,
+		*createRes.OpcWorkRequestId,
+	); err != nil {
+		return loadbalancer.BackendSet{},
+			fmt.Errorf("failed to wait for default backend set %s: %w", defaultBackendSetName, err)
+	}
+
 	res, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
 		BackendSetName: &defaultBackendSetName,
 		LoadBalancerId: lo.ToPtr(params.loadBalancerID),
@@ -86,7 +95,7 @@ func (m *ociLoadBalancerModelImpl) programDefaultBackendSet(
 	return res.BackendSet, nil
 }
 
-func (m *ociLoadBalancerModelImpl) programHttpListener(
+func (m *ociLoadBalancerModelImpl) programHTTPListener(
 	ctx context.Context,
 	params programHTTPListenerParams,
 ) (loadbalancer.Listener, error) {
@@ -96,13 +105,15 @@ func (m *ociLoadBalancerModelImpl) programHttpListener(
 type ociLoadBalancerModelDeps struct {
 	dig.In
 
-	RootLogger *slog.Logger
-	OciClient  ociLoadBalancerClient
+	RootLogger          *slog.Logger
+	OciClient           ociLoadBalancerClient
+	WorkRequestsWatcher workRequestsWatcher
 }
 
 func newOciLoadBalancerModel(deps ociLoadBalancerModelDeps) ociLoadBalancerModel {
 	return &ociLoadBalancerModelImpl{
-		logger:    deps.RootLogger.WithGroup("oci-load-balancer-model"),
-		ociClient: deps.OciClient,
+		logger:              deps.RootLogger.WithGroup("oci-load-balancer-model"),
+		ociClient:           deps.OciClient,
+		workRequestsWatcher: deps.WorkRequestsWatcher,
 	}
 }

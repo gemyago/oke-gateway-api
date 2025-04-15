@@ -81,8 +81,8 @@ func (_c *MockociLoadBalancerModel_programDefaultBackendSet_Call) RunAndReturn(r
 	return _c
 }
 
-// programHttpListener provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) programHttpListener(ctx context.Context, params programHTTPListenerParams) (loadbalancer.Listener, error) {
+// programHTTPListener provides a mock function with given fields: ctx, params
+func (_m *MockociLoadBalancerModel) programHTTPListener(ctx context.Context, params programHTTPListenerParams) (loadbalancer.Listener, error) {
 	ret := _m.Called(ctx, params)
 
 	if len(ret) == 0 {

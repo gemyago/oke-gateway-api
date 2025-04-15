@@ -11,6 +11,7 @@ packages:
       resourcesModel:
       gatewayModel:
       ociLoadBalancerModel:
+      workRequestsWatcher:
   github.com/gemyago/oke-gateway-api/internal/services/ociapi:
     interfaces:
       workRequestsClient:
