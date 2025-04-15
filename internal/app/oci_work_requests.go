@@ -5,40 +5,45 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/oracle/oci-go-sdk/v65/workrequests" // Assuming v65, adjust if needed
 	"go.uber.org/dig"
 )
 
-// ociWorkRequestsModel defines the interface for managing OKE work requests.
-type ociWorkRequestsModel interface {
+// ociWorkRequests defines the interface for managing OKE work requests.
+type ociWorkRequests interface {
 	// waitWorkRequest waits for an OCI Work Request to complete.
-	waitWorkRequest(ctx context.Context, workRequestId string) error
+	waitWorkRequest(ctx context.Context, workRequestID string) error
 }
 
 // ociWorkRequestsClient defines the interface for OCI work requests client operations.
-// TODO: Define methods needed from the OCI SDK.
 type ociWorkRequestsClient interface {
+	// GetWorkRequest gets the details of a work request.
+	GetWorkRequest(
+		ctx context.Context,
+		request workrequests.GetWorkRequestRequest,
+	) (workrequests.GetWorkRequestResponse, error)
 }
 
-type ociWorkRequestsModelImpl struct {
+type ociWorkRequestsImpl struct {
 	client ociWorkRequestsClient
 	logger *slog.Logger
 }
 
-func (m *ociWorkRequestsModelImpl) waitWorkRequest(ctx context.Context, workRequestId string) error {
+func (m *ociWorkRequestsImpl) waitWorkRequest(ctx context.Context, workRequestId string) error {
 	// TODO: Implement work request polling logic
 	return errors.New("not implemented")
 }
 
-type okeWorkRequestsModelDeps struct {
+type okeWorkRequestsDeps struct {
 	dig.In
 
-	WorkRequestsClient ociWorkRequestsClient
-	RootLogger         *slog.Logger
+	OCIClient  ociWorkRequestsClient
+	RootLogger *slog.Logger
 }
 
-func newOkeWorkRequestsModel(deps okeWorkRequestsModelDeps) ociWorkRequestsModel {
-	return &ociWorkRequestsModelImpl{
-		client: deps.WorkRequestsClient,
+func newOkeWorkRequests(deps okeWorkRequestsDeps) ociWorkRequests {
+	return &ociWorkRequestsImpl{
+		client: deps.OCIClient,
 		logger: deps.RootLogger.WithGroup("oke-work-requests-model"),
 	}
 }

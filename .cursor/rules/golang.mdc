@@ -21,3 +21,4 @@ alwaysApply: false
 ## Rules for tests
 - prefer single toplevel func per component and do multiple nested run blocks
 - define newMockDeps function in the stop of the func that will initialize dependencies (if applicable)
+- define tests in same package

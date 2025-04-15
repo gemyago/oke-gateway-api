@@ -16,5 +16,6 @@ func Register(container *dig.Container) error {
 		newResourcesModel,
 		newGatewayModel,
 		newOciLoadBalancerModel,
+		newOkeWorkRequests,
 	)
 }
