@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -112,7 +113,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *gatewayData
 		slog.Any("loadBalancer", response.LoadBalancer),
 	)
 
-	return nil
+	return errors.New("not implemented")
 }
 
 type gatewayModelDeps struct {
