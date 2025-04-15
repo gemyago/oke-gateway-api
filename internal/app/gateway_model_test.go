@@ -8,6 +8,7 @@ import (
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/gemyago/oke-gateway-api/internal/types"
 	"github.com/go-faker/faker/v4"
+	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,7 @@ func TestGatewayModelImpl(t *testing.T) {
 		return gatewayModelDeps{
 			K8sClient:  NewMockk8sClient(t),
 			RootLogger: diag.RootTestLogger(),
+			OciClient:  NewMockociLoadBalancerClient(t),
 		}
 	}
 
@@ -135,10 +137,23 @@ func TestGatewayModelImpl(t *testing.T) {
 		t.Run("Stub", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)
+
+			config := makeRandomGatewayConfig()
 			gateway := newRandomGateway()
+			loadBalancer := makeRandomLoadBalancer()
+
+			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+				}).
+				Return(loadbalancer.GetLoadBalancerResponse{
+					LoadBalancer: loadBalancer,
+				}, nil)
 
 			err := model.programGateway(t.Context(), &gatewayData{
 				gateway: *gateway,
+				config:  config,
 			})
 
 			require.NoError(t, err)
