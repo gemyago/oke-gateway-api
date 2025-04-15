@@ -20,4 +20,10 @@ type k8sClient interface {
 type ociLoadBalancerClient interface {
 	GetLoadBalancer(ctx context.Context, request loadbalancer.GetLoadBalancerRequest) (
 		response loadbalancer.GetLoadBalancerResponse, err error)
+
+	CreateBackendSet(ctx context.Context, request loadbalancer.CreateBackendSetRequest) (
+		response loadbalancer.CreateBackendSetResponse, err error)
+
+	GetBackendSet(ctx context.Context, request loadbalancer.GetBackendSetRequest) (
+		response loadbalancer.GetBackendSetResponse, err error)
 }
