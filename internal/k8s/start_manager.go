@@ -6,9 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/gemyago/oke-gateway-api/internal/app"
-	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/go-logr/logr"
-	"github.com/google/uuid"
 	"go.uber.org/dig"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -45,11 +43,11 @@ func StartManager(ctx context.Context, deps ManagerDeps) error { // coverage-ign
 			Scheme: deps.K8sClient.Scheme(),
 
 			// TODO: Per reconciliation correlation is required
-			BaseContext: func() context.Context {
-				return diag.SetLogAttributesToContext(ctx, diag.LogAttributes{
-					CorrelationID: slog.StringValue(uuid.New().String()),
-				})
-			},
+			// BaseContext: func() context.Context {
+			// 	return diag.SetLogAttributesToContext(ctx, diag.LogAttributes{
+			// 		CorrelationID: slog.StringValue(uuid.New().String()),
+			// 	})
+			// },
 		},
 	)
 	if err != nil {

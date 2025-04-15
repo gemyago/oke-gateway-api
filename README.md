@@ -73,8 +73,6 @@ spec:
 EOF
 ```
 
-
-
 ## Contributing
 
 ### Project Setup

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/gemyago/oke-gateway-api/internal/types"
 	"go.uber.org/dig"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
@@ -29,7 +31,7 @@ func (e resourceStatusError) Error() string {
 
 type gatewayData struct {
 	gateway gatewayv1.Gateway
-	config  GatewayConfig
+	config  types.GatewayConfig
 }
 
 type gatewayModel interface {
@@ -75,14 +77,14 @@ func (m *gatewayModelImpl) acceptReconcileRequest(
 		}
 	}
 
-	// configName := types.NamespacedName{
-	// 	Namespace: receiver.gateway.Namespace,
-	// 	Name:      receiver.gateway.Spec.Infrastructure.ParametersRef.Name,
-	// }
+	configName := apitypes.NamespacedName{
+		Namespace: receiver.gateway.Namespace,
+		Name:      receiver.gateway.Spec.Infrastructure.ParametersRef.Name,
+	}
 
-	// if err := m.client.Get(ctx, configName, &receiver.config); err != nil {
-	// 	return false, fmt.Errorf("failed to get GatewayConfig %s: %w", configName, err)
-	// }
+	if err := m.client.Get(ctx, configName, &receiver.config); err != nil {
+		return false, fmt.Errorf("failed to get GatewayConfig %s: %w", configName, err)
+	}
 
 	return true, nil
 }
