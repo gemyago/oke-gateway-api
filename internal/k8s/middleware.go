@@ -2,8 +2,10 @@ package k8s
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
+	"github.com/gemyago/oke-gateway-api/internal/app"
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/google/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -37,6 +39,16 @@ func newErrorHandlingMiddleware(
 			func(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 				res, err := next.Reconcile(ctx, req)
 				if err != nil {
+					var reconcileErr *app.ReconcileError
+					if errors.As(err, &reconcileErr) && !reconcileErr.IsRetriable() {
+						// Non-retriable error, do not requeue
+						logger.ErrorContext(ctx, "Non-retriable reconcile error, skipping requeue",
+							slog.Any("request", req),
+							diag.ErrAttr(err),
+						)
+						return reconcile.Result{}, nil // Return nil error to stop reconciliation
+					}
+
 					logger.ErrorContext(ctx, "Reconcile failed",
 						slog.Any("request", req),
 						diag.ErrAttr(err),

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/gemyago/oke-gateway-api/internal/app"
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/go-faker/faker/v4"
 	"github.com/stretchr/testify/assert"
@@ -52,5 +53,24 @@ func TestErrorHandlingMiddleware(t *testing.T) {
 		require.Error(t, actualErr)
 		assert.Same(t, wantErr, actualErr)
 		assert.Equal(t, wantResult, actualResult)
+	})
+
+	t.Run("when next errors with non-retriable app.ReconcileError", func(t *testing.T) {
+		logger := diag.RootTestLogger()
+		dummyErr := app.NewReconcileError(faker.Sentence(), false)
+		dummyReq := reconcile.Request{NamespacedName: types.NamespacedName{Name: faker.Word(), Namespace: faker.Word()}}
+		next := reconcile.TypedFunc[reconcile.Request](
+			func(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
+				assert.Equal(t, dummyReq, req)
+				return reconcile.Result{}, dummyErr
+			})
+
+		middleware := newErrorHandlingMiddleware(logger)
+		ctrl := middleware(next)
+
+		actualResult, actualErr := ctrl.Reconcile(t.Context(), dummyReq)
+
+		require.NoError(t, actualErr)
+		assert.Equal(t, reconcile.Result{}, actualResult)
 	})
 }
