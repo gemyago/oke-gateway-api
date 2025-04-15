@@ -45,6 +45,11 @@ func (w *WorkRequestsWatcher) WaitFor(ctx context.Context, workRequestID string)
 			return nil
 		}
 
+		if response.WorkRequest.Status == workrequests.WorkRequestStatusCanceled ||
+			response.WorkRequest.Status == workrequests.WorkRequestStatusFailed {
+			return fmt.Errorf("work request %s is in %s state", workRequestID, response.WorkRequest.Status)
+		}
+
 		select {
 		case <-timer.C:
 		case <-ctx.Done():

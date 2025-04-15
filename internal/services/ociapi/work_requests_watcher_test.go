@@ -1,6 +1,7 @@
 package ociapi
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -55,5 +56,42 @@ func TestWorkRequestsWatcher(t *testing.T) {
 			err := w.WaitFor(t.Context(), workRequestID)
 			require.NoError(t, err)
 		})
+
+		errorStates := []workrequests.WorkRequestStatusEnum{
+			workrequests.WorkRequestStatusCanceled,
+			workrequests.WorkRequestStatusFailed,
+		}
+
+		for _, state := range errorStates {
+			t.Run(fmt.Sprintf("fail if %s state", state), func(t *testing.T) {
+				deps := newMockDeps(t)
+				w := NewWorkRequestsWatcher(deps)
+
+				workRequestID := faker.UUIDHyphenated()
+
+				responses := []workrequests.GetWorkRequestResponse{
+					makeMockWorkRequestResponse(workrequests.WorkRequestStatusAccepted),
+					makeMockWorkRequestResponse(workrequests.WorkRequestStatusInProgress),
+					makeMockWorkRequestResponse(workrequests.WorkRequestStatusInProgress),
+					makeMockWorkRequestResponse(state),
+				}
+
+				mockClient, _ := deps.Client.(*MockworkRequestsClient)
+
+				for _, response := range responses {
+					mockClient.EXPECT().GetWorkRequest(
+						t.Context(),
+						workrequests.GetWorkRequestRequest{
+							WorkRequestId: &workRequestID,
+						},
+					).Return(response, nil).Once()
+				}
+
+				err := w.WaitFor(t.Context(), workRequestID)
+				require.ErrorContains(t, err, fmt.Sprintf(
+					"work request %s is in %s state", workRequestID, state),
+				)
+			})
+		}
 	})
 }
