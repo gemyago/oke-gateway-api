@@ -53,7 +53,12 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			mockClient.EXPECT().
 				Get(t.Context(), req.NamespacedName, mock.Anything).
-				RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
+				RunAndReturn(func(
+					_ context.Context,
+					_ apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
 					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
 					return nil
 				})
@@ -64,7 +69,12 @@ func TestGatewayModelImpl(t *testing.T) {
 			}
 			mockClient.EXPECT().
 				Get(t.Context(), wantConfigName, mock.Anything).
-				RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
+				RunAndReturn(func(
+					_ context.Context,
+					_ apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
 					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(gatewayConfig))
 					return nil
 				})
@@ -95,7 +105,12 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			mockClient.EXPECT().
 				Get(t.Context(), req.NamespacedName, mock.Anything).
-				RunAndReturn(func(_ context.Context, nn apitypes.NamespacedName, receiver client.Object, _ ...client.GetOption) error {
+				RunAndReturn(func(
+					_ context.Context,
+					nn apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
 					assert.Equal(t, req.NamespacedName, nn)
 					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
 					return nil
