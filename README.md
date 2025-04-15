@@ -73,6 +73,13 @@ spec:
 EOF
 ```
 
+Uninstall resources:
+```bash
+kubectl -n oke-gw delete gateway oke-gateway
+kubectl -n oke-gw delete gatewayclass oke-gateway-api
+kubectl -n oke-gw delete gatewayconfig oke-gateway-config
+```
+
 ## Contributing
 
 ### Project Setup
