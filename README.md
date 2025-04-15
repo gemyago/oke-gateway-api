@@ -142,6 +142,7 @@ You may want to use alternative SDK config location. In this case please create 
 ```bash
 # Point to the OCI CLI config file
 export OCI_CLI_CONFIG_FILE=${PWD}/../.oci-cloud-cli/config
+export OCI_CONFIG_FILE=${PWD}/../.oci-cloud-cli/config
 
 # Point to the OCI CLI profile
 export OCI_CLI_PROFILE=DEFAULT

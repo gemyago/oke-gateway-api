@@ -5,8 +5,8 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 )
 
-func newLoadBalancerClient() (loadbalancer.LoadBalancerClient, error) {
-	// TODO: This needs more advanced setup and support in cluster config
-	configProvider := common.DefaultConfigProvider()
+func newLoadBalancerClient(
+	configProvider common.ConfigurationProvider,
+) (loadbalancer.LoadBalancerClient, error) {
 	return loadbalancer.NewLoadBalancerClientWithConfigurationProvider(configProvider)
 }
