@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 
@@ -118,7 +117,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *gatewayData
 		}
 	}
 
-	return errors.New("not implemented")
+	return NewReconcileError("not implemented", false)
 }
 
 type gatewayModelDeps struct {

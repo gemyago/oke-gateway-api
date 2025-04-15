@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 
@@ -87,7 +86,7 @@ func (m *ociLoadBalancerModelImpl) programHttpListener(
 	ctx context.Context,
 	params programHTTPListenerParams,
 ) (loadbalancer.Listener, error) {
-	return loadbalancer.Listener{}, errors.New("not implemented")
+	return loadbalancer.Listener{}, NewReconcileError("not implemented", false)
 }
 
 type ociLoadBalancerModelDeps struct {
