@@ -21,9 +21,10 @@ import (
 func TestGatewayModelImpl(t *testing.T) {
 	newMockDeps := func(t *testing.T) gatewayModelDeps {
 		return gatewayModelDeps{
-			K8sClient:  NewMockk8sClient(t),
-			RootLogger: diag.RootTestLogger(),
-			OciClient:  NewMockociLoadBalancerClient(t),
+			K8sClient:            NewMockk8sClient(t),
+			RootLogger:           diag.RootTestLogger(),
+			OciClient:            NewMockociLoadBalancerClient(t),
+			OciLoadBalancerModel: NewMockociLoadBalancerModel(t),
 		}
 	}
 
@@ -134,13 +135,19 @@ func TestGatewayModelImpl(t *testing.T) {
 	})
 
 	t.Run("programGateway", func(t *testing.T) {
-		t.Run("Stub", func(t *testing.T) {
+		t.Run("programSucceeded", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)
 
 			config := makeRandomGatewayConfig()
-			gateway := newRandomGateway()
-			loadBalancer := makeRandomLoadBalancer()
+			gateway := newRandomGateway(
+				randomGatewayWithRandomListenersOpt(),
+			)
+			loadBalancer := makeRandomOCILoadBalancer()
+			loadBalancer.Listeners = make(map[string]loadbalancer.Listener)
+			for _, listener := range gateway.Spec.Listeners {
+				loadBalancer.Listeners[string(listener.Name)] = makeRandomOCIListener()
+			}
 
 			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 			mockOciClient.EXPECT().
@@ -150,7 +157,32 @@ func TestGatewayModelImpl(t *testing.T) {
 				Return(loadbalancer.GetLoadBalancerResponse{
 					LoadBalancer: loadBalancer,
 				}, nil)
+			loadBalancerModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
 
+			defaultBackendSet := makeRandomOCIBackendSet()
+
+			loadBalancerModel.EXPECT().
+				programDefaultBackendSet(t.Context(), programDefaultBackendParams{
+					loadBalancerId: config.Spec.LoadBalancerID,
+					gateway:        gateway,
+				}).
+				Return(defaultBackendSet, nil)
+
+			ociListeners := make([]loadbalancer.Listener, len(gateway.Spec.Listeners))
+			for i := range gateway.Spec.Listeners {
+				ociListeners[i] = makeRandomOCIListener()
+			}
+
+			for i, listener := range gateway.Spec.Listeners {
+				loadBalancerModel.EXPECT().
+					programHttpListener(t.Context(), programHttpListenerParams{
+						loadBalancerId:        config.Spec.LoadBalancerID,
+						defaultBackendSetName: *defaultBackendSet.Name,
+						knownListeners:        loadBalancer.Listeners,
+						listenerSpec:          &listener,
+					}).
+					Return(ociListeners[i], nil)
+			}
 			err := model.programGateway(t.Context(), &gatewayData{
 				gateway: *gateway,
 				config:  config,

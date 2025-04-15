@@ -52,9 +52,10 @@ type gatewayModel interface {
 }
 
 type gatewayModelImpl struct {
-	client    k8sClient
-	logger    *slog.Logger
-	ociClient ociLoadBalancerClient
+	client               k8sClient
+	logger               *slog.Logger
+	ociClient            ociLoadBalancerClient
+	ociLoadBalancerModel ociLoadBalancerModel
 }
 
 func (m *gatewayModelImpl) acceptReconcileRequest(
@@ -62,7 +63,6 @@ func (m *gatewayModelImpl) acceptReconcileRequest(
 	req reconcile.Request,
 	receiver *gatewayData,
 ) (bool, error) {
-	receiver.gateway.DeepCopyInto(&receiver.gateway)
 	if err := m.client.Get(ctx, req.NamespacedName, &receiver.gateway); err != nil {
 		if apierrors.IsNotFound(err) {
 			m.logger.InfoContext(ctx, fmt.Sprintf("Gateway %s removed", req.NamespacedName))
@@ -113,21 +113,43 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *gatewayData
 		slog.Any("loadBalancer", response.LoadBalancer),
 	)
 
+	defaultBackendSet, err := m.ociLoadBalancerModel.programDefaultBackendSet(ctx, programDefaultBackendParams{
+		loadBalancerId: loadBalancerID,
+		gateway:        &data.gateway,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to program default backend set: %w", err)
+	}
+
+	for _, listenerSpec := range data.gateway.Spec.Listeners {
+		_, err = m.ociLoadBalancerModel.programHttpListener(ctx, programHttpListenerParams{
+			loadBalancerId:        loadBalancerID,
+			defaultBackendSetName: *defaultBackendSet.Name,
+			knownListeners:        response.LoadBalancer.Listeners,
+			listenerSpec:          &listenerSpec,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to program listener %s: %w", listenerSpec.Name, err)
+		}
+	}
+
 	return errors.New("not implemented")
 }
 
 type gatewayModelDeps struct {
 	dig.In
 
-	K8sClient  k8sClient
-	RootLogger *slog.Logger
-	OciClient  ociLoadBalancerClient
+	K8sClient            k8sClient
+	RootLogger           *slog.Logger
+	OciClient            ociLoadBalancerClient
+	OciLoadBalancerModel ociLoadBalancerModel
 }
 
 func newGatewayModel(deps gatewayModelDeps) gatewayModel {
 	return &gatewayModelImpl{
-		client:    deps.K8sClient,
-		logger:    deps.RootLogger,
-		ociClient: deps.OciClient,
+		client:               deps.K8sClient,
+		logger:               deps.RootLogger,
+		ociClient:            deps.OciClient,
+		ociLoadBalancerModel: deps.OciLoadBalancerModel,
 	}
 }

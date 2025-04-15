@@ -67,7 +67,35 @@ func newRandomGateway(
 	return &gw
 }
 
-func makeRandomLoadBalancer() loadbalancer.LoadBalancer {
+func randomGatewayWithRandomListenersOpt() randomGatewayOpt {
+	return func(gw *gatewayv1.Gateway) {
+		gw.Spec.Listeners = make([]gatewayv1.Listener, rand.IntN(3))
+		for i := range gw.Spec.Listeners {
+			gw.Spec.Listeners[i] = makeRandomHTTPListener()
+		}
+	}
+}
+func makeRandomHTTPListener() gatewayv1.Listener {
+	return gatewayv1.Listener{
+		Name:     gatewayv1.SectionName("listener-" + faker.UUIDHyphenated()),
+		Port:     gatewayv1.PortNumber(rand.Int32N(4000)),
+		Protocol: gatewayv1.HTTPProtocolType,
+	}
+}
+
+func makeRandomOCIBackendSet() loadbalancer.BackendSet {
+	return loadbalancer.BackendSet{
+		Name: lo.ToPtr(faker.DomainName()),
+	}
+}
+
+func makeRandomOCIListener() loadbalancer.Listener {
+	return loadbalancer.Listener{
+		Name: lo.ToPtr(faker.DomainName()),
+	}
+}
+
+func makeRandomOCILoadBalancer() loadbalancer.LoadBalancer {
 	return loadbalancer.LoadBalancer{
 		Id: lo.ToPtr(faker.UUIDHyphenated()),
 	}
