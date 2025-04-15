@@ -15,13 +15,13 @@ import (
 const defaultBackendSetPort = 80
 
 type programDefaultBackendParams struct {
-	loadBalancerId   string
+	loadBalancerID   string
 	knownBackendSets map[string]loadbalancer.BackendSet
 	gateway          *gatewayv1.Gateway
 }
 
-type programHttpListenerParams struct {
-	loadBalancerId        string
+type programHTTPListenerParams struct {
+	loadBalancerID        string
 	knownListeners        map[string]loadbalancer.Listener
 	defaultBackendSetName string
 	listenerSpec          *gatewayv1.Listener
@@ -34,7 +34,7 @@ type ociLoadBalancerModel interface {
 	) (loadbalancer.BackendSet, error)
 	programHttpListener(
 		ctx context.Context,
-		params programHttpListenerParams,
+		params programHTTPListenerParams,
 	) (loadbalancer.Listener, error)
 }
 
@@ -53,11 +53,11 @@ func (m *ociLoadBalancerModelImpl) programDefaultBackendSet(
 	}
 
 	m.logger.InfoContext(ctx, "Default backend set not found, creating",
-		slog.String("loadBalancerId", params.loadBalancerId),
+		slog.String("loadBalancerId", params.loadBalancerID),
 		slog.String("name", defaultBackendSetName),
 	)
 	_, err := m.ociClient.CreateBackendSet(ctx, loadbalancer.CreateBackendSetRequest{
-		LoadBalancerId: &params.loadBalancerId,
+		LoadBalancerId: &params.loadBalancerID,
 		CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
 			Name:   &defaultBackendSetName,
 			Policy: lo.ToPtr("ROUND_ROBIN"),
@@ -74,7 +74,7 @@ func (m *ociLoadBalancerModelImpl) programDefaultBackendSet(
 
 	res, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
 		BackendSetName: &defaultBackendSetName,
-		LoadBalancerId: lo.ToPtr(params.loadBalancerId),
+		LoadBalancerId: lo.ToPtr(params.loadBalancerID),
 	})
 	if err != nil {
 		return loadbalancer.BackendSet{}, fmt.Errorf("failed to get default backend set %s: %w", defaultBackendSetName, err)
@@ -85,7 +85,7 @@ func (m *ociLoadBalancerModelImpl) programDefaultBackendSet(
 
 func (m *ociLoadBalancerModelImpl) programHttpListener(
 	ctx context.Context,
-	params programHttpListenerParams,
+	params programHTTPListenerParams,
 ) (loadbalancer.Listener, error) {
 	return loadbalancer.Listener{}, errors.New("not implemented")
 }

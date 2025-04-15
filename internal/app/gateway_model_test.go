@@ -165,7 +165,7 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			loadBalancerModel.EXPECT().
 				programDefaultBackendSet(t.Context(), programDefaultBackendParams{
-					loadBalancerId:   config.Spec.LoadBalancerID,
+					loadBalancerID:   config.Spec.LoadBalancerID,
 					knownBackendSets: loadBalancer.BackendSets,
 					gateway:          gateway,
 				}).
@@ -178,8 +178,8 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			for i, listener := range gateway.Spec.Listeners {
 				loadBalancerModel.EXPECT().
-					programHttpListener(t.Context(), programHttpListenerParams{
-						loadBalancerId:        config.Spec.LoadBalancerID,
+					programHttpListener(t.Context(), programHTTPListenerParams{
+						loadBalancerID:        config.Spec.LoadBalancerID,
 						defaultBackendSetName: *defaultBackendSet.Name,
 						knownListeners:        loadBalancer.Listeners,
 						listenerSpec:          &listener,

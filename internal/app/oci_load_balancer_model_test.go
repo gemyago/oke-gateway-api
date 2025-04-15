@@ -35,7 +35,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			}
 
 			params := programDefaultBackendParams{
-				loadBalancerId:   faker.UUIDHyphenated(),
+				loadBalancerID:   faker.UUIDHyphenated(),
 				knownBackendSets: knownBackendSets,
 				gateway:          gw,
 			}
@@ -53,14 +53,14 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			wantBs := makeRandomOCIBackendSet()
 
 			params := programDefaultBackendParams{
-				loadBalancerId: faker.UUIDHyphenated(),
+				loadBalancerID: faker.UUIDHyphenated(),
 				gateway:        gw,
 			}
 
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 
 			ociLoadBalancerClient.EXPECT().CreateBackendSet(t.Context(), loadbalancer.CreateBackendSetRequest{
-				LoadBalancerId: &params.loadBalancerId,
+				LoadBalancerId: &params.loadBalancerID,
 				CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
 					Name: &wantBsName,
 					HealthChecker: &loadbalancer.HealthCheckerDetails{
@@ -73,7 +73,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
 				BackendSetName: &wantBsName,
-				LoadBalancerId: &params.loadBalancerId,
+				LoadBalancerId: &params.loadBalancerID,
 			}).Return(loadbalancer.GetBackendSetResponse{
 				BackendSet: wantBs,
 			}, nil)

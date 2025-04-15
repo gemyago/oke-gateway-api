@@ -15,22 +15,6 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-type resourceStatusError struct {
-	conditionType string
-	reason        string
-	message       string
-	cause         error
-}
-
-func (e resourceStatusError) Error() string {
-	if e.cause != nil {
-		return fmt.Sprintf(
-			"resourceStatusError: type=%s, reason=%s, message=%s, cause=%s",
-			e.conditionType, e.reason, e.message, e.cause)
-	}
-	return fmt.Sprintf("resourceStatusError: type=%s, reason=%s, message=%s", e.conditionType, e.reason, e.message)
-}
-
 type gatewayData struct {
 	gateway gatewayv1.Gateway
 	config  types.GatewayConfig
@@ -114,7 +98,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *gatewayData
 	)
 
 	defaultBackendSet, err := m.ociLoadBalancerModel.programDefaultBackendSet(ctx, programDefaultBackendParams{
-		loadBalancerId:   loadBalancerID,
+		loadBalancerID:   loadBalancerID,
 		knownBackendSets: response.LoadBalancer.BackendSets,
 		gateway:          &data.gateway,
 	})
@@ -123,8 +107,8 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *gatewayData
 	}
 
 	for _, listenerSpec := range data.gateway.Spec.Listeners {
-		_, err = m.ociLoadBalancerModel.programHttpListener(ctx, programHttpListenerParams{
-			loadBalancerId:        loadBalancerID,
+		_, err = m.ociLoadBalancerModel.programHttpListener(ctx, programHTTPListenerParams{
+			loadBalancerID:        loadBalancerID,
 			defaultBackendSetName: *defaultBackendSet.Name,
 			knownListeners:        response.LoadBalancer.Listeners,
 			listenerSpec:          &listenerSpec,

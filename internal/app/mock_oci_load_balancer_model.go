@@ -82,7 +82,7 @@ func (_c *MockociLoadBalancerModel_programDefaultBackendSet_Call) RunAndReturn(r
 }
 
 // programHttpListener provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) programHttpListener(ctx context.Context, params programHttpListenerParams) (loadbalancer.Listener, error) {
+func (_m *MockociLoadBalancerModel) programHttpListener(ctx context.Context, params programHTTPListenerParams) (loadbalancer.Listener, error) {
 	ret := _m.Called(ctx, params)
 
 	if len(ret) == 0 {
@@ -91,16 +91,16 @@ func (_m *MockociLoadBalancerModel) programHttpListener(ctx context.Context, par
 
 	var r0 loadbalancer.Listener
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, programHttpListenerParams) (loadbalancer.Listener, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, programHTTPListenerParams) (loadbalancer.Listener, error)); ok {
 		return rf(ctx, params)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, programHttpListenerParams) loadbalancer.Listener); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, programHTTPListenerParams) loadbalancer.Listener); ok {
 		r0 = rf(ctx, params)
 	} else {
 		r0 = ret.Get(0).(loadbalancer.Listener)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, programHttpListenerParams) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, programHTTPListenerParams) error); ok {
 		r1 = rf(ctx, params)
 	} else {
 		r1 = ret.Error(1)
@@ -116,14 +116,14 @@ type MockociLoadBalancerModel_programHttpListener_Call struct {
 
 // programHttpListener is a helper method to define mock.On call
 //   - ctx context.Context
-//   - params programHttpListenerParams
+//   - params programHTTPListenerParams
 func (_e *MockociLoadBalancerModel_Expecter) programHttpListener(ctx interface{}, params interface{}) *MockociLoadBalancerModel_programHttpListener_Call {
 	return &MockociLoadBalancerModel_programHttpListener_Call{Call: _e.mock.On("programHttpListener", ctx, params)}
 }
 
-func (_c *MockociLoadBalancerModel_programHttpListener_Call) Run(run func(ctx context.Context, params programHttpListenerParams)) *MockociLoadBalancerModel_programHttpListener_Call {
+func (_c *MockociLoadBalancerModel_programHttpListener_Call) Run(run func(ctx context.Context, params programHTTPListenerParams)) *MockociLoadBalancerModel_programHttpListener_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(programHttpListenerParams))
+		run(args[0].(context.Context), args[1].(programHTTPListenerParams))
 	})
 	return _c
 }
@@ -133,7 +133,7 @@ func (_c *MockociLoadBalancerModel_programHttpListener_Call) Return(_a0 loadbala
 	return _c
 }
 
-func (_c *MockociLoadBalancerModel_programHttpListener_Call) RunAndReturn(run func(context.Context, programHttpListenerParams) (loadbalancer.Listener, error)) *MockociLoadBalancerModel_programHttpListener_Call {
+func (_c *MockociLoadBalancerModel_programHttpListener_Call) RunAndReturn(run func(context.Context, programHTTPListenerParams) (loadbalancer.Listener, error)) *MockociLoadBalancerModel_programHttpListener_Call {
 	_c.Call.Return(run)
 	return _c
 }
