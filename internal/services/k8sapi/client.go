@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/gemyago/oke-gateway-api/internal/types"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -35,6 +36,10 @@ func newClient(config *rest.Config) (client.Client, error) {
 
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
 		return nil, fmt.Errorf("failed to add kubernetes scheme: %w", err)
+	}
+
+	if err := types.AddKnownTypes(scheme); err != nil {
+		return nil, fmt.Errorf("failed to add gateway api scheme: %w", err)
 	}
 
 	if err := gatewayv1.Install(scheme); err != nil {

@@ -14,7 +14,7 @@ const (
 )
 
 // Adds the list of known types to Scheme.
-func addKnownTypes(scheme *runtime.Scheme) error {
+func AddKnownTypes(scheme *runtime.Scheme) error {
 	groupVersion := schema.GroupVersion{Group: GroupName, Version: Version}
 	scheme.AddKnownTypes(groupVersion,
 		&GatewayConfig{},
