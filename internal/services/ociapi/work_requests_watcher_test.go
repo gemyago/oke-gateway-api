@@ -1,6 +1,7 @@
 package ociapi
 
 import (
+	context "context"
 	"fmt"
 	"testing"
 	"time"
@@ -93,5 +94,60 @@ func TestWorkRequestsWatcher(t *testing.T) {
 				)
 			})
 		}
+
+		t.Run("fail if context is cancelled", func(t *testing.T) {
+			deps := newMockDeps(t)
+			deps.pollInterval = 1 * time.Minute
+			w := NewWorkRequestsWatcher(deps)
+
+			workRequestID := faker.UUIDHyphenated()
+
+			responses := []workrequests.GetWorkRequestResponse{
+				makeMockWorkRequestResponse(workrequests.WorkRequestStatusAccepted),
+			}
+
+			mockClient, _ := deps.Client.(*MockworkRequestsClient)
+
+			cancelledCtx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			for _, response := range responses {
+				mockClient.EXPECT().GetWorkRequest(
+					cancelledCtx,
+					workrequests.GetWorkRequestRequest{
+						WorkRequestId: &workRequestID,
+					},
+				).Run(func(_ context.Context, _ workrequests.GetWorkRequestRequest) {
+					cancel()
+				}).Return(response, nil).Once()
+			}
+			err := w.WaitFor(cancelledCtx, workRequestID)
+			require.ErrorIs(t, err, context.Canceled)
+		})
+
+		t.Run("fail if max poll duration is exceeded", func(t *testing.T) {
+			deps := newMockDeps(t)
+			deps.pollInterval = 2 * time.Second
+			deps.maxPollDuration = 1 * time.Millisecond
+			w := NewWorkRequestsWatcher(deps)
+
+			workRequestID := faker.UUIDHyphenated()
+
+			responses := []workrequests.GetWorkRequestResponse{
+				makeMockWorkRequestResponse(workrequests.WorkRequestStatusAccepted),
+			}
+
+			mockClient, _ := deps.Client.(*MockworkRequestsClient)
+
+			for _, response := range responses {
+				mockClient.EXPECT().GetWorkRequest(
+					t.Context(),
+					workrequests.GetWorkRequestRequest{
+						WorkRequestId: &workRequestID,
+					},
+				).Return(response, nil).Once()
+			}
+			err := w.WaitFor(t.Context(), workRequestID)
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+		})
 	})
 }

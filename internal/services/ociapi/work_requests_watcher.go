@@ -21,9 +21,10 @@ type workRequestsClient interface {
 
 // WorkRequestsWatcher defines the interface for watching OCI Work Requests.
 type WorkRequestsWatcher struct {
-	client       workRequestsClient
-	logger       *slog.Logger
-	pollInterval time.Duration
+	client          workRequestsClient
+	logger          *slog.Logger
+	pollInterval    time.Duration
+	maxPollDuration time.Duration
 }
 
 // WaitFor waits for a work request to succeed.
@@ -32,8 +33,11 @@ func (w *WorkRequestsWatcher) WaitFor(ctx context.Context, workRequestID string)
 		WorkRequestId: &workRequestID,
 	}
 
-	timer := time.NewTicker(w.pollInterval)
-	defer timer.Stop()
+	intervalTicker := time.NewTicker(w.pollInterval)
+	defer intervalTicker.Stop()
+
+	deadlineTicker := time.NewTimer(w.maxPollDuration)
+	defer deadlineTicker.Stop()
 
 	for {
 		response, err := w.client.GetWorkRequest(ctx, request)
@@ -51,7 +55,9 @@ func (w *WorkRequestsWatcher) WaitFor(ctx context.Context, workRequestID string)
 		}
 
 		select {
-		case <-timer.C:
+		case <-intervalTicker.C:
+		case <-deadlineTicker.C:
+			return fmt.Errorf("work request %s timed out: %w", workRequestID, context.DeadlineExceeded)
 		case <-ctx.Done():
 			return fmt.Errorf("work request %s timed out: %w", workRequestID, context.Canceled)
 		}
@@ -59,24 +65,31 @@ func (w *WorkRequestsWatcher) WaitFor(ctx context.Context, workRequestID string)
 }
 
 type WorkRequestsWatcherDeps struct {
-	dig.In
+	dig.In `ignore-unexported:"true"`
 
 	Client     workRequestsClient
 	RootLogger *slog.Logger
 
-	pollInterval time.Duration
+	pollInterval    time.Duration
+	maxPollDuration time.Duration
 }
 
 const defaultPollInterval = 2 * time.Second
+const defaultMaxPollDuration = 20 * time.Minute
 
 func NewWorkRequestsWatcher(deps WorkRequestsWatcherDeps) *WorkRequestsWatcher {
 	if deps.pollInterval == 0 {
 		deps.pollInterval = defaultPollInterval
 	}
 
+	if deps.maxPollDuration == 0 {
+		deps.maxPollDuration = defaultMaxPollDuration
+	}
+
 	return &WorkRequestsWatcher{
-		client:       deps.Client,
-		logger:       deps.RootLogger.WithGroup("oci-work-requests"),
-		pollInterval: deps.pollInterval,
+		client:          deps.Client,
+		logger:          deps.RootLogger.WithGroup("oci-work-requests"),
+		pollInterval:    deps.pollInterval,
+		maxPollDuration: deps.maxPollDuration,
 	}
 }
