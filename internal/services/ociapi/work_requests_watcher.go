@@ -54,6 +54,12 @@ func (w *WorkRequestsWatcher) WaitFor(ctx context.Context, workRequestID string)
 			return fmt.Errorf("work request %s is in %s state", workRequestID, response.WorkRequest.Status)
 		}
 
+		w.logger.DebugContext(
+			ctx, "work request is in progress",
+			slog.String("workRequestID", workRequestID),
+			slog.String("status", string(response.WorkRequest.Status)),
+		)
+
 		select {
 		case <-intervalTicker.C:
 		case <-deadlineTicker.C:
