@@ -111,7 +111,6 @@ spec:
 EOF
 ```
 
-
 You can now attach the HTTP route to the gateway to route traffic to the deployment:
 ```yaml
 cat <<EOF | kubectl -n oke-gw apply -f -
@@ -133,7 +132,24 @@ spec:
 EOF
 ```
 
-Uninstall resources:
+You can optionally install all the above examples from the manifests in the `deploy/manifests/examples` folder:
+```bash
+# Using manifests directly from the github
+kubectl apply -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/gatewayconfig.yaml
+kubectl apply -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/gateway.yaml
+kubectl apply -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/gatewayclass.yaml
+kubectl apply -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/echodeployment.yaml
+kubectl apply -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/echoroutes.yaml
+
+# Or if running in a locally cloned repo
+kubectl apply -f deploy/manifests/examples/gatewayconfig.yaml
+kubectl apply -f deploy/manifests/examples/gateway.yaml
+kubectl apply -f deploy/manifests/examples/gatewayclass.yaml
+kubectl apply -f deploy/manifests/examples/echodeployment.yaml
+kubectl apply -f deploy/manifests/examples/echoroutes.yaml
+```
+
+Uninstall example resources:
 ```bash
 kubectl -n oke-gw delete gateway oke-gateway
 kubectl -n oke-gw delete gatewayclass oke-gateway-api
