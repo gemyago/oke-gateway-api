@@ -196,7 +196,7 @@ kubectl apply -f deploy/helm/controller/templates/gateway-config-crd.yaml
 
 Run the controller locally:
 ```sh
-go run ./cmd/server/ start
+go run ./cmd/controller/ start
 ```
 
 
