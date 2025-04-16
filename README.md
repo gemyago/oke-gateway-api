@@ -73,6 +73,27 @@ spec:
 EOF
 ```
 
+Attach HTTP route to the gateway:
+```yaml
+cat <<EOF | kubectl -n oke-gw apply -f -
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: http-route
+spec:
+  parentRefs:
+    - name: oke-gateway
+      sectionName: http
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: http-service
+          kind: Service
+```
+
 Uninstall resources:
 ```bash
 kubectl -n oke-gw delete gateway oke-gateway
