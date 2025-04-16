@@ -20,7 +20,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		}
 	}
 
-	t.Run("programDefaultBackendSet", func(t *testing.T) {
+	t.Run("reconcileDefaultBackendSet", func(t *testing.T) {
 		t.Run("when backend set exists", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
@@ -35,12 +35,12 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				faker.UUIDHyphenated(): makeRandomOCIBackendSet(),
 			}
 
-			params := programDefaultBackendParams{
+			params := reconcileDefaultBackendParams{
 				loadBalancerID:   faker.UUIDHyphenated(),
 				knownBackendSets: knownBackendSets,
 				gateway:          gw,
 			}
-			actualBackendSet, err := model.programDefaultBackendSet(t.Context(), params)
+			actualBackendSet, err := model.reconcileDefaultBackendSet(t.Context(), params)
 			require.NoError(t, err)
 			assert.Equal(t, existingBackendSet, actualBackendSet)
 		})
@@ -53,7 +53,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			wantBsName := gw.Name + "-default"
 			wantBs := makeRandomOCIBackendSet()
 
-			params := programDefaultBackendParams{
+			params := reconcileDefaultBackendParams{
 				loadBalancerID: faker.UUIDHyphenated(),
 				gateway:        gw,
 			}
@@ -87,13 +87,13 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				BackendSet: wantBs,
 			}, nil)
 
-			actualBackendSet, err := model.programDefaultBackendSet(t.Context(), params)
+			actualBackendSet, err := model.reconcileDefaultBackendSet(t.Context(), params)
 			require.NoError(t, err)
 			assert.Equal(t, wantBs, actualBackendSet)
 		})
 	})
 
-	t.Run("programHTTPListener", func(t *testing.T) {
+	t.Run("reconcileHTTPListener", func(t *testing.T) {
 		t.Run("when listener exists", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
@@ -104,7 +104,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				},
 			)
 
-			params := programHTTPListenerParams{
+			params := reconcileHTTPListenerParams{
 				loadBalancerID: faker.UUIDHyphenated(),
 				knownListeners: map[string]loadbalancer.Listener{
 					string(gwListener.Name): lbListener,
@@ -114,7 +114,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				listenerSpec:          &gwListener,
 			}
 
-			actualListener, err := model.programHTTPListener(t.Context(), params)
+			actualListener, err := model.reconcileHTTPListener(t.Context(), params)
 			require.NoError(t, err)
 			assert.Equal(t, lbListener, actualListener)
 		})
@@ -125,7 +125,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			gwListener := makeRandomHTTPListener()
 			wantListener := makeRandomOCIListener()
 
-			params := programHTTPListenerParams{
+			params := reconcileHTTPListenerParams{
 				loadBalancerID: faker.UUIDHyphenated(),
 				knownListeners: map[string]loadbalancer.Listener{
 					faker.UUIDHyphenated(): makeRandomOCIListener(),
@@ -168,7 +168,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				LoadBalancer: updatedLb,
 			}, nil)
 
-			actualListener, err := model.programHTTPListener(t.Context(), params)
+			actualListener, err := model.reconcileHTTPListener(t.Context(), params)
 			require.NoError(t, err)
 			assert.Equal(t, wantListener, actualListener)
 		})

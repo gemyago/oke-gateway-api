@@ -29,6 +29,12 @@ type ociLoadBalancerClient interface {
 
 	CreateListener(ctx context.Context, request loadbalancer.CreateListenerRequest) (
 		response loadbalancer.CreateListenerResponse, err error)
+
+	CreateHostname(ctx context.Context, request loadbalancer.CreateHostnameRequest) (
+		response loadbalancer.CreateHostnameResponse, err error)
+
+	GetHostname(ctx context.Context, request loadbalancer.GetHostnameRequest) (
+		response loadbalancer.GetHostnameResponse, err error)
 }
 
 type workRequestsWatcher interface {

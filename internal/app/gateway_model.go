@@ -96,7 +96,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *gatewayData
 		slog.Any("loadBalancer", response.LoadBalancer),
 	)
 
-	defaultBackendSet, err := m.ociLoadBalancerModel.programDefaultBackendSet(ctx, programDefaultBackendParams{
+	defaultBackendSet, err := m.ociLoadBalancerModel.reconcileDefaultBackendSet(ctx, reconcileDefaultBackendParams{
 		loadBalancerID:   loadBalancerID,
 		knownBackendSets: response.LoadBalancer.BackendSets,
 		gateway:          &data.gateway,
@@ -108,7 +108,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *gatewayData
 	for _, listenerSpec := range data.gateway.Spec.Listeners {
 		// TODO: Support listener with hostname
 
-		_, err = m.ociLoadBalancerModel.programHTTPListener(ctx, programHTTPListenerParams{
+		_, err = m.ociLoadBalancerModel.reconcileHTTPListener(ctx, reconcileHTTPListenerParams{
 			loadBalancerID:        loadBalancerID,
 			defaultBackendSetName: *defaultBackendSet.Name,
 			knownListeners:        response.LoadBalancer.Listeners,

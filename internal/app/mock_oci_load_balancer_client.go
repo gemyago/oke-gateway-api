@@ -81,6 +81,63 @@ func (_c *MockociLoadBalancerClient_CreateBackendSet_Call) RunAndReturn(run func
 	return _c
 }
 
+// CreateHostname provides a mock function with given fields: ctx, request
+func (_m *MockociLoadBalancerClient) CreateHostname(ctx context.Context, request loadbalancer.CreateHostnameRequest) (loadbalancer.CreateHostnameResponse, error) {
+	ret := _m.Called(ctx, request)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateHostname")
+	}
+
+	var r0 loadbalancer.CreateHostnameResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.CreateHostnameRequest) (loadbalancer.CreateHostnameResponse, error)); ok {
+		return rf(ctx, request)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.CreateHostnameRequest) loadbalancer.CreateHostnameResponse); ok {
+		r0 = rf(ctx, request)
+	} else {
+		r0 = ret.Get(0).(loadbalancer.CreateHostnameResponse)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.CreateHostnameRequest) error); ok {
+		r1 = rf(ctx, request)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockociLoadBalancerClient_CreateHostname_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateHostname'
+type MockociLoadBalancerClient_CreateHostname_Call struct {
+	*mock.Call
+}
+
+// CreateHostname is a helper method to define mock.On call
+//   - ctx context.Context
+//   - request loadbalancer.CreateHostnameRequest
+func (_e *MockociLoadBalancerClient_Expecter) CreateHostname(ctx interface{}, request interface{}) *MockociLoadBalancerClient_CreateHostname_Call {
+	return &MockociLoadBalancerClient_CreateHostname_Call{Call: _e.mock.On("CreateHostname", ctx, request)}
+}
+
+func (_c *MockociLoadBalancerClient_CreateHostname_Call) Run(run func(ctx context.Context, request loadbalancer.CreateHostnameRequest)) *MockociLoadBalancerClient_CreateHostname_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(loadbalancer.CreateHostnameRequest))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_CreateHostname_Call) Return(response loadbalancer.CreateHostnameResponse, err error) *MockociLoadBalancerClient_CreateHostname_Call {
+	_c.Call.Return(response, err)
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_CreateHostname_Call) RunAndReturn(run func(context.Context, loadbalancer.CreateHostnameRequest) (loadbalancer.CreateHostnameResponse, error)) *MockociLoadBalancerClient_CreateHostname_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CreateListener provides a mock function with given fields: ctx, request
 func (_m *MockociLoadBalancerClient) CreateListener(ctx context.Context, request loadbalancer.CreateListenerRequest) (loadbalancer.CreateListenerResponse, error) {
 	ret := _m.Called(ctx, request)
@@ -191,6 +248,63 @@ func (_c *MockociLoadBalancerClient_GetBackendSet_Call) Return(response loadbala
 }
 
 func (_c *MockociLoadBalancerClient_GetBackendSet_Call) RunAndReturn(run func(context.Context, loadbalancer.GetBackendSetRequest) (loadbalancer.GetBackendSetResponse, error)) *MockociLoadBalancerClient_GetBackendSet_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetHostname provides a mock function with given fields: ctx, request
+func (_m *MockociLoadBalancerClient) GetHostname(ctx context.Context, request loadbalancer.GetHostnameRequest) (loadbalancer.GetHostnameResponse, error) {
+	ret := _m.Called(ctx, request)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetHostname")
+	}
+
+	var r0 loadbalancer.GetHostnameResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.GetHostnameRequest) (loadbalancer.GetHostnameResponse, error)); ok {
+		return rf(ctx, request)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.GetHostnameRequest) loadbalancer.GetHostnameResponse); ok {
+		r0 = rf(ctx, request)
+	} else {
+		r0 = ret.Get(0).(loadbalancer.GetHostnameResponse)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.GetHostnameRequest) error); ok {
+		r1 = rf(ctx, request)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockociLoadBalancerClient_GetHostname_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetHostname'
+type MockociLoadBalancerClient_GetHostname_Call struct {
+	*mock.Call
+}
+
+// GetHostname is a helper method to define mock.On call
+//   - ctx context.Context
+//   - request loadbalancer.GetHostnameRequest
+func (_e *MockociLoadBalancerClient_Expecter) GetHostname(ctx interface{}, request interface{}) *MockociLoadBalancerClient_GetHostname_Call {
+	return &MockociLoadBalancerClient_GetHostname_Call{Call: _e.mock.On("GetHostname", ctx, request)}
+}
+
+func (_c *MockociLoadBalancerClient_GetHostname_Call) Run(run func(ctx context.Context, request loadbalancer.GetHostnameRequest)) *MockociLoadBalancerClient_GetHostname_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(loadbalancer.GetHostnameRequest))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_GetHostname_Call) Return(response loadbalancer.GetHostnameResponse, err error) *MockociLoadBalancerClient_GetHostname_Call {
+	_c.Call.Return(response, err)
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_GetHostname_Call) RunAndReturn(run func(context.Context, loadbalancer.GetHostnameRequest) (loadbalancer.GetHostnameResponse, error)) *MockociLoadBalancerClient_GetHostname_Call {
 	_c.Call.Return(run)
 	return _c
 }

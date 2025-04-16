@@ -13,13 +13,13 @@ import (
 
 const defaultBackendSetPort = 80
 
-type programDefaultBackendParams struct {
+type reconcileDefaultBackendParams struct {
 	loadBalancerID   string
 	knownBackendSets map[string]loadbalancer.BackendSet
 	gateway          *gatewayv1.Gateway
 }
 
-type programHTTPListenerParams struct {
+type reconcileHTTPListenerParams struct {
 	loadBalancerID        string
 	knownListeners        map[string]loadbalancer.Listener
 	defaultBackendSetName string
@@ -27,13 +27,13 @@ type programHTTPListenerParams struct {
 }
 
 type ociLoadBalancerModel interface {
-	programDefaultBackendSet(
+	reconcileDefaultBackendSet(
 		ctx context.Context,
-		params programDefaultBackendParams,
+		params reconcileDefaultBackendParams,
 	) (loadbalancer.BackendSet, error)
-	programHTTPListener(
+	reconcileHTTPListener(
 		ctx context.Context,
-		params programHTTPListenerParams,
+		params reconcileHTTPListenerParams,
 	) (loadbalancer.Listener, error)
 }
 
@@ -43,9 +43,9 @@ type ociLoadBalancerModelImpl struct {
 	workRequestsWatcher workRequestsWatcher
 }
 
-func (m *ociLoadBalancerModelImpl) programDefaultBackendSet(
+func (m *ociLoadBalancerModelImpl) reconcileDefaultBackendSet(
 	ctx context.Context,
-	params programDefaultBackendParams,
+	params reconcileDefaultBackendParams,
 ) (loadbalancer.BackendSet, error) {
 	defaultBackendSetName := params.gateway.Name + "-default"
 	if _, ok := params.knownBackendSets[defaultBackendSetName]; ok {
@@ -95,9 +95,9 @@ func (m *ociLoadBalancerModelImpl) programDefaultBackendSet(
 	return res.BackendSet, nil
 }
 
-func (m *ociLoadBalancerModelImpl) programHTTPListener(
+func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 	ctx context.Context,
-	params programHTTPListenerParams,
+	params reconcileHTTPListenerParams,
 ) (loadbalancer.Listener, error) {
 	listenerName := string(params.listenerSpec.Name)
 	if _, ok := params.knownListeners[listenerName]; ok {

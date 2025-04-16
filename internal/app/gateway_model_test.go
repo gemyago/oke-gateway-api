@@ -164,7 +164,7 @@ func TestGatewayModelImpl(t *testing.T) {
 			defaultBackendSet := makeRandomOCIBackendSet()
 
 			loadBalancerModel.EXPECT().
-				programDefaultBackendSet(t.Context(), programDefaultBackendParams{
+				reconcileDefaultBackendSet(t.Context(), reconcileDefaultBackendParams{
 					loadBalancerID:   config.Spec.LoadBalancerID,
 					knownBackendSets: loadBalancer.BackendSets,
 					gateway:          gateway,
@@ -178,7 +178,7 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			for i, listener := range gateway.Spec.Listeners {
 				loadBalancerModel.EXPECT().
-					programHTTPListener(t.Context(), programHTTPListenerParams{
+					reconcileHTTPListener(t.Context(), reconcileHTTPListenerParams{
 						loadBalancerID:        config.Spec.LoadBalancerID,
 						defaultBackendSetName: *defaultBackendSet.Name,
 						knownListeners:        loadBalancer.Listeners,

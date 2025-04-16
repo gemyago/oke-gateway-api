@@ -24,26 +24,26 @@ func (_m *MockociLoadBalancerModel) EXPECT() *MockociLoadBalancerModel_Expecter 
 	return &MockociLoadBalancerModel_Expecter{mock: &_m.Mock}
 }
 
-// programDefaultBackendSet provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) programDefaultBackendSet(ctx context.Context, params programDefaultBackendParams) (loadbalancer.BackendSet, error) {
+// reconcileDefaultBackendSet provides a mock function with given fields: ctx, params
+func (_m *MockociLoadBalancerModel) reconcileDefaultBackendSet(ctx context.Context, params reconcileDefaultBackendParams) (loadbalancer.BackendSet, error) {
 	ret := _m.Called(ctx, params)
 
 	if len(ret) == 0 {
-		panic("no return value specified for programDefaultBackendSet")
+		panic("no return value specified for reconcileDefaultBackendSet")
 	}
 
 	var r0 loadbalancer.BackendSet
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, programDefaultBackendParams) (loadbalancer.BackendSet, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, reconcileDefaultBackendParams) (loadbalancer.BackendSet, error)); ok {
 		return rf(ctx, params)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, programDefaultBackendParams) loadbalancer.BackendSet); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, reconcileDefaultBackendParams) loadbalancer.BackendSet); ok {
 		r0 = rf(ctx, params)
 	} else {
 		r0 = ret.Get(0).(loadbalancer.BackendSet)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, programDefaultBackendParams) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, reconcileDefaultBackendParams) error); ok {
 		r1 = rf(ctx, params)
 	} else {
 		r1 = ret.Error(1)
@@ -52,55 +52,55 @@ func (_m *MockociLoadBalancerModel) programDefaultBackendSet(ctx context.Context
 	return r0, r1
 }
 
-// MockociLoadBalancerModel_programDefaultBackendSet_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'programDefaultBackendSet'
-type MockociLoadBalancerModel_programDefaultBackendSet_Call struct {
+// MockociLoadBalancerModel_reconcileDefaultBackendSet_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'reconcileDefaultBackendSet'
+type MockociLoadBalancerModel_reconcileDefaultBackendSet_Call struct {
 	*mock.Call
 }
 
-// programDefaultBackendSet is a helper method to define mock.On call
+// reconcileDefaultBackendSet is a helper method to define mock.On call
 //   - ctx context.Context
-//   - params programDefaultBackendParams
-func (_e *MockociLoadBalancerModel_Expecter) programDefaultBackendSet(ctx interface{}, params interface{}) *MockociLoadBalancerModel_programDefaultBackendSet_Call {
-	return &MockociLoadBalancerModel_programDefaultBackendSet_Call{Call: _e.mock.On("programDefaultBackendSet", ctx, params)}
+//   - params reconcileDefaultBackendParams
+func (_e *MockociLoadBalancerModel_Expecter) reconcileDefaultBackendSet(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileDefaultBackendSet_Call {
+	return &MockociLoadBalancerModel_reconcileDefaultBackendSet_Call{Call: _e.mock.On("reconcileDefaultBackendSet", ctx, params)}
 }
 
-func (_c *MockociLoadBalancerModel_programDefaultBackendSet_Call) Run(run func(ctx context.Context, params programDefaultBackendParams)) *MockociLoadBalancerModel_programDefaultBackendSet_Call {
+func (_c *MockociLoadBalancerModel_reconcileDefaultBackendSet_Call) Run(run func(ctx context.Context, params reconcileDefaultBackendParams)) *MockociLoadBalancerModel_reconcileDefaultBackendSet_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(programDefaultBackendParams))
+		run(args[0].(context.Context), args[1].(reconcileDefaultBackendParams))
 	})
 	return _c
 }
 
-func (_c *MockociLoadBalancerModel_programDefaultBackendSet_Call) Return(_a0 loadbalancer.BackendSet, _a1 error) *MockociLoadBalancerModel_programDefaultBackendSet_Call {
+func (_c *MockociLoadBalancerModel_reconcileDefaultBackendSet_Call) Return(_a0 loadbalancer.BackendSet, _a1 error) *MockociLoadBalancerModel_reconcileDefaultBackendSet_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockociLoadBalancerModel_programDefaultBackendSet_Call) RunAndReturn(run func(context.Context, programDefaultBackendParams) (loadbalancer.BackendSet, error)) *MockociLoadBalancerModel_programDefaultBackendSet_Call {
+func (_c *MockociLoadBalancerModel_reconcileDefaultBackendSet_Call) RunAndReturn(run func(context.Context, reconcileDefaultBackendParams) (loadbalancer.BackendSet, error)) *MockociLoadBalancerModel_reconcileDefaultBackendSet_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// programHTTPListener provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) programHTTPListener(ctx context.Context, params programHTTPListenerParams) (loadbalancer.Listener, error) {
+// reconcileHTTPListener provides a mock function with given fields: ctx, params
+func (_m *MockociLoadBalancerModel) reconcileHTTPListener(ctx context.Context, params reconcileHTTPListenerParams) (loadbalancer.Listener, error) {
 	ret := _m.Called(ctx, params)
 
 	if len(ret) == 0 {
-		panic("no return value specified for programHTTPListener")
+		panic("no return value specified for reconcileHTTPListener")
 	}
 
 	var r0 loadbalancer.Listener
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, programHTTPListenerParams) (loadbalancer.Listener, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, reconcileHTTPListenerParams) (loadbalancer.Listener, error)); ok {
 		return rf(ctx, params)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, programHTTPListenerParams) loadbalancer.Listener); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, reconcileHTTPListenerParams) loadbalancer.Listener); ok {
 		r0 = rf(ctx, params)
 	} else {
 		r0 = ret.Get(0).(loadbalancer.Listener)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, programHTTPListenerParams) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, reconcileHTTPListenerParams) error); ok {
 		r1 = rf(ctx, params)
 	} else {
 		r1 = ret.Error(1)
@@ -109,31 +109,31 @@ func (_m *MockociLoadBalancerModel) programHTTPListener(ctx context.Context, par
 	return r0, r1
 }
 
-// MockociLoadBalancerModel_programHTTPListener_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'programHTTPListener'
-type MockociLoadBalancerModel_programHTTPListener_Call struct {
+// MockociLoadBalancerModel_reconcileHTTPListener_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'reconcileHTTPListener'
+type MockociLoadBalancerModel_reconcileHTTPListener_Call struct {
 	*mock.Call
 }
 
-// programHTTPListener is a helper method to define mock.On call
+// reconcileHTTPListener is a helper method to define mock.On call
 //   - ctx context.Context
-//   - params programHTTPListenerParams
-func (_e *MockociLoadBalancerModel_Expecter) programHTTPListener(ctx interface{}, params interface{}) *MockociLoadBalancerModel_programHTTPListener_Call {
-	return &MockociLoadBalancerModel_programHTTPListener_Call{Call: _e.mock.On("programHTTPListener", ctx, params)}
+//   - params reconcileHTTPListenerParams
+func (_e *MockociLoadBalancerModel_Expecter) reconcileHTTPListener(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileHTTPListener_Call {
+	return &MockociLoadBalancerModel_reconcileHTTPListener_Call{Call: _e.mock.On("reconcileHTTPListener", ctx, params)}
 }
 
-func (_c *MockociLoadBalancerModel_programHTTPListener_Call) Run(run func(ctx context.Context, params programHTTPListenerParams)) *MockociLoadBalancerModel_programHTTPListener_Call {
+func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Run(run func(ctx context.Context, params reconcileHTTPListenerParams)) *MockociLoadBalancerModel_reconcileHTTPListener_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(programHTTPListenerParams))
+		run(args[0].(context.Context), args[1].(reconcileHTTPListenerParams))
 	})
 	return _c
 }
 
-func (_c *MockociLoadBalancerModel_programHTTPListener_Call) Return(_a0 loadbalancer.Listener, _a1 error) *MockociLoadBalancerModel_programHTTPListener_Call {
+func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Return(_a0 loadbalancer.Listener, _a1 error) *MockociLoadBalancerModel_reconcileHTTPListener_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockociLoadBalancerModel_programHTTPListener_Call) RunAndReturn(run func(context.Context, programHTTPListenerParams) (loadbalancer.Listener, error)) *MockociLoadBalancerModel_programHTTPListener_Call {
+func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) RunAndReturn(run func(context.Context, reconcileHTTPListenerParams) (loadbalancer.Listener, error)) *MockociLoadBalancerModel_reconcileHTTPListener_Call {
 	_c.Call.Return(run)
 	return _c
 }
