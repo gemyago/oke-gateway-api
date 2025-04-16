@@ -48,6 +48,7 @@ kind: GatewayConfig
 metadata:
   name: oke-gateway-config
 spec:
+  # Replace with your Load Balancer OCID
   loadBalancerId: ocid1.loadbalancer.oc1..exampleuniqueID
 EOF
 ```
@@ -73,25 +74,63 @@ spec:
 EOF
 ```
 
-Attach HTTP route to the gateway:
+Assuming you have a deployment similar to the following:
+```yaml
+cat <<EOF | kubectl -n oke-gw apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oke-gateway-example-echo
+  labels:
+    app: oke-gateway-example-echo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oke-gateway-example-echo
+  template:
+    metadata:
+      labels:
+        app: oke-gateway-example-echo
+    spec:
+      containers:
+      - name: echo
+        image: ghcr.io/gemyago/oke-gateway-api-echo:git-commit-7f45b2d
+        args:
+          - --json-logs
+        ports:
+        - containerPort: 8080
+          name: http
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+EOF
+```
+
+
+You can now attach the HTTP route to the gateway to route traffic to the deployment:
 ```yaml
 cat <<EOF | kubectl -n oke-gw apply -f -
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: http-route
+  name: oke-gateway-example-echo
 spec:
   parentRefs:
-    - name: oke-gateway
-      sectionName: http
+    - name: oke-gateway-example
   rules:
     - matches:
         - path:
             type: PathPrefix
-            value: /
+            value: /echo
       backendRefs:
-        - name: http-service
-          kind: Service
+        - name: oke-gateway-example-echo
+          port: 8080
+EOF
 ```
 
 Uninstall resources:
@@ -99,6 +138,8 @@ Uninstall resources:
 kubectl -n oke-gw delete gateway oke-gateway
 kubectl -n oke-gw delete gatewayclass oke-gateway-api
 kubectl -n oke-gw delete gatewayconfig oke-gateway-config
+kubectl -n oke-gw delete deployment oke-gateway-example-echo
+kubectl -n oke-gw delete httproute oke-gateway-example-echo
 ```
 
 ## Contributing
