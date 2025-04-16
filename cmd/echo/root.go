@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/gemyago/oke-gateway-api/internal/app"
 	"github.com/gemyago/oke-gateway-api/internal/config"
 	"github.com/gemyago/oke-gateway-api/internal/di"
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -63,9 +62,6 @@ func newRootCmd(container *dig.Container) *cobra.Command {
 
 		err = errors.Join(
 			config.Provide(container, cfg),
-
-			// app layer
-			app.Register(container),
 
 			// services
 			services.Register(container),
