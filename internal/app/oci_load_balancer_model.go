@@ -140,6 +140,8 @@ func (m *ociLoadBalancerModelImpl) programHTTPListener(
 		return loadbalancer.Listener{}, fmt.Errorf("failed to get listener %s: %w", listenerName, err)
 	}
 
+	// TODO: fail if listener is still not there
+
 	return res.LoadBalancer.Listeners[listenerName], nil
 }
 
