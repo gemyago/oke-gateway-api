@@ -15,6 +15,7 @@ type EchoResponse struct {
 	RequestBody    string      `json:"requestBody"`
 	RequestMethod  string      `json:"requestMethod"`
 	RequestURL     string      `json:"requestURL"`
+	Host           string      `json:"host"`
 }
 
 type RootHandlerDeps struct {
@@ -38,6 +39,7 @@ func NewRootHandler(deps RootHandlerDeps) http.Handler {
 			RequestBody:    string(body),
 			RequestMethod:  r.Method,
 			RequestURL:     r.URL.String(),
+			Host:           r.Host,
 		})
 		if err != nil {
 			// We can just log at this point, as we've already written a response

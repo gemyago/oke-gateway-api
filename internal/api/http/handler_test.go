@@ -44,6 +44,7 @@ func TestRootHandler(t *testing.T) {
 			RequestBody:    wantBody,
 			RequestMethod:  req.Method,
 			RequestURL:     req.URL.String(),
+			Host:           req.Host,
 		}, got)
 	})
 }
