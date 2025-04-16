@@ -74,7 +74,7 @@ spec:
 EOF
 ```
 
-Assuming you have a deployment similar to the following:
+Assuming you have a deployment and service similar to the following:
 ```yaml
 cat <<EOF | kubectl -n oke-gw apply -f -
 apiVersion: apps/v1
@@ -109,6 +109,20 @@ spec:
           limits:
             cpu: 200m
             memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oke-gateway-example-echo
+  labels:
+    app: oke-gateway-example-echo
+spec:
+  ports:
+  - port: 8080
+    name: http
+    targetPort: http
+  selector:
+    app: oke-gateway-example-echo
 EOF
 ```
 
