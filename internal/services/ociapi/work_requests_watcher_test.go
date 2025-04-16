@@ -8,7 +8,7 @@ import (
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/go-faker/faker/v4"
-	"github.com/oracle/oci-go-sdk/v65/workrequests"
+	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,10 +21,12 @@ func TestWorkRequestsWatcher(t *testing.T) {
 		}
 	}
 
-	makeMockWorkRequestResponse := func(status workrequests.WorkRequestStatusEnum) workrequests.GetWorkRequestResponse {
-		return workrequests.GetWorkRequestResponse{
-			WorkRequest: workrequests.WorkRequest{
-				Status: status,
+	makeMockWorkRequestResponse := func(
+		status loadbalancer.WorkRequestLifecycleStateEnum,
+	) loadbalancer.GetWorkRequestResponse {
+		return loadbalancer.GetWorkRequestResponse{
+			WorkRequest: loadbalancer.WorkRequest{
+				LifecycleState: status,
 			},
 		}
 	}
@@ -36,11 +38,11 @@ func TestWorkRequestsWatcher(t *testing.T) {
 
 			workRequestID := faker.UUIDHyphenated()
 
-			responses := []workrequests.GetWorkRequestResponse{
-				makeMockWorkRequestResponse(workrequests.WorkRequestStatusAccepted),
-				makeMockWorkRequestResponse(workrequests.WorkRequestStatusInProgress),
-				makeMockWorkRequestResponse(workrequests.WorkRequestStatusInProgress),
-				makeMockWorkRequestResponse(workrequests.WorkRequestStatusSucceeded),
+			responses := []loadbalancer.GetWorkRequestResponse{
+				makeMockWorkRequestResponse(loadbalancer.WorkRequestLifecycleStateAccepted),
+				makeMockWorkRequestResponse(loadbalancer.WorkRequestLifecycleStateInProgress),
+				makeMockWorkRequestResponse(loadbalancer.WorkRequestLifecycleStateInProgress),
+				makeMockWorkRequestResponse(loadbalancer.WorkRequestLifecycleStateSucceeded),
 			}
 
 			mockClient, _ := deps.Client.(*MockworkRequestsClient)
@@ -48,7 +50,7 @@ func TestWorkRequestsWatcher(t *testing.T) {
 			for _, response := range responses {
 				mockClient.EXPECT().GetWorkRequest(
 					t.Context(),
-					workrequests.GetWorkRequestRequest{
+					loadbalancer.GetWorkRequestRequest{
 						WorkRequestId: &workRequestID,
 					},
 				).Return(response, nil).Once()
@@ -58,9 +60,8 @@ func TestWorkRequestsWatcher(t *testing.T) {
 			require.NoError(t, err)
 		})
 
-		errorStates := []workrequests.WorkRequestStatusEnum{
-			workrequests.WorkRequestStatusCanceled,
-			workrequests.WorkRequestStatusFailed,
+		errorStates := []loadbalancer.WorkRequestLifecycleStateEnum{
+			loadbalancer.WorkRequestLifecycleStateFailed,
 		}
 
 		for _, state := range errorStates {
@@ -70,10 +71,10 @@ func TestWorkRequestsWatcher(t *testing.T) {
 
 				workRequestID := faker.UUIDHyphenated()
 
-				responses := []workrequests.GetWorkRequestResponse{
-					makeMockWorkRequestResponse(workrequests.WorkRequestStatusAccepted),
-					makeMockWorkRequestResponse(workrequests.WorkRequestStatusInProgress),
-					makeMockWorkRequestResponse(workrequests.WorkRequestStatusInProgress),
+				responses := []loadbalancer.GetWorkRequestResponse{
+					makeMockWorkRequestResponse(loadbalancer.WorkRequestLifecycleStateAccepted),
+					makeMockWorkRequestResponse(loadbalancer.WorkRequestLifecycleStateInProgress),
+					makeMockWorkRequestResponse(loadbalancer.WorkRequestLifecycleStateInProgress),
 					makeMockWorkRequestResponse(state),
 				}
 
@@ -82,7 +83,7 @@ func TestWorkRequestsWatcher(t *testing.T) {
 				for _, response := range responses {
 					mockClient.EXPECT().GetWorkRequest(
 						t.Context(),
-						workrequests.GetWorkRequestRequest{
+						loadbalancer.GetWorkRequestRequest{
 							WorkRequestId: &workRequestID,
 						},
 					).Return(response, nil).Once()
@@ -102,8 +103,8 @@ func TestWorkRequestsWatcher(t *testing.T) {
 
 			workRequestID := faker.UUIDHyphenated()
 
-			responses := []workrequests.GetWorkRequestResponse{
-				makeMockWorkRequestResponse(workrequests.WorkRequestStatusAccepted),
+			responses := []loadbalancer.GetWorkRequestResponse{
+				makeMockWorkRequestResponse(loadbalancer.WorkRequestLifecycleStateAccepted),
 			}
 
 			mockClient, _ := deps.Client.(*MockworkRequestsClient)
@@ -113,10 +114,10 @@ func TestWorkRequestsWatcher(t *testing.T) {
 			for _, response := range responses {
 				mockClient.EXPECT().GetWorkRequest(
 					cancelledCtx,
-					workrequests.GetWorkRequestRequest{
+					loadbalancer.GetWorkRequestRequest{
 						WorkRequestId: &workRequestID,
 					},
-				).Run(func(_ context.Context, _ workrequests.GetWorkRequestRequest) {
+				).Run(func(_ context.Context, _ loadbalancer.GetWorkRequestRequest) {
 					cancel()
 				}).Return(response, nil).Once()
 			}
@@ -132,8 +133,8 @@ func TestWorkRequestsWatcher(t *testing.T) {
 
 			workRequestID := faker.UUIDHyphenated()
 
-			responses := []workrequests.GetWorkRequestResponse{
-				makeMockWorkRequestResponse(workrequests.WorkRequestStatusAccepted),
+			responses := []loadbalancer.GetWorkRequestResponse{
+				makeMockWorkRequestResponse(loadbalancer.WorkRequestLifecycleStateAccepted),
 			}
 
 			mockClient, _ := deps.Client.(*MockworkRequestsClient)
@@ -141,7 +142,7 @@ func TestWorkRequestsWatcher(t *testing.T) {
 			for _, response := range responses {
 				mockClient.EXPECT().GetWorkRequest(
 					t.Context(),
-					workrequests.GetWorkRequestRequest{
+					loadbalancer.GetWorkRequestRequest{
 						WorkRequestId: &workRequestID,
 					},
 				).Return(response, nil).Once()

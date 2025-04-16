@@ -2,7 +2,7 @@ package ociapi
 
 import (
 	"github.com/gemyago/oke-gateway-api/internal/di"
-	"github.com/oracle/oci-go-sdk/v65/workrequests"
+	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"go.uber.org/dig"
 )
 
@@ -12,6 +12,6 @@ func Register(container *dig.Container) error {
 		newLoadBalancerClient,
 		newWorkRequestsClient,
 		NewWorkRequestsWatcher,
-		func(c workrequests.WorkRequestClient) workRequestsClient { return c },
+		func(c loadbalancer.LoadBalancerClient) workRequestsClient { return c },
 	)
 }

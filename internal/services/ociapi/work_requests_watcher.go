@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/workrequests" // Assuming v65, adjust if needed
+	"github.com/oracle/oci-go-sdk/v65/loadbalancer" // Assuming v65, adjust if needed
 	"go.uber.org/dig"
 )
 
@@ -15,8 +15,8 @@ type workRequestsClient interface {
 	// GetWorkRequest gets the details of a work request.
 	GetWorkRequest(
 		ctx context.Context,
-		request workrequests.GetWorkRequestRequest,
-	) (workrequests.GetWorkRequestResponse, error)
+		request loadbalancer.GetWorkRequestRequest,
+	) (loadbalancer.GetWorkRequestResponse, error)
 }
 
 // WorkRequestsWatcher defines the interface for watching OCI Work Requests.
@@ -29,7 +29,7 @@ type WorkRequestsWatcher struct {
 
 // WaitFor waits for a work request to succeed.
 func (w *WorkRequestsWatcher) WaitFor(ctx context.Context, workRequestID string) error {
-	request := workrequests.GetWorkRequestRequest{
+	request := loadbalancer.GetWorkRequestRequest{
 		WorkRequestId: &workRequestID,
 	}
 
@@ -45,19 +45,18 @@ func (w *WorkRequestsWatcher) WaitFor(ctx context.Context, workRequestID string)
 			return fmt.Errorf("failed to get work request %s: %w", workRequestID, err)
 		}
 
-		if response.WorkRequest.Status == workrequests.WorkRequestStatusSucceeded {
+		if response.WorkRequest.LifecycleState == loadbalancer.WorkRequestLifecycleStateSucceeded {
 			return nil
 		}
 
-		if response.WorkRequest.Status == workrequests.WorkRequestStatusCanceled ||
-			response.WorkRequest.Status == workrequests.WorkRequestStatusFailed {
-			return fmt.Errorf("work request %s is in %s state", workRequestID, response.WorkRequest.Status)
+		if response.WorkRequest.LifecycleState == loadbalancer.WorkRequestLifecycleStateFailed {
+			return fmt.Errorf("work request %s is in %s state", workRequestID, response.WorkRequest.LifecycleState)
 		}
 
 		w.logger.DebugContext(
 			ctx, "work request is in progress",
 			slog.String("workRequestID", workRequestID),
-			slog.String("status", string(response.WorkRequest.Status)),
+			slog.String("status", string(response.WorkRequest.LifecycleState)),
 		)
 
 		select {

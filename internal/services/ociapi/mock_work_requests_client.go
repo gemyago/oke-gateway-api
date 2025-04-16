@@ -7,7 +7,7 @@ package ociapi
 import (
 	context "context"
 
-	workrequests "github.com/oracle/oci-go-sdk/v65/workrequests"
+	loadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -25,25 +25,25 @@ func (_m *MockworkRequestsClient) EXPECT() *MockworkRequestsClient_Expecter {
 }
 
 // GetWorkRequest provides a mock function with given fields: ctx, request
-func (_m *MockworkRequestsClient) GetWorkRequest(ctx context.Context, request workrequests.GetWorkRequestRequest) (workrequests.GetWorkRequestResponse, error) {
+func (_m *MockworkRequestsClient) GetWorkRequest(ctx context.Context, request loadbalancer.GetWorkRequestRequest) (loadbalancer.GetWorkRequestResponse, error) {
 	ret := _m.Called(ctx, request)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetWorkRequest")
 	}
 
-	var r0 workrequests.GetWorkRequestResponse
+	var r0 loadbalancer.GetWorkRequestResponse
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, workrequests.GetWorkRequestRequest) (workrequests.GetWorkRequestResponse, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.GetWorkRequestRequest) (loadbalancer.GetWorkRequestResponse, error)); ok {
 		return rf(ctx, request)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, workrequests.GetWorkRequestRequest) workrequests.GetWorkRequestResponse); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.GetWorkRequestRequest) loadbalancer.GetWorkRequestResponse); ok {
 		r0 = rf(ctx, request)
 	} else {
-		r0 = ret.Get(0).(workrequests.GetWorkRequestResponse)
+		r0 = ret.Get(0).(loadbalancer.GetWorkRequestResponse)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, workrequests.GetWorkRequestRequest) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.GetWorkRequestRequest) error); ok {
 		r1 = rf(ctx, request)
 	} else {
 		r1 = ret.Error(1)
@@ -59,24 +59,24 @@ type MockworkRequestsClient_GetWorkRequest_Call struct {
 
 // GetWorkRequest is a helper method to define mock.On call
 //   - ctx context.Context
-//   - request workrequests.GetWorkRequestRequest
+//   - request loadbalancer.GetWorkRequestRequest
 func (_e *MockworkRequestsClient_Expecter) GetWorkRequest(ctx interface{}, request interface{}) *MockworkRequestsClient_GetWorkRequest_Call {
 	return &MockworkRequestsClient_GetWorkRequest_Call{Call: _e.mock.On("GetWorkRequest", ctx, request)}
 }
 
-func (_c *MockworkRequestsClient_GetWorkRequest_Call) Run(run func(ctx context.Context, request workrequests.GetWorkRequestRequest)) *MockworkRequestsClient_GetWorkRequest_Call {
+func (_c *MockworkRequestsClient_GetWorkRequest_Call) Run(run func(ctx context.Context, request loadbalancer.GetWorkRequestRequest)) *MockworkRequestsClient_GetWorkRequest_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(workrequests.GetWorkRequestRequest))
+		run(args[0].(context.Context), args[1].(loadbalancer.GetWorkRequestRequest))
 	})
 	return _c
 }
 
-func (_c *MockworkRequestsClient_GetWorkRequest_Call) Return(_a0 workrequests.GetWorkRequestResponse, _a1 error) *MockworkRequestsClient_GetWorkRequest_Call {
+func (_c *MockworkRequestsClient_GetWorkRequest_Call) Return(_a0 loadbalancer.GetWorkRequestResponse, _a1 error) *MockworkRequestsClient_GetWorkRequest_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockworkRequestsClient_GetWorkRequest_Call) RunAndReturn(run func(context.Context, workrequests.GetWorkRequestRequest) (workrequests.GetWorkRequestResponse, error)) *MockworkRequestsClient_GetWorkRequest_Call {
+func (_c *MockworkRequestsClient_GetWorkRequest_Call) RunAndReturn(run func(context.Context, loadbalancer.GetWorkRequestRequest) (loadbalancer.GetWorkRequestResponse, error)) *MockworkRequestsClient_GetWorkRequest_Call {
 	_c.Call.Return(run)
 	return _c
 }
