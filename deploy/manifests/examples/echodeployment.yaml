@@ -18,6 +18,7 @@ spec:
       - name: echo
         image: ghcr.io/gemyago/oke-gateway-api-echo:git-commit-7f45b2d
         args:
+          - start
           - --json-logs
         ports:
         - containerPort: 8080
