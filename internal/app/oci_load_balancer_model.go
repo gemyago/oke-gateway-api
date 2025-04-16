@@ -51,7 +51,7 @@ func (m *ociLoadBalancerModelImpl) programDefaultBackendSet(
 	if _, ok := params.knownBackendSets[defaultBackendSetName]; ok {
 		m.logger.DebugContext(ctx, "Default backend set already exists",
 			slog.String("loadBalancerId", params.loadBalancerID),
-			slog.String("name", defaultBackendSetName),
+			slog.String("backendName", defaultBackendSetName),
 		)
 		return params.knownBackendSets[defaultBackendSetName], nil
 	}
@@ -103,7 +103,7 @@ func (m *ociLoadBalancerModelImpl) programHTTPListener(
 	if _, ok := params.knownListeners[listenerName]; ok {
 		m.logger.DebugContext(ctx, "Listener already exists",
 			slog.String("loadBalancerId", params.loadBalancerID),
-			slog.String("name", listenerName),
+			slog.String("listenerName", listenerName),
 		)
 		return params.knownListeners[listenerName], nil
 	}
