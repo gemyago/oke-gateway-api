@@ -92,4 +92,31 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			assert.Equal(t, wantBs, actualBackendSet)
 		})
 	})
+
+	t.Run("programHTTPListener", func(t *testing.T) {
+		t.Run("when listener exists", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			gwListener := makeRandomHTTPListener()
+			lbListener := makeRandomOCIListener(
+				func(l *loadbalancer.Listener) {
+					l.Name = lo.ToPtr(string(gwListener.Name))
+				},
+			)
+
+			params := programHTTPListenerParams{
+				loadBalancerID: faker.UUIDHyphenated(),
+				knownListeners: map[string]loadbalancer.Listener{
+					string(gwListener.Name): lbListener,
+					faker.UUIDHyphenated():  makeRandomOCIListener(),
+				},
+				defaultBackendSetName: faker.UUIDHyphenated(),
+				listenerSpec:          &gwListener,
+			}
+
+			actualListener, err := model.programHTTPListener(t.Context(), params)
+			require.NoError(t, err)
+			assert.Equal(t, lbListener, actualListener)
+		})
+	})
 }

@@ -75,12 +75,23 @@ func randomGatewayWithRandomListenersOpt() randomGatewayOpt {
 		}
 	}
 }
-func makeRandomHTTPListener() gatewayv1.Listener {
-	return gatewayv1.Listener{
+
+type randomHTTPListenerOpt func(*gatewayv1.Listener)
+
+func makeRandomHTTPListener(
+	opts ...randomHTTPListenerOpt,
+) gatewayv1.Listener {
+	listener := gatewayv1.Listener{
 		Name:     gatewayv1.SectionName("listener-" + faker.UUIDHyphenated()),
 		Port:     gatewayv1.PortNumber(rand.Int32N(4000)),
 		Protocol: gatewayv1.HTTPProtocolType,
 	}
+
+	for _, opt := range opts {
+		opt(&listener)
+	}
+
+	return listener
 }
 
 func makeRandomOCIBackendSet() loadbalancer.BackendSet {
@@ -89,10 +100,20 @@ func makeRandomOCIBackendSet() loadbalancer.BackendSet {
 	}
 }
 
-func makeRandomOCIListener() loadbalancer.Listener {
-	return loadbalancer.Listener{
+type randomOCIListenerOpt func(*loadbalancer.Listener)
+
+func makeRandomOCIListener(
+	opts ...randomOCIListenerOpt,
+) loadbalancer.Listener {
+	listener := loadbalancer.Listener{
 		Name: lo.ToPtr(faker.DomainName()),
 	}
+
+	for _, opt := range opts {
+		opt(&listener)
+	}
+
+	return listener
 }
 
 type randomOCILoadBalancerOpt func(*loadbalancer.LoadBalancer)

@@ -99,6 +99,15 @@ func (m *ociLoadBalancerModelImpl) programHTTPListener(
 	ctx context.Context,
 	params programHTTPListenerParams,
 ) (loadbalancer.Listener, error) {
+	listenerName := string(params.listenerSpec.Name)
+	if _, ok := params.knownListeners[listenerName]; ok {
+		m.logger.DebugContext(ctx, "Listener already exists",
+			slog.String("loadBalancerId", params.loadBalancerID),
+			slog.String("name", listenerName),
+		)
+		return params.knownListeners[listenerName], nil
+	}
+
 	return loadbalancer.Listener{}, NewReconcileError("not implemented", false)
 }
 
