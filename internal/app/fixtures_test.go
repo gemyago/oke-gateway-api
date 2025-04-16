@@ -122,7 +122,8 @@ func makeRandomOCILoadBalancer(
 	opts ...randomOCILoadBalancerOpt,
 ) loadbalancer.LoadBalancer {
 	lb := loadbalancer.LoadBalancer{
-		Id: lo.ToPtr(faker.UUIDHyphenated()),
+		Id:        lo.ToPtr(faker.UUIDHyphenated()),
+		Listeners: map[string]loadbalancer.Listener{},
 	}
 
 	for _, opt := range opts {
@@ -138,6 +139,14 @@ func randomOCILoadBalancerWithRandomBackendSetsOpt() randomOCILoadBalancerOpt {
 		for range lb.BackendSets {
 			bs := makeRandomOCIBackendSet()
 			lb.BackendSets[*bs.Name] = bs
+		}
+	}
+}
+
+func randomOCILoadBalancerWithRandomListenersOpt() randomOCILoadBalancerOpt {
+	return func(lb *loadbalancer.LoadBalancer) {
+		for range rand.IntN(3) {
+			lb.Listeners[faker.UUIDHyphenated()] = makeRandomOCIListener()
 		}
 	}
 }

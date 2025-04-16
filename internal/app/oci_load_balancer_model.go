@@ -108,7 +108,39 @@ func (m *ociLoadBalancerModelImpl) programHTTPListener(
 		return params.knownListeners[listenerName], nil
 	}
 
-	return loadbalancer.Listener{}, NewReconcileError("not implemented", false)
+	m.logger.InfoContext(ctx, "Listener not found, creating",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("name", listenerName),
+	)
+
+	createRes, err := m.ociClient.CreateListener(ctx, loadbalancer.CreateListenerRequest{
+		LoadBalancerId: &params.loadBalancerID,
+		CreateListenerDetails: loadbalancer.CreateListenerDetails{
+			Name:                  lo.ToPtr(listenerName),
+			DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
+			Port:                  lo.ToPtr(int(params.listenerSpec.Port)),
+			Protocol:              lo.ToPtr(string(params.listenerSpec.Protocol)),
+		},
+	})
+	if err != nil {
+		return loadbalancer.Listener{}, fmt.Errorf("failed to create listener %s: %w", listenerName, err)
+	}
+
+	if err = m.workRequestsWatcher.WaitFor(
+		ctx,
+		*createRes.OpcWorkRequestId,
+	); err != nil {
+		return loadbalancer.Listener{}, fmt.Errorf("failed to wait for listener %s: %w", listenerName, err)
+	}
+
+	res, err := m.ociClient.GetLoadBalancer(ctx, loadbalancer.GetLoadBalancerRequest{
+		LoadBalancerId: lo.ToPtr(params.loadBalancerID),
+	})
+	if err != nil {
+		return loadbalancer.Listener{}, fmt.Errorf("failed to get listener %s: %w", listenerName, err)
+	}
+
+	return res.LoadBalancer.Listeners[listenerName], nil
 }
 
 type ociLoadBalancerModelDeps struct {
