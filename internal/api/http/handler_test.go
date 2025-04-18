@@ -18,6 +18,7 @@ func TestRootHandler(t *testing.T) {
 	makeMockDeps := func() RootHandlerDeps {
 		return RootHandlerDeps{
 			RootLogger: diag.RootTestLogger(),
+			Mode:       "echo",
 		}
 	}
 
@@ -46,5 +47,17 @@ func TestRootHandler(t *testing.T) {
 			RequestURL:     req.URL.String(),
 			Host:           req.Host,
 		}, got)
+	})
+
+	t.Run("just responds with 404 in stealth mode", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		w := httptest.NewRecorder()
+		deps := makeMockDeps()
+		deps.Mode = "stealth"
+		rootHandler := NewRootHandler(deps)
+		rootHandler.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusNotFound, w.Code)
+		assert.Equal(t, "", w.Body.String())
 	})
 }

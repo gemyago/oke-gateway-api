@@ -22,12 +22,18 @@ type RootHandlerDeps struct {
 	dig.In
 
 	RootLogger *slog.Logger
+
+	Mode string `name:"config.httpServer.mode"`
 }
 
 func NewRootHandler(deps RootHandlerDeps) http.Handler {
 	logger := deps.RootLogger.WithGroup("http-handler")
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if deps.Mode == "stealth" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
