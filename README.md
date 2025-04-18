@@ -80,22 +80,22 @@ cat <<EOF | kubectl -n oke-gw apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: oke-gateway-example-echo
+  name: oke-gateway-example-server
   labels:
-    app: oke-gateway-example-echo
+    app: oke-gateway-example-server
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: oke-gateway-example-echo
+      app: oke-gateway-example-server
   template:
     metadata:
       labels:
-        app: oke-gateway-example-echo
+        app: oke-gateway-example-server
     spec:
       containers:
       - name: echo
-        image: ghcr.io/gemyago/oke-gateway-api-echo:git-commit-7f45b2d
+        image: ghcr.io/gemyago/oke-gateway-api-server:git-commit-7f45b2d
         args:
           - start
           - --json-logs
@@ -113,16 +113,16 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: oke-gateway-example-echo
+  name: oke-gateway-example-server
   labels:
-    app: oke-gateway-example-echo
+    app: oke-gateway-example-server
 spec:
   ports:
   - port: 8080
     name: http
     targetPort: http
   selector:
-    app: oke-gateway-example-echo
+    app: oke-gateway-example-server
 EOF
 ```
 
@@ -132,7 +132,7 @@ cat <<EOF | kubectl -n oke-gw apply -f -
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: oke-gateway-example-echo
+  name: oke-gateway-example-server
 spec:
   parentRefs:
     - name: oke-gateway-example
@@ -142,7 +142,7 @@ spec:
             type: PathPrefix
             value: /echo
       backendRefs:
-        - name: oke-gateway-example-echo
+        - name: oke-gateway-example-server
           port: 8080
 EOF
 ```
@@ -169,8 +169,8 @@ Uninstall example resources:
 kubectl -n oke-gw delete gateway oke-gateway
 kubectl -n oke-gw delete gatewayclass oke-gateway-api
 kubectl -n oke-gw delete gatewayconfig oke-gateway-config
-kubectl -n oke-gw delete deployment oke-gateway-example-echo
-kubectl -n oke-gw delete httproute oke-gateway-example-echo
+kubectl -n oke-gw delete deployment oke-gateway-example-server
+kubectl -n oke-gw delete httproute oke-gateway-example-server
 ```
 
 ## Contributing

@@ -30,7 +30,7 @@ jobs:
         # TODO - docker build step should produce list of images
         # Here we should do the cleanup, probably via makefile.
         run: |
-          ./scripts/ghcr.py cleanup-versions --namespace "users/${GITHUB_REPOSITORY_OWNER}" --package oke-gateway-api-echo --really-remove
+          ./scripts/ghcr.py cleanup-versions --namespace "users/${GITHUB_REPOSITORY_OWNER}" --package oke-gateway-api-server --really-remove
           ./scripts/ghcr.py cleanup-versions --namespace "users/${GITHUB_REPOSITORY_OWNER}" --package oke-gateway-api-controller --really-remove
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
