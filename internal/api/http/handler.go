@@ -26,11 +26,16 @@ type RootHandlerDeps struct {
 	Mode string `name:"config.httpServer.mode"`
 }
 
+const (
+	HandlerModeEcho    = "echo"
+	HandlerModeStealth = "stealth"
+)
+
 func NewRootHandler(deps RootHandlerDeps) http.Handler {
 	logger := deps.RootLogger.WithGroup("http-handler")
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if deps.Mode == "stealth" {
+		if deps.Mode == HandlerModeStealth {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}

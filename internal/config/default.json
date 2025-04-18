@@ -8,6 +8,7 @@
     "readHeaderTimeout": "2s",
     "readTimeout": "2s",
     "writeTimeout": "8s",
-    "mode": "echo"
+    "mode": "echo",
+    "accessLogsLevel": "INFO"
   }
 }

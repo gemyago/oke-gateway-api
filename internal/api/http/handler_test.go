@@ -18,7 +18,7 @@ func TestRootHandler(t *testing.T) {
 	makeMockDeps := func() RootHandlerDeps {
 		return RootHandlerDeps{
 			RootLogger: diag.RootTestLogger(),
-			Mode:       "echo",
+			Mode:       HandlerModeEcho,
 		}
 	}
 
@@ -53,7 +53,7 @@ func TestRootHandler(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		w := httptest.NewRecorder()
 		deps := makeMockDeps()
-		deps.Mode = "stealth"
+		deps.Mode = HandlerModeStealth
 		rootHandler := NewRootHandler(deps)
 		rootHandler.ServeHTTP(w, req)
 

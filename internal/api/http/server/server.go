@@ -25,7 +25,9 @@ type HTTPServerDeps struct {
 	ReadHeaderTimeout time.Duration `name:"config.httpServer.readHeaderTimeout"`
 	ReadTimeout       time.Duration `name:"config.httpServer.readTimeout"`
 	WriteTimeout      time.Duration `name:"config.httpServer.writeTimeout"`
+	AccessLogsLevel   string        `name:"config.httpServer.accessLogsLevel"`
 
+	// handler
 	Handler http.Handler
 
 	// services
@@ -49,12 +51,17 @@ func (srv *HTTPServer) Start(ctx context.Context) error {
 	return srv.httpSrv.ListenAndServe()
 }
 
-func buildMiddlewareChain(logger *slog.Logger, handler http.Handler) http.Handler {
+func buildMiddlewareChain(deps HTTPServerDeps) http.Handler {
+	var accessLogsLevel slog.Level
+	if err := accessLogsLevel.UnmarshalText([]byte(deps.AccessLogsLevel)); err != nil {
+		panic(fmt.Errorf("failed to unmarshal access logs level: %w", err))
+	}
+
 	// Router wire-up
 	chain := middleware.Chain(
 		middleware.NewTracingMiddleware(middleware.NewTracingMiddlewareCfg()),
-		sloghttp.NewWithConfig(logger, sloghttp.Config{
-			DefaultLevel:     slog.LevelInfo,
+		sloghttp.NewWithConfig(deps.RootLogger, sloghttp.Config{
+			DefaultLevel:     accessLogsLevel,
 			ClientErrorLevel: slog.LevelWarn,
 			ServerErrorLevel: slog.LevelError,
 
@@ -65,9 +72,9 @@ func buildMiddlewareChain(logger *slog.Logger, handler http.Handler) http.Handle
 			WithSpanID:         true,
 			WithTraceID:        true,
 		}),
-		middleware.NewRecovererMiddleware(logger),
+		middleware.NewRecovererMiddleware(deps.RootLogger),
 	)
-	return chain(handler)
+	return chain(deps.Handler)
 }
 
 // NewHTTPServer constructor factory for general use *http.Server.
@@ -79,7 +86,7 @@ func NewHTTPServer(deps HTTPServerDeps) *HTTPServer {
 		ReadHeaderTimeout: deps.ReadHeaderTimeout,
 		ReadTimeout:       deps.ReadTimeout,
 		WriteTimeout:      deps.WriteTimeout,
-		Handler:           buildMiddlewareChain(deps.RootLogger, deps.Handler),
+		Handler:           buildMiddlewareChain(deps),
 		ErrorLog:          slog.NewLogLogger(deps.RootLogger.Handler(), slog.LevelError),
 	}
 
