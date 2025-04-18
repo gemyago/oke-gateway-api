@@ -11,7 +11,7 @@ alwaysApply: false
 - TDD must be followed if adding new stuff, which means:
   1. Add stub declarations (for struct function panic not implemented)
   2. Add or extend tests that are testing desired logic
-    - after extending, show command to run tests in form: 
+    - after extending, show command to run tests in form (yes using gow): 
       `gow test -v ./<package path> --run <test name>`
   3. Implement the logic
 - Use mockery to create mocks for dependencies
@@ -20,6 +20,6 @@ alwaysApply: false
 
 ## Rules for tests
 - define tests in same package
-- prefer single toplevel func per component and do multiple nested run blocks
+- prefer single top-level function per component and do multiple nested run blocks
 - define newMockDeps function in the stop of the func that will initialize dependencies (if applicable)
 - when implementing multiple test cases, confirm after each case
