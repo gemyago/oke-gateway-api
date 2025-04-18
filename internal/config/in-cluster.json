@@ -1,0 +1,7 @@
+{
+  "defaultLogLevel": "INFO",
+  "httpServer": {
+    "mode": "stealth",
+    "accessLogsLevel": "DEBUG"
+  }
+}

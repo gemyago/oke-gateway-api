@@ -9,6 +9,6 @@
     "readTimeout": "2s",
     "writeTimeout": "8s",
     "mode": "echo",
-    "accessLogsLevel": "INFO"
+    "accessLogsLevel": ""
   }
 }

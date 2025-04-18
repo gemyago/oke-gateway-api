@@ -26,6 +26,7 @@ type HTTPServerDeps struct {
 	ReadTimeout       time.Duration `name:"config.httpServer.readTimeout"`
 	WriteTimeout      time.Duration `name:"config.httpServer.writeTimeout"`
 	AccessLogsLevel   string        `name:"config.httpServer.accessLogsLevel"`
+	Mode              string        `name:"config.httpServer.mode"`
 
 	// handler
 	Handler http.Handler
@@ -47,23 +48,32 @@ func (srv *HTTPServer) Start(ctx context.Context) error {
 		slog.String("readHeaderTimeout", srv.deps.ReadHeaderTimeout.String()),
 		slog.String("readTimeout", srv.deps.ReadTimeout.String()),
 		slog.String("writeTimeout", srv.deps.WriteTimeout.String()),
+		slog.String("accessLogsLevel", srv.deps.AccessLogsLevel),
+		slog.String("mode", srv.deps.Mode),
 	)
 	return srv.httpSrv.ListenAndServe()
 }
 
 func buildMiddlewareChain(deps HTTPServerDeps) http.Handler {
-	var accessLogsLevel slog.Level
-	if err := accessLogsLevel.UnmarshalText([]byte(deps.AccessLogsLevel)); err != nil {
-		panic(fmt.Errorf("failed to unmarshal access logs level: %w", err))
+	defaultLogLevel := slog.LevelInfo
+	clientErrorLevel := slog.LevelWarn
+	serverErrorLevel := slog.LevelError
+
+	if deps.AccessLogsLevel != "" {
+		if err := defaultLogLevel.UnmarshalText([]byte(deps.AccessLogsLevel)); err != nil {
+			panic(fmt.Errorf("failed to unmarshal access logs level: %w", err))
+		}
+		clientErrorLevel = defaultLogLevel
+		serverErrorLevel = defaultLogLevel
 	}
 
 	// Router wire-up
 	chain := middleware.Chain(
 		middleware.NewTracingMiddleware(middleware.NewTracingMiddlewareCfg()),
 		sloghttp.NewWithConfig(deps.RootLogger, sloghttp.Config{
-			DefaultLevel:     accessLogsLevel,
-			ClientErrorLevel: slog.LevelWarn,
-			ServerErrorLevel: slog.LevelError,
+			DefaultLevel:     defaultLogLevel,
+			ClientErrorLevel: clientErrorLevel,
+			ServerErrorLevel: serverErrorLevel,
 
 			WithUserAgent:      true,
 			WithRequestID:      false, // We handle it ourselves (tracing middleware)
