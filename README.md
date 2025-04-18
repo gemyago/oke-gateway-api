@@ -95,7 +95,7 @@ spec:
     spec:
       containers:
       - name: echo
-        image: ghcr.io/gemyago/oke-gateway-api-server:git-commit-7f45b2d
+        image: ghcr.io/gemyago/oke-gateway-api-server:git-commit-804f762
         args:
           - start
           - --json-logs
@@ -153,15 +153,15 @@ You can optionally install all the above examples from the manifests in the `dep
 kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/gatewayclass.yaml
 kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/gatewayconfig.yaml
 kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/gateway.yaml
-kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/echodeployment.yaml
+kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/serverdeployment.yaml
 kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/echoroutes.yaml
 
 # Or if running in a locally cloned repo
 kubectl apply -n oke-gw -f deploy/manifests/examples/gatewayclass.yaml
 kubectl apply -n oke-gw -f deploy/manifests/examples/gatewayconfig.yaml
 kubectl apply -n oke-gw -f deploy/manifests/examples/gateway.yaml
-kubectl apply -n oke-gw -f deploy/manifests/examples/echodeployment.yaml
-kubectl apply -n oke-gw -f deploy/manifests/examples/echoroutes.yaml
+kubectl apply -n oke-gw -f deploy/manifests/examples/serverdeployment.yaml
+kubectl apply -n oke-gw -f deploy/manifests/examples/serverroutes.yaml
 ```
 
 Uninstall example resources:

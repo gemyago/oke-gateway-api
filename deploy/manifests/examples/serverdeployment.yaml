@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: echo
-        image: ghcr.io/gemyago/oke-gateway-api-server:git-commit-7f45b2d
+        image: ghcr.io/gemyago/oke-gateway-api-server:git-commit-804f762
         args:
           - start
           - --json-logs
