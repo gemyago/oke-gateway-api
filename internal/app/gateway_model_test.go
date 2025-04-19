@@ -216,6 +216,65 @@ func TestGatewayModelImpl(t *testing.T) {
 			require.NoError(t, err)
 			assert.False(t, accepted)
 		})
+
+		t.Run("irrelevantGatewayClass", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			gateway := newRandomGateway()
+			gateway.Spec.Infrastructure = &gatewayv1.GatewayInfrastructure{
+				ParametersRef: &gatewayv1.LocalParametersReference{
+					Group: ConfigRefGroup,
+					Kind:  ConfigRefKind,
+					Name:  faker.DomainName(),
+				},
+			}
+
+			gatewayClass := newRandomGatewayClass()
+			gatewayClass.Spec.ControllerName = gatewayv1.GatewayController(faker.DomainName())
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: gateway.Namespace,
+					Name:      gateway.Name,
+				},
+			}
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+
+			mockClient.EXPECT().
+				Get(t.Context(), req.NamespacedName, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					nn apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
+					assert.Equal(t, req.NamespacedName, nn)
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
+					return nil
+				})
+
+			mockClient.EXPECT().
+				Get(t.Context(), apitypes.NamespacedName{
+					Name: string(gateway.Spec.GatewayClassName),
+				}, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					nn apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
+					assert.Equal(t, string(gateway.Spec.GatewayClassName), nn.Name)
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gatewayClass))
+					return nil
+				})
+
+			var receiver acceptedGatewayDetails
+			accepted, err := model.acceptReconcileRequest(t.Context(), req, &receiver)
+
+			require.NoError(t, err)
+			assert.False(t, accepted)
+		})
 	})
 
 	t.Run("programGateway", func(t *testing.T) {

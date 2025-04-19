@@ -66,6 +66,14 @@ func (m *gatewayModelImpl) acceptReconcileRequest(
 		return false, fmt.Errorf("failed to get GatewayClass %s: %w", receiver.gateway.Spec.GatewayClassName, err)
 	}
 
+	if receiver.gatewayClass.Spec.ControllerName != gatewayv1.GatewayController(ControllerClassName) {
+		m.logger.InfoContext(
+			ctx,
+			fmt.Sprintf("GatewayClass %s is not managed by this controller", receiver.gateway.Spec.GatewayClassName),
+		)
+		return false, nil
+	}
+
 	if receiver.gateway.Spec.Infrastructure == nil || receiver.gateway.Spec.Infrastructure.ParametersRef == nil {
 		return false, &resourceStatusError{
 			conditionType: string(gatewayv1.GatewayConditionAccepted),
