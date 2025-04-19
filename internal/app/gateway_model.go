@@ -119,7 +119,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *gatewayData
 		}
 	}
 
-	return NewReconcileError("not implemented", false)
+	return nil
 }
 
 type gatewayModelDeps struct {

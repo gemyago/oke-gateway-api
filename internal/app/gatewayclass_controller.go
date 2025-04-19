@@ -62,7 +62,11 @@ func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Re
 	r.logger.InfoContext(ctx, fmt.Sprintf("Processing reconciliation for GatewayClass %s", req.NamespacedName))
 
 	// Check if the GatewayClass is already in the desired state
-	if r.resourcesModel.isConditionSet(&gatewayClass, gatewayClass.Status.Conditions, AcceptedConditionType) {
+	if r.resourcesModel.isConditionSet(
+		&gatewayClass,
+		gatewayClass.Status.Conditions,
+		string(gatewayv1.GatewayClassConditionStatusAccepted),
+	) {
 		r.logger.DebugContext(ctx, "GatewayClass already is already accepted",
 			slog.String("gatewayClass", req.NamespacedName.String()),
 		)
@@ -77,9 +81,9 @@ func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Re
 	if err := r.resourcesModel.setCondition(ctx, setConditionParams{
 		resource:      &gatewayClass,
 		conditions:    &gatewayClass.Status.Conditions,
-		conditionType: AcceptedConditionType,
+		conditionType: string(gatewayv1.GatewayClassConditionStatusAccepted),
 		status:        metav1.ConditionTrue,
-		reason:        AcceptedConditionReason,
+		reason:        string(gatewayv1.GatewayClassReasonAccepted),
 		message:       fmt.Sprintf("GatewayClass %s is accepted by %s", gatewayClass.Name, ControllerClassName),
 	}); err != nil {
 		return reconcile.Result{},
