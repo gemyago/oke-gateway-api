@@ -82,7 +82,7 @@ func TestGatewayController(t *testing.T) {
 					conditions:    &gateway.Status.Conditions,
 					conditionType: string(gatewayv1.GatewayConditionProgrammed),
 					status:        metav1.ConditionTrue,
-					reason:        LoadBalancerReconciledReason,
+					reason:        string(gatewayv1.GatewayConditionProgrammed),
 					message:       fmt.Sprintf("Gateway %s programmed by %s", gateway.Name, ControllerClassName),
 				}).
 				Return(nil).Once()

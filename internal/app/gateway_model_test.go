@@ -128,7 +128,7 @@ func TestGatewayModelImpl(t *testing.T) {
 			require.ErrorAs(t, err, &statusErr, "Error should be a resourceStatusError")
 
 			assert.Equal(t, string(gatewayv1.GatewayConditionAccepted), statusErr.conditionType)
-			assert.Equal(t, MissingConfigReason, statusErr.reason)
+			assert.Equal(t, string(gatewayv1.GatewayReasonInvalidParameters), statusErr.reason)
 			assert.Equal(t, "spec.infrastructure is missing parametersRef", statusErr.message)
 			assert.NoError(t, statusErr.cause)
 		})

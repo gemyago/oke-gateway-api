@@ -58,7 +58,7 @@ func (m *gatewayModelImpl) acceptReconcileRequest(
 	if receiver.gateway.Spec.Infrastructure == nil || receiver.gateway.Spec.Infrastructure.ParametersRef == nil {
 		return false, &resourceStatusError{
 			conditionType: string(gatewayv1.GatewayConditionAccepted),
-			reason:        MissingConfigReason,
+			reason:        string(gatewayv1.GatewayReasonInvalidParameters),
 			message:       "spec.infrastructure is missing parametersRef",
 		}
 	}

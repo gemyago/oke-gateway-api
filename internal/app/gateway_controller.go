@@ -119,7 +119,7 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 			conditions:    &data.gateway.Status.Conditions,
 			conditionType: string(gatewayv1.GatewayConditionProgrammed),
 			status:        v1.ConditionTrue,
-			reason:        LoadBalancerReconciledReason,
+			reason:        string(gatewayv1.GatewayConditionProgrammed),
 			message:       fmt.Sprintf("Gateway %s programmed by %s", data.gateway.Name, ControllerClassName),
 		}); err != nil {
 			return reconcile.Result{}, fmt.Errorf("failed to set accepted condition for Gateway %s: %w", req.NamespacedName, err)
