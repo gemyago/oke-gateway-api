@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 func TestGatewayController(t *testing.T) {
@@ -51,16 +52,16 @@ func TestGatewayController(t *testing.T) {
 				Return(true, nil).Once()
 
 			mockResourcesModel.EXPECT().
-				isConditionSet(gateway, gateway.Status.Conditions, AcceptedConditionType).
+				isConditionSet(gateway, gateway.Status.Conditions, string(gatewayv1.GatewayConditionAccepted)).
 				Return(false).Once()
 
 			mockResourcesModel.EXPECT().
 				setCondition(t.Context(), setConditionParams{
 					resource:      gateway,
 					conditions:    &gateway.Status.Conditions,
-					conditionType: AcceptedConditionType,
+					conditionType: string(gatewayv1.GatewayConditionAccepted),
 					status:        metav1.ConditionTrue,
-					reason:        AcceptedConditionReason,
+					reason:        string(gatewayv1.GatewayReasonAccepted),
 					message:       fmt.Sprintf("Gateway %s accepted by %s", gateway.Name, ControllerClassName),
 				}).
 				Return(nil).Once()
@@ -139,7 +140,7 @@ func TestGatewayController(t *testing.T) {
 			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
 			wantErr := &resourceStatusError{
-				conditionType: AcceptedConditionType,
+				conditionType: string(gatewayv1.GatewayConditionAccepted),
 				reason:        faker.Word(),
 				message:       faker.Sentence(),
 			}
@@ -192,7 +193,7 @@ func TestGatewayController(t *testing.T) {
 				Return(true, nil).Once()
 
 			mockResourcesModel.EXPECT().
-				isConditionSet(gateway, gateway.Status.Conditions, AcceptedConditionType).
+				isConditionSet(gateway, gateway.Status.Conditions, string(gatewayv1.GatewayConditionAccepted)).
 				Return(true).Once()
 
 			mockResourcesModel.EXPECT().
@@ -237,7 +238,7 @@ func TestGatewayController(t *testing.T) {
 				Return(true, nil).Once()
 
 			mockResourcesModel.EXPECT().
-				isConditionSet(gateway, gateway.Status.Conditions, AcceptedConditionType).
+				isConditionSet(gateway, gateway.Status.Conditions, string(gatewayv1.GatewayConditionAccepted)).
 				Return(true).Once()
 
 			mockResourcesModel.EXPECT().
