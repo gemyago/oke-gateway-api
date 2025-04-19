@@ -154,7 +154,11 @@ func TestGatewayClassController(t *testing.T) {
 			})
 
 		mockResourcesModel.EXPECT().
-			isConditionSet(gatewayClass, gatewayClass.Status.Conditions, AcceptedConditionType).
+			isConditionSet(
+				gatewayClass,
+				gatewayClass.Status.Conditions,
+				string(gatewayv1.GatewayClassConditionStatusAccepted),
+			).
 			Return(false)
 
 		// Simulate Status Update error
