@@ -47,9 +47,9 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 		params := setConditionParams{
 			resource:      gatewayClass,
 			conditions:    &gatewayClass.Status.Conditions,
-			conditionType: AcceptedConditionType,
+			conditionType: faker.DomainName(),
 			status:        metav1.ConditionTrue,
-			reason:        AcceptedConditionReason,
+			reason:        faker.Sentence(),
 			message:       message,
 		}
 
@@ -66,11 +66,11 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 				// Check the condition was set correctly
 				require.Len(t, gatewayClass.Status.Conditions, 1, "Expected exactly one condition")
 
-				acceptedCondition := meta.FindStatusCondition(gatewayClass.Status.Conditions, AcceptedConditionType)
-				require.NotNil(t, acceptedCondition, "Accepted condition should be found")
+				acceptedCondition := meta.FindStatusCondition(gatewayClass.Status.Conditions, params.conditionType)
+				require.NotNil(t, acceptedCondition, "condition should be found")
 
 				assert.Equal(t, metav1.ConditionTrue, acceptedCondition.Status, "Condition status should be True")
-				assert.Equal(t, AcceptedConditionReason, acceptedCondition.Reason, "Condition reason should be Accepted")
+				assert.Equal(t, params.reason, acceptedCondition.Reason, "Condition reason should be valid")
 				assert.Equal(t, message, acceptedCondition.Message, "Condition message mismatch")
 				assert.Equal(t,
 					gatewayClass.Generation,
