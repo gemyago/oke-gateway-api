@@ -161,48 +161,52 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 	}
 
 	t.Run("ConditionIsSetAndMatches", func(t *testing.T) {
+		conditionType := faker.DomainName()
 		conditions := []metav1.Condition{
 			{
-				Type:               AcceptedConditionType,
+				Type:               conditionType,
 				Status:             metav1.ConditionTrue,
 				Reason:             faker.Word(),
 				ObservedGeneration: gatewayClass.Generation, // Matches resource generation
 			},
 		}
 
-		result := model.isConditionSet(gatewayClass, conditions, AcceptedConditionType)
+		result := model.isConditionSet(gatewayClass, conditions, conditionType)
 		assert.True(t, result, "Expected isConditionSet to return true when condition matches")
 	})
 
 	t.Run("ConditionNotSet", func(t *testing.T) {
 		conditions := []metav1.Condition{} // No conditions
-		result := model.isConditionSet(gatewayClass, conditions, AcceptedConditionType)
+		conditionType := faker.DomainName()
+		result := model.isConditionSet(gatewayClass, conditions, conditionType)
 		assert.False(t, result, "Expected isConditionSet to return false when conditions slice is empty")
 	})
 
 	t.Run("ConditionSet_WrongType", func(t *testing.T) {
+		conditionType := faker.DomainName()
 		conditions := []metav1.Condition{
 			{
-				Type:               "SomeOtherType",
+				Type:               "wrong-" + faker.DomainName(),
 				Status:             metav1.ConditionTrue,
 				Reason:             faker.Word(),
 				ObservedGeneration: gatewayClass.Generation,
 			},
 		}
-		result := model.isConditionSet(gatewayClass, conditions, AcceptedConditionType)
+		result := model.isConditionSet(gatewayClass, conditions, conditionType)
 		assert.False(t, result, "Expected isConditionSet to return false for wrong condition type")
 	})
 
 	t.Run("ConditionSet_WrongGeneration", func(t *testing.T) {
+		conditionType := faker.DomainName()
 		conditions := []metav1.Condition{
 			{
-				Type:               AcceptedConditionType,
+				Type:               conditionType,
 				Status:             metav1.ConditionTrue,
 				Reason:             faker.Word(),
 				ObservedGeneration: gatewayClass.Generation - 1, // Mismatched generation
 			},
 		}
-		result := model.isConditionSet(gatewayClass, conditions, AcceptedConditionType)
+		result := model.isConditionSet(gatewayClass, conditions, conditionType)
 		assert.False(t, result, "Expected isConditionSet to return false for wrong observed generation")
 	})
 }
