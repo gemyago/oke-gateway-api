@@ -1,8 +1,6 @@
 package app
 
 const (
-	// ProgrammedGatewayConditionType is the condition type for programmed gateways.
-	ProgrammedGatewayConditionType = "Programmed"
 
 	// LoadBalancerReconciledReason is the reason for the LoadBalancerReconciled condition when true.
 	LoadBalancerReconciledReason = "LoadBalancerReconciled"

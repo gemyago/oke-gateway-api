@@ -99,7 +99,11 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 		}
 	}
 
-	if !r.resourcesModel.isConditionSet(&data.gateway, data.gateway.Status.Conditions, ProgrammedGatewayConditionType) {
+	if !r.resourcesModel.isConditionSet(
+		&data.gateway,
+		data.gateway.Status.Conditions,
+		string(gatewayv1.GatewayConditionProgrammed),
+	) {
 		r.logger.DebugContext(ctx, "Programming gateway",
 			slog.Any("req", req),
 			slog.Any("gateway", data.gateway),
@@ -113,7 +117,7 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 		if err = r.resourcesModel.setCondition(ctx, setConditionParams{
 			resource:      &data.gateway,
 			conditions:    &data.gateway.Status.Conditions,
-			conditionType: ProgrammedGatewayConditionType,
+			conditionType: string(gatewayv1.GatewayConditionProgrammed),
 			status:        v1.ConditionTrue,
 			reason:        LoadBalancerReconciledReason,
 			message:       fmt.Sprintf("Gateway %s programmed by %s", data.gateway.Name, ControllerClassName),

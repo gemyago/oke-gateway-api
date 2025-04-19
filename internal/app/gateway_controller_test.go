@@ -67,7 +67,7 @@ func TestGatewayController(t *testing.T) {
 				Return(nil).Once()
 
 			mockResourcesModel.EXPECT().
-				isConditionSet(gateway, gateway.Status.Conditions, ProgrammedGatewayConditionType).
+				isConditionSet(gateway, gateway.Status.Conditions, string(gatewayv1.GatewayConditionProgrammed)).
 				Return(false).Once()
 
 			mockGatewayModel.EXPECT().
@@ -80,7 +80,7 @@ func TestGatewayController(t *testing.T) {
 				setCondition(t.Context(), setConditionParams{
 					resource:      gateway,
 					conditions:    &gateway.Status.Conditions,
-					conditionType: ProgrammedGatewayConditionType,
+					conditionType: string(gatewayv1.GatewayConditionProgrammed),
 					status:        metav1.ConditionTrue,
 					reason:        LoadBalancerReconciledReason,
 					message:       fmt.Sprintf("Gateway %s programmed by %s", gateway.Name, ControllerClassName),
@@ -197,7 +197,7 @@ func TestGatewayController(t *testing.T) {
 				Return(true).Once()
 
 			mockResourcesModel.EXPECT().
-				isConditionSet(gateway, gateway.Status.Conditions, ProgrammedGatewayConditionType).
+				isConditionSet(gateway, gateway.Status.Conditions, string(gatewayv1.GatewayConditionProgrammed)).
 				Return(false).Once()
 
 			wantErr := errors.New(faker.Sentence())
@@ -242,11 +242,11 @@ func TestGatewayController(t *testing.T) {
 				Return(true).Once()
 
 			mockResourcesModel.EXPECT().
-				isConditionSet(gateway, gateway.Status.Conditions, ProgrammedGatewayConditionType).
+				isConditionSet(gateway, gateway.Status.Conditions, string(gatewayv1.GatewayConditionProgrammed)).
 				Return(false).Once()
 
 			wantErr := &resourceStatusError{
-				conditionType: ProgrammedGatewayConditionType,
+				conditionType: string(gatewayv1.GatewayConditionProgrammed),
 				reason:        faker.Word(),
 				message:       faker.Sentence(),
 			}
