@@ -107,6 +107,7 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 		r.logger.DebugContext(ctx, "Programming gateway",
 			slog.Any("req", req),
 			slog.Any("gateway", data.gateway),
+			slog.Any("gatewayClass", data.gatewayClass),
 			slog.Any("config", data.config),
 		)
 
