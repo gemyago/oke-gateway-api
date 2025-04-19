@@ -15,8 +15,9 @@ import (
 )
 
 type acceptedGatewayDetails struct {
-	gateway gatewayv1.Gateway
-	config  types.GatewayConfig
+	gateway      gatewayv1.Gateway
+	gatewayClass gatewayv1.GatewayClass
+	config       types.GatewayConfig
 }
 
 type gatewayModel interface {
@@ -53,6 +54,16 @@ func (m *gatewayModelImpl) acceptReconcileRequest(
 			return false, nil
 		}
 		return false, fmt.Errorf("failed to get Gateway %s: %w", req.NamespacedName, err)
+	}
+
+	if err := m.client.Get(ctx, apitypes.NamespacedName{
+		Name: string(receiver.gateway.Spec.GatewayClassName),
+	}, &receiver.gatewayClass); err != nil {
+		if apierrors.IsNotFound(err) {
+			m.logger.InfoContext(ctx, fmt.Sprintf("GatewayClass %s not found", receiver.gateway.Spec.GatewayClassName))
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to get GatewayClass %s: %w", receiver.gateway.Spec.GatewayClassName, err)
 	}
 
 	if receiver.gateway.Spec.Infrastructure == nil || receiver.gateway.Spec.Infrastructure.ParametersRef == nil {

@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -32,6 +34,9 @@ func TestGatewayModelImpl(t *testing.T) {
 		t.Run("valid gateway", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)
+
+			gatewayClass := newRandomGatewayClass()
+
 			gateway := newRandomGateway()
 			gateway.Spec.Infrastructure = &gatewayv1.GatewayInfrastructure{
 				ParametersRef: &gatewayv1.LocalParametersReference{
@@ -66,6 +71,20 @@ func TestGatewayModelImpl(t *testing.T) {
 					return nil
 				})
 
+			mockClient.EXPECT().
+				Get(t.Context(), apitypes.NamespacedName{
+					Name: string(gateway.Spec.GatewayClassName),
+				}, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					_ apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gatewayClass))
+					return nil
+				})
+
 			wantConfigName := apitypes.NamespacedName{
 				Namespace: gateway.Namespace,
 				Name:      gateway.Spec.Infrastructure.ParametersRef.Name,
@@ -90,6 +109,7 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			assert.Equal(t, gatewayConfig, receiver.config)
 			assert.Equal(t, *gateway, receiver.gateway)
+			assert.Equal(t, *gatewayClass, receiver.gatewayClass)
 		})
 
 		t.Run("missingConfigRef", func(t *testing.T) {
@@ -119,6 +139,20 @@ func TestGatewayModelImpl(t *testing.T) {
 					return nil
 				})
 
+			mockClient.EXPECT().
+				Get(t.Context(), apitypes.NamespacedName{
+					Name: string(gateway.Spec.GatewayClassName),
+				}, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					_ apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*newRandomGatewayClass()))
+					return nil
+				})
+
 			var receiver acceptedGatewayDetails
 			_, err := model.acceptReconcileRequest(t.Context(), req, &receiver)
 
@@ -131,6 +165,56 @@ func TestGatewayModelImpl(t *testing.T) {
 			assert.Equal(t, string(gatewayv1.GatewayReasonInvalidParameters), statusErr.reason)
 			assert.Equal(t, "spec.infrastructure is missing parametersRef", statusErr.message)
 			assert.NoError(t, statusErr.cause)
+		})
+
+		t.Run("missingGatewayClass", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			gateway := newRandomGateway()
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: gateway.Namespace,
+					Name:      gateway.Name,
+				},
+			}
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+
+			mockClient.EXPECT().
+				Get(t.Context(), req.NamespacedName, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					nn apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
+					assert.Equal(t, req.NamespacedName, nn)
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
+					return nil
+				})
+
+			mockClient.EXPECT().
+				Get(t.Context(), apitypes.NamespacedName{
+					Name: string(gateway.Spec.GatewayClassName),
+				}, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					_ apitypes.NamespacedName,
+					_ client.Object,
+					_ ...client.GetOption,
+				) error {
+					return apierrors.NewNotFound(schema.GroupResource{
+						Group:    gatewayv1.GroupName,
+						Resource: "GatewayClass",
+					}, string(gateway.Spec.GatewayClassName))
+				})
+
+			var receiver acceptedGatewayDetails
+			accepted, err := model.acceptReconcileRequest(t.Context(), req, &receiver)
+
+			require.NoError(t, err)
+			assert.False(t, accepted)
 		})
 	})
 
