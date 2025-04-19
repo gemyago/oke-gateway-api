@@ -82,7 +82,7 @@ func TestGatewayModelImpl(t *testing.T) {
 					return nil
 				})
 
-			var receiver gatewayData
+			var receiver acceptedGatewayDetails
 			relevant, err := model.acceptReconcileRequest(t.Context(), req, &receiver)
 
 			require.NoError(t, err)
@@ -119,7 +119,7 @@ func TestGatewayModelImpl(t *testing.T) {
 					return nil
 				})
 
-			var receiver gatewayData
+			var receiver acceptedGatewayDetails
 			_, err := model.acceptReconcileRequest(t.Context(), req, &receiver)
 
 			require.Error(t, err)
@@ -186,7 +186,7 @@ func TestGatewayModelImpl(t *testing.T) {
 					}).
 					Return(ociListeners[i], nil)
 			}
-			err := model.programGateway(t.Context(), &gatewayData{
+			err := model.programGateway(t.Context(), &acceptedGatewayDetails{
 				gateway: *gateway,
 				config:  config,
 			})

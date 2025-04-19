@@ -14,7 +14,7 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-type gatewayData struct {
+type acceptedGatewayDetails struct {
 	gateway gatewayv1.Gateway
 	config  types.GatewayConfig
 }
@@ -28,10 +28,10 @@ type gatewayModel interface {
 	acceptReconcileRequest(
 		ctx context.Context,
 		req reconcile.Request,
-		receiver *gatewayData,
+		receiver *acceptedGatewayDetails,
 	) (bool, error)
 
-	programGateway(ctx context.Context, data *gatewayData) error
+	programGateway(ctx context.Context, data *acceptedGatewayDetails) error
 }
 
 type gatewayModelImpl struct {
@@ -44,7 +44,7 @@ type gatewayModelImpl struct {
 func (m *gatewayModelImpl) acceptReconcileRequest(
 	ctx context.Context,
 	req reconcile.Request,
-	receiver *gatewayData,
+	receiver *acceptedGatewayDetails,
 ) (bool, error) {
 	if err := m.client.Get(ctx, req.NamespacedName, &receiver.gateway); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -77,7 +77,7 @@ func (m *gatewayModelImpl) acceptReconcileRequest(
 	return true, nil
 }
 
-func (m *gatewayModelImpl) programGateway(ctx context.Context, data *gatewayData) error {
+func (m *gatewayModelImpl) programGateway(ctx context.Context, data *acceptedGatewayDetails) error {
 	loadBalancerID := data.config.Spec.LoadBalancerID
 	m.logger.DebugContext(ctx, "Fetching OCI Load Balancer details",
 		slog.String("loadBalancerId", loadBalancerID),

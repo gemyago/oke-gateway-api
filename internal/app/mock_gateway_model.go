@@ -25,7 +25,7 @@ func (_m *MockgatewayModel) EXPECT() *MockgatewayModel_Expecter {
 }
 
 // acceptReconcileRequest provides a mock function with given fields: ctx, req, receiver
-func (_m *MockgatewayModel) acceptReconcileRequest(ctx context.Context, req reconcile.Request, receiver *gatewayData) (bool, error) {
+func (_m *MockgatewayModel) acceptReconcileRequest(ctx context.Context, req reconcile.Request, receiver *acceptedGatewayDetails) (bool, error) {
 	ret := _m.Called(ctx, req, receiver)
 
 	if len(ret) == 0 {
@@ -34,16 +34,16 @@ func (_m *MockgatewayModel) acceptReconcileRequest(ctx context.Context, req reco
 
 	var r0 bool
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, reconcile.Request, *gatewayData) (bool, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, reconcile.Request, *acceptedGatewayDetails) (bool, error)); ok {
 		return rf(ctx, req, receiver)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, reconcile.Request, *gatewayData) bool); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, reconcile.Request, *acceptedGatewayDetails) bool); ok {
 		r0 = rf(ctx, req, receiver)
 	} else {
 		r0 = ret.Get(0).(bool)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, reconcile.Request, *gatewayData) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, reconcile.Request, *acceptedGatewayDetails) error); ok {
 		r1 = rf(ctx, req, receiver)
 	} else {
 		r1 = ret.Error(1)
@@ -60,14 +60,14 @@ type MockgatewayModel_acceptReconcileRequest_Call struct {
 // acceptReconcileRequest is a helper method to define mock.On call
 //   - ctx context.Context
 //   - req reconcile.Request
-//   - receiver *gatewayData
+//   - receiver *acceptedGatewayDetails
 func (_e *MockgatewayModel_Expecter) acceptReconcileRequest(ctx interface{}, req interface{}, receiver interface{}) *MockgatewayModel_acceptReconcileRequest_Call {
 	return &MockgatewayModel_acceptReconcileRequest_Call{Call: _e.mock.On("acceptReconcileRequest", ctx, req, receiver)}
 }
 
-func (_c *MockgatewayModel_acceptReconcileRequest_Call) Run(run func(ctx context.Context, req reconcile.Request, receiver *gatewayData)) *MockgatewayModel_acceptReconcileRequest_Call {
+func (_c *MockgatewayModel_acceptReconcileRequest_Call) Run(run func(ctx context.Context, req reconcile.Request, receiver *acceptedGatewayDetails)) *MockgatewayModel_acceptReconcileRequest_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(reconcile.Request), args[2].(*gatewayData))
+		run(args[0].(context.Context), args[1].(reconcile.Request), args[2].(*acceptedGatewayDetails))
 	})
 	return _c
 }
@@ -77,13 +77,13 @@ func (_c *MockgatewayModel_acceptReconcileRequest_Call) Return(_a0 bool, _a1 err
 	return _c
 }
 
-func (_c *MockgatewayModel_acceptReconcileRequest_Call) RunAndReturn(run func(context.Context, reconcile.Request, *gatewayData) (bool, error)) *MockgatewayModel_acceptReconcileRequest_Call {
+func (_c *MockgatewayModel_acceptReconcileRequest_Call) RunAndReturn(run func(context.Context, reconcile.Request, *acceptedGatewayDetails) (bool, error)) *MockgatewayModel_acceptReconcileRequest_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // programGateway provides a mock function with given fields: ctx, data
-func (_m *MockgatewayModel) programGateway(ctx context.Context, data *gatewayData) error {
+func (_m *MockgatewayModel) programGateway(ctx context.Context, data *acceptedGatewayDetails) error {
 	ret := _m.Called(ctx, data)
 
 	if len(ret) == 0 {
@@ -91,7 +91,7 @@ func (_m *MockgatewayModel) programGateway(ctx context.Context, data *gatewayDat
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *gatewayData) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *acceptedGatewayDetails) error); ok {
 		r0 = rf(ctx, data)
 	} else {
 		r0 = ret.Error(0)
@@ -107,14 +107,14 @@ type MockgatewayModel_programGateway_Call struct {
 
 // programGateway is a helper method to define mock.On call
 //   - ctx context.Context
-//   - data *gatewayData
+//   - data *acceptedGatewayDetails
 func (_e *MockgatewayModel_Expecter) programGateway(ctx interface{}, data interface{}) *MockgatewayModel_programGateway_Call {
 	return &MockgatewayModel_programGateway_Call{Call: _e.mock.On("programGateway", ctx, data)}
 }
 
-func (_c *MockgatewayModel_programGateway_Call) Run(run func(ctx context.Context, data *gatewayData)) *MockgatewayModel_programGateway_Call {
+func (_c *MockgatewayModel_programGateway_Call) Run(run func(ctx context.Context, data *acceptedGatewayDetails)) *MockgatewayModel_programGateway_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*gatewayData))
+		run(args[0].(context.Context), args[1].(*acceptedGatewayDetails))
 	})
 	return _c
 }
@@ -124,7 +124,7 @@ func (_c *MockgatewayModel_programGateway_Call) Return(_a0 error) *MockgatewayMo
 	return _c
 }
 
-func (_c *MockgatewayModel_programGateway_Call) RunAndReturn(run func(context.Context, *gatewayData) error) *MockgatewayModel_programGateway_Call {
+func (_c *MockgatewayModel_programGateway_Call) RunAndReturn(run func(context.Context, *acceptedGatewayDetails) error) *MockgatewayModel_programGateway_Call {
 	_c.Call.Return(run)
 	return _c
 }
