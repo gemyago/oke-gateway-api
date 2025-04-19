@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 
 	"go.uber.org/dig"
@@ -51,5 +50,5 @@ func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Reque
 	r.logger.DebugContext(ctx, "Reconcile called for HTTPRoute", slog.Any("request", req))
 
 	// TODO: Implement reconciliation logic for HTTPRoute
-	return reconcile.Result{}, errors.New("not implemented")
+	return reconcile.Result{}, NewReconcileError("not implemented", false)
 }

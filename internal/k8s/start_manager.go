@@ -26,6 +26,7 @@ type ManagerDeps struct {
 	K8sClient        client.Client
 	GatewayClassCtrl *app.GatewayClassController
 	GatewayCtrl      *app.GatewayController
+	HTTPRouteCtrl    *app.HTTPRouteController
 	Config           *rest.Config
 }
 
@@ -74,6 +75,14 @@ func StartManager(ctx context.Context, deps ManagerDeps) error { // coverage-ign
 		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
 		Complete(wireupReconciler(deps.GatewayClassCtrl, middlewares...)); err != nil {
 		return fmt.Errorf("failed to setup GatewayClass controller: %w", err)
+	}
+
+	// Register the HTTPRoute controller
+	if err = builder.ControllerManagedBy(mgr).
+		For(&gatewayv1.HTTPRoute{}).
+		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
+		Complete(wireupReconciler(deps.HTTPRouteCtrl, middlewares...)); err != nil {
+		return fmt.Errorf("failed to setup HTTPRoute controller: %w", err)
 	}
 
 	// Start the manager

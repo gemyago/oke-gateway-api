@@ -15,6 +15,7 @@ func Register(container *dig.Container) error {
 		func(w *ociapi.WorkRequestsWatcher) workRequestsWatcher { return w },
 		NewGatewayClassController,
 		NewGatewayController,
+		NewHTTPRouteController,
 		newResourcesModel,
 		newGatewayModel,
 		newOciLoadBalancerModel,
