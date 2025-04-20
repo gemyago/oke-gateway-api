@@ -159,8 +159,8 @@ func randomOCILoadBalancerWithRandomListenersOpt() randomOCILoadBalancerOpt {
 	}
 }
 
-func randomHTTPRoute() *gatewayv1.HTTPRoute {
-	return &gatewayv1.HTTPRoute{
+func makeRandomHTTPRoute() gatewayv1.HTTPRoute {
+	return gatewayv1.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      faker.DomainName(),
 			Namespace: faker.Username(),

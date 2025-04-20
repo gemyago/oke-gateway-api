@@ -9,24 +9,21 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-// acceptedHTTPRouteDetails holds the relevant details for a reconciled HTTPRoute.
-// This struct will be populated when a reconcile request is accepted.
-type acceptedHTTPRouteDetails struct {
-	acceptedGatewayDetails
-	httpRoute gatewayv1.HTTPRoute
+type resolvedRouteParentDetails struct {
+	gatewayDetails acceptedGatewayDetails
+	matchedRef     gatewayv1.ParentReference
+	httpRoute      gatewayv1.HTTPRoute
 }
 
 // httpRouteModel defines the interface for managing HTTPRoute resources.
 type httpRouteModel interface {
-	// acceptReconcileRequest accepts a reconcile request for an HTTPRoute.
-	// It returns true if the request is relevant for this controller and populates
-	// the receiver with necessary details.
-	// It returns false if the request is not relevant.
-	// It may return an error if there was an error processing the request.
-	acceptReconcileRequest(
+	// resolveRequestParent resolves the parent details for a given HTTPRoute.
+	// It returns true if the request is relevant for this controller and
+	// the parent has been resolved.
+	resolveRequestParent(
 		ctx context.Context,
 		req reconcile.Request,
-		receiver *acceptedHTTPRouteDetails,
+		receiver *resolvedRouteParentDetails,
 	) (bool, error)
 
 	// TODO: Add methods for programming OCI based on HTTPRoute, e.g., programBackendSet, programRoutingRules.
@@ -41,14 +38,19 @@ type httpRouteModelImpl struct {
 
 // acceptReconcileRequest is a stub implementation.
 // TODO: Implement the actual logic to fetch HTTPRoute, validate parent Gateway, etc.
-func (m *httpRouteModelImpl) acceptReconcileRequest(
+func (m *httpRouteModelImpl) resolveRequestParent(
 	ctx context.Context,
 	req reconcile.Request,
-	receiver *acceptedHTTPRouteDetails,
+	receiver *resolvedRouteParentDetails,
 ) (bool, error) {
-	m.logger.DebugContext(ctx, "Received reconcile request for HTTPRoute", "request", req.NamespacedName)
-	// Placeholder implementation
-	return false, nil
+	var httpRoute gatewayv1.HTTPRoute
+	if err := m.client.Get(ctx, req.NamespacedName, &httpRoute); err != nil {
+		return false, err
+	}
+
+	receiver.httpRoute = httpRoute
+
+	return true, nil
 }
 
 // httpRouteModelDeps defines the dependencies required for the httpRouteModel.
