@@ -56,11 +56,20 @@ func (m *httpRouteModelImpl) resolveRequestParent(
 	var matchedRef gatewayv1.ParentReference
 	gatewayAccepted := false
 	for _, parentRef := range httpRoute.Spec.ParentRefs {
+		gatewayNamespace := req.NamespacedName.Namespace
+		if parentRef.Namespace != nil {
+			gatewayNamespace = string(lo.FromPtr(parentRef.Namespace))
+		}
+		parentName := types.NamespacedName{
+			Namespace: gatewayNamespace,
+			Name:      string(parentRef.Name),
+		}
+		m.logger.DebugContext(ctx, "Resolving parent for HTTProute",
+			slog.String("parentName", parentName.String()),
+			slog.Any("parentRef", parentRef),
+		)
 		accepted, err := m.gatewayModel.acceptReconcileRequest(ctx, reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Namespace: string(lo.FromPtr(parentRef.Namespace)),
-				Name:      string(parentRef.Name),
-			},
+			NamespacedName: parentName,
 		}, &resolvedGatewayData)
 		if err != nil {
 			return false, fmt.Errorf("failed to accept reconcile request for gateway %s: %w", parentRef.Name, err)
@@ -73,14 +82,14 @@ func (m *httpRouteModelImpl) resolveRequestParent(
 	}
 
 	if !gatewayAccepted {
-		m.logger.InfoContext(ctx, "no relevant gateway found for HTTProute",
+		m.logger.InfoContext(ctx, "No relevant gateway found for HTTProute",
 			slog.String("route", req.NamespacedName.String()),
 			slog.Int("triedParentRefs", len(httpRoute.Spec.ParentRefs)),
 		)
 		return false, nil
 	}
 
-	m.logger.InfoContext(ctx, "resolved relevant HTTProute parent",
+	m.logger.InfoContext(ctx, "Resolved relevant HTTProute parent",
 		slog.String("route", req.NamespacedName.String()),
 		slog.String("gateway", resolvedGatewayData.gateway.Name),
 	)

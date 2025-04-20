@@ -48,10 +48,5 @@ func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Reque
 		return reconcile.Result{}, nil
 	}
 
-	r.logger.DebugContext(ctx, "Resolved HTTPRoute parent",
-		slog.String("httpRoute", req.NamespacedName.String()),
-		slog.Any("resolvedDataRef", resolvedData.matchedRef),
-	)
-
 	return reconcile.Result{}, nil
 }

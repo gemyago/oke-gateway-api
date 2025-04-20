@@ -125,5 +125,56 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			assert.Equal(t, workingRef, receiver.matchedRef)
 			assert.Equal(t, *gatewayData, receiver.gatewayDetails)
 		})
+		t.Run("default namespace", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: faker.Word(),
+					Name:      faker.Word(),
+				},
+			}
+			workingRef := makeRandomParentRef()
+			workingRef.Namespace = nil
+
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithRandomParentRefOpt(workingRef),
+			)
+
+			setupClientGet(t, deps.K8sClient, req.NamespacedName, route)
+
+			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+
+			gatewayData := makeRandomAcceptedGatewayDetails()
+
+			gatewayModel.EXPECT().acceptReconcileRequest(
+				t.Context(),
+				reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Namespace: req.NamespacedName.Namespace,
+						Name:      string(workingRef.Name),
+					},
+				},
+				mock.Anything,
+			).RunAndReturn(func(
+				_ context.Context,
+				_ reconcile.Request,
+				receiver *acceptedGatewayDetails,
+			) (bool, error) {
+				*receiver = *gatewayData
+				return true, nil
+			})
+
+			var receiver resolvedRouteParentDetails
+			accepted, err := model.resolveRequestParent(t.Context(), req, &receiver)
+
+			require.NoError(t, err)
+			assert.True(t, accepted, "parent should be resolved")
+
+			assert.Equal(t, route, receiver.httpRoute)
+			assert.Equal(t, workingRef, receiver.matchedRef)
+			assert.Equal(t, *gatewayData, receiver.gatewayDetails)
+		})
 	})
 }

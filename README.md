@@ -135,7 +135,7 @@ metadata:
   name: oke-gateway-example-server
 spec:
   parentRefs:
-    - name: oke-gateway-example
+    - name: oke-gateway
   rules:
     - matches:
         - path:
