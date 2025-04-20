@@ -12,11 +12,7 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-type randomGatewayClassOpt func(*gatewayv1.GatewayClass)
-
-func newRandomGatewayClass(
-	opts ...randomGatewayClassOpt,
-) *gatewayv1.GatewayClass {
+func newRandomGatewayClass() *gatewayv1.GatewayClass {
 	gc := &gatewayv1.GatewayClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            faker.DomainName(),
@@ -29,17 +25,7 @@ func newRandomGatewayClass(
 		},
 	}
 
-	for _, opt := range opts {
-		opt(gc)
-	}
-
 	return gc
-}
-
-func randomGatewayClassWithRandomControllerNameOpt() randomGatewayClassOpt {
-	return func(gc *gatewayv1.GatewayClass) {
-		gc.Spec.ControllerName = gatewayv1.GatewayController(faker.DomainName())
-	}
 }
 
 func makeRandomGatewayConfig() types.GatewayConfig {

@@ -107,8 +107,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				},
 				mock.Anything,
 			).RunAndReturn(func(
-				ctx context.Context,
-				req reconcile.Request,
+				_ context.Context,
+				_ reconcile.Request,
 				receiver *acceptedGatewayDetails,
 			) (bool, error) {
 				*receiver = *gatewayData
