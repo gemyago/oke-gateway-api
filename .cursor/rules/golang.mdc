@@ -7,7 +7,6 @@ alwaysApply: false
 
 ## common rules
 - Build plan, ALWAYS confirm before proceeding
-- Do not continue if not confirmed or approved
 - TDD must be followed if adding new stuff, which means:
   1. Add stub declarations (for struct function panic not implemented)
   2. Add or extend tests that are testing desired logic
