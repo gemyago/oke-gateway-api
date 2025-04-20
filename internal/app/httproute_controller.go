@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"go.uber.org/dig"
@@ -10,9 +11,8 @@ import (
 
 // HTTPRouteController is a simple controller that watches HTTPRoute resources.
 type HTTPRouteController struct {
-	client         k8sClient
 	logger         *slog.Logger
-	resourcesModel resourcesModel
+	httpRouteModel httpRouteModel
 }
 
 // HTTPRouteControllerDeps contains the dependencies for the HTTPRouteController.
@@ -20,35 +20,38 @@ type HTTPRouteControllerDeps struct {
 	dig.In
 
 	RootLogger     *slog.Logger
-	K8sClient      k8sClient
-	ResourcesModel resourcesModel
+	HTTPRouteModel httpRouteModel
 }
 
 // NewHTTPRouteController creates a new HTTPRouteController.
 func NewHTTPRouteController(deps HTTPRouteControllerDeps) *HTTPRouteController {
 	return &HTTPRouteController{
-		client:         deps.K8sClient,
 		logger:         deps.RootLogger,
-		resourcesModel: deps.ResourcesModel,
+		httpRouteModel: deps.HTTPRouteModel,
 	}
 }
 
 // Reconcile implements the reconcile.Reconciler interface.
 // For now, it just returns a "not implemented" error.
 func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	// Fetch the HTTPRoute instance
-	// var httpRoute gatewayv1.HTTPRoute // Removed as it's unused for now
-	// The Get call is included to satisfy basic reconcile structure, but the logic isn't implemented yet.
-	// if err := r.client.Get(ctx, req.NamespacedName, &httpRoute); err != nil {
-	// 	if errors.IsNotFound(err) {
-	// 		r.logger.DebugContext(ctx, fmt.Sprintf("HTTPRoute not present: %s", req.NamespacedName))
-	// 		return reconcile.Result{}, nil
-	// 	}
-	// 	return reconcile.Result{}, fmt.Errorf("failed to get HTTPRoute %s: %w", req.NamespacedName, err)
-	// }
+	r.logger.InfoContext(ctx, fmt.Sprintf("Reconciling Gateway %s", req.NamespacedName))
 
-	r.logger.DebugContext(ctx, "Reconcile called for HTTPRoute", slog.Any("request", req))
+	var resolvedData resolvedRouteParentDetails
+	accepted, err := r.httpRouteModel.resolveRequestParent(ctx, req, &resolvedData)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("failed to resolve request parent: %w", err)
+	}
+	if !accepted {
+		r.logger.InfoContext(ctx, "Ignoring HTTPRoute from irrelevant controller",
+			slog.String("httpRoute", req.NamespacedName.String()),
+		)
+		return reconcile.Result{}, nil
+	}
 
-	// TODO: Implement reconciliation logic for HTTPRoute
-	return reconcile.Result{}, NewReconcileError("not implemented", false)
+	r.logger.DebugContext(ctx, "Resolved HTTPRoute parent",
+		slog.String("httpRoute", req.NamespacedName.String()),
+		slog.Any("resolvedDataRef", resolvedData.matchedRef),
+	)
+
+	return reconcile.Result{}, nil
 }
