@@ -12,8 +12,12 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-func newRandomGatewayClass() *gatewayv1.GatewayClass {
-	return &gatewayv1.GatewayClass{
+type randomGatewayClassOpt func(*gatewayv1.GatewayClass)
+
+func newRandomGatewayClass(
+	opts ...randomGatewayClassOpt,
+) *gatewayv1.GatewayClass {
+	gc := &gatewayv1.GatewayClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            faker.DomainName(),
 			Generation:      rand.Int64(),
@@ -23,6 +27,18 @@ func newRandomGatewayClass() *gatewayv1.GatewayClass {
 		Spec: gatewayv1.GatewayClassSpec{
 			ControllerName: ControllerClassName,
 		},
+	}
+
+	for _, opt := range opts {
+		opt(gc)
+	}
+
+	return gc
+}
+
+func randomGatewayClassWithRandomControllerNameOpt() randomGatewayClassOpt {
+	return func(gc *gatewayv1.GatewayClass) {
+		gc.Spec.ControllerName = gatewayv1.GatewayController(faker.DomainName())
 	}
 }
 
@@ -159,11 +175,35 @@ func randomOCILoadBalancerWithRandomListenersOpt() randomOCILoadBalancerOpt {
 	}
 }
 
-func makeRandomHTTPRoute() gatewayv1.HTTPRoute {
-	return gatewayv1.HTTPRoute{
+type randomHTTPRouteOpt func(*gatewayv1.HTTPRoute)
+
+func makeRandomHTTPRoute(
+	opts ...randomHTTPRouteOpt,
+) gatewayv1.HTTPRoute {
+	route := gatewayv1.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      faker.DomainName(),
 			Namespace: faker.Username(),
 		},
+		Spec: gatewayv1.HTTPRouteSpec{},
+	}
+
+	for _, opt := range opts {
+		opt(&route)
+	}
+
+	return route
+}
+
+func randomHTTPRouteWithRandomParentRefOpt(ref gatewayv1.ParentReference) randomHTTPRouteOpt {
+	return func(route *gatewayv1.HTTPRoute) {
+		route.Spec.ParentRefs = append(route.Spec.ParentRefs, ref)
+	}
+}
+
+func makeRandomParentRef() gatewayv1.ParentReference {
+	return gatewayv1.ParentReference{
+		Name:      gatewayv1.ObjectName(faker.DomainName()),
+		Namespace: lo.ToPtr(gatewayv1.Namespace(faker.DomainName())),
 	}
 }

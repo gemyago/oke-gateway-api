@@ -42,6 +42,8 @@ type gatewayModelImpl struct {
 	ociLoadBalancerModel ociLoadBalancerModel
 }
 
+// TODO: Maybe rename to something like resolveReconcileRequest
+// since it's not accepting but resolving in practice
 func (m *gatewayModelImpl) acceptReconcileRequest(
 	ctx context.Context,
 	req reconcile.Request,

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/go-faker/faker/v4"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -18,8 +19,9 @@ import (
 func TestHTTPRouteModelImpl(t *testing.T) {
 	newMockDeps := func(t *testing.T) httpRouteModelDeps {
 		return httpRouteModelDeps{
-			K8sClient:  NewMockk8sClient(t),
-			RootLogger: diag.RootTestLogger(),
+			K8sClient:    NewMockk8sClient(t),
+			RootLogger:   diag.RootTestLogger(),
+			GatewayModel: NewMockgatewayModel(t),
 		}
 	}
 
@@ -57,11 +59,61 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 					Name:      faker.Word(),
 				},
 			}
-			route := makeRandomHTTPRoute()
+			otherRef1 := makeRandomParentRef()
+			otherRef2 := makeRandomParentRef()
+			workingRef := makeRandomParentRef()
+
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithRandomParentRefOpt(otherRef1),
+				randomHTTPRouteWithRandomParentRefOpt(otherRef2),
+				randomHTTPRouteWithRandomParentRefOpt(workingRef),
+			)
 
 			setupClientGet(t, deps.K8sClient, req.NamespacedName, route)
 
-			// gatewayData := makeRandomAcceptedGatewayDetails()
+			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+
+			gatewayModel.EXPECT().acceptReconcileRequest(
+				t.Context(),
+				reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Namespace: string(lo.FromPtr(otherRef1.Namespace)),
+						Name:      string(otherRef1.Name),
+					},
+				},
+				mock.Anything,
+			).Return(false, nil)
+
+			gatewayModel.EXPECT().acceptReconcileRequest(
+				t.Context(),
+				reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Namespace: string(lo.FromPtr(otherRef2.Namespace)),
+						Name:      string(otherRef2.Name),
+					},
+				},
+				mock.Anything,
+			).Return(false, nil)
+
+			gatewayData := makeRandomAcceptedGatewayDetails()
+
+			gatewayModel.EXPECT().acceptReconcileRequest(
+				t.Context(),
+				reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Namespace: string(lo.FromPtr(workingRef.Namespace)),
+						Name:      string(workingRef.Name),
+					},
+				},
+				mock.Anything,
+			).RunAndReturn(func(
+				ctx context.Context,
+				req reconcile.Request,
+				receiver *acceptedGatewayDetails,
+			) (bool, error) {
+				*receiver = *gatewayData
+				return true, nil
+			})
 
 			var receiver resolvedRouteParentDetails
 			accepted, err := model.resolveRequestParent(t.Context(), req, &receiver)
@@ -69,7 +121,9 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			require.NoError(t, err)
 			assert.True(t, accepted, "parent should be resolved")
 
-			assert.Equal(t, receiver.httpRoute, route)
+			assert.Equal(t, route, receiver.httpRoute)
+			assert.Equal(t, workingRef, receiver.matchedRef)
+			assert.Equal(t, *gatewayData, receiver.gatewayDetails)
 		})
 	})
 }

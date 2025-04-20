@@ -4,7 +4,9 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/samber/lo"
 	"go.uber.org/dig"
+	types "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
@@ -31,8 +33,9 @@ type httpRouteModel interface {
 
 // httpRouteModelImpl implements the httpRouteModel interface.
 type httpRouteModelImpl struct {
-	client k8sClient
-	logger *slog.Logger
+	client       k8sClient
+	logger       *slog.Logger
+	gatewayModel gatewayModel
 	// TODO: Add other dependencies like ociLoadBalancerModel if needed for programming logic.
 }
 
@@ -48,7 +51,42 @@ func (m *httpRouteModelImpl) resolveRequestParent(
 		return false, err
 	}
 
+	var resolvedGatewayData acceptedGatewayDetails
+	var matchedRef gatewayv1.ParentReference
+	gatewayAccepted := false
+	for _, parentRef := range httpRoute.Spec.ParentRefs {
+		accepted, err := m.gatewayModel.acceptReconcileRequest(ctx, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Namespace: string(lo.FromPtr(parentRef.Namespace)),
+				Name:      string(parentRef.Name),
+			},
+		}, &resolvedGatewayData)
+		if err != nil {
+			return false, err
+		}
+		if accepted {
+			gatewayAccepted = true
+			matchedRef = parentRef
+			break
+		}
+	}
+
+	if !gatewayAccepted {
+		m.logger.InfoContext(ctx, "no relevant gateway found for HTTProute",
+			slog.String("route", req.NamespacedName.String()),
+			slog.Int("triedParentRefs", len(httpRoute.Spec.ParentRefs)),
+		)
+		return false, nil
+	}
+
+	m.logger.InfoContext(ctx, "resolved relevant HTTProute parent",
+		slog.String("route", req.NamespacedName.String()),
+		slog.String("gateway", resolvedGatewayData.gateway.Name),
+	)
+
 	receiver.httpRoute = httpRoute
+	receiver.matchedRef = matchedRef
+	receiver.gatewayDetails = resolvedGatewayData
 
 	return true, nil
 }
@@ -57,15 +95,16 @@ func (m *httpRouteModelImpl) resolveRequestParent(
 type httpRouteModelDeps struct {
 	dig.In
 
-	K8sClient  k8sClient
-	RootLogger *slog.Logger
-	// TODO: Add other dependencies as needed.
+	K8sClient    k8sClient
+	RootLogger   *slog.Logger
+	GatewayModel gatewayModel
 }
 
 // newHTTPRouteModel creates a new instance of httpRouteModel.
 func newHTTPRouteModel(deps httpRouteModelDeps) httpRouteModel {
 	return &httpRouteModelImpl{
-		client: deps.K8sClient,
-		logger: deps.RootLogger.With("component", "httproute-model"), // Add context to logger
+		client:       deps.K8sClient,
+		logger:       deps.RootLogger.With("component", "httproute-model"),
+		gatewayModel: deps.GatewayModel,
 	}
 }
