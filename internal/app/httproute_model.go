@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/samber/lo"
@@ -62,7 +63,7 @@ func (m *httpRouteModelImpl) resolveRequestParent(
 			},
 		}, &resolvedGatewayData)
 		if err != nil {
-			return false, err
+			return false, fmt.Errorf("failed to accept reconcile request for gateway %s: %w", parentRef.Name, err)
 		}
 		if accepted {
 			gatewayAccepted = true

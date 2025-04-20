@@ -34,7 +34,7 @@ func NewHTTPRouteController(deps HTTPRouteControllerDeps) *HTTPRouteController {
 // Reconcile implements the reconcile.Reconciler interface.
 // For now, it just returns a "not implemented" error.
 func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	r.logger.InfoContext(ctx, fmt.Sprintf("Reconciling Gateway %s", req.NamespacedName))
+	r.logger.InfoContext(ctx, fmt.Sprintf("Reconciling HTTProute %s", req.NamespacedName))
 
 	var resolvedData resolvedRouteParentDetails
 	accepted, err := r.httpRouteModel.resolveRequestParent(ctx, req, &resolvedData)
