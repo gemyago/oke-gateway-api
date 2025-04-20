@@ -94,6 +94,14 @@ func makeRandomHTTPListener(
 	return listener
 }
 
+func makeRandomAcceptedGatewayDetails() *acceptedGatewayDetails {
+	return &acceptedGatewayDetails{
+		gateway:      *newRandomGateway(),
+		gatewayClass: *newRandomGatewayClass(),
+		config:       makeRandomGatewayConfig(),
+	}
+}
+
 func makeRandomOCIBackendSet() loadbalancer.BackendSet {
 	return loadbalancer.BackendSet{
 		Name: lo.ToPtr(faker.DomainName()),
