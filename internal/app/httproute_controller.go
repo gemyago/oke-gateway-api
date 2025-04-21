@@ -37,11 +37,11 @@ func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Reque
 	r.logger.InfoContext(ctx, fmt.Sprintf("Reconciling HTTProute %s", req.NamespacedName))
 
 	var resolvedData resolvedRouteParentDetails
-	accepted, err := r.httpRouteModel.resolveRequestParent(ctx, req, &resolvedData)
+	resolved, err := r.httpRouteModel.resolveRequestParent(ctx, req, &resolvedData)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("failed to resolve request parent: %w", err)
 	}
-	if !accepted {
+	if !resolved {
 		r.logger.InfoContext(ctx, "Ignoring HTTPRoute from irrelevant controller",
 			slog.String("httpRoute", req.NamespacedName.String()),
 		)
