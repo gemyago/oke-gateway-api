@@ -28,20 +28,14 @@ type httpRouteModel interface {
 		req reconcile.Request,
 		receiver *resolvedRouteDetails,
 	) (bool, error)
-
-	// TODO: Add methods for programming OCI based on HTTPRoute, e.g., programBackendSet, programRoutingRules.
 }
 
-// httpRouteModelImpl implements the httpRouteModel interface.
 type httpRouteModelImpl struct {
 	client       k8sClient
 	logger       *slog.Logger
 	gatewayModel gatewayModel
-	// TODO: Add other dependencies like ociLoadBalancerModel if needed for programming logic.
 }
 
-// acceptReconcileRequest is a stub implementation.
-// TODO: Implement the actual logic to fetch HTTPRoute, validate parent Gateway, etc.
 func (m *httpRouteModelImpl) resolveRequest(
 	ctx context.Context,
 	req reconcile.Request,

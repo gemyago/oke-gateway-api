@@ -125,6 +125,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			assert.Equal(t, workingRef, receiver.matchedRef)
 			assert.Equal(t, *gatewayData, receiver.gatewayDetails)
 		})
+
 		t.Run("default namespace", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
@@ -175,6 +176,57 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			assert.Equal(t, route, receiver.httpRoute)
 			assert.Equal(t, workingRef, receiver.matchedRef)
 			assert.Equal(t, *gatewayData, receiver.gatewayDetails)
+		})
+
+		t.Run("no relevant parent", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: faker.Word(),
+					Name:      faker.Word(),
+				},
+			}
+			otherRef1 := makeRandomParentRef()
+			otherRef2 := makeRandomParentRef()
+
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithRandomParentRefOpt(otherRef1),
+				randomHTTPRouteWithRandomParentRefOpt(otherRef2),
+			)
+
+			setupClientGet(t, deps.K8sClient, req.NamespacedName, route)
+
+			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+
+			gatewayModel.EXPECT().acceptReconcileRequest(
+				t.Context(),
+				reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Namespace: string(lo.FromPtr(otherRef1.Namespace)),
+						Name:      string(otherRef1.Name),
+					},
+				},
+				mock.Anything,
+			).Return(false, nil)
+
+			gatewayModel.EXPECT().acceptReconcileRequest(
+				t.Context(),
+				reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Namespace: string(lo.FromPtr(otherRef2.Namespace)),
+						Name:      string(otherRef2.Name),
+					},
+				},
+				mock.Anything,
+			).Return(false, nil)
+
+			var receiver resolvedRouteDetails
+			accepted, err := model.resolveRequest(t.Context(), req, &receiver)
+
+			require.NoError(t, err)
+			assert.False(t, accepted, "parent should not be resolved")
 		})
 	})
 }
