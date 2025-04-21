@@ -264,8 +264,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 					acceptedParent := gotRoute.Status.Parents[0]
 					assert.Equal(t, routeData.matchedRef, acceptedParent.ParentRef)
 					assert.Equal(t,
-						routeData.gatewayDetails.gatewayClass.Name,
-						string(acceptedParent.ControllerName),
+						routeData.gatewayDetails.gatewayClass.Spec.ControllerName,
+						acceptedParent.ControllerName,
 					)
 
 					gotCondition := meta.FindStatusCondition(acceptedParent.Conditions, string(gatewayv1.RouteConditionAccepted))

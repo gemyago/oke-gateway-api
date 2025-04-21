@@ -109,7 +109,7 @@ func (m *httpRouteModelImpl) acceptRoute(
 ) error {
 	parentStatus := gatewayv1.RouteParentStatus{
 		ParentRef:      routeDetails.matchedRef,
-		ControllerName: gatewayv1.GatewayController(routeDetails.gatewayDetails.gatewayClass.Name),
+		ControllerName: gatewayv1.GatewayController(routeDetails.gatewayDetails.gatewayClass.Spec.ControllerName),
 	}
 
 	meta.SetStatusCondition(&parentStatus.Conditions, metav1.Condition{
