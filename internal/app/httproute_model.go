@@ -128,8 +128,16 @@ func (m *httpRouteModelImpl) acceptRoute(
 	})
 
 	if found {
+		m.logger.InfoContext(ctx, "Updating HTTProute status as Accepted",
+			slog.String("route", routeDetails.httpRoute.Name),
+			slog.String("gateway", routeDetails.gatewayDetails.gateway.Name),
+		)
 		routeDetails.httpRoute.Status.Parents[parentStatusIndex] = parentStatus
 	} else {
+		m.logger.InfoContext(ctx, "Accepting new HTTProute",
+			slog.String("route", routeDetails.httpRoute.Name),
+			slog.String("gateway", routeDetails.gatewayDetails.gateway.Name),
+		)
 		routeDetails.httpRoute.Status.Parents = append(routeDetails.httpRoute.Status.Parents, parentStatus)
 	}
 
