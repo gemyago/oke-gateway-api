@@ -7,6 +7,8 @@ import (
 
 	"github.com/samber/lo"
 	"go.uber.org/dig"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -105,6 +107,26 @@ func (m *httpRouteModelImpl) acceptRoute(
 	ctx context.Context,
 	routeDetails *resolvedRouteDetails,
 ) error {
+	parentStatus := gatewayv1.RouteParentStatus{
+		ParentRef:      routeDetails.matchedRef,
+		ControllerName: gatewayv1.GatewayController(routeDetails.gatewayDetails.gatewayClass.Name),
+	}
+
+	meta.SetStatusCondition(&parentStatus.Conditions, metav1.Condition{
+		Type:               string(gatewayv1.RouteConditionAccepted),
+		Status:             metav1.ConditionTrue,
+		Reason:             string(gatewayv1.RouteReasonAccepted),
+		ObservedGeneration: routeDetails.httpRoute.Generation,
+		LastTransitionTime: metav1.Now(),
+		Message:            fmt.Sprintf("Route accepted by %s", routeDetails.gatewayDetails.gateway.Name),
+	})
+
+	routeDetails.httpRoute.Status.Parents = append(routeDetails.httpRoute.Status.Parents, parentStatus)
+
+	if err := m.client.Status().Update(ctx, &routeDetails.httpRoute); err != nil {
+		return fmt.Errorf("failed to update status for HTTProute %s: %w", routeDetails.httpRoute.Name, err)
+	}
+
 	return nil
 }
 
