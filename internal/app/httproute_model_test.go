@@ -11,9 +11,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 func TestHTTPRouteModelImpl(t *testing.T) {
@@ -227,6 +229,33 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.False(t, accepted, "parent should not be resolved")
+		})
+	})
+
+	t.Run("acceptRoute", func(t *testing.T) {
+		t.Run("transition to accepted", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			route := makeRandomHTTPRoute()
+			routeData := resolvedRouteDetails{
+				gatewayDetails: acceptedGatewayDetails{
+					gateway:      *newRandomGateway(),
+					gatewayClass: *newRandomGatewayClass(),
+				},
+				httpRoute: route,
+			}
+
+			err := model.acceptRoute(t.Context(), &routeData)
+			require.NoError(t, err)
+
+			acceptedParent := route.Status.Parents[0]
+
+			assert.Equal(t, routeData.matchedRef, acceptedParent.ParentRef)
+			assert.Equal(t, routeData.gatewayDetails.gatewayClass.Spec.ControllerName, acceptedParent.ControllerName)
+			assert.Equal(t, gatewayv1.RouteConditionAccepted, acceptedParent.Conditions[0].Type)
+			assert.Equal(t, gatewayv1.RouteReasonAccepted, acceptedParent.Conditions[0].Reason)
+			assert.Equal(t, metav1.ConditionTrue, acceptedParent.Conditions[0].Status)
 		})
 	})
 }

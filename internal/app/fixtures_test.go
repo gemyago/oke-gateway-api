@@ -168,8 +168,9 @@ func makeRandomHTTPRoute(
 ) gatewayv1.HTTPRoute {
 	route := gatewayv1.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      faker.DomainName(),
-			Namespace: faker.Username(),
+			Name:       faker.DomainName(),
+			Namespace:  faker.Username(),
+			Generation: rand.Int64(),
 		},
 		Spec: gatewayv1.HTTPRouteSpec{},
 	}
