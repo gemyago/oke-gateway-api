@@ -24,6 +24,53 @@ func (_m *MockhttpRouteModel) EXPECT() *MockhttpRouteModel_Expecter {
 	return &MockhttpRouteModel_Expecter{mock: &_m.Mock}
 }
 
+// acceptRoute provides a mock function with given fields: ctx, routeDetails
+func (_m *MockhttpRouteModel) acceptRoute(ctx context.Context, routeDetails *resolvedRouteDetails) error {
+	ret := _m.Called(ctx, routeDetails)
+
+	if len(ret) == 0 {
+		panic("no return value specified for acceptRoute")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *resolvedRouteDetails) error); ok {
+		r0 = rf(ctx, routeDetails)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockhttpRouteModel_acceptRoute_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'acceptRoute'
+type MockhttpRouteModel_acceptRoute_Call struct {
+	*mock.Call
+}
+
+// acceptRoute is a helper method to define mock.On call
+//   - ctx context.Context
+//   - routeDetails *resolvedRouteDetails
+func (_e *MockhttpRouteModel_Expecter) acceptRoute(ctx interface{}, routeDetails interface{}) *MockhttpRouteModel_acceptRoute_Call {
+	return &MockhttpRouteModel_acceptRoute_Call{Call: _e.mock.On("acceptRoute", ctx, routeDetails)}
+}
+
+func (_c *MockhttpRouteModel_acceptRoute_Call) Run(run func(ctx context.Context, routeDetails *resolvedRouteDetails)) *MockhttpRouteModel_acceptRoute_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*resolvedRouteDetails))
+	})
+	return _c
+}
+
+func (_c *MockhttpRouteModel_acceptRoute_Call) Return(_a0 error) *MockhttpRouteModel_acceptRoute_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockhttpRouteModel_acceptRoute_Call) RunAndReturn(run func(context.Context, *resolvedRouteDetails) error) *MockhttpRouteModel_acceptRoute_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // resolveRequest provides a mock function with given fields: ctx, req, receiver
 func (_m *MockhttpRouteModel) resolveRequest(ctx context.Context, req reconcile.Request, receiver *resolvedRouteDetails) (bool, error) {
 	ret := _m.Called(ctx, req, receiver)

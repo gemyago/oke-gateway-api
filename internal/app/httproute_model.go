@@ -28,6 +28,12 @@ type httpRouteModel interface {
 		req reconcile.Request,
 		receiver *resolvedRouteDetails,
 	) (bool, error)
+
+	// acceptRoute accepts a reconcile request for a given HTTPRoute.
+	acceptRoute(
+		ctx context.Context,
+		routeDetails *resolvedRouteDetails,
+	) error
 }
 
 type httpRouteModelImpl struct {
@@ -93,6 +99,13 @@ func (m *httpRouteModelImpl) resolveRequest(
 	receiver.gatewayDetails = resolvedGatewayData
 
 	return true, nil
+}
+
+func (m *httpRouteModelImpl) acceptRoute(
+	ctx context.Context,
+	routeDetails *resolvedRouteDetails,
+) error {
+	return nil
 }
 
 // httpRouteModelDeps defines the dependencies required for the httpRouteModel.
