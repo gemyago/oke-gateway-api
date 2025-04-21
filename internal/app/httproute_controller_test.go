@@ -53,11 +53,38 @@ func TestHTTPRouteController(t *testing.T) {
 			return true, nil
 		})
 
+		mockModel.EXPECT().acceptRoute(
+			t.Context(),
+			&wantResolvedData,
+		).Return(nil)
+
 		result, err := controller.Reconcile(t.Context(), req)
 
 		require.NoError(t, err)
 		assert.Equal(t, reconcile.Result{}, result)
 	})
 
-	// Add other test cases here using t.Run("TestCaseName", ...) as logic is implemented
+	t.Run("IrrelevantRoute", func(t *testing.T) {
+		deps := newMockDeps(t)
+		controller := NewHTTPRouteController(deps)
+
+		req := reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Namespace: faker.DomainName(),
+				Name:      faker.Word(),
+			},
+		}
+
+		mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+		mockModel.EXPECT().resolveRequest(
+			t.Context(),
+			req,
+			mock.Anything,
+		).Return(false, nil)
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		require.NoError(t, err)
+		assert.Equal(t, reconcile.Result{}, result)
+	})
 }
