@@ -32,7 +32,7 @@ func TestHTTPRouteController(t *testing.T) {
 			},
 		}
 
-		wantResolvedData := resolvedRouteParentDetails{
+		wantResolvedData := resolvedRouteDetails{
 			httpRoute: makeRandomHTTPRoute(),
 			gatewayDetails: acceptedGatewayDetails{
 				gateway: *newRandomGateway(),
@@ -40,14 +40,14 @@ func TestHTTPRouteController(t *testing.T) {
 		}
 
 		mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
-		mockModel.EXPECT().resolveRequestParent(
+		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
 			mock.Anything,
 		).RunAndReturn(func(
 			_ context.Context,
 			_ reconcile.Request,
-			receiver *resolvedRouteParentDetails,
+			receiver *resolvedRouteDetails,
 		) (bool, error) {
 			*receiver = wantResolvedData
 			return true, nil

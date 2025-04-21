@@ -12,7 +12,7 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-type resolvedRouteParentDetails struct {
+type resolvedRouteDetails struct {
 	gatewayDetails acceptedGatewayDetails
 	matchedRef     gatewayv1.ParentReference
 	httpRoute      gatewayv1.HTTPRoute
@@ -20,13 +20,13 @@ type resolvedRouteParentDetails struct {
 
 // httpRouteModel defines the interface for managing HTTPRoute resources.
 type httpRouteModel interface {
-	// resolveRequestParent resolves the parent details for a given HTTPRoute.
+	// resolveRequest resolves the parent details for a given HTTPRoute.
 	// It returns true if the request is relevant for this controller and
 	// the parent has been resolved.
-	resolveRequestParent(
+	resolveRequest(
 		ctx context.Context,
 		req reconcile.Request,
-		receiver *resolvedRouteParentDetails,
+		receiver *resolvedRouteDetails,
 	) (bool, error)
 
 	// TODO: Add methods for programming OCI based on HTTPRoute, e.g., programBackendSet, programRoutingRules.
@@ -42,10 +42,10 @@ type httpRouteModelImpl struct {
 
 // acceptReconcileRequest is a stub implementation.
 // TODO: Implement the actual logic to fetch HTTPRoute, validate parent Gateway, etc.
-func (m *httpRouteModelImpl) resolveRequestParent(
+func (m *httpRouteModelImpl) resolveRequest(
 	ctx context.Context,
 	req reconcile.Request,
-	receiver *resolvedRouteParentDetails,
+	receiver *resolvedRouteDetails,
 ) (bool, error) {
 	var httpRoute gatewayv1.HTTPRoute
 	if err := m.client.Get(ctx, req.NamespacedName, &httpRoute); err != nil {

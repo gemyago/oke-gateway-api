@@ -24,26 +24,26 @@ func (_m *MockhttpRouteModel) EXPECT() *MockhttpRouteModel_Expecter {
 	return &MockhttpRouteModel_Expecter{mock: &_m.Mock}
 }
 
-// resolveRequestParent provides a mock function with given fields: ctx, req, receiver
-func (_m *MockhttpRouteModel) resolveRequestParent(ctx context.Context, req reconcile.Request, receiver *resolvedRouteParentDetails) (bool, error) {
+// resolveRequest provides a mock function with given fields: ctx, req, receiver
+func (_m *MockhttpRouteModel) resolveRequest(ctx context.Context, req reconcile.Request, receiver *resolvedRouteDetails) (bool, error) {
 	ret := _m.Called(ctx, req, receiver)
 
 	if len(ret) == 0 {
-		panic("no return value specified for resolveRequestParent")
+		panic("no return value specified for resolveRequest")
 	}
 
 	var r0 bool
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, reconcile.Request, *resolvedRouteParentDetails) (bool, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, reconcile.Request, *resolvedRouteDetails) (bool, error)); ok {
 		return rf(ctx, req, receiver)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, reconcile.Request, *resolvedRouteParentDetails) bool); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, reconcile.Request, *resolvedRouteDetails) bool); ok {
 		r0 = rf(ctx, req, receiver)
 	} else {
 		r0 = ret.Get(0).(bool)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, reconcile.Request, *resolvedRouteParentDetails) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, reconcile.Request, *resolvedRouteDetails) error); ok {
 		r1 = rf(ctx, req, receiver)
 	} else {
 		r1 = ret.Error(1)
@@ -52,32 +52,32 @@ func (_m *MockhttpRouteModel) resolveRequestParent(ctx context.Context, req reco
 	return r0, r1
 }
 
-// MockhttpRouteModel_resolveRequestParent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'resolveRequestParent'
-type MockhttpRouteModel_resolveRequestParent_Call struct {
+// MockhttpRouteModel_resolveRequest_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'resolveRequest'
+type MockhttpRouteModel_resolveRequest_Call struct {
 	*mock.Call
 }
 
-// resolveRequestParent is a helper method to define mock.On call
+// resolveRequest is a helper method to define mock.On call
 //   - ctx context.Context
 //   - req reconcile.Request
-//   - receiver *resolvedRouteParentDetails
-func (_e *MockhttpRouteModel_Expecter) resolveRequestParent(ctx interface{}, req interface{}, receiver interface{}) *MockhttpRouteModel_resolveRequestParent_Call {
-	return &MockhttpRouteModel_resolveRequestParent_Call{Call: _e.mock.On("resolveRequestParent", ctx, req, receiver)}
+//   - receiver *resolvedRouteDetails
+func (_e *MockhttpRouteModel_Expecter) resolveRequest(ctx interface{}, req interface{}, receiver interface{}) *MockhttpRouteModel_resolveRequest_Call {
+	return &MockhttpRouteModel_resolveRequest_Call{Call: _e.mock.On("resolveRequest", ctx, req, receiver)}
 }
 
-func (_c *MockhttpRouteModel_resolveRequestParent_Call) Run(run func(ctx context.Context, req reconcile.Request, receiver *resolvedRouteParentDetails)) *MockhttpRouteModel_resolveRequestParent_Call {
+func (_c *MockhttpRouteModel_resolveRequest_Call) Run(run func(ctx context.Context, req reconcile.Request, receiver *resolvedRouteDetails)) *MockhttpRouteModel_resolveRequest_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(reconcile.Request), args[2].(*resolvedRouteParentDetails))
+		run(args[0].(context.Context), args[1].(reconcile.Request), args[2].(*resolvedRouteDetails))
 	})
 	return _c
 }
 
-func (_c *MockhttpRouteModel_resolveRequestParent_Call) Return(_a0 bool, _a1 error) *MockhttpRouteModel_resolveRequestParent_Call {
+func (_c *MockhttpRouteModel_resolveRequest_Call) Return(_a0 bool, _a1 error) *MockhttpRouteModel_resolveRequest_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockhttpRouteModel_resolveRequestParent_Call) RunAndReturn(run func(context.Context, reconcile.Request, *resolvedRouteParentDetails) (bool, error)) *MockhttpRouteModel_resolveRequestParent_Call {
+func (_c *MockhttpRouteModel_resolveRequest_Call) RunAndReturn(run func(context.Context, reconcile.Request, *resolvedRouteDetails) (bool, error)) *MockhttpRouteModel_resolveRequest_Call {
 	_c.Call.Return(run)
 	return _c
 }

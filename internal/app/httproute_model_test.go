@@ -48,7 +48,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 	}
 
-	t.Run("resolveRequestParent", func(t *testing.T) {
+	t.Run("resolveRequest", func(t *testing.T) {
 		t.Run("relevant parent", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
@@ -115,8 +115,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				return true, nil
 			})
 
-			var receiver resolvedRouteParentDetails
-			accepted, err := model.resolveRequestParent(t.Context(), req, &receiver)
+			var receiver resolvedRouteDetails
+			accepted, err := model.resolveRequest(t.Context(), req, &receiver)
 
 			require.NoError(t, err)
 			assert.True(t, accepted, "parent should be resolved")
@@ -166,8 +166,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				return true, nil
 			})
 
-			var receiver resolvedRouteParentDetails
-			accepted, err := model.resolveRequestParent(t.Context(), req, &receiver)
+			var receiver resolvedRouteDetails
+			accepted, err := model.resolveRequest(t.Context(), req, &receiver)
 
 			require.NoError(t, err)
 			assert.True(t, accepted, "parent should be resolved")

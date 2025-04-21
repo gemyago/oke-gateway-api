@@ -36,8 +36,8 @@ func NewHTTPRouteController(deps HTTPRouteControllerDeps) *HTTPRouteController {
 func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	r.logger.InfoContext(ctx, fmt.Sprintf("Reconciling HTTProute %s", req.NamespacedName))
 
-	var resolvedData resolvedRouteParentDetails
-	resolved, err := r.httpRouteModel.resolveRequestParent(ctx, req, &resolvedData)
+	var resolvedData resolvedRouteDetails
+	resolved, err := r.httpRouteModel.resolveRequest(ctx, req, &resolvedData)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("failed to resolve request parent: %w", err)
 	}
