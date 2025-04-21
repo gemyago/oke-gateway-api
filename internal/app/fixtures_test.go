@@ -194,3 +194,20 @@ func makeRandomParentRef() gatewayv1.ParentReference {
 		Namespace: lo.ToPtr(gatewayv1.Namespace(faker.DomainName())),
 	}
 }
+
+type randomRouteParentStatusOpt func(*gatewayv1.RouteParentStatus)
+
+func makeRandomRouteParentStatus(
+	opts ...randomRouteParentStatusOpt,
+) gatewayv1.RouteParentStatus {
+	status := gatewayv1.RouteParentStatus{
+		ParentRef:      makeRandomParentRef(),
+		ControllerName: gatewayv1.GatewayController(faker.Word() + "." + faker.DomainName()),
+	}
+
+	for _, opt := range opts {
+		opt(&status)
+	}
+
+	return status
+}

@@ -286,5 +286,68 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			err := model.acceptRoute(t.Context(), &routeData)
 			require.NoError(t, err)
 		})
+		t.Run("set condition of existing parent", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			gatewayClass := newRandomGatewayClass()
+			existingParentStatus := makeRandomRouteParentStatus(
+				func(s *gatewayv1.RouteParentStatus) {
+					s.ControllerName = gatewayClass.Spec.ControllerName
+				},
+			)
+			routeData := resolvedRouteDetails{
+				gatewayDetails: acceptedGatewayDetails{
+					gateway:      *newRandomGateway(),
+					gatewayClass: *gatewayClass,
+				},
+				httpRoute: makeRandomHTTPRoute(
+					func(h *gatewayv1.HTTPRoute) {
+						h.Status.Parents = []gatewayv1.RouteParentStatus{
+							makeRandomRouteParentStatus(),
+							makeRandomRouteParentStatus(),
+							existingParentStatus,
+							makeRandomRouteParentStatus(),
+						}
+					},
+				),
+			}
+
+			mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().Status().Return(mockStatusWriter)
+
+			mockStatusWriter.EXPECT().
+				Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+					gotRoute, ok := obj.(*gatewayv1.HTTPRoute)
+					assert.True(t, ok)
+					assert.Same(t, &routeData.httpRoute, gotRoute)
+
+					assert.Len(t, gotRoute.Status.Parents, 4)
+
+					acceptedParent, found := lo.Find(gotRoute.Status.Parents, func(s gatewayv1.RouteParentStatus) bool {
+						return s.ControllerName == gatewayClass.Spec.ControllerName
+					})
+					require.True(t, found)
+
+					gotCondition := meta.FindStatusCondition(acceptedParent.Conditions, string(gatewayv1.RouteConditionAccepted))
+					require.NotNil(t, gotCondition)
+					assert.False(t, gotCondition.LastTransitionTime.IsZero())
+					assert.Equal(t, &metav1.Condition{
+						Type:               string(gatewayv1.RouteConditionAccepted),
+						Status:             metav1.ConditionTrue,
+						Reason:             string(gatewayv1.RouteReasonAccepted),
+						ObservedGeneration: routeData.httpRoute.Generation,
+						LastTransitionTime: gotCondition.LastTransitionTime,
+						Message:            fmt.Sprintf("Route accepted by %s", routeData.gatewayDetails.gateway.Name),
+					}, gotCondition)
+					return true
+				})).
+				Return(nil)
+
+			err := model.acceptRoute(t.Context(), &routeData)
+			require.NoError(t, err)
+		})
 	})
 }

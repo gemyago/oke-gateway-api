@@ -107,11 +107,17 @@ func (m *httpRouteModelImpl) acceptRoute(
 	ctx context.Context,
 	routeDetails *resolvedRouteDetails,
 ) error {
-	parentStatus := gatewayv1.RouteParentStatus{
-		ParentRef:      routeDetails.matchedRef,
-		ControllerName: routeDetails.gatewayDetails.gatewayClass.Spec.ControllerName,
+	parentStatus, parentStatusIndex, found := lo.FindIndexOf(
+		routeDetails.httpRoute.Status.Parents,
+		func(s gatewayv1.RouteParentStatus) bool {
+			return s.ControllerName == routeDetails.gatewayDetails.gatewayClass.Spec.ControllerName
+		})
+	if !found {
+		parentStatus = gatewayv1.RouteParentStatus{
+			ParentRef:      routeDetails.matchedRef,
+			ControllerName: routeDetails.gatewayDetails.gatewayClass.Spec.ControllerName,
+		}
 	}
-
 	meta.SetStatusCondition(&parentStatus.Conditions, metav1.Condition{
 		Type:               string(gatewayv1.RouteConditionAccepted),
 		Status:             metav1.ConditionTrue,
@@ -121,7 +127,11 @@ func (m *httpRouteModelImpl) acceptRoute(
 		Message:            fmt.Sprintf("Route accepted by %s", routeDetails.gatewayDetails.gateway.Name),
 	})
 
-	routeDetails.httpRoute.Status.Parents = append(routeDetails.httpRoute.Status.Parents, parentStatus)
+	if found {
+		routeDetails.httpRoute.Status.Parents[parentStatusIndex] = parentStatus
+	} else {
+		routeDetails.httpRoute.Status.Parents = append(routeDetails.httpRoute.Status.Parents, parentStatus)
+	}
 
 	if err := m.client.Status().Update(ctx, &routeDetails.httpRoute); err != nil {
 		return fmt.Errorf("failed to update status for HTTProute %s: %w", routeDetails.httpRoute.Name, err)
