@@ -14,8 +14,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -227,6 +229,31 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				},
 				mock.Anything,
 			).Return(false, nil)
+
+			var receiver resolvedRouteDetails
+			accepted, err := model.resolveRequest(t.Context(), req, &receiver)
+
+			require.NoError(t, err)
+			assert.False(t, accepted, "parent should not be resolved")
+		})
+
+		t.Run("no such route", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: faker.Word(),
+					Name:      faker.Word(),
+				},
+			}
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().Get(t.Context(), req.NamespacedName, mock.Anything).Return(
+				apierrors.NewNotFound(
+					schema.GroupResource{Group: gatewayv1.GroupName, Resource: "HTTPRoute"},
+					req.NamespacedName.String(),
+				),
+			)
 
 			var receiver resolvedRouteDetails
 			accepted, err := model.resolveRequest(t.Context(), req, &receiver)

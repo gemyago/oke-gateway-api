@@ -67,7 +67,7 @@ func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Re
 		gatewayClass.Status.Conditions,
 		string(gatewayv1.GatewayClassConditionStatusAccepted),
 	) {
-		r.logger.DebugContext(ctx, "GatewayClass already is already accepted",
+		r.logger.DebugContext(ctx, "GatewayClass is already accepted",
 			slog.String("gatewayClass", req.NamespacedName.String()),
 		)
 		return reconcile.Result{}, nil // Already in desired state

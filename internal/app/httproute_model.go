@@ -7,6 +7,7 @@ import (
 
 	"github.com/samber/lo"
 	"go.uber.org/dig"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
@@ -51,6 +52,12 @@ func (m *httpRouteModelImpl) resolveRequest(
 ) (bool, error) {
 	var httpRoute gatewayv1.HTTPRoute
 	if err := m.client.Get(ctx, req.NamespacedName, &httpRoute); err != nil {
+		if apierrors.IsNotFound(err) {
+			m.logger.DebugContext(ctx, "HTTProute not found",
+				slog.String("route", req.NamespacedName.String()),
+			)
+			return false, nil
+		}
 		return false, err
 	}
 
@@ -120,9 +127,10 @@ func (m *httpRouteModelImpl) acceptRoute(
 		if existingCondition != nil &&
 			existingCondition.ObservedGeneration == routeDetails.httpRoute.Generation &&
 			existingCondition.Status == metav1.ConditionTrue {
-			m.logger.DebugContext(ctx, "HTTProute already accepted",
+			m.logger.DebugContext(ctx, "HTTProute is already accepted",
 				slog.String("route", routeDetails.httpRoute.Name),
 				slog.String("gateway", routeDetails.gatewayDetails.gateway.Name),
+				slog.Int64("generation", existingCondition.ObservedGeneration),
 			)
 			return nil
 		}

@@ -34,7 +34,7 @@ func NewHTTPRouteController(deps HTTPRouteControllerDeps) *HTTPRouteController {
 // Reconcile implements the reconcile.Reconciler interface.
 // For now, it just returns a "not implemented" error.
 func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	r.logger.InfoContext(ctx, fmt.Sprintf("Reconciling HTTProute %s", req.NamespacedName))
+	r.logger.InfoContext(ctx, fmt.Sprintf("Processing reconciliation for HTTProute %s", req.NamespacedName))
 
 	var resolvedData resolvedRouteDetails
 	resolved, err := r.httpRouteModel.resolveRequest(ctx, req, &resolvedData)
@@ -42,7 +42,7 @@ func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Reque
 		return reconcile.Result{}, fmt.Errorf("failed to resolve request parent: %w", err)
 	}
 	if !resolved {
-		r.logger.InfoContext(ctx, "Ignoring HTTPRoute from irrelevant controller",
+		r.logger.InfoContext(ctx, "Ignoring irrelevant HTTPRoute route",
 			slog.String("httpRoute", req.NamespacedName.String()),
 		)
 		return reconcile.Result{}, nil
