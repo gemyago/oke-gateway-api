@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"reflect"
 	"testing"
 
@@ -342,6 +343,106 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 						LastTransitionTime: gotCondition.LastTransitionTime,
 						Message:            fmt.Sprintf("Route accepted by %s", routeData.gatewayDetails.gateway.Name),
 					}, gotCondition)
+					return true
+				})).
+				Return(nil)
+
+			err := model.acceptRoute(t.Context(), &routeData)
+			require.NoError(t, err)
+		})
+		t.Run("should not update if already accepted", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			gatewayClass := newRandomGatewayClass()
+			routeGeneration := rand.Int64N(1000000)
+			existingParentStatus := makeRandomRouteParentStatus(
+				func(s *gatewayv1.RouteParentStatus) {
+					s.ControllerName = gatewayClass.Spec.ControllerName
+					meta.SetStatusCondition(&s.Conditions, metav1.Condition{
+						Type:               string(gatewayv1.RouteConditionAccepted),
+						Status:             metav1.ConditionTrue,
+						Reason:             string(gatewayv1.RouteReasonAccepted),
+						ObservedGeneration: routeGeneration,
+					})
+				},
+			)
+			routeData := resolvedRouteDetails{
+				gatewayDetails: acceptedGatewayDetails{
+					gateway:      *newRandomGateway(),
+					gatewayClass: *gatewayClass,
+				},
+				httpRoute: makeRandomHTTPRoute(
+					func(h *gatewayv1.HTTPRoute) {
+						h.Generation = routeGeneration
+						h.Status.Parents = []gatewayv1.RouteParentStatus{
+							makeRandomRouteParentStatus(),
+							makeRandomRouteParentStatus(),
+							existingParentStatus,
+							makeRandomRouteParentStatus(),
+						}
+					},
+				),
+			}
+
+			err := model.acceptRoute(t.Context(), &routeData)
+			require.NoError(t, err)
+		})
+		t.Run("should update if generation mismatch", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			gatewayClass := newRandomGatewayClass()
+			routeGeneration := rand.Int64N(1000000)
+			existingParentStatus := makeRandomRouteParentStatus(
+				func(s *gatewayv1.RouteParentStatus) {
+					s.ControllerName = gatewayClass.Spec.ControllerName
+					meta.SetStatusCondition(&s.Conditions, metav1.Condition{
+						Type:               string(gatewayv1.RouteConditionAccepted),
+						Status:             metav1.ConditionTrue,
+						Reason:             string(gatewayv1.RouteReasonAccepted),
+						ObservedGeneration: routeGeneration - 1,
+					})
+				},
+			)
+			routeData := resolvedRouteDetails{
+				gatewayDetails: acceptedGatewayDetails{
+					gateway:      *newRandomGateway(),
+					gatewayClass: *gatewayClass,
+				},
+				httpRoute: makeRandomHTTPRoute(
+					func(h *gatewayv1.HTTPRoute) {
+						h.Generation = routeGeneration
+						h.Status.Parents = []gatewayv1.RouteParentStatus{
+							makeRandomRouteParentStatus(),
+							makeRandomRouteParentStatus(),
+							existingParentStatus,
+							makeRandomRouteParentStatus(),
+						}
+					},
+				),
+			}
+
+			mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().Status().Return(mockStatusWriter)
+
+			mockStatusWriter.EXPECT().
+				Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+					gotRoute, ok := obj.(*gatewayv1.HTTPRoute)
+					assert.True(t, ok)
+					assert.Same(t, &routeData.httpRoute, gotRoute)
+					acceptedParent, found := lo.Find(gotRoute.Status.Parents, func(s gatewayv1.RouteParentStatus) bool {
+						return s.ControllerName == gatewayClass.Spec.ControllerName
+					})
+					require.True(t, found)
+
+					gotCondition := meta.FindStatusCondition(acceptedParent.Conditions, string(gatewayv1.RouteConditionAccepted))
+					require.NotNil(t, gotCondition)
+					assert.Equal(t, routeData.httpRoute.Generation, gotCondition.ObservedGeneration)
+					assert.Equal(t, metav1.ConditionTrue, gotCondition.Status)
+					assert.Equal(t, string(gatewayv1.RouteReasonAccepted), gotCondition.Reason)
 					return true
 				})).
 				Return(nil)

@@ -112,7 +112,21 @@ func (m *httpRouteModelImpl) acceptRoute(
 		func(s gatewayv1.RouteParentStatus) bool {
 			return s.ControllerName == routeDetails.gatewayDetails.gatewayClass.Spec.ControllerName
 		})
-	if !found {
+	if found {
+		existingCondition := meta.FindStatusCondition(
+			parentStatus.Conditions,
+			string(gatewayv1.RouteConditionAccepted),
+		)
+		if existingCondition != nil &&
+			existingCondition.ObservedGeneration == routeDetails.httpRoute.Generation &&
+			existingCondition.Status == metav1.ConditionTrue {
+			m.logger.DebugContext(ctx, "HTTProute already accepted",
+				slog.String("route", routeDetails.httpRoute.Name),
+				slog.String("gateway", routeDetails.gatewayDetails.gateway.Name),
+			)
+			return nil
+		}
+	} else {
 		parentStatus = gatewayv1.RouteParentStatus{
 			ParentRef:      routeDetails.matchedRef,
 			ControllerName: routeDetails.gatewayDetails.gatewayClass.Spec.ControllerName,
