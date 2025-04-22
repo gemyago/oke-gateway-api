@@ -110,6 +110,9 @@ func (m *httpRouteModelImpl) resolveRequest(
 	return true, nil
 }
 
+// TODO: Some mechanism to check if all parents are accepted
+// also if listeners are present
+
 func (m *httpRouteModelImpl) acceptRoute(
 	ctx context.Context,
 	routeDetails *resolvedRouteDetails,
