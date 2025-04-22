@@ -37,6 +37,14 @@ type httpRouteModel interface {
 		ctx context.Context,
 		routeDetails *resolvedRouteDetails,
 	) error
+
+	// resolveBackendRefs resolves the backend references for a given HTTPRoute.
+	// It returns a map of service name to service port. It may update the route status
+	// with the ResolvedRefs condition.
+	// resolveBackendRefs(
+	// 	ctx context.Context,
+	// 	routeDetails *resolvedRouteDetails,
+	// ) (map[string]v1.Service, error)
 }
 
 type httpRouteModelImpl struct {
