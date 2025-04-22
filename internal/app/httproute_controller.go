@@ -48,7 +48,7 @@ func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Reque
 		return reconcile.Result{}, nil
 	}
 
-	err = r.httpRouteModel.acceptRoute(ctx, &resolvedData)
+	_, err = r.httpRouteModel.acceptRoute(ctx, resolvedData)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("failed to accept route: %w", err)
 	}

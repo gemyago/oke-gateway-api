@@ -56,7 +56,7 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().acceptRoute(
 			t.Context(),
 			&wantResolvedData,
-		).Return(nil)
+		).Return(nil, nil)
 
 		result, err := controller.Reconcile(t.Context(), req)
 

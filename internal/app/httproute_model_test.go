@@ -281,39 +281,42 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
 			mockK8sClient.EXPECT().Status().Return(mockStatusWriter)
 
+			var updatedRoute *gatewayv1.HTTPRoute
 			mockStatusWriter.EXPECT().
 				Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
-					gotRoute, ok := obj.(*gatewayv1.HTTPRoute)
-					assert.True(t, ok)
-					assert.Same(t, &routeData.httpRoute, gotRoute)
-
-					assert.Len(t, gotRoute.Status.Parents, 1)
-
-					acceptedParent := gotRoute.Status.Parents[0]
-					assert.Equal(t, routeData.matchedRef, acceptedParent.ParentRef)
-					assert.Equal(t,
-						routeData.gatewayDetails.gatewayClass.Spec.ControllerName,
-						acceptedParent.ControllerName,
-					)
-
-					gotCondition := meta.FindStatusCondition(acceptedParent.Conditions, string(gatewayv1.RouteConditionAccepted))
-					require.NotNil(t, gotCondition)
-					assert.False(t, gotCondition.LastTransitionTime.IsZero())
-					assert.Equal(t, &metav1.Condition{
-						Type:               string(gatewayv1.RouteConditionAccepted),
-						Status:             metav1.ConditionTrue,
-						Reason:             string(gatewayv1.RouteReasonAccepted),
-						ObservedGeneration: routeData.httpRoute.Generation,
-						LastTransitionTime: gotCondition.LastTransitionTime,
-						Message:            fmt.Sprintf("Route accepted by %s", routeData.gatewayDetails.gateway.Name),
-					}, gotCondition)
-					return true
+					var ok bool
+					updatedRoute, ok = obj.(*gatewayv1.HTTPRoute)
+					return assert.True(t, ok)
 				})).
 				Return(nil)
 
-			err := model.acceptRoute(t.Context(), &routeData)
+			acceptedRoute, err := model.acceptRoute(t.Context(), routeData)
+
 			require.NoError(t, err)
+			assert.Same(t, acceptedRoute, updatedRoute)
+
+			assert.Len(t, updatedRoute.Status.Parents, 1)
+
+			acceptedParent := updatedRoute.Status.Parents[0]
+			assert.Equal(t, routeData.matchedRef, acceptedParent.ParentRef)
+			assert.Equal(t,
+				routeData.gatewayDetails.gatewayClass.Spec.ControllerName,
+				acceptedParent.ControllerName,
+			)
+
+			gotCondition := meta.FindStatusCondition(acceptedParent.Conditions, string(gatewayv1.RouteConditionAccepted))
+			require.NotNil(t, gotCondition)
+			assert.False(t, gotCondition.LastTransitionTime.IsZero())
+			assert.Equal(t, &metav1.Condition{
+				Type:               string(gatewayv1.RouteConditionAccepted),
+				Status:             metav1.ConditionTrue,
+				Reason:             string(gatewayv1.RouteReasonAccepted),
+				ObservedGeneration: routeData.httpRoute.Generation,
+				LastTransitionTime: gotCondition.LastTransitionTime,
+				Message:            fmt.Sprintf("Route accepted by %s", routeData.gatewayDetails.gateway.Name),
+			}, gotCondition)
 		})
+
 		t.Run("set condition of existing parent", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
@@ -346,36 +349,37 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
 			mockK8sClient.EXPECT().Status().Return(mockStatusWriter)
 
+			var updatedRoute *gatewayv1.HTTPRoute
 			mockStatusWriter.EXPECT().
 				Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
-					gotRoute, ok := obj.(*gatewayv1.HTTPRoute)
-					assert.True(t, ok)
-					assert.Same(t, &routeData.httpRoute, gotRoute)
-
-					assert.Len(t, gotRoute.Status.Parents, 4)
-
-					acceptedParent, found := lo.Find(gotRoute.Status.Parents, func(s gatewayv1.RouteParentStatus) bool {
-						return s.ControllerName == gatewayClass.Spec.ControllerName
-					})
-					require.True(t, found)
-
-					gotCondition := meta.FindStatusCondition(acceptedParent.Conditions, string(gatewayv1.RouteConditionAccepted))
-					require.NotNil(t, gotCondition)
-					assert.False(t, gotCondition.LastTransitionTime.IsZero())
-					assert.Equal(t, &metav1.Condition{
-						Type:               string(gatewayv1.RouteConditionAccepted),
-						Status:             metav1.ConditionTrue,
-						Reason:             string(gatewayv1.RouteReasonAccepted),
-						ObservedGeneration: routeData.httpRoute.Generation,
-						LastTransitionTime: gotCondition.LastTransitionTime,
-						Message:            fmt.Sprintf("Route accepted by %s", routeData.gatewayDetails.gateway.Name),
-					}, gotCondition)
-					return true
+					var ok bool
+					updatedRoute, ok = obj.(*gatewayv1.HTTPRoute)
+					return assert.True(t, ok)
 				})).
 				Return(nil)
 
-			err := model.acceptRoute(t.Context(), &routeData)
+			acceptedRoute, err := model.acceptRoute(t.Context(), routeData)
 			require.NoError(t, err)
+			assert.Same(t, acceptedRoute, updatedRoute)
+
+			assert.Len(t, updatedRoute.Status.Parents, 4)
+
+			acceptedParent, found := lo.Find(updatedRoute.Status.Parents, func(s gatewayv1.RouteParentStatus) bool {
+				return s.ControllerName == gatewayClass.Spec.ControllerName
+			})
+			require.True(t, found)
+
+			gotCondition := meta.FindStatusCondition(acceptedParent.Conditions, string(gatewayv1.RouteConditionAccepted))
+			require.NotNil(t, gotCondition)
+			assert.False(t, gotCondition.LastTransitionTime.IsZero())
+			assert.Equal(t, &metav1.Condition{
+				Type:               string(gatewayv1.RouteConditionAccepted),
+				Status:             metav1.ConditionTrue,
+				Reason:             string(gatewayv1.RouteReasonAccepted),
+				ObservedGeneration: routeData.httpRoute.Generation,
+				LastTransitionTime: gotCondition.LastTransitionTime,
+				Message:            fmt.Sprintf("Route accepted by %s", routeData.gatewayDetails.gateway.Name),
+			}, gotCondition)
 		})
 		t.Run("should not update if already accepted", func(t *testing.T) {
 			deps := newMockDeps(t)
@@ -412,8 +416,9 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				),
 			}
 
-			err := model.acceptRoute(t.Context(), &routeData)
+			acceptedRoute, err := model.acceptRoute(t.Context(), routeData)
 			require.NoError(t, err)
+			assert.Equal(t, acceptedRoute, &routeData.httpRoute)
 		})
 		t.Run("should update if generation mismatch", func(t *testing.T) {
 			deps := newMockDeps(t)
@@ -455,27 +460,29 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
 			mockK8sClient.EXPECT().Status().Return(mockStatusWriter)
 
+			var updatedRoute *gatewayv1.HTTPRoute
 			mockStatusWriter.EXPECT().
 				Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
-					gotRoute, ok := obj.(*gatewayv1.HTTPRoute)
-					assert.True(t, ok)
-					assert.Same(t, &routeData.httpRoute, gotRoute)
-					acceptedParent, found := lo.Find(gotRoute.Status.Parents, func(s gatewayv1.RouteParentStatus) bool {
-						return s.ControllerName == gatewayClass.Spec.ControllerName
-					})
-					require.True(t, found)
-
-					gotCondition := meta.FindStatusCondition(acceptedParent.Conditions, string(gatewayv1.RouteConditionAccepted))
-					require.NotNil(t, gotCondition)
-					assert.Equal(t, routeData.httpRoute.Generation, gotCondition.ObservedGeneration)
-					assert.Equal(t, metav1.ConditionTrue, gotCondition.Status)
-					assert.Equal(t, string(gatewayv1.RouteReasonAccepted), gotCondition.Reason)
-					return true
+					var ok bool
+					updatedRoute, ok = obj.(*gatewayv1.HTTPRoute)
+					return assert.True(t, ok)
 				})).
 				Return(nil)
 
-			err := model.acceptRoute(t.Context(), &routeData)
+			acceptedRoute, err := model.acceptRoute(t.Context(), routeData)
 			require.NoError(t, err)
+			assert.Same(t, acceptedRoute, updatedRoute)
+
+			acceptedParent, found := lo.Find(updatedRoute.Status.Parents, func(s gatewayv1.RouteParentStatus) bool {
+				return s.ControllerName == gatewayClass.Spec.ControllerName
+			})
+			require.True(t, found)
+
+			gotCondition := meta.FindStatusCondition(acceptedParent.Conditions, string(gatewayv1.RouteConditionAccepted))
+			require.NotNil(t, gotCondition)
+			assert.Equal(t, routeData.httpRoute.Generation, gotCondition.ObservedGeneration)
+			assert.Equal(t, metav1.ConditionTrue, gotCondition.Status)
+			assert.Equal(t, string(gatewayv1.RouteReasonAccepted), gotCondition.Reason)
 		})
 	})
 }

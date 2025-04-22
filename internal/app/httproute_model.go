@@ -33,10 +33,11 @@ type httpRouteModel interface {
 	) (bool, error)
 
 	// acceptRoute accepts a reconcile request for a given HTTPRoute.
+	// It returns updated HTTPRoute with status parents updated.
 	acceptRoute(
 		ctx context.Context,
-		routeDetails *resolvedRouteDetails,
-	) error
+		routeDetails resolvedRouteDetails,
+	) (*gatewayv1.HTTPRoute, error)
 
 	// resolveBackendRefs resolves the backend references for a given HTTPRoute.
 	// It returns a map of service name to service port. It may update the route status
@@ -123,8 +124,8 @@ func (m *httpRouteModelImpl) resolveRequest(
 
 func (m *httpRouteModelImpl) acceptRoute(
 	ctx context.Context,
-	routeDetails *resolvedRouteDetails,
-) error {
+	routeDetails resolvedRouteDetails,
+) (*gatewayv1.HTTPRoute, error) {
 	parentStatus, parentStatusIndex, found := lo.FindIndexOf(
 		routeDetails.httpRoute.Status.Parents,
 		func(s gatewayv1.RouteParentStatus) bool {
@@ -143,7 +144,7 @@ func (m *httpRouteModelImpl) acceptRoute(
 				slog.String("gateway", routeDetails.gatewayDetails.gateway.Name),
 				slog.Int64("generation", existingCondition.ObservedGeneration),
 			)
-			return nil
+			return &routeDetails.httpRoute, nil
 		}
 	} else {
 		parentStatus = gatewayv1.RouteParentStatus{
@@ -151,34 +152,36 @@ func (m *httpRouteModelImpl) acceptRoute(
 			ControllerName: routeDetails.gatewayDetails.gatewayClass.Spec.ControllerName,
 		}
 	}
+
+	httpRoute := routeDetails.httpRoute.DeepCopy()
 	meta.SetStatusCondition(&parentStatus.Conditions, metav1.Condition{
 		Type:               string(gatewayv1.RouteConditionAccepted),
 		Status:             metav1.ConditionTrue,
 		Reason:             string(gatewayv1.RouteReasonAccepted),
-		ObservedGeneration: routeDetails.httpRoute.Generation,
+		ObservedGeneration: httpRoute.Generation,
 		LastTransitionTime: metav1.Now(),
 		Message:            fmt.Sprintf("Route accepted by %s", routeDetails.gatewayDetails.gateway.Name),
 	})
 
 	if found {
 		m.logger.InfoContext(ctx, "Updating HTTProute status as Accepted",
-			slog.String("route", routeDetails.httpRoute.Name),
+			slog.String("route", httpRoute.Name),
 			slog.String("gateway", routeDetails.gatewayDetails.gateway.Name),
 		)
-		routeDetails.httpRoute.Status.Parents[parentStatusIndex] = parentStatus
+		httpRoute.Status.Parents[parentStatusIndex] = parentStatus
 	} else {
 		m.logger.InfoContext(ctx, "Accepting new HTTProute",
-			slog.String("route", routeDetails.httpRoute.Name),
+			slog.String("route", httpRoute.Name),
 			slog.String("gateway", routeDetails.gatewayDetails.gateway.Name),
 		)
-		routeDetails.httpRoute.Status.Parents = append(routeDetails.httpRoute.Status.Parents, parentStatus)
+		httpRoute.Status.Parents = append(httpRoute.Status.Parents, parentStatus)
 	}
 
-	if err := m.client.Status().Update(ctx, &routeDetails.httpRoute); err != nil {
-		return fmt.Errorf("failed to update status for HTTProute %s: %w", routeDetails.httpRoute.Name, err)
+	if err := m.client.Status().Update(ctx, httpRoute); err != nil {
+		return nil, fmt.Errorf("failed to update status for HTTProute %s: %w", httpRoute.Name, err)
 	}
 
-	return nil
+	return httpRoute, nil
 }
 
 // httpRouteModelDeps defines the dependencies required for the httpRouteModel.
