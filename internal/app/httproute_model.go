@@ -7,6 +7,7 @@ import (
 
 	"github.com/samber/lo"
 	"go.uber.org/dig"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,6 +20,10 @@ type resolvedRouteDetails struct {
 	gatewayDetails acceptedGatewayDetails
 	matchedRef     gatewayv1.ParentReference
 	httpRoute      gatewayv1.HTTPRoute
+}
+
+type resolveBackendRefsParams struct {
+	httpRoute gatewayv1.HTTPRoute
 }
 
 // httpRouteModel defines the interface for managing HTTPRoute resources.
@@ -42,10 +47,10 @@ type httpRouteModel interface {
 	// resolveBackendRefs resolves the backend references for a given HTTPRoute.
 	// It returns a map of service name to service port. It may update the route status
 	// with the ResolvedRefs condition.
-	// resolveBackendRefs(
-	// 	ctx context.Context,
-	// 	routeDetails *resolvedRouteDetails,
-	// ) (map[string]v1.Service, error)
+	resolveBackendRefs(
+		ctx context.Context,
+		params resolveBackendRefsParams,
+	) (map[string]v1.Service, error)
 }
 
 type httpRouteModelImpl struct {
@@ -182,6 +187,13 @@ func (m *httpRouteModelImpl) acceptRoute(
 	}
 
 	return httpRoute, nil
+}
+
+func (m *httpRouteModelImpl) resolveBackendRefs(
+	ctx context.Context,
+	params resolveBackendRefsParams,
+) (map[string]v1.Service, error) {
+	return nil, nil
 }
 
 // httpRouteModelDeps defines the dependencies required for the httpRouteModel.

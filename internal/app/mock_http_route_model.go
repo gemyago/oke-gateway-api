@@ -7,7 +7,10 @@ package app
 import (
 	context "context"
 
+	corev1 "k8s.io/api/core/v1"
+
 	mock "github.com/stretchr/testify/mock"
+
 	reconcile "sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -81,6 +84,65 @@ func (_c *MockhttpRouteModel_acceptRoute_Call) Return(_a0 *v1.HTTPRoute, _a1 err
 }
 
 func (_c *MockhttpRouteModel_acceptRoute_Call) RunAndReturn(run func(context.Context, resolvedRouteDetails) (*v1.HTTPRoute, error)) *MockhttpRouteModel_acceptRoute_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// resolveBackendRefs provides a mock function with given fields: ctx, params
+func (_m *MockhttpRouteModel) resolveBackendRefs(ctx context.Context, params resolveBackendRefsParams) (map[string]corev1.Service, error) {
+	ret := _m.Called(ctx, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for resolveBackendRefs")
+	}
+
+	var r0 map[string]corev1.Service
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, resolveBackendRefsParams) (map[string]corev1.Service, error)); ok {
+		return rf(ctx, params)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, resolveBackendRefsParams) map[string]corev1.Service); ok {
+		r0 = rf(ctx, params)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]corev1.Service)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, resolveBackendRefsParams) error); ok {
+		r1 = rf(ctx, params)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockhttpRouteModel_resolveBackendRefs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'resolveBackendRefs'
+type MockhttpRouteModel_resolveBackendRefs_Call struct {
+	*mock.Call
+}
+
+// resolveBackendRefs is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params resolveBackendRefsParams
+func (_e *MockhttpRouteModel_Expecter) resolveBackendRefs(ctx interface{}, params interface{}) *MockhttpRouteModel_resolveBackendRefs_Call {
+	return &MockhttpRouteModel_resolveBackendRefs_Call{Call: _e.mock.On("resolveBackendRefs", ctx, params)}
+}
+
+func (_c *MockhttpRouteModel_resolveBackendRefs_Call) Run(run func(ctx context.Context, params resolveBackendRefsParams)) *MockhttpRouteModel_resolveBackendRefs_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(resolveBackendRefsParams))
+	})
+	return _c
+}
+
+func (_c *MockhttpRouteModel_resolveBackendRefs_Call) Return(_a0 map[string]corev1.Service, _a1 error) *MockhttpRouteModel_resolveBackendRefs_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockhttpRouteModel_resolveBackendRefs_Call) RunAndReturn(run func(context.Context, resolveBackendRefsParams) (map[string]corev1.Service, error)) *MockhttpRouteModel_resolveBackendRefs_Call {
 	_c.Call.Return(run)
 	return _c
 }
