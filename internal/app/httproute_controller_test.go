@@ -38,6 +38,7 @@ func TestHTTPRouteController(t *testing.T) {
 			httpRoute: makeRandomHTTPRoute(),
 			gatewayDetails: acceptedGatewayDetails{
 				gateway: *newRandomGateway(),
+				config:  makeRandomGatewayConfig(),
 			},
 		}
 
@@ -78,6 +79,16 @@ func TestHTTPRouteController(t *testing.T) {
 				httpRoute: wantAcceptedRoute,
 			},
 		).Return(wantBackendRefs, nil)
+
+		mockModel.EXPECT().programRoute(
+			t.Context(),
+			programRouteParams{
+				gateway:             wantResolvedData.gatewayDetails.gateway,
+				config:              wantResolvedData.gatewayDetails.config,
+				httpRoute:           wantAcceptedRoute,
+				resolvedBackendRefs: wantBackendRefs,
+			},
+		).Return(nil)
 
 		result, err := controller.Reconcile(t.Context(), req)
 

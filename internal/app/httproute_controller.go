@@ -53,11 +53,21 @@ func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Reque
 		return reconcile.Result{}, fmt.Errorf("failed to accept route: %w", err)
 	}
 
-	_, err = r.httpRouteModel.resolveBackendRefs(ctx, resolveBackendRefsParams{
+	backendRefs, err := r.httpRouteModel.resolveBackendRefs(ctx, resolveBackendRefsParams{
 		httpRoute: *acceptedRoute,
 	})
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("failed to resolve backend refs: %w", err)
+	}
+
+	err = r.httpRouteModel.programRoute(ctx, programRouteParams{
+		gateway:             resolvedData.gatewayDetails.gateway,
+		config:              resolvedData.gatewayDetails.config,
+		httpRoute:           *acceptedRoute,
+		resolvedBackendRefs: backendRefs,
+	})
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("failed to program route: %w", err)
 	}
 
 	return reconcile.Result{}, nil

@@ -171,7 +171,7 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 ) (loadbalancer.BackendSet, error) {
 	m.logger.InfoContext(ctx, "Reconciling backend set",
 		slog.String("loadBalancerId", params.loadBalancerID),
-		slog.String("name", params.name),
+		slog.String("backendSetName", params.name),
 	)
 
 	return loadbalancer.BackendSet{}, nil
