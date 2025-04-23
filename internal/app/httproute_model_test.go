@@ -501,21 +501,6 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				makeRandomBackendRef(),
 			}
 
-			allBackendRefs := make([]gatewayv1.HTTPBackendRef, 0, len(backendRefs1)+len(backendRefs2))
-			allBackendRefs = append(allBackendRefs, backendRefs1...)
-			allBackendRefs = append(allBackendRefs, backendRefs2...)
-			services := lo.Map(allBackendRefs, func(ref gatewayv1.HTTPBackendRef, _ int) corev1.Service {
-				return makeRandomService(randomServiceFromBackendRef(ref))
-			})
-
-			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			for _, service := range services {
-				setupClientGet(t, mockK8sClient, types.NamespacedName{
-					Namespace: service.Namespace,
-					Name:      service.Name,
-				}, service)
-			}
-
 			httpRoute := makeRandomHTTPRoute(
 				randomHTTPRouteWithRandomRulesOpt(
 					randomHTTPRouteRule(
@@ -526,6 +511,21 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 					),
 				),
 			)
+
+			allBackendRefs := make([]gatewayv1.HTTPBackendRef, 0, len(backendRefs1)+len(backendRefs2))
+			allBackendRefs = append(allBackendRefs, backendRefs1...)
+			allBackendRefs = append(allBackendRefs, backendRefs2...)
+			services := lo.Map(allBackendRefs, func(ref gatewayv1.HTTPBackendRef, _ int) corev1.Service {
+				return makeRandomService(randomServiceFromBackendRef(ref, &httpRoute))
+			})
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			for _, service := range services {
+				setupClientGet(t, mockK8sClient, types.NamespacedName{
+					Namespace: service.Namespace,
+					Name:      service.Name,
+				}, service)
+			}
 
 			resolvedBackendRefs, err := model.resolveBackendRefs(t.Context(), resolveBackendRefsParams{
 				httpRoute: httpRoute,

@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -278,13 +279,13 @@ func makeRandomService(
 	return svc
 }
 
-func randomServiceFromBackendRef(ref gatewayv1.HTTPBackendRef) randomServiceOpt {
+func randomServiceFromBackendRef(ref gatewayv1.HTTPBackendRef, parent client.Object) randomServiceOpt {
 	return func(svc *corev1.Service) {
 		svc.Name = string(ref.BackendObjectReference.Name)
 		if ref.BackendObjectReference.Namespace != nil {
 			svc.Namespace = string(*ref.BackendObjectReference.Namespace)
 		} else {
-			svc.Namespace = ""
+			svc.Namespace = parent.GetNamespace()
 		}
 		svc.Spec.Ports = []corev1.ServicePort{
 			{
