@@ -606,10 +606,17 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
 
-			for _, wantBs := range wantBss {
+			for i, wantBs := range wantBss {
+				rule := httpRoute.Spec.Rules[i]
+				firstBackendRef := rule.BackendRefs[0]
+				port := int32(*firstBackendRef.BackendRef.Port)
 				ociLBModel.EXPECT().reconcileBackendSet(t.Context(), reconcileBackendSetParams{
 					loadBalancerID: params.config.Spec.LoadBalancerID,
 					name:           *wantBs.Name,
+					healthChecker: &loadbalancer.HealthCheckerDetails{
+						Protocol: lo.ToPtr("HTTP"),
+						Port:     lo.ToPtr(int(port)),
+					},
 				}).Return(wantBs, nil)
 			}
 

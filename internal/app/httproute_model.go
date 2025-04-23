@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/gemyago/oke-gateway-api/internal/types"
+	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
 	"go.uber.org/dig"
 	v1 "k8s.io/api/core/v1"
@@ -262,9 +263,20 @@ func (m *httpRouteModelImpl) programRoute(
 		)
 		bsName := fmt.Sprintf("%s-%s", params.httpRoute.Name, ruleName)
 
+		// TODO: Some check is required (on accept level) to check that refs within the same rule have same port
+		// as well as livliness probes. OCI load balancer does not support per backend HC
+		// Also make sure there is at least one backend ref
+
+		firstBackendRef := rule.BackendRefs[0]
+		port := int32(*firstBackendRef.BackendRef.Port)
+
 		_, err := m.ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
 			loadBalancerID: params.config.Spec.LoadBalancerID,
 			name:           bsName,
+			healthChecker: &loadbalancer.HealthCheckerDetails{
+				Protocol: lo.ToPtr("HTTP"),
+				Port:     lo.ToPtr(int(port)),
+			},
 		})
 		if err != nil {
 			return fmt.Errorf("failed to reconcile backend set %s: %w", bsName, err)

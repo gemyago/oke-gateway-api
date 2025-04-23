@@ -269,6 +269,7 @@ func makeRandomService(
 			Selector: map[string]string{
 				"app": faker.DomainName(),
 			},
+			ClusterIP: faker.IPv4(),
 			Ports: []corev1.ServicePort{
 				{
 					Port:       rand.Int32N(65535),
