@@ -70,5 +70,7 @@ func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Reque
 		return reconcile.Result{}, fmt.Errorf("failed to program route: %w", err)
 	}
 
+	r.logger.InfoContext(ctx, fmt.Sprintf("Reconciled HTTProute %s", req.NamespacedName))
+
 	return reconcile.Result{}, nil
 }

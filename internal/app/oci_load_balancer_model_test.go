@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
+	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
 	"github.com/go-faker/faker/v4"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
@@ -200,7 +201,10 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
 				BackendSetName: &params.name,
 				LoadBalancerId: &params.loadBalancerID,
-			}).Return(loadbalancer.GetBackendSetResponse{}, errors.New("not found")).Once()
+			}).Return(
+				loadbalancer.GetBackendSetResponse{},
+				ociapi.NewRandomServiceError(ociapi.RandomServiceErrorWithStatusCode(404)),
+			).Once()
 
 			ociLoadBalancerClient.EXPECT().CreateBackendSet(t.Context(), loadbalancer.CreateBackendSetRequest{
 				LoadBalancerId: &params.loadBalancerID,
@@ -225,6 +229,32 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			actualBackendSet, err := model.reconcileBackendSet(t.Context(), params)
 			require.NoError(t, err)
 			assert.Equal(t, wantBs, actualBackendSet)
+		})
+
+		t.Run("fail if error getting backend set", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+
+			params := reconcileBackendSetParams{
+				loadBalancerID: faker.UUIDHyphenated(),
+				name:           faker.UUIDHyphenated(),
+				healthChecker: &loadbalancer.HealthCheckerDetails{
+					Protocol: lo.ToPtr("HTTP"),
+					Port:     lo.ToPtr(rand.IntN(65535)),
+				},
+			}
+
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			wantErr := errors.New(faker.Sentence())
+			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
+				BackendSetName: &params.name,
+				LoadBalancerId: &params.loadBalancerID,
+			}).Return(loadbalancer.GetBackendSetResponse{}, wantErr)
+
+			_, err := model.reconcileBackendSet(t.Context(), params)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, wantErr)
 		})
 	})
 }

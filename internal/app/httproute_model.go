@@ -273,8 +273,10 @@ func (m *httpRouteModelImpl) programRoute(
 		_, err := m.ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
 			loadBalancerID: params.config.Spec.LoadBalancerID,
 			name:           bsName,
+
+			// TODO: Consider using HTTP health check
 			healthChecker: &loadbalancer.HealthCheckerDetails{
-				Protocol: lo.ToPtr("HTTP"),
+				Protocol: lo.ToPtr("TCP"),
 				Port:     lo.ToPtr(int(port)),
 			},
 		})

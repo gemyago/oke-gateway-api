@@ -614,7 +614,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 					loadBalancerID: params.config.Spec.LoadBalancerID,
 					name:           *wantBs.Name,
 					healthChecker: &loadbalancer.HealthCheckerDetails{
-						Protocol: lo.ToPtr("HTTP"),
+						Protocol: lo.ToPtr("TCP"),
 						Port:     lo.ToPtr(int(port)),
 					},
 				}).Return(wantBs, nil)

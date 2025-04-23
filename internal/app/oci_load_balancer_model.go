@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
 	"go.uber.org/dig"
@@ -179,10 +181,16 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 		LoadBalancerId: &params.loadBalancerID,
 	})
 	if err != nil {
-		if err.Error() != "not found" {
+		serviceErr, ok := common.IsServiceError(err)
+		if !ok || serviceErr.GetHTTPStatusCode() != http.StatusNotFound {
 			return loadbalancer.BackendSet{}, fmt.Errorf("failed to get backend set %s: %w", params.name, err)
 		}
 	}
+
+	m.logger.DebugContext(ctx, "Backend set not found, creating",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("backendSetName", params.name),
+	)
 
 	createRes, err := m.ociClient.CreateBackendSet(ctx, loadbalancer.CreateBackendSetRequest{
 		LoadBalancerId: lo.ToPtr(params.loadBalancerID),
