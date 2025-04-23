@@ -35,6 +35,9 @@ type ociLoadBalancerClient interface {
 
 	GetHostname(ctx context.Context, request loadbalancer.GetHostnameRequest) (
 		response loadbalancer.GetHostnameResponse, err error)
+
+	CreateBackend(ctx context.Context, request loadbalancer.CreateBackendRequest) (
+		response loadbalancer.CreateBackendResponse, err error)
 }
 
 type workRequestsWatcher interface {

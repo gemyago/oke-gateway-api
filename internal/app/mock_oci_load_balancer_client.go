@@ -24,6 +24,63 @@ func (_m *MockociLoadBalancerClient) EXPECT() *MockociLoadBalancerClient_Expecte
 	return &MockociLoadBalancerClient_Expecter{mock: &_m.Mock}
 }
 
+// CreateBackend provides a mock function with given fields: ctx, request
+func (_m *MockociLoadBalancerClient) CreateBackend(ctx context.Context, request loadbalancer.CreateBackendRequest) (loadbalancer.CreateBackendResponse, error) {
+	ret := _m.Called(ctx, request)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateBackend")
+	}
+
+	var r0 loadbalancer.CreateBackendResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.CreateBackendRequest) (loadbalancer.CreateBackendResponse, error)); ok {
+		return rf(ctx, request)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.CreateBackendRequest) loadbalancer.CreateBackendResponse); ok {
+		r0 = rf(ctx, request)
+	} else {
+		r0 = ret.Get(0).(loadbalancer.CreateBackendResponse)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.CreateBackendRequest) error); ok {
+		r1 = rf(ctx, request)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockociLoadBalancerClient_CreateBackend_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateBackend'
+type MockociLoadBalancerClient_CreateBackend_Call struct {
+	*mock.Call
+}
+
+// CreateBackend is a helper method to define mock.On call
+//   - ctx context.Context
+//   - request loadbalancer.CreateBackendRequest
+func (_e *MockociLoadBalancerClient_Expecter) CreateBackend(ctx interface{}, request interface{}) *MockociLoadBalancerClient_CreateBackend_Call {
+	return &MockociLoadBalancerClient_CreateBackend_Call{Call: _e.mock.On("CreateBackend", ctx, request)}
+}
+
+func (_c *MockociLoadBalancerClient_CreateBackend_Call) Run(run func(ctx context.Context, request loadbalancer.CreateBackendRequest)) *MockociLoadBalancerClient_CreateBackend_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(loadbalancer.CreateBackendRequest))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_CreateBackend_Call) Return(response loadbalancer.CreateBackendResponse, err error) *MockociLoadBalancerClient_CreateBackend_Call {
+	_c.Call.Return(response, err)
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_CreateBackend_Call) RunAndReturn(run func(context.Context, loadbalancer.CreateBackendRequest) (loadbalancer.CreateBackendResponse, error)) *MockociLoadBalancerClient_CreateBackend_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CreateBackendSet provides a mock function with given fields: ctx, request
 func (_m *MockociLoadBalancerClient) CreateBackendSet(ctx context.Context, request loadbalancer.CreateBackendSetRequest) (loadbalancer.CreateBackendSetResponse, error) {
 	ret := _m.Called(ctx, request)

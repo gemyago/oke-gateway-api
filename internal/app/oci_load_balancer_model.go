@@ -236,6 +236,8 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 	return res.BackendSet, nil
 }
 
+// reconcileBackend creates a new backend in the backend set if it doesn't exist.
+// If it exists - does nothing for now.
 func (m *ociLoadBalancerModelImpl) reconcileBackend(
 	ctx context.Context,
 	params reconcileBackendParams,
@@ -247,7 +249,51 @@ func (m *ociLoadBalancerModelImpl) reconcileBackend(
 		slog.Int("port", *params.backend.Port),
 	)
 
-	return params.backendSet, nil
+	_, found := lo.Find(params.backendSet.Backends, func(b loadbalancer.Backend) bool {
+		return *b.IpAddress == *params.backend.IpAddress && *b.Port == *params.backend.Port
+	})
+	if found {
+		m.logger.DebugContext(ctx, "Backend already exists",
+			slog.String("loadBalancerId", params.loadBalancerID),
+			slog.String("backendSetName", *params.backendSet.Name),
+		)
+		return params.backendSet, nil
+	}
+	m.logger.DebugContext(ctx, "Creating new backend",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("backendSetName", *params.backendSet.Name),
+		slog.String("ipAddress", *params.backend.IpAddress),
+		slog.Int("port", *params.backend.Port),
+	)
+
+	createResult, err := m.ociClient.CreateBackend(ctx, loadbalancer.CreateBackendRequest{
+		BackendSetName: params.backendSet.Name,
+		LoadBalancerId: &params.loadBalancerID,
+		CreateBackendDetails: loadbalancer.CreateBackendDetails{
+			IpAddress: params.backend.IpAddress,
+			Port:      params.backend.Port,
+		},
+	})
+	if err != nil {
+		return loadbalancer.BackendSet{}, fmt.Errorf("failed to create backend %s: %w", *params.backend.IpAddress, err)
+	}
+
+	if err = m.workRequestsWatcher.WaitFor(
+		ctx,
+		*createResult.OpcWorkRequestId,
+	); err != nil {
+		return loadbalancer.BackendSet{}, fmt.Errorf("failed to wait for backend %s: %w", *params.backend.IpAddress, err)
+	}
+
+	res, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
+		BackendSetName: params.backendSet.Name,
+		LoadBalancerId: &params.loadBalancerID,
+	})
+	if err != nil {
+		return loadbalancer.BackendSet{}, fmt.Errorf("failed to get backend set %s: %w", *params.backendSet.Name, err)
+	}
+
+	return res.BackendSet, nil
 }
 
 type ociLoadBalancerModelDeps struct {

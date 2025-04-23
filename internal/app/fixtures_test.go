@@ -345,3 +345,17 @@ func randomBackendSetWithNameOpt(name string) randomBackendSetOpt {
 		bs.Name = lo.ToPtr(name)
 	}
 }
+
+func makeRandomOCIBackendDetails() loadbalancer.BackendDetails {
+	return loadbalancer.BackendDetails{
+		IpAddress: lo.ToPtr(faker.IPv4()),
+		Port:      lo.ToPtr(rand.IntN(65535)),
+	}
+}
+
+func makeRandomOCIBackend() loadbalancer.Backend {
+	return loadbalancer.Backend{
+		IpAddress: lo.ToPtr(faker.IPv4()),
+		Port:      lo.ToPtr(rand.IntN(65535)),
+	}
+}
