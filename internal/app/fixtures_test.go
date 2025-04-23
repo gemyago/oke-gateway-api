@@ -281,7 +281,11 @@ func makeRandomService(
 func randomServiceFromBackendRef(ref gatewayv1.HTTPBackendRef) randomServiceOpt {
 	return func(svc *corev1.Service) {
 		svc.Name = string(ref.BackendObjectReference.Name)
-		svc.Namespace = string(*ref.BackendObjectReference.Namespace)
+		if ref.BackendObjectReference.Namespace != nil {
+			svc.Namespace = string(*ref.BackendObjectReference.Namespace)
+		} else {
+			svc.Namespace = ""
+		}
 		svc.Spec.Ports = []corev1.ServicePort{
 			{
 				Port:       int32(*ref.BackendObjectReference.Port),

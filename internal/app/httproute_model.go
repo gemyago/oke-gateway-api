@@ -198,20 +198,21 @@ func (m *httpRouteModelImpl) resolveBackendRefs(
 		for _, backendRef := range rule.BackendRefs {
 			fullName := types.NamespacedName{
 				Name: string(backendRef.BackendObjectReference.Name),
-				Namespace: lo.If(
+				Namespace: lo.IfF(
 					backendRef.BackendObjectReference.Namespace != nil,
-					string(*backendRef.BackendObjectReference.Namespace),
+					func() string { return string(*backendRef.BackendObjectReference.Namespace) },
 				).Else(params.httpRoute.Namespace),
 			}
 
-			m.logger.DebugContext(ctx, "Resolving backend ref",
-				slog.String("fullName", fullName.String()),
-			)
 			var service v1.Service
 			if err := m.client.Get(ctx, fullName, &service); err != nil {
 				return nil, fmt.Errorf("failed to get service %s: %w", fullName.String(), err)
 			}
 
+			m.logger.DebugContext(ctx, "Backend ref resolved",
+				slog.String("fullName", fullName.String()),
+				slog.String("uuid", string(service.UID)),
+			)
 			resolvedBackendRefs[fullName.String()] = service
 		}
 	}
