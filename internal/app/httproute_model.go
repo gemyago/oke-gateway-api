@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 
 	"github.com/gemyago/oke-gateway-api/internal/types"
 	"github.com/samber/lo"
@@ -252,6 +253,23 @@ func (m *httpRouteModelImpl) programRoute(
 	// backend set is created per rule with services as backends
 	// for the future: services must have same port to make health check work
 	// backend set name must be derived from the http route name + rule name (or index if name is empty)
+
+	for i, rule := range params.httpRoute.Spec.Rules {
+		ruleName := lo.TernaryF(
+			rule.Name != nil,
+			func() gatewayv1.SectionName { return *rule.Name },
+			func() gatewayv1.SectionName { return gatewayv1.SectionName(strconv.Itoa(i)) },
+		)
+		bsName := fmt.Sprintf("%s-%s", params.httpRoute.Name, ruleName)
+
+		_, err := m.ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
+			loadBalancerID: params.config.Spec.LoadBalancerID,
+			name:           bsName,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to reconcile backend set %s: %w", bsName, err)
+		}
+	}
 
 	return nil
 }
