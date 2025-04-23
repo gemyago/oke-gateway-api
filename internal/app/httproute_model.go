@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/gemyago/oke-gateway-api/internal/types"
 	"github.com/samber/lo"
 	"go.uber.org/dig"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	types "k8s.io/apimachinery/pkg/types"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
@@ -24,6 +25,13 @@ type resolvedRouteDetails struct {
 
 type resolveBackendRefsParams struct {
 	httpRoute gatewayv1.HTTPRoute
+}
+
+type programRouteParams struct {
+	gateway             gatewayv1.Gateway
+	config              types.GatewayConfig
+	httpRoute           gatewayv1.HTTPRoute
+	resolvedBackendRefs map[string]v1.Service
 }
 
 // httpRouteModel defines the interface for managing HTTPRoute resources.
@@ -51,6 +59,12 @@ type httpRouteModel interface {
 		ctx context.Context,
 		params resolveBackendRefsParams,
 	) (map[string]v1.Service, error)
+
+	// programRoute programs a given HTTPRoute.
+	programRoute(
+		ctx context.Context,
+		params programRouteParams,
+	) error
 }
 
 type httpRouteModelImpl struct {
@@ -83,7 +97,7 @@ func (m *httpRouteModelImpl) resolveRequest(
 		if parentRef.Namespace != nil {
 			gatewayNamespace = string(lo.FromPtr(parentRef.Namespace))
 		}
-		parentName := types.NamespacedName{
+		parentName := apitypes.NamespacedName{
 			Namespace: gatewayNamespace,
 			Name:      string(parentRef.Name),
 		}
@@ -196,7 +210,7 @@ func (m *httpRouteModelImpl) resolveBackendRefs(
 	resolvedBackendRefs := make(map[string]v1.Service)
 	for _, rule := range params.httpRoute.Spec.Rules {
 		for _, backendRef := range rule.BackendRefs {
-			fullName := types.NamespacedName{
+			fullName := apitypes.NamespacedName{
 				Name: string(backendRef.BackendObjectReference.Name),
 				Namespace: lo.IfF(
 					backendRef.BackendObjectReference.Namespace != nil,
@@ -221,6 +235,13 @@ func (m *httpRouteModelImpl) resolveBackendRefs(
 	// as per spec
 
 	return resolvedBackendRefs, nil
+}
+
+func (m *httpRouteModelImpl) programRoute(
+	ctx context.Context,
+	params programRouteParams,
+) error {
+	return nil
 }
 
 // httpRouteModelDeps defines the dependencies required for the httpRouteModel.
