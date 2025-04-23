@@ -71,6 +71,7 @@ type httpRouteModelImpl struct {
 	client       k8sClient
 	logger       *slog.Logger
 	gatewayModel gatewayModel
+	ociLoadBalancerModel
 }
 
 func (m *httpRouteModelImpl) resolveRequest(
@@ -241,6 +242,10 @@ func (m *httpRouteModelImpl) programRoute(
 	ctx context.Context,
 	params programRouteParams,
 ) error {
+	// backend set is created per rule with services as backends
+	// for the future: services must have same port to make health check work
+	// backend set name must be derived from the http route name + rule name (or index if name is empty)
+
 	return nil
 }
 
@@ -251,13 +256,15 @@ type httpRouteModelDeps struct {
 	K8sClient    k8sClient
 	RootLogger   *slog.Logger
 	GatewayModel gatewayModel
+	OciLBModel   ociLoadBalancerModel
 }
 
 // newHTTPRouteModel creates a new instance of httpRouteModel.
 func newHTTPRouteModel(deps httpRouteModelDeps) httpRouteModel {
 	return &httpRouteModelImpl{
-		client:       deps.K8sClient,
-		logger:       deps.RootLogger.With("component", "httproute-model"),
-		gatewayModel: deps.GatewayModel,
+		client:               deps.K8sClient,
+		logger:               deps.RootLogger.With("component", "httproute-model"),
+		gatewayModel:         deps.GatewayModel,
+		ociLoadBalancerModel: deps.OciLBModel,
 	}
 }

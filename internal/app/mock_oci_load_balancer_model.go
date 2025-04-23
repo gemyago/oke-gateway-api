@@ -24,6 +24,120 @@ func (_m *MockociLoadBalancerModel) EXPECT() *MockociLoadBalancerModel_Expecter 
 	return &MockociLoadBalancerModel_Expecter{mock: &_m.Mock}
 }
 
+// reconcileBackend provides a mock function with given fields: ctx, params
+func (_m *MockociLoadBalancerModel) reconcileBackend(ctx context.Context, params reconcileBackendParams) (loadbalancer.BackendSet, error) {
+	ret := _m.Called(ctx, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for reconcileBackend")
+	}
+
+	var r0 loadbalancer.BackendSet
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, reconcileBackendParams) (loadbalancer.BackendSet, error)); ok {
+		return rf(ctx, params)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, reconcileBackendParams) loadbalancer.BackendSet); ok {
+		r0 = rf(ctx, params)
+	} else {
+		r0 = ret.Get(0).(loadbalancer.BackendSet)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, reconcileBackendParams) error); ok {
+		r1 = rf(ctx, params)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockociLoadBalancerModel_reconcileBackend_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'reconcileBackend'
+type MockociLoadBalancerModel_reconcileBackend_Call struct {
+	*mock.Call
+}
+
+// reconcileBackend is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params reconcileBackendParams
+func (_e *MockociLoadBalancerModel_Expecter) reconcileBackend(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileBackend_Call {
+	return &MockociLoadBalancerModel_reconcileBackend_Call{Call: _e.mock.On("reconcileBackend", ctx, params)}
+}
+
+func (_c *MockociLoadBalancerModel_reconcileBackend_Call) Run(run func(ctx context.Context, params reconcileBackendParams)) *MockociLoadBalancerModel_reconcileBackend_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(reconcileBackendParams))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_reconcileBackend_Call) Return(_a0 loadbalancer.BackendSet, _a1 error) *MockociLoadBalancerModel_reconcileBackend_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_reconcileBackend_Call) RunAndReturn(run func(context.Context, reconcileBackendParams) (loadbalancer.BackendSet, error)) *MockociLoadBalancerModel_reconcileBackend_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// reconcileBackendSet provides a mock function with given fields: ctx, params
+func (_m *MockociLoadBalancerModel) reconcileBackendSet(ctx context.Context, params reconcileBackendSetParams) (loadbalancer.BackendSet, error) {
+	ret := _m.Called(ctx, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for reconcileBackendSet")
+	}
+
+	var r0 loadbalancer.BackendSet
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, reconcileBackendSetParams) (loadbalancer.BackendSet, error)); ok {
+		return rf(ctx, params)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, reconcileBackendSetParams) loadbalancer.BackendSet); ok {
+		r0 = rf(ctx, params)
+	} else {
+		r0 = ret.Get(0).(loadbalancer.BackendSet)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, reconcileBackendSetParams) error); ok {
+		r1 = rf(ctx, params)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockociLoadBalancerModel_reconcileBackendSet_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'reconcileBackendSet'
+type MockociLoadBalancerModel_reconcileBackendSet_Call struct {
+	*mock.Call
+}
+
+// reconcileBackendSet is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params reconcileBackendSetParams
+func (_e *MockociLoadBalancerModel_Expecter) reconcileBackendSet(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileBackendSet_Call {
+	return &MockociLoadBalancerModel_reconcileBackendSet_Call{Call: _e.mock.On("reconcileBackendSet", ctx, params)}
+}
+
+func (_c *MockociLoadBalancerModel_reconcileBackendSet_Call) Run(run func(ctx context.Context, params reconcileBackendSetParams)) *MockociLoadBalancerModel_reconcileBackendSet_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(reconcileBackendSetParams))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_reconcileBackendSet_Call) Return(_a0 loadbalancer.BackendSet, _a1 error) *MockociLoadBalancerModel_reconcileBackendSet_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_reconcileBackendSet_Call) RunAndReturn(run func(context.Context, reconcileBackendSetParams) (loadbalancer.BackendSet, error)) *MockociLoadBalancerModel_reconcileBackendSet_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // reconcileDefaultBackendSet provides a mock function with given fields: ctx, params
 func (_m *MockociLoadBalancerModel) reconcileDefaultBackendSet(ctx context.Context, params reconcileDefaultBackendParams) (loadbalancer.BackendSet, error) {
 	ret := _m.Called(ctx, params)

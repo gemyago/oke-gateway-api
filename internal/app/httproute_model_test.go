@@ -31,6 +31,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			K8sClient:    NewMockk8sClient(t),
 			RootLogger:   diag.RootTestLogger(),
 			GatewayModel: NewMockgatewayModel(t),
+			OciLBModel:   NewMockociLoadBalancerModel(t),
 		}
 	}
 

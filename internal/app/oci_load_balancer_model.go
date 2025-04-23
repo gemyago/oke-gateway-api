@@ -19,6 +19,18 @@ type reconcileDefaultBackendParams struct {
 	gateway          *gatewayv1.Gateway
 }
 
+type reconcileBackendSetParams struct {
+	loadBalancerID string
+	name           string
+	healthChecker  *loadbalancer.HealthCheckerDetails
+}
+
+type reconcileBackendParams struct {
+	loadBalancerID string
+	backendSet     loadbalancer.BackendSet
+	backend        loadbalancer.BackendDetails
+}
+
 type reconcileHTTPListenerParams struct {
 	loadBalancerID        string
 	knownListeners        map[string]loadbalancer.Listener
@@ -35,6 +47,14 @@ type ociLoadBalancerModel interface {
 		ctx context.Context,
 		params reconcileHTTPListenerParams,
 	) (loadbalancer.Listener, error)
+	reconcileBackendSet(
+		ctx context.Context,
+		params reconcileBackendSetParams,
+	) (loadbalancer.BackendSet, error)
+	reconcileBackend(
+		ctx context.Context,
+		params reconcileBackendParams,
+	) (loadbalancer.BackendSet, error)
 }
 
 type ociLoadBalancerModelImpl struct {
@@ -143,6 +163,20 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 	// TODO: fail if listener is still not there
 
 	return res.LoadBalancer.Listeners[listenerName], nil
+}
+
+func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
+	ctx context.Context,
+	params reconcileBackendSetParams,
+) (loadbalancer.BackendSet, error) {
+	return loadbalancer.BackendSet{}, nil
+}
+
+func (m *ociLoadBalancerModelImpl) reconcileBackend(
+	ctx context.Context,
+	params reconcileBackendParams,
+) (loadbalancer.BackendSet, error) {
+	return params.backendSet, nil
 }
 
 type ociLoadBalancerModelDeps struct {
