@@ -270,7 +270,7 @@ func (m *httpRouteModelImpl) programRoute(
 		firstBackendRef := rule.BackendRefs[0]
 		port := int32(*firstBackendRef.BackendRef.Port)
 
-		reconciledBs, err := m.ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
+		_, err := m.ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
 			loadBalancerID: params.config.Spec.LoadBalancerID,
 			name:           bsName,
 
@@ -282,23 +282,6 @@ func (m *httpRouteModelImpl) programRoute(
 		})
 		if err != nil {
 			return fmt.Errorf("failed to reconcile backend set %s: %w", bsName, err)
-		}
-
-		for _, backendRef := range rule.BackendRefs {
-			svcFullName := backendRefName(backendRef, params.httpRoute.Namespace)
-			svc := params.resolvedBackendRefs[svcFullName.String()]
-
-			reconciledBs, err = m.ociLoadBalancerModel.reconcileBackend(ctx, reconcileBackendParams{
-				loadBalancerID: params.config.Spec.LoadBalancerID,
-				backendSet:     reconciledBs,
-				backend: loadbalancer.BackendDetails{
-					IpAddress: lo.ToPtr(svc.Spec.ClusterIP),
-					Port:      lo.ToPtr(int(*backendRef.BackendRef.Port)),
-				},
-			})
-			if err != nil {
-				return fmt.Errorf("failed to reconcile backend %s: %w", svcFullName.String(), err)
-			}
 		}
 	}
 

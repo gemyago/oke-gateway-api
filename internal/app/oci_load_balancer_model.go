@@ -27,12 +27,6 @@ type reconcileBackendSetParams struct {
 	healthChecker  *loadbalancer.HealthCheckerDetails
 }
 
-type reconcileBackendParams struct {
-	loadBalancerID string
-	backendSet     loadbalancer.BackendSet
-	backend        loadbalancer.BackendDetails
-}
-
 type reconcileHTTPListenerParams struct {
 	loadBalancerID        string
 	knownListeners        map[string]loadbalancer.Listener
@@ -52,10 +46,6 @@ type ociLoadBalancerModel interface {
 	reconcileBackendSet(
 		ctx context.Context,
 		params reconcileBackendSetParams,
-	) (loadbalancer.BackendSet, error)
-	reconcileBackend(
-		ctx context.Context,
-		params reconcileBackendParams,
 	) (loadbalancer.BackendSet, error)
 }
 
@@ -231,66 +221,6 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 	})
 	if err != nil {
 		return loadbalancer.BackendSet{}, fmt.Errorf("failed to get backend set %s: %w", params.name, err)
-	}
-
-	return res.BackendSet, nil
-}
-
-// reconcileBackend creates a new backend in the backend set if it doesn't exist.
-// If it exists - does nothing for now.
-func (m *ociLoadBalancerModelImpl) reconcileBackend(
-	ctx context.Context,
-	params reconcileBackendParams,
-) (loadbalancer.BackendSet, error) {
-	m.logger.InfoContext(ctx, "Reconciling backend",
-		slog.String("loadBalancerId", params.loadBalancerID),
-		slog.String("backendSetName", *params.backendSet.Name),
-		slog.String("IpAddress", *params.backend.IpAddress),
-		slog.Int("port", *params.backend.Port),
-	)
-
-	_, found := lo.Find(params.backendSet.Backends, func(b loadbalancer.Backend) bool {
-		return *b.IpAddress == *params.backend.IpAddress && *b.Port == *params.backend.Port
-	})
-	if found {
-		m.logger.DebugContext(ctx, "Backend already exists",
-			slog.String("loadBalancerId", params.loadBalancerID),
-			slog.String("backendSetName", *params.backendSet.Name),
-		)
-		return params.backendSet, nil
-	}
-	m.logger.DebugContext(ctx, "Creating new backend",
-		slog.String("loadBalancerId", params.loadBalancerID),
-		slog.String("backendSetName", *params.backendSet.Name),
-		slog.String("ipAddress", *params.backend.IpAddress),
-		slog.Int("port", *params.backend.Port),
-	)
-
-	createResult, err := m.ociClient.CreateBackend(ctx, loadbalancer.CreateBackendRequest{
-		BackendSetName: params.backendSet.Name,
-		LoadBalancerId: &params.loadBalancerID,
-		CreateBackendDetails: loadbalancer.CreateBackendDetails{
-			IpAddress: params.backend.IpAddress,
-			Port:      params.backend.Port,
-		},
-	})
-	if err != nil {
-		return loadbalancer.BackendSet{}, fmt.Errorf("failed to create backend %s: %w", *params.backend.IpAddress, err)
-	}
-
-	if err = m.workRequestsWatcher.WaitFor(
-		ctx,
-		*createResult.OpcWorkRequestId,
-	); err != nil {
-		return loadbalancer.BackendSet{}, fmt.Errorf("failed to wait for backend %s: %w", *params.backend.IpAddress, err)
-	}
-
-	res, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
-		BackendSetName: params.backendSet.Name,
-		LoadBalancerId: &params.loadBalancerID,
-	})
-	if err != nil {
-		return loadbalancer.BackendSet{}, fmt.Errorf("failed to get backend set %s: %w", *params.backendSet.Name, err)
 	}
 
 	return res.BackendSet, nil

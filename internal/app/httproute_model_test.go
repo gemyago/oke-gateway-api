@@ -620,22 +620,6 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 						Port:     lo.ToPtr(int(port)),
 					},
 				}).Return(nextBs, nil)
-
-				for _, ref := range rule.BackendRefs {
-					svcFullName := backendRefName(ref, httpRoute.Namespace)
-					svc := resolvedBackendRefs[svcFullName.String()]
-
-					updatedBackendBs := makeRandomBackendSet()
-					ociLBModel.EXPECT().reconcileBackend(t.Context(), reconcileBackendParams{
-						loadBalancerID: params.config.Spec.LoadBalancerID,
-						backendSet:     nextBs,
-						backend: loadbalancer.BackendDetails{
-							IpAddress: lo.ToPtr(svc.Spec.ClusterIP),
-							Port:      lo.ToPtr(int(*ref.BackendRef.Port)),
-						},
-					}).Return(updatedBackendBs, nil)
-					nextBs = updatedBackendBs
-				}
 			}
 
 			err := model.programRoute(t.Context(), params)
