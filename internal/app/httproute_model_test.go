@@ -576,7 +576,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			wantBsNames := lo.Map(httpRoute.Spec.Rules, func(rule gatewayv1.HTTPRouteRule, i int) string {
 				if rule.Name == nil {
-					return fmt.Sprintf("%s-%d", httpRoute.Name, i)
+					return fmt.Sprintf("%s-rt-%d", httpRoute.Name, i)
 				}
 				return fmt.Sprintf("%s-%s", httpRoute.Name, *rule.Name)
 			})

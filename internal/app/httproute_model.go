@@ -258,7 +258,7 @@ func (m *httpRouteModelImpl) programRoute(
 		ruleName := lo.TernaryF(
 			rule.Name != nil,
 			func() gatewayv1.SectionName { return *rule.Name },
-			func() gatewayv1.SectionName { return gatewayv1.SectionName(strconv.Itoa(i)) },
+			func() gatewayv1.SectionName { return gatewayv1.SectionName("rt-" + strconv.Itoa(i)) },
 		)
 		bsName := fmt.Sprintf("%s-%s", params.httpRoute.Name, ruleName)
 
