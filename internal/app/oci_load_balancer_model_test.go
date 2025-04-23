@@ -1,6 +1,8 @@
 package app
 
 import (
+	"errors"
+	"math/rand/v2"
 	"testing"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -171,6 +173,58 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			actualListener, err := model.reconcileHTTPListener(t.Context(), params)
 			require.NoError(t, err)
 			assert.Equal(t, wantListener, actualListener)
+		})
+	})
+
+	t.Run("reconcileBackendSet", func(t *testing.T) {
+		t.Run("create new backend set", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+
+			params := reconcileBackendSetParams{
+				loadBalancerID: faker.UUIDHyphenated(),
+				name:           faker.UUIDHyphenated(),
+				healthChecker: &loadbalancer.HealthCheckerDetails{
+					Protocol: lo.ToPtr("HTTP"),
+					Port:     lo.ToPtr(rand.IntN(65535)),
+				},
+			}
+
+			wantBs := makeRandomOCIBackendSet()
+
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+			workRequestID := faker.UUIDHyphenated()
+
+			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
+				BackendSetName: &params.name,
+				LoadBalancerId: &params.loadBalancerID,
+			}).Return(loadbalancer.GetBackendSetResponse{}, errors.New("not found")).Once()
+
+			ociLoadBalancerClient.EXPECT().CreateBackendSet(t.Context(), loadbalancer.CreateBackendSetRequest{
+				LoadBalancerId: &params.loadBalancerID,
+				CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
+					Name:          &params.name,
+					HealthChecker: params.healthChecker,
+					Policy:        lo.ToPtr("ROUND_ROBIN"),
+				},
+			}).Return(loadbalancer.CreateBackendSetResponse{
+				OpcWorkRequestId: &workRequestID,
+			}, nil)
+
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
+
+			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
+				BackendSetName: &params.name,
+				LoadBalancerId: &params.loadBalancerID,
+			}).Return(loadbalancer.GetBackendSetResponse{
+				BackendSet: wantBs,
+			}, nil)
+
+			actualBackendSet, err := model.reconcileBackendSet(t.Context(), params)
+			require.NoError(t, err)
+			assert.Equal(t, wantBs, actualBackendSet)
 		})
 	})
 }

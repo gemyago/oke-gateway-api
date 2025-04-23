@@ -174,7 +174,45 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 		slog.String("backendSetName", params.name),
 	)
 
-	return loadbalancer.BackendSet{}, nil
+	_, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
+		BackendSetName: &params.name,
+		LoadBalancerId: &params.loadBalancerID,
+	})
+	if err != nil {
+		if err.Error() != "not found" {
+			return loadbalancer.BackendSet{}, fmt.Errorf("failed to get backend set %s: %w", params.name, err)
+		}
+	}
+
+	createRes, err := m.ociClient.CreateBackendSet(ctx, loadbalancer.CreateBackendSetRequest{
+		LoadBalancerId: lo.ToPtr(params.loadBalancerID),
+		CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
+			Name:          &params.name,
+			HealthChecker: params.healthChecker,
+			Policy:        lo.ToPtr("ROUND_ROBIN"),
+		},
+	})
+
+	if err != nil {
+		return loadbalancer.BackendSet{}, fmt.Errorf("failed to create backend set %s: %w", params.name, err)
+	}
+
+	if err = m.workRequestsWatcher.WaitFor(
+		ctx,
+		*createRes.OpcWorkRequestId,
+	); err != nil {
+		return loadbalancer.BackendSet{}, fmt.Errorf("failed to wait for backend set %s: %w", params.name, err)
+	}
+
+	res, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
+		BackendSetName: &params.name,
+		LoadBalancerId: lo.ToPtr(params.loadBalancerID),
+	})
+	if err != nil {
+		return loadbalancer.BackendSet{}, fmt.Errorf("failed to get backend set %s: %w", params.name, err)
+	}
+
+	return res.BackendSet, nil
 }
 
 func (m *ociLoadBalancerModelImpl) reconcileBackend(
