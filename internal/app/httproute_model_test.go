@@ -497,6 +497,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				makeRandomBackendRef(),
 			}
 			backendRefs2 := []gatewayv1.HTTPBackendRef{
+				makeRandomBackendRef(randomBackendRefWithNillNamespaceOpt()),
 				makeRandomBackendRef(),
 			}
 
