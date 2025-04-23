@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	v1 "k8s.io/api/core/v1"
+	types "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client" // Import client for ObjectKey
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -39,6 +41,16 @@ func TestHTTPRouteController(t *testing.T) {
 			},
 		}
 
+		wantBackendRefs := make(map[string]v1.Service)
+		for range 3 {
+			svc := makeRandomService()
+			fullName := types.NamespacedName{
+				Namespace: svc.Namespace,
+				Name:      svc.Name,
+			}
+			wantBackendRefs[fullName.String()] = svc
+		}
+
 		mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
@@ -53,10 +65,19 @@ func TestHTTPRouteController(t *testing.T) {
 			return true, nil
 		})
 
+		wantAcceptedRoute := makeRandomHTTPRoute()
+
 		mockModel.EXPECT().acceptRoute(
 			t.Context(),
-			&wantResolvedData,
-		).Return(nil, nil)
+			wantResolvedData,
+		).Return(&wantAcceptedRoute, nil)
+
+		mockModel.EXPECT().resolveBackendRefs(
+			t.Context(),
+			resolveBackendRefsParams{
+				httpRoute: wantAcceptedRoute,
+			},
+		).Return(wantBackendRefs, nil)
 
 		result, err := controller.Reconcile(t.Context(), req)
 
