@@ -215,6 +215,10 @@ func (m *httpRouteModelImpl) resolveBackendRefs(
 			resolvedBackendRefs[fullName.String()] = service
 		}
 	}
+
+	// TODO: This should handle unresolved refs and update the status
+	// as per spec
+
 	return resolvedBackendRefs, nil
 }
 
