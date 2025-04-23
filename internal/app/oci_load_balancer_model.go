@@ -176,7 +176,8 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 		slog.String("backendSetName", params.name),
 	)
 
-	_, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
+	existingBsFound := true
+	existingBs, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
 		BackendSetName: &params.name,
 		LoadBalancerId: &params.loadBalancerID,
 	})
@@ -185,6 +186,18 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 		if !ok || serviceErr.GetHTTPStatusCode() != http.StatusNotFound {
 			return loadbalancer.BackendSet{}, fmt.Errorf("failed to get backend set %s: %w", params.name, err)
 		}
+		existingBsFound = false
+	}
+
+	if existingBsFound {
+		m.logger.DebugContext(ctx, "Backend set found",
+			slog.String("loadBalancerId", params.loadBalancerID),
+			slog.String("backendSetName", params.name),
+		)
+
+		// TODO: Logic to update backend set
+
+		return existingBs.BackendSet, nil
 	}
 
 	m.logger.DebugContext(ctx, "Backend set not found, creating",

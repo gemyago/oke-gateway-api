@@ -231,6 +231,34 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			assert.Equal(t, wantBs, actualBackendSet)
 		})
 
+		t.Run("return existing backend set", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+
+			params := reconcileBackendSetParams{
+				loadBalancerID: faker.UUIDHyphenated(),
+				name:           faker.UUIDHyphenated(),
+				healthChecker: &loadbalancer.HealthCheckerDetails{
+					Protocol: lo.ToPtr("HTTP"),
+					Port:     lo.ToPtr(rand.IntN(65535)),
+				},
+			}
+
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			wantBs := makeRandomOCIBackendSet()
+			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
+				BackendSetName: &params.name,
+				LoadBalancerId: &params.loadBalancerID,
+			}).Return(loadbalancer.GetBackendSetResponse{
+				BackendSet: wantBs,
+			}, nil)
+
+			actualBackendSet, err := model.reconcileBackendSet(t.Context(), params)
+			require.NoError(t, err)
+			assert.Equal(t, wantBs, actualBackendSet)
+		})
+
 		t.Run("fail if error getting backend set", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
