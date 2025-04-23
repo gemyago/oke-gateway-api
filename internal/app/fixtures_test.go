@@ -7,8 +7,10 @@ import (
 	"github.com/go-faker/faker/v4"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -185,6 +187,107 @@ func makeRandomHTTPRoute(
 func randomHTTPRouteWithRandomParentRefOpt(ref gatewayv1.ParentReference) randomHTTPRouteOpt {
 	return func(route *gatewayv1.HTTPRoute) {
 		route.Spec.ParentRefs = append(route.Spec.ParentRefs, ref)
+	}
+}
+
+func randomHTTPRouteWithRandomRulesOpt(rules ...gatewayv1.HTTPRouteRule) randomHTTPRouteOpt {
+	return func(route *gatewayv1.HTTPRoute) {
+		route.Spec.Rules = append(route.Spec.Rules, rules...)
+	}
+}
+
+type randomHTTPRouteRuleOpt func(*gatewayv1.HTTPRouteRule)
+
+func randomHTTPRouteRule(
+	opts ...randomHTTPRouteRuleOpt,
+) gatewayv1.HTTPRouteRule {
+	rule := gatewayv1.HTTPRouteRule{
+		BackendRefs: []gatewayv1.HTTPBackendRef{},
+	}
+
+	for _, opt := range opts {
+		opt(&rule)
+	}
+
+	return rule
+}
+
+func randomHTTPRouteRuleWithRandomBackendRefsOpt(
+	refs ...gatewayv1.HTTPBackendRef,
+) randomHTTPRouteRuleOpt {
+	return func(rule *gatewayv1.HTTPRouteRule) {
+		rule.BackendRefs = append(rule.BackendRefs, refs...)
+	}
+}
+
+type randomBackendRefOpt func(*gatewayv1.HTTPBackendRef)
+
+func makeRandomBackendRef(
+	opts ...randomBackendRefOpt,
+) gatewayv1.HTTPBackendRef {
+	ref := gatewayv1.HTTPBackendRef{
+		BackendRef: gatewayv1.BackendRef{
+			BackendObjectReference: gatewayv1.BackendObjectReference{
+				Name:      gatewayv1.ObjectName(faker.DomainName()),
+				Namespace: lo.ToPtr(gatewayv1.Namespace(faker.DomainName())),
+				Port:      lo.ToPtr(gatewayv1.PortNumber(rand.Int32N(65535))),
+			},
+		},
+	}
+
+	for _, opt := range opts {
+		opt(&ref)
+	}
+
+	return ref
+}
+
+func randomBackendRefWithNillNamespaceOpt() randomBackendRefOpt {
+	return func(ref *gatewayv1.HTTPBackendRef) {
+		ref.BackendObjectReference.Namespace = nil
+	}
+}
+
+type randomServiceOpt func(*corev1.Service)
+
+func makeRandomService(
+	opts ...randomServiceOpt,
+) corev1.Service {
+	svc := corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      faker.DomainName(),
+			Namespace: faker.Username(),
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{
+				"app": faker.DomainName(),
+			},
+			Ports: []corev1.ServicePort{
+				{
+					Port:       rand.Int32N(65535),
+					TargetPort: intstr.FromInt(rand.IntN(65535)),
+				},
+			},
+		},
+	}
+
+	for _, opt := range opts {
+		opt(&svc)
+	}
+
+	return svc
+}
+
+func randomServiceFromBackendRef(ref gatewayv1.HTTPBackendRef) randomServiceOpt {
+	return func(svc *corev1.Service) {
+		svc.Name = string(ref.BackendObjectReference.Name)
+		svc.Namespace = string(*ref.BackendObjectReference.Namespace)
+		svc.Spec.Ports = []corev1.ServicePort{
+			{
+				Port:       int32(*ref.BackendObjectReference.Port),
+				TargetPort: intstr.FromInt(rand.IntN(65535)),
+			},
+		}
 	}
 }
 

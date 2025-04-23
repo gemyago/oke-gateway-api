@@ -193,7 +193,29 @@ func (m *httpRouteModelImpl) resolveBackendRefs(
 	ctx context.Context,
 	params resolveBackendRefsParams,
 ) (map[string]v1.Service, error) {
-	return nil, nil
+	resolvedBackendRefs := make(map[string]v1.Service)
+	for _, rule := range params.httpRoute.Spec.Rules {
+		for _, backendRef := range rule.BackendRefs {
+			fullName := types.NamespacedName{
+				Name: string(backendRef.BackendObjectReference.Name),
+				Namespace: lo.If(
+					backendRef.BackendObjectReference.Namespace != nil,
+					string(*backendRef.BackendObjectReference.Namespace),
+				).Else(params.httpRoute.Namespace),
+			}
+
+			m.logger.DebugContext(ctx, "Resolving backend ref",
+				slog.String("fullName", fullName.String()),
+			)
+			var service v1.Service
+			if err := m.client.Get(ctx, fullName, &service); err != nil {
+				return nil, fmt.Errorf("failed to get service %s: %w", fullName.String(), err)
+			}
+
+			resolvedBackendRefs[fullName.String()] = service
+		}
+	}
+	return resolvedBackendRefs, nil
 }
 
 // httpRouteModelDeps defines the dependencies required for the httpRouteModel.

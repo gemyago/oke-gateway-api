@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -483,6 +484,61 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			assert.Equal(t, routeData.httpRoute.Generation, gotCondition.ObservedGeneration)
 			assert.Equal(t, metav1.ConditionTrue, gotCondition.Status)
 			assert.Equal(t, string(gatewayv1.RouteReasonAccepted), gotCondition.Reason)
+		})
+	})
+
+	t.Run("resolveBackendRefs", func(t *testing.T) {
+		t.Run("valid backend refs", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			backendRefs1 := []gatewayv1.HTTPBackendRef{
+				makeRandomBackendRef(),
+				makeRandomBackendRef(),
+			}
+			backendRefs2 := []gatewayv1.HTTPBackendRef{
+				makeRandomBackendRef(),
+			}
+
+			allBackendRefs := make([]gatewayv1.HTTPBackendRef, 0, len(backendRefs1)+len(backendRefs2))
+			allBackendRefs = append(allBackendRefs, backendRefs1...)
+			allBackendRefs = append(allBackendRefs, backendRefs2...)
+			services := lo.Map(allBackendRefs, func(ref gatewayv1.HTTPBackendRef, _ int) corev1.Service {
+				return makeRandomService(randomServiceFromBackendRef(ref))
+			})
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			for _, service := range services {
+				setupClientGet(t, mockK8sClient, types.NamespacedName{
+					Namespace: service.Namespace,
+					Name:      service.Name,
+				}, service)
+			}
+
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRandomRulesOpt(
+					randomHTTPRouteRule(
+						randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRefs1...),
+					),
+					randomHTTPRouteRule(
+						randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRefs2...),
+					),
+				),
+			)
+
+			resolvedBackendRefs, err := model.resolveBackendRefs(t.Context(), resolveBackendRefsParams{
+				httpRoute: httpRoute,
+			})
+
+			require.NoError(t, err)
+			require.Len(t, resolvedBackendRefs, len(services))
+			for _, service := range services {
+				fullName := types.NamespacedName{
+					Namespace: service.Namespace,
+					Name:      service.Name,
+				}
+				assert.Equal(t, service, resolvedBackendRefs[fullName.String()])
+			}
 		})
 	})
 }
