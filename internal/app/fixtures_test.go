@@ -213,6 +213,12 @@ func randomHTTPRouteRule(
 	return rule
 }
 
+func randomHTTPRouteRuleWithRandomNameOpt() randomHTTPRouteRuleOpt {
+	return func(rule *gatewayv1.HTTPRouteRule) {
+		rule.Name = lo.ToPtr(gatewayv1.SectionName(faker.DomainName()))
+	}
+}
+
 func randomHTTPRouteRuleWithRandomBackendRefsOpt(
 	refs ...gatewayv1.HTTPBackendRef,
 ) randomHTTPRouteRuleOpt {
@@ -281,12 +287,9 @@ func makeRandomService(
 
 func randomServiceFromBackendRef(ref gatewayv1.HTTPBackendRef, parent client.Object) randomServiceOpt {
 	return func(svc *corev1.Service) {
-		svc.Name = string(ref.BackendObjectReference.Name)
-		if ref.BackendObjectReference.Namespace != nil {
-			svc.Namespace = string(*ref.BackendObjectReference.Namespace)
-		} else {
-			svc.Namespace = parent.GetNamespace()
-		}
+		fullName := backendRefName(ref, parent.GetNamespace())
+		svc.Name = fullName.Name
+		svc.Namespace = fullName.Namespace
 		svc.Spec.Ports = []corev1.ServicePort{
 			{
 				Port:       int32(*ref.BackendObjectReference.Port),
@@ -318,4 +321,26 @@ func makeRandomRouteParentStatus(
 	}
 
 	return status
+}
+
+type randomBackendSetOpt func(*loadbalancer.BackendSet)
+
+func makeRandomBackendSet(
+	opts ...randomBackendSetOpt,
+) loadbalancer.BackendSet {
+	bs := loadbalancer.BackendSet{
+		Name: lo.ToPtr(faker.DomainName()),
+	}
+
+	for _, opt := range opts {
+		opt(&bs)
+	}
+
+	return bs
+}
+
+func randomBackendSetWithNameOpt(name string) randomBackendSetOpt {
+	return func(bs *loadbalancer.BackendSet) {
+		bs.Name = lo.ToPtr(name)
+	}
 }

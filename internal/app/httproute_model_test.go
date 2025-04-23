@@ -10,6 +10,7 @@ import (
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	k8sapi "github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
 	"github.com/go-faker/faker/v4"
+	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -541,6 +542,79 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				}
 				assert.Equal(t, service, resolvedBackendRefs[fullName.String()])
 			}
+		})
+	})
+
+	t.Run("programRoute", func(t *testing.T) {
+		t.Run("reconcile backend set with backends", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			backendRefs1 := []gatewayv1.HTTPBackendRef{
+				makeRandomBackendRef(),
+				makeRandomBackendRef(),
+			}
+			backendRefs2 := []gatewayv1.HTTPBackendRef{
+				makeRandomBackendRef(randomBackendRefWithNillNamespaceOpt()),
+				makeRandomBackendRef(),
+			}
+
+			rule1 := randomHTTPRouteRule(
+				randomHTTPRouteRuleWithRandomNameOpt(),
+				randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRefs1...),
+			)
+			rule2 := randomHTTPRouteRule(
+				randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRefs2...),
+			)
+
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRandomRulesOpt(
+					rule1,
+					rule2,
+				),
+			)
+
+			wantBsNames := lo.Map(httpRoute.Spec.Rules, func(rule gatewayv1.HTTPRouteRule, i int) string {
+				if rule.Name == nil {
+					return fmt.Sprintf("%s-%d", httpRoute.Name, i)
+				}
+				return fmt.Sprintf("%s-%s", httpRoute.Name, *rule.Name)
+			})
+			wantBss := lo.Map(wantBsNames, func(name string, _ int) loadbalancer.BackendSet {
+				return makeRandomBackendSet(randomBackendSetWithNameOpt(name))
+			})
+
+			allBackendRefs := make([]gatewayv1.HTTPBackendRef, 0, len(backendRefs1)+len(backendRefs2))
+			allBackendRefs = append(allBackendRefs, backendRefs1...)
+			allBackendRefs = append(allBackendRefs, backendRefs2...)
+			services := lo.Map(allBackendRefs, func(ref gatewayv1.HTTPBackendRef, _ int) corev1.Service {
+				return makeRandomService(randomServiceFromBackendRef(ref, &httpRoute))
+			})
+			resolvedBackendRefs := lo.SliceToMap(services, func(svc corev1.Service) (string, corev1.Service) {
+				return types.NamespacedName{
+					Namespace: svc.Namespace,
+					Name:      svc.Name,
+				}.String(), svc
+			})
+
+			params := programRouteParams{
+				gateway:             *newRandomGateway(),
+				config:              makeRandomGatewayConfig(),
+				httpRoute:           httpRoute,
+				resolvedBackendRefs: resolvedBackendRefs,
+			}
+
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+
+			for _, wantBs := range wantBss {
+				ociLBModel.EXPECT().reconcileBackendSet(t.Context(), reconcileBackendSetParams{
+					loadBalancerID: params.config.Spec.LoadBalancerID,
+					name:           *wantBs.Name,
+				}).Return(wantBs, nil)
+			}
+
+			err := model.programRoute(t.Context(), params)
+			require.NoError(t, err)
 		})
 	})
 }

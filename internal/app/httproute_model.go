@@ -67,6 +67,19 @@ type httpRouteModel interface {
 	) error
 }
 
+func backendRefName(
+	backendRef gatewayv1.HTTPBackendRef,
+	defaultNamespace string,
+) apitypes.NamespacedName {
+	return apitypes.NamespacedName{
+		Name: string(backendRef.BackendObjectReference.Name),
+		Namespace: lo.IfF(
+			backendRef.BackendObjectReference.Namespace != nil,
+			func() string { return string(*backendRef.BackendObjectReference.Namespace) },
+		).Else(defaultNamespace),
+	}
+}
+
 type httpRouteModelImpl struct {
 	client       k8sClient
 	logger       *slog.Logger
@@ -211,13 +224,7 @@ func (m *httpRouteModelImpl) resolveBackendRefs(
 	resolvedBackendRefs := make(map[string]v1.Service)
 	for _, rule := range params.httpRoute.Spec.Rules {
 		for _, backendRef := range rule.BackendRefs {
-			fullName := apitypes.NamespacedName{
-				Name: string(backendRef.BackendObjectReference.Name),
-				Namespace: lo.IfF(
-					backendRef.BackendObjectReference.Namespace != nil,
-					func() string { return string(*backendRef.BackendObjectReference.Namespace) },
-				).Else(params.httpRoute.Namespace),
-			}
+			fullName := backendRefName(backendRef, params.httpRoute.Namespace)
 
 			var service v1.Service
 			if err := m.client.Get(ctx, fullName, &service); err != nil {
