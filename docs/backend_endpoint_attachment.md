@@ -2,7 +2,7 @@
 
 This document outlines the design for the `oke-gateway-api` controller logic responsible for managing backend servers (endpoints) in an OCI Load Balancer's Backend Set based on the state of Kubernetes `EndpointSlice` resources corresponding to `HTTPRoute` backend references.
 
-**Prerequisite:** This design assumes that the core reconciliation logic for `GatewayClass`, `Gateway`, and `HTTPRoute` (including parent resolution and route acceptance) is already handled, as described in `docs/core_reconciliation.md`. The entry point for this logic is typically within the `httpRouteModel.programRoute` function (or a similar function called during `HTTPRoute` reconciliation).
+**Prerequisite:** This design assumes that the core reconciliation logic for `GatewayClass`, `Gateway`, and `HTTPRoute` (including parent resolution, route acceptance, and core route programming via `httpRouteModel.programRoute`) is already handled, as described in `docs/core_reconciliation.md`. The endpoint attachment logic described here is invoked by the `HTTPRouteController` *after* the core route programming is complete.
 
 ## Goals
 
@@ -17,96 +17,112 @@ This document outlines the design for the `oke-gateway-api` controller logic res
 
 ## Proposed Design
 
-The controller utilizes a dedicated `HTTPBackendModel` component to synchronize OCI Backend Sets. This logic is triggered by the `HTTPRouteController`'s reconciliation loop, which itself runs in response to changes in `HTTPRoute` or relevant `EndpointSlice` resources.
+The controller utilizes a dedicated `HTTPBackendModel` component interface to synchronize OCI Backend Sets. This logic is triggered by the `HTTPRouteController`'s reconciliation loop after core route programming is done.
 
 ### Watched Resources & Reconciliation Triggers
 
-The endpoint attachment logic needs to run whenever:
+The `HTTPRouteController` needs to run its reconciliation loop whenever:
 
-1.  An `HTTPRoute` referencing backend Services is created or updated.
-2.  An `EndpointSlice` associated with a Service referenced in an `HTTPRoute`'s `backendRefs` changes (e.g., Pod starts/stops, readiness changes).
+1.  An `HTTPRoute` resource is created, updated, or deleted.
+2.  An `EndpointSlice` associated with a Service referenced in an `HTTPRoute`'s `backendRefs` changes.
 
-To achieve the second trigger, the controller manager setup (`start_manager.go`) **watches `EndpointSlice` resources**. It uses a mapping function (e.g., `handler.EnqueueRequestsFromMapFunc`) to determine which `HTTPRoute`(s) are affected by an `EndpointSlice` change and enqueues those routes for reconciliation by the `HTTPRouteController`.
+To achieve this, the controller manager setup (`start_manager.go`):
+*   **Watches `HTTPRoute` resources** directly.
+*   **Watches `discoveryv1.EndpointSlice` resources**. It uses a mapping function (e.g., `handler.EnqueueRequestsFromMapFunc`) to determine which `HTTPRoute`(s) are affected by an `EndpointSlice` change and enqueues those routes for reconciliation by the `HTTPRouteController`.
 
-### Reconciliation Flow
+Both triggers result in the `HTTPRouteController.Reconcile` function being called for the relevant `HTTPRoute`.
 
-1.  **Trigger:** `HTTPRouteController.Reconcile` is invoked for an `HTTPRoute` (due to direct change or related `EndpointSlice` change).
-2.  **Resolve/Accept:** The controller uses `httpRouteModel` to resolve parent `Gateway` details and accept the route (setting status conditions).
-3.  **Delegate to Model:** `httpRouteModel.programRoute` (or similar) calls `httpBackendModel.SyncBackendEndpoints`, passing the `ctx`, the accepted `HTTPRoute`, and resolved `Gateway` details (containing OCI LB info).
-4.  **Sync Backends (`httpBackendModel.SyncBackendEndpoints`):**
-    *   Iterates through each rule/backendRef in the `HTTPRoute`.
-    *   Determines the target OCI Load Balancer **Backend Set OCID/Name** based on convention and Gateway info.
-    *   Calls internal method `resolveReadyEndpoints` to fetch relevant `EndpointSlice` resources for the backend `Service` and filter for ready/serving/non-terminating endpoints matching the correct port and IP family.
-    *   Constructs the complete list of desired OCI `BackendDetails` objects.
-    *   Calls the OCI SDK `UpdateBackendSet` operation, providing the full list of desired backends and preserving necessary existing settings (like HealthChecker, Policy).
-    *   Returns success or error.
-5.  **Update Status:** `httpRouteModel` receives the result from `SyncBackendEndpoints` and updates the `HTTPRoute` status conditions accordingly.
+### Reconciliation Flow (within `HTTPRouteController.Reconcile`)
+
+1.  **Trigger:** `HTTPRouteController.Reconcile` is invoked for an `HTTPRoute` (identified by `req.NamespacedName`).
+2.  **Fetch Resource:** Fetch the current `HTTPRoute` object from the cluster/cache.
+3.  **Handle Deletion:** If the `HTTPRoute` has a deletion timestamp, perform cleanup (e.g., call `httpRouteModel.deleteRoute`, potentially `httpBackendModel.cleanupBackendEndpoints` if needed) and remove the finalizer.
+4.  **Check Generation:** Compare the fetched `httpRoute.Metadata.Generation` with the relevant `status.observedGeneration` (e.g., associated with the `Accepted` or `Programmed` condition).
+5.  **Reconcile Spec (if generation changed):** If `httpRoute.Metadata.Generation > status.observedGeneration`:
+    *   Use `httpRouteModel` to:
+        *   Resolve parent `Gateway` details (`resolveRequest`).
+        *   Accept the route (`acceptRoute`).
+        *   Resolve backend references (`resolveBackendRefs`).
+        *   Program the core route aspects (e.g., OCI LB routing rules via `programRoute`).
+    *   Handle errors from the above steps and update status conditions accordingly.
+    *   **If successful:** Update the `status.observedGeneration` to match `httpRoute.Metadata.Generation` along with relevant status conditions.
+6.  **Sync Backends (Always, but uses current state):** *After* the spec reconciliation (if it happened) or immediately if the generation matched, the `HTTPRouteController` calls `httpBackendModel.SyncBackendEndpoints`. This function is responsible for ensuring the OCI backend set matches the *current* desired state based on the *existing* route configuration and the *latest* `EndpointSlice` data.
+    *   Pass necessary parameters (e.g., `syncBackendEndpointsParams` containing context, the fetched `HTTPRoute`, resolved Gateway details from the previous step or fetched if needed, potentially resolved backend refs).
+    *   The `SyncBackendEndpoints` implementation fetches the latest relevant `EndpointSlice` data for the route's backends and updates the OCI Backend Set.
+7.  **Update Status:** Update `HTTPRoute` status conditions based on the overall outcome, including the result from `SyncBackendEndpoints` (e.g., setting a `BackendAttachmentProgrammed` condition or similar).
 
 ### OCI API Interaction
 
-*   Handled primarily by the `HTTPBackendModel`.
+*   Handled primarily by the concrete implementation of the `HTTPBackendModel` interface.
 *   Uses the OCI SDK for Go.
 *   Authenticates using instance principals or API keys.
 *   Targets the correct OCI region and compartment.
 *   Required API calls for endpoint attachment:
     *   `UpdateBackendSet` (primary operation)
-    *   (Potentially `GetBackendSet`, `CreateBackendSet` if managing lifecycle, `GetLoadBalancer`, `GetListener` for context, OCIDs, and existence checks).
+    *   (Potentially `GetBackendSet`, `GetLoadBalancer`, `GetListener` for context, OCIDs, and existence checks).
 
 ### Status Updates
 
-*   The `httpRouteModel` updates the `HTTPRoute` status conditions based on the success/failure result returned by the `HTTPBackendModel`.
-*   Errors from the OCI `UpdateBackendSet` call should be reflected in the status message.
+*   The `HTTPRouteController` updates the `HTTPRoute` status conditions based on the success/failure results returned by the various model calls (`programRoute`, `SyncBackendEndpoints`).
+*   The `status.observedGeneration` field should be updated when the spec reconciliation is successfully completed.
+*   Errors from the OCI API calls (via the models) should be reflected in the status condition messages.
 
 ### Error Handling
 
-*   The `HTTPBackendModel` should handle retries for transient OCI API errors (`UpdateBackendSet`).
-*   Errors like "BackendSetNotFound" should be handled gracefully (potentially attempting creation if responsible, or returning a specific error type).
-*   Errors are propagated back to the `httpRouteModel` to be reflected in the `HTTPRoute` status.
-*   Clear logging within the `HTTPBackendModel` is essential.
+*   The `HTTPBackendModel` implementation should handle retries for transient OCI API errors (`UpdateBackendSet`).
+*   Errors like "BackendSetNotFound" should be handled gracefully within the model (potentially attempting creation if responsible, or returning a specific error type).
+*   Errors are propagated back to the `HTTPRouteController` to be handled (e.g., logging, setting status, potentially requeueing).
+*   Clear logging within the `HTTPBackendModel` implementation is essential.
 
 ## Implementation Plan (TDD Approach)
 
-This plan outlines the steps to implement the backend endpoint attachment logic using the `HTTPBackendModel` component.
+This plan outlines the steps to implement the backend endpoint attachment logic using the `HTTPBackendModel` interface and the optimized unified reconcile approach.
 
-1.  **Define `HTTPBackendModel` Interface & Struct:**
-    *   Define an interface (e.g., `HTTPBackendModel`) with the `SyncBackendEndpoints(ctx context.Context, route *gatewayv1.HTTPRoute, gatewayDetails *app.ResolvedGatewayDetails) error` method (adjust `gatewayDetails` type as needed).
-    *   Define the concrete struct (e.g., `httpBackendModel`) implementing this interface, holding dependencies (`k8sClient`, `ociClient`, `logger`).
-    *   Integrate this component into the application's dependency injection setup (e.g., `dig`).
-    *   *(TDD: Create interface/struct. Create mocks using `mockery` for the interface.)*
+1.  **Define `HTTPBackendModel` Interface:**
+    *   Ensure the interface `HTTPBackendModel` exists in `internal/app/httpbackend_model.go`.
+    *   Define the method signature as `SyncBackendEndpoints(ctx context.Context, params syncBackendEndpointsParams) error`.
+    *   Define the `syncBackendEndpointsParams` struct containing necessary fields (e.g., `gatewayv1.Gateway`, `gatewayv1.HTTPRoute`, `types.GatewayConfig`, `map[string]v1.Service`).
+    *   *(TDD: Create/update interface file. Create mocks using `mockery` for the `HTTPBackendModel` interface.)*
 
 2.  **Setup `EndpointSlice` Watch:**
     *   Modify `internal/k8s/start_manager.go` to add a watch for `discoveryv1.EndpointSlice`.
     *   Implement the `handler.EventHandler` (specifically `handler.EnqueueRequestsFromMapFunc`) to map `EndpointSlice` changes to `HTTPRoute` reconcile requests based on the `kubernetes.io/service-name` label and `HTTPRoute` backendRefs.
     *   *(TDD: Test the mapping logic, likely needing a fake client accessible to the handler.)*
 
-3.  **Modify `HTTPRouteModel` (`programRoute`):**
-    *   Inject the `HTTPBackendModel` dependency into `httpRouteModel`.
-    *   In `programRoute` (after successfully resolving backend references), replace the placeholder/future backend logic with a call to `c.httpBackendModel.SyncBackendEndpoints(ctx, httpRoute, resolvedData.gatewayDetails)` (adjust variable names).
-    *   Handle the error returned by `SyncBackendEndpoints` and use it to determine the status update for the `HTTPRoute` (e.g., setting `RouteConditionResolvedRefs` status).
-    *   *(TDD: Update `programRoute` tests. Mock the `HTTPBackendModel` dependency. Verify that `SyncBackendEndpoints` is called with the correct arguments. Verify `HTTPRoute` status updates based on the mocked return value of `SyncBackendEndpoints`.)*
+3.  **Modify `HTTPRouteController.Reconcile`:**
+    *   Inject the `HTTPBackendModel` dependency into `HTTPRouteController`.
+    *   Fetch the `HTTPRoute` resource.
+    *   Implement deletion logic.
+    *   **Implement Generation Check:** Compare `httpRoute.Metadata.Generation` with `status.observedGeneration`.
+    *   **Conditional Spec Reconcile:**
+        *   If generation changed: Call `resolveRequest`, `acceptRoute`, `resolveBackendRefs`, `programRoute`. Handle errors. If successful, update `status.observedGeneration`.
+        *   If generation unchanged: Skip the spec reconcile steps.
+    *   **Call Sync Backends:** Construct `syncBackendEndpointsParams` (potentially needing to fetch/resolve Gateway info if spec reconcile was skipped) and call `r.httpBackendModel.SyncBackendEndpoints(ctx, params)`.
+    *   **Update Status:** Update status conditions based on the outcomes of spec reconcile (if run) and `SyncBackendEndpoints`.
+    *   *(TDD: Update `HTTPRouteController.Reconcile` tests. Mock `httpRouteModel` and `httpBackendModel`. Test both paths (generation changed vs. unchanged). Verify `programRoute` is called conditionally. Verify `SyncBackendEndpoints` is called. Verify status updates, including `observedGeneration`.)*
 
-4.  **Implement Endpoint Resolution within `HTTPBackendModel`:**
-    *   Create a (likely private) method within `httpBackendModel` like `resolveReadyEndpoints(ctx context.Context, serviceNamespace string, serviceName string, servicePort int32) ([]loadbalancer.BackendDetails, error)` (adjust types as needed, especially for `BackendDetails`).
-    *   **(TDD):** Write unit tests for `resolveReadyEndpoints`:
-        *   Use a mock `k8sClient`.
-        *   Test listing of `EndpointSlices` with correct label selectors.
-        *   Test filtering logic (Ready, Serving, Not Terminating conditions, Port matching, IP family).
-        *   Test conversion to the required OCI `BackendDetails` struct format.
+4.  **Implement Concrete `httpBackendModel` Struct & Constructor:**
+    *   Define the concrete struct (e.g., `httpBackendModel`) implementing the `HTTPBackendModel` interface in `internal/app/httpbackend_model.go`.
+    *   Define its dependencies (`k8sClient`, `ociClient`, `logger`).
+    *   Implement the constructor `NewHTTPBackendModel`.
+    *   Integrate this concrete implementation into the application's dependency injection setup (e.g., `dig`).
+    *   *(TDD: Implement struct and constructor. Ensure DI wiring passes.)*
+
+5.  **Implement Endpoint Resolution within `httpBackendModel`:**
+    *   Create a (likely private) method within the concrete `httpBackendModel` struct: `resolveReadyEndpoints(ctx context.Context, serviceNamespace string, serviceName string, servicePort int32) ([]loadbalancer.BackendDetails, error)`.
+    *   **(TDD):** Write unit tests for `resolveReadyEndpoints` using a mock `k8sClient`.
     *   **Implement:** Implement the method using the `k8sClient` dependency.
 
-5.  **Implement OCI Sync within `HTTPBackendModel.SyncBackendEndpoints`:**
-    *   **(TDD):** Write unit tests for the `SyncBackendEndpoints` method:
-        *   Mock the `k8sClient` (to mock the results of internal calls to `resolveReadyEndpoints`).
-        *   Mock the `ociClient` (interface wrapping OCI SDK calls).
-        *   For each rule/backendRef in the input `HTTPRoute`:
-            *   Verify the target Backend Set Name/OCID is correctly determined.
-            *   Verify `resolveReadyEndpoints` is called.
-            *   Setup expectations on the mock `ociClient` for `UpdateBackendSet` to be called with the correct LoadBalancer/BackendSet identifiers and the list of `BackendDetails` from the mocked `resolveReadyEndpoints`. Ensure necessary fields (Policy, HealthChecker) are included (mock `GetBackendSet` if needed).
-            *   Test error handling from OCI calls.
-    *   **Implement:** Implement `SyncBackendEndpoints`. It will iterate through rules/backendRefs, call `resolveReadyEndpoints`, determine the target OCI Backend Set, potentially fetch existing details (`GetBackendSet`), construct `UpdateBackendSetDetails` with the full backend list, and call `ociClient.UpdateBackendSet`.
+6.  **Implement OCI Sync within `httpBackendModel.SyncBackendEndpoints`:**
+    *   **(TDD):** Write unit tests for the `SyncBackendEndpoints` method of the concrete `httpBackendModel` struct:
+        *   Use mock `k8sClient` and mock `ociClient`.
+        *   Verify `resolveReadyEndpoints` is called correctly for each backendRef.
+        *   Verify OCI `UpdateBackendSet` is called with the correct parameters (including preserving existing Policy/HealthChecker if needed via `GetBackendSet`).
+        *   Test error handling.
+    *   **Implement:** Implement the `SyncBackendEndpoints` method logic as described in the "Reconciliation Flow" section using the `ociClient` dependency.
 
-6.  **Add E2E Test (Optional but Recommended):**
-    *   Create an end-to-end test scenario involving deploying a sample application, creating `GatewayClass`, `Gateway`, `HTTPRoute`, and verifying OCI Backend Set contents via the OCI API as Pods scale or change readiness.
+7.  **Add E2E Test (Optional but Recommended):**
+    *   Create end-to-end tests as described previously.
 
 ## Future Considerations (Specific to Attachment)
 
