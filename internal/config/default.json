@@ -7,6 +7,14 @@
     "idleTimeout": "60s",
     "readHeaderTimeout": "2s",
     "readTimeout": "2s",
-    "writeTimeout": "8s"
+    "writeTimeout": "8s",
+    "mode": "echo",
+    "accessLogsLevel": ""
+  },
+  "k8sapi": {
+    "noop": false
+  },
+  "ociapi": {
+    "noop": false
   }
 }

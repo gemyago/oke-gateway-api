@@ -6,3 +6,4 @@ tmp
 .cover
 test.log
 .venv
+.envrc.local

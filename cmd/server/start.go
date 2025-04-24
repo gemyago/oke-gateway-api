@@ -78,14 +78,14 @@ func startServer(params startServerParams) error {
 func newStartServerCmd(container *dig.Container) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "start",
-		Short: "Command to start server",
+		Short: "Start the server",
 	}
 	noop := false
 	cmd.Flags().BoolVar(
 		&noop,
 		"noop",
 		false,
-		"Do not start. Just setup deps and exit. Useful for testing if setup is all working.",
+		"Pretend to start.",
 	)
 	cmd.PreRunE = func(_ *cobra.Command, _ []string) error {
 		return errors.Join(

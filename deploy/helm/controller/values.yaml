@@ -1,0 +1,38 @@
+# Default values for oke-gateway-api-controller.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Override the namespace where the controller will be deployed.
+# If not set, it defaults to the release namespace.
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+# Deployment configuration
+deployment:
+  image:
+    repository: ghcr.io/gemyago/oke-gateway-api-server
+    pullPolicy: IfNotPresent
+    tag: "git-commit-9185063"
+
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+
+  # Node selector, tolerations, and affinity settings can be added here if needed.
+  nodeSelector: {}
+  tolerations: []
+  affinity: {} 

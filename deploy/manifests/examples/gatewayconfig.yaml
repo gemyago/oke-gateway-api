@@ -1,0 +1,7 @@
+apiVersion: oke-gateway-api.gemyago.github.io/v1
+kind: GatewayConfig
+metadata:
+  name: oke-gateway-config
+spec:
+  # Replace with your Load Balancer OCID
+  loadBalancerId: ocid1.loadbalancer.oc1..exampleuniqueID 

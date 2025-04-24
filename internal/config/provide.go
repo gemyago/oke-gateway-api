@@ -52,5 +52,13 @@ func Provide(container *dig.Container, cfg *viper.Viper) error {
 		provideConfigValue(cfg, "httpServer.readHeaderTimeout").asDuration(),
 		provideConfigValue(cfg, "httpServer.readTimeout").asDuration(),
 		provideConfigValue(cfg, "httpServer.writeTimeout").asDuration(),
+		provideConfigValue(cfg, "httpServer.mode").asString(),
+		provideConfigValue(cfg, "httpServer.accessLogsLevel").asString(),
+
+		// k8sapi config
+		provideConfigValue(cfg, "k8sapi.noop").asBool(),
+
+		// ociapi config
+		provideConfigValue(cfg, "ociapi.noop").asBool(),
 	)
 }

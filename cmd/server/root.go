@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/gemyago/oke-gateway-api/internal/app"
 	"github.com/gemyago/oke-gateway-api/internal/config"
 	"github.com/gemyago/oke-gateway-api/internal/di"
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -20,7 +19,7 @@ func newRootCmd(container *dig.Container) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "server",
-		Short: "Command to start the server",
+		Short: "Command to start the simple server",
 	}
 	cmd.SilenceUsage = true
 	cmd.PersistentFlags().StringP("log-level", "l", "", "Produce logs with given level. Default is env specific.")
@@ -63,9 +62,6 @@ func newRootCmd(container *dig.Container) *cobra.Command {
 
 		err = errors.Join(
 			config.Provide(container, cfg),
-
-			// app layer
-			app.Register(container),
 
 			// services
 			services.Register(container),

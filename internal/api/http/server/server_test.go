@@ -47,3 +47,52 @@ func TestHTTPServer(t *testing.T) {
 		})
 	})
 }
+
+func TestBuildMiddlewareChain(t *testing.T) {
+	t.Run("should use default log levels when AccessLogsLevel is empty", func(t *testing.T) {
+		deps := HTTPServerDeps{
+			RootLogger: diag.RootTestLogger(),
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}),
+		}
+
+		// We can't easily inspect the log levels set inside the sloghttp middleware directly.
+		// However, we can check that the function doesn't panic when AccessLogsLevel is empty.
+		// This indirectly tests the default path.
+		assert.NotPanics(t, func() {
+			_ = buildMiddlewareChain(deps)
+		})
+	})
+
+	t.Run("should use custom log levels when AccessLogsLevel is valid", func(t *testing.T) {
+		deps := HTTPServerDeps{
+			RootLogger:      diag.RootTestLogger(),
+			AccessLogsLevel: "debug", // Using a valid level
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}),
+		}
+
+		// Similar to the default case, we verify it doesn't panic,
+		// which covers lines 63, 66, and 67 successfully processing the custom level.
+		assert.NotPanics(t, func() {
+			_ = buildMiddlewareChain(deps)
+		})
+	})
+
+	t.Run("should panic when AccessLogsLevel is invalid", func(t *testing.T) {
+		deps := HTTPServerDeps{
+			RootLogger:      diag.RootTestLogger(),
+			AccessLogsLevel: "invalid-level", // An invalid level
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}),
+		}
+
+		// This directly tests the panic condition on line 64.
+		require.Panics(t, func() {
+			_ = buildMiddlewareChain(deps)
+		})
+	})
+}

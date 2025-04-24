@@ -1,138 +1,118 @@
-# Golang Backend Boilerplate - Project Summary
+# GatewayClass Controller Implementation Summary
 
-## Project Overview
-This is a production-ready Golang backend boilerplate that follows clean architecture principles and modern development practices. The project is structured to provide a solid foundation for building scalable and maintainable backend services.
+## Overview
+Implementation of a simple Kubernetes controller for Gateway API's GatewayClass resource in OKE environment. This initial implementation will focus solely on watching GatewayClass resources and logging events.
 
-## Directory Structure
+## Dependencies
+```go
+require (
+    sigs.k8s.io/controller-runtime v0.20.4
+    sigs.k8s.io/gateway-api v1.2.1
+    k8s.io/client-go v0.32.3
+)
+```
 
-### Core Directories
-- `cmd/` - Application entry points
-  - `server/` - Main HTTP server application
-  - `jobs/` - Background job processors
+## Code Structure
+```
+/internal/app/
+  gatewayclass_controller.go    # Main controller implementation
+  gatewayclass_controller_test.go
+```
 
-- `internal/` - Private application code
-  - `api/` - API layer definitions and handlers
-  - `app/` - Application core logic
-  - `config/` - Configuration management
-  - `di/` - Dependency injection setup
-  - `diag/` - Diagnostics and monitoring
-  - `services/` - Business logic services
+## Implementation Details
 
-### Supporting Directories
-- `deploy/` - Deployment configurations and scripts
-- `build/` - Build artifacts and scripts
-- `.github/` - GitHub workflows and configurations
+### 1. Dependencies
+```go
+// k8sClient defines the interface for Kubernetes client operations
+// This is an internal interface used only to describe what we need from the client
+type k8sClient interface {
+    Get(ctx context.Context, key client.ObjectKey, obj client.Object) error
+    List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error
+}
+```
 
-## Key Configuration Files
-- `go.mod` - Go module definition and dependencies
-- `go.sum` - Go module checksums
-- `.golangci.yml` - Golangci-lint configuration
-- `.mockery.yaml` - Mock generation configuration
-- `.testcoverage.yaml` - Test coverage configuration
-- `Makefile` - Build and development automation
+### 2. Controller Implementation (Struct)
+```go
+// GatewayClassController is a simple controller that watches GatewayClass resources
+type GatewayClassController struct {
+    client k8sClient
+    logger *slog.Logger
+}
 
-## Development Tools
-The project uses several development tools and configurations:
-- Golangci-lint for code quality
-- Mockery for test mocks
-- Comprehensive test coverage setup
-- GitHub Actions for CI/CD
+// GatewayClassControllerDeps contains the dependencies for the GatewayClassController
+type GatewayClassControllerDeps struct {
+    dig.In
 
-## Getting Started
-1. Clone the repository
-2. Install dependencies: `go mod download`
-3. Use make commands for common tasks:
-   - `make build` - Build the application
-   - `make test` - Run tests
-   - `make lint` - Run linters
+    RootLogger *slog.Logger
+    K8sClient  k8sClient
+}
 
-## Architecture
-The project follows clean architecture principles:
-- Clear separation of concerns
-- Dependency injection for better testability
-- Modular design for scalability
-- Internal packages for private implementation
+// NewGatewayClassController creates a new GatewayClassController
+func NewGatewayClassController(deps GatewayClassControllerDeps) *GatewayClassController {
+    return &GatewayClassController{
+        client: deps.K8sClient,
+        logger: deps.RootLogger,
+    }
+}
 
-## Best Practices
-- Comprehensive linting rules
-- Test coverage requirements
-- Dependency management
-- Structured logging
-- Configuration management
-- Error handling patterns
-- Container best practices
-  - Multi-stage builds
-  - Minimal base images
-  - Security scanning
-- Deployment best practices
-  - Infrastructure as Code
-  - Secret management
-  - Rolling updates
-  - Health checks
+// Reconcile implements the reconcile.Reconciler interface
+func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+    var gatewayClass gatewayv1.GatewayClass
+    if err := r.client.Get(ctx, req.NamespacedName, &gatewayClass); err != nil {
+        return reconcile.Result{}, client.IgnoreNotFound(err)
+    }
 
-## TODO and Future Improvements
-- [ ] Document API endpoints
-- [ ] Add more example services
-- [ ] Enhance monitoring setup
-- [ ] Add performance benchmarks
+    r.logger.Info("Reconciling GatewayClass",
+        "name", gatewayClass.Name,
+        "controller", gatewayClass.Spec.ControllerName,
+    )
 
-## Build System
-The build system is located in the `build/` directory and provides:
+    // For now, we just log the reconciliation and do nothing
+    return reconcile.Result{}, nil
+}
+```
 
-### Build Configuration
-- `build.cfg` - Central configuration file defining:
-  - Target platforms for binaries
-  - Docker-related settings
-  - Build parameters
+### 3. Integration Points
+- Dependency injection via dig
+- Configuration via viper
+- Logging via slog
+- Graceful shutdown coordination
 
-### Build Components
-- `scripts/` - Build automation scripts
-  - Python-based build tools
-  - Bash utility scripts
-  - Test suite for build scripts
-- `docker/` - Docker build configurations
-  - Multi-platform build support
-  - Local and remote image building
-- `Makefile` - Build automation commands
-  - `make dist` - Build artifacts
-  - `make docker/local-images` - Build local Docker images
-  - `make docker/remote-images` - Push to registry
+## Testing Strategy
 
-### Build Artifacts
-- `dist/` - Compiled binaries and assets
-- `build-artifacts.tar.gz` - Packaged build outputs
-- `.build-artifacts` - Build metadata
+### 1. Unit Tests
+- Mock client interactions
+- Test reconciliation logic
+- Test error handling
 
-## Deployment System
-The deployment system is located in the `deploy/` directory and provides:
+### 2. Integration Tests
+- Use envtest for Kubernetes API testing
 
-### Kubernetes Support
-- Complete Kubernetes deployment configuration
-- Namespace management
-- Private registry authentication
-- Secret management
+## Implementation Phases
 
-### Helm Charts (`deploy/helm/`)
-- Production-ready Helm charts
-- Environment-specific value files
-- Deployment templates for:
-  - API services
-  - Background jobs
-  - Supporting services
+1. **Phase 1: Basic Structure**
+   - Set up project structure
+   - Add dependencies
+   - Create basic controller struct
 
-### Deployment Tools
-- `Makefile` - Deployment automation
-- `bin/` - Deployment binary tools
-- `.helm-version` - Helm version lock
-- Environment configuration (`.envrc`)
+2. **Phase 2: Core Implementation**
+   - Add basic reconciliation logic (just logging)
+   - Set up logging
 
-### Deployment Workflows
-- Local development deployment
-- CI/CD pipeline integration
-- Multi-environment support
-  - Development
-  - Staging
-  - Production
+3. **Phase 3: Integration**
+   - Integrate with HTTP server
+   - Add configuration
+   - Implement graceful shutdown
 
----
-*This summary is maintained by the development team through Cursor AI. Last updated: [Current Date]* 
+4. **Phase 4: Testing**
+   - Add unit tests
+   - Add integration tests
+   - Test coverage requirements
+
+## Notes
+- Controller name: `oracle.com/oke-gateway-controller`
+- Initial implementation focuses solely on watching GatewayClass resources
+- No status updates or complex logic in first version
+- Error handling follows project patterns
+- Following "interface in struct out" pattern for better testability
+- Using dig for dependency injection with struct-based deps

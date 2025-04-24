@@ -4,6 +4,27 @@ filename: "mock_{{.InterfaceNameSnake}}.go"
 mock-build-tags: "!release"
 disable-version-string: true
 packages:
+  github.com/gemyago/oke-gateway-api/internal/app:
+    interfaces:
+      k8sClient:
+      ociLoadBalancerClient:
+      resourcesModel:
+      gatewayModel:
+      ociLoadBalancerModel:
+      workRequestsWatcher:
+      httpRouteModel:
+  github.com/gemyago/oke-gateway-api/internal/services/ociapi:
+    interfaces:
+      workRequestsClient:
+  sigs.k8s.io/controller-runtime/pkg/client:
+    interfaces:
+      SubResourceWriter:
+        config:
+          inpackage: false
+          outpkg: 'k8sapi'
+          dir: 'internal/services/k8sapi'
+          filename: "mock_subresource_writer.go"
+          mockname: MockSubResourceWriter
   log/slog:
     interfaces:
       Handler:

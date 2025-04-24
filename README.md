@@ -7,6 +7,172 @@
 
 Project status: **Early Alpha**
 
+## Getting Started
+
+Install Gateway API CRDs:
+```sh
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.0/standard-install.yaml
+```
+
+Install the OKE Gateway API controller:
+```sh
+kubectl apply -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/gateway-api-controller.yaml
+```
+
+Install the OKE Gateway API controller using Helm:
+```sh
+# Create namespace
+kubectl create namespace oke-gw
+
+# Install controller
+helm install oke-gateway-api-controller oke-gateway-api/controller --namespace oke-gw
+```
+
+Create a GatewayClass resource:
+```bash
+cat <<EOF | kubectl -n oke-gw apply -f -
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: oke-gateway-api
+spec:
+  controllerName: oke-gateway-api.gemyago.github.io/oke-alb-gateway-controller
+EOF
+```
+
+Prepare a GatewayConfig resource. You will need to specify the OCID of an existing OCI Load Balancer.
+```yaml
+cat <<EOF | kubectl -n oke-gw apply -f -
+apiVersion: oke-gateway-api.gemyago.github.io/v1
+kind: GatewayConfig
+metadata:
+  name: oke-gateway-config
+spec:
+  # Replace with your Load Balancer OCID
+  loadBalancerId: ocid1.loadbalancer.oc1..exampleuniqueID
+EOF
+```
+
+Create a Gateway resource:
+```yaml
+cat <<EOF | kubectl -n oke-gw apply -f -
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: oke-gateway
+spec:
+  gatewayClassName: oke-gateway-api
+  infrastructure:
+    parametersRef:
+      group: oke-gateway-api.gemyago.github.io
+      kind: GatewayConfig
+      name: oke-gateway-config
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+EOF
+```
+
+Assuming you have a deployment and service similar to the following:
+```yaml
+cat <<EOF | kubectl -n oke-gw apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oke-gateway-example-server
+  labels:
+    app: oke-gateway-example-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oke-gateway-example-server
+  template:
+    metadata:
+      labels:
+        app: oke-gateway-example-server
+    spec:
+      containers:
+      - name: echo
+        image: ghcr.io/gemyago/oke-gateway-api-server:git-commit-804f762
+        args:
+          - start
+          - --json-logs
+        ports:
+        - containerPort: 8080
+          name: http
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oke-gateway-example-server
+  labels:
+    app: oke-gateway-example-server
+spec:
+  ports:
+  - port: 8080
+    name: http
+    targetPort: http
+  selector:
+    app: oke-gateway-example-server
+EOF
+```
+
+You can now attach the HTTP route to the gateway to route traffic to the deployment:
+```yaml
+cat <<EOF | kubectl -n oke-gw apply -f -
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: oke-gateway-example-server
+spec:
+  parentRefs:
+    - name: oke-gateway
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /echo
+      backendRefs:
+        - name: oke-gateway-example-server
+          port: 8080
+EOF
+```
+
+You can optionally install all the above examples from the manifests in the `deploy/manifests/examples` folder:
+```bash
+# Using manifests directly from the github
+kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/gatewayclass.yaml
+kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/gatewayconfig.yaml
+kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/gateway.yaml
+kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/serverdeployment.yaml
+kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/echoroutes.yaml
+
+# Or if running in a locally cloned repo
+kubectl apply -n oke-gw -f deploy/manifests/examples/gatewayclass.yaml
+kubectl apply -n oke-gw -f deploy/manifests/examples/gatewayconfig.yaml
+kubectl apply -n oke-gw -f deploy/manifests/examples/gateway.yaml
+kubectl apply -n oke-gw -f deploy/manifests/examples/serverdeployment.yaml
+kubectl apply -n oke-gw -f deploy/manifests/examples/serverroutes.yaml
+```
+
+Uninstall example resources:
+```bash
+kubectl -n oke-gw delete gateway oke-gateway
+kubectl -n oke-gw delete gatewayclass oke-gateway-api
+kubectl -n oke-gw delete gatewayconfig oke-gateway-config
+kubectl -n oke-gw delete deployment oke-gateway-example-server
+kubectl -n oke-gw delete httproute oke-gateway-example-server
+```
+
 ## Contributing
 
 ### Project Setup
@@ -14,23 +180,19 @@ Project status: **Early Alpha**
 Please have the following tools installed: 
 * [direnv](https://github.com/direnv/direnv) 
 * [gobrew](https://github.com/kevincobain2000/gobrew#install-or-update)
+* [pyenv](https://github.com/pyenv/pyenv?tab=readme-ov-file#installation).
 
 Install/Update dependencies: 
 ```sh
-# Install
+direnv allow
+
+# Install go dependencies
 go mod download
 go install tool
 
-# Update:
+# or update:
 go get -u ./... && go mod tidy
-```
 
-### Build dependencies
-
-This step is required if you plan to work on the build tooling. In this case please make sure to install:
-* [pyenv](https://github.com/pyenv/pyenv?tab=readme-ov-file#installation).
-
-```sh
 # Install required python version
 pyenv install -s
 
@@ -69,3 +231,45 @@ go test -v -count=5 ./internal/api/http/v1controllers/ --run TestHealthCheck
 # Run and watch. Useful when iterating on tests
 gow test -v ./internal/api/http/v1controllers/ --run TestHealthCheck
 ```
+
+### Running in a local mode
+
+For local development purposes you can run the controller fully locally pointing on a local k8s cluster and provision the resources in a real OCI tenancy.
+
+Please follow [OCI SDK CLI Setup](https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm#configfile)
+
+You may want to use alternative SDK config location. In this case please create `.envrc.local` file with the contents similar to below:
+```bash
+# Point to the OCI CLI config file
+export OCI_CLI_CONFIG_FILE=${PWD}/../.oci-cloud-cli/config
+export OCI_CONFIG_FILE=${PWD}/../.oci-cloud-cli/config
+
+# Point to the OCI CLI profile
+export OCI_CLI_PROFILE=DEFAULT
+
+# Point to the OCI CLI config profile
+export OCI_CLI_CONFIG_PROFILE=eu-frankfurt-1
+```
+
+Reload the environment and check if all good:
+```sh
+direnv reload
+
+# Check if the oci sdk is properly configured
+oci iam user list
+```
+
+Make sure to have locally running k8s cluster and `kubectl` configured to point to it.
+
+You may want to apply just the CRDs in the cluster for config resources:
+```sh
+kubectl apply -f deploy/helm/controller/templates/gateway-config-crd.yaml
+```
+
+Run the controller locally:
+```sh
+go run ./cmd/controller/ start
+```
+
+
+

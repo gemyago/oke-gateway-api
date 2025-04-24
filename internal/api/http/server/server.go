@@ -25,7 +25,10 @@ type HTTPServerDeps struct {
 	ReadHeaderTimeout time.Duration `name:"config.httpServer.readHeaderTimeout"`
 	ReadTimeout       time.Duration `name:"config.httpServer.readTimeout"`
 	WriteTimeout      time.Duration `name:"config.httpServer.writeTimeout"`
+	AccessLogsLevel   string        `name:"config.httpServer.accessLogsLevel"`
+	Mode              string        `name:"config.httpServer.mode"`
 
+	// handler
 	Handler http.Handler
 
 	// services
@@ -45,18 +48,32 @@ func (srv *HTTPServer) Start(ctx context.Context) error {
 		slog.String("readHeaderTimeout", srv.deps.ReadHeaderTimeout.String()),
 		slog.String("readTimeout", srv.deps.ReadTimeout.String()),
 		slog.String("writeTimeout", srv.deps.WriteTimeout.String()),
+		slog.String("accessLogsLevel", srv.deps.AccessLogsLevel),
+		slog.String("mode", srv.deps.Mode),
 	)
 	return srv.httpSrv.ListenAndServe()
 }
 
-func buildMiddlewareChain(logger *slog.Logger, handler http.Handler) http.Handler {
+func buildMiddlewareChain(deps HTTPServerDeps) http.Handler {
+	defaultLogLevel := slog.LevelInfo
+	clientErrorLevel := slog.LevelWarn
+	serverErrorLevel := slog.LevelError
+
+	if deps.AccessLogsLevel != "" {
+		if err := defaultLogLevel.UnmarshalText([]byte(deps.AccessLogsLevel)); err != nil {
+			panic(fmt.Errorf("failed to unmarshal access logs level: %w", err))
+		}
+		clientErrorLevel = defaultLogLevel
+		serverErrorLevel = defaultLogLevel
+	}
+
 	// Router wire-up
 	chain := middleware.Chain(
 		middleware.NewTracingMiddleware(middleware.NewTracingMiddlewareCfg()),
-		sloghttp.NewWithConfig(logger, sloghttp.Config{
-			DefaultLevel:     slog.LevelInfo,
-			ClientErrorLevel: slog.LevelWarn,
-			ServerErrorLevel: slog.LevelError,
+		sloghttp.NewWithConfig(deps.RootLogger, sloghttp.Config{
+			DefaultLevel:     defaultLogLevel,
+			ClientErrorLevel: clientErrorLevel,
+			ServerErrorLevel: serverErrorLevel,
 
 			WithUserAgent:      true,
 			WithRequestID:      false, // We handle it ourselves (tracing middleware)
@@ -65,9 +82,9 @@ func buildMiddlewareChain(logger *slog.Logger, handler http.Handler) http.Handle
 			WithSpanID:         true,
 			WithTraceID:        true,
 		}),
-		middleware.NewRecovererMiddleware(logger),
+		middleware.NewRecovererMiddleware(deps.RootLogger),
 	)
-	return chain(handler)
+	return chain(deps.Handler)
 }
 
 // NewHTTPServer constructor factory for general use *http.Server.
@@ -79,7 +96,7 @@ func NewHTTPServer(deps HTTPServerDeps) *HTTPServer {
 		ReadHeaderTimeout: deps.ReadHeaderTimeout,
 		ReadTimeout:       deps.ReadTimeout,
 		WriteTimeout:      deps.WriteTimeout,
-		Handler:           buildMiddlewareChain(deps.RootLogger, deps.Handler),
+		Handler:           buildMiddlewareChain(deps),
 		ErrorLog:          slog.NewLogLogger(deps.RootLogger.Handler(), slog.LevelError),
 	}
 

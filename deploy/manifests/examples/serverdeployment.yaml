@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oke-gateway-example-server
+  labels:
+    app: oke-gateway-example-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oke-gateway-example-server
+  template:
+    metadata:
+      labels:
+        app: oke-gateway-example-server
+    spec:
+      containers:
+      - name: echo
+        image: ghcr.io/gemyago/oke-gateway-api-server:git-commit-804f762
+        args:
+          - start
+          - --json-logs
+        ports:
+        - containerPort: 8080
+          name: http
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oke-gateway-example-server
+  labels:
+    app: oke-gateway-example-server
+spec:
+  ports:
+  - port: 8080
+    name: http
+    targetPort: http
+  selector:
+    app: oke-gateway-example-server

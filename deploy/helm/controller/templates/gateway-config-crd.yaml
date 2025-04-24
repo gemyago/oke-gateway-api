@@ -1,0 +1,35 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: gateway-configs.oke-gateway-api.gemyago.github.io
+spec:
+  group: oke-gateway-api.gemyago.github.io
+  names:
+    kind: GatewayConfig
+    listKind: GatewayConfigList
+    plural: gateway-configs
+    singular: gateway-config
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: ["spec"]
+          properties:
+            spec:
+              type: object
+              required: ["loadBalancerId"]
+              properties:
+                loadBalancerId:
+                  type: string
+                  description: "The OCID of the OCI Load Balancer to be used by the gateway"
+      additionalPrinterColumns:
+        - name: LoadBalancerId
+          type: string
+          jsonPath: .spec.loadBalancerId
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
