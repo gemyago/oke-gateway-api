@@ -88,6 +88,13 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
 	}
 
 	if err := m.client.Get(ctx, configName, &receiver.config); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, &resourceStatusError{
+				conditionType: string(gatewayv1.GatewayConditionAccepted),
+				reason:        string(gatewayv1.GatewayReasonInvalidParameters),
+				message:       "spec.infrastructure is pointing to a non-existent GatewayConfig",
+			}
+		}
 		return false, fmt.Errorf("failed to get GatewayConfig %s: %w", configName, err)
 	}
 

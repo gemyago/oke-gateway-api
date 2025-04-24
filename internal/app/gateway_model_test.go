@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -112,7 +113,7 @@ func TestGatewayModelImpl(t *testing.T) {
 			assert.Equal(t, *gatewayClass, receiver.gatewayClass)
 		})
 
-		t.Run("missingConfigRef", func(t *testing.T) {
+		t.Run("missingGateway", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)
 			gateway := newRandomGateway()
@@ -130,41 +131,55 @@ func TestGatewayModelImpl(t *testing.T) {
 				Get(t.Context(), req.NamespacedName, mock.Anything).
 				RunAndReturn(func(
 					_ context.Context,
-					nn apitypes.NamespacedName,
-					receiver client.Object,
-					_ ...client.GetOption,
-				) error {
-					assert.Equal(t, req.NamespacedName, nn)
-					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
-					return nil
-				})
-
-			mockClient.EXPECT().
-				Get(t.Context(), apitypes.NamespacedName{
-					Name: string(gateway.Spec.GatewayClassName),
-				}, mock.Anything).
-				RunAndReturn(func(
-					_ context.Context,
 					_ apitypes.NamespacedName,
-					receiver client.Object,
+					_ client.Object,
 					_ ...client.GetOption,
 				) error {
-					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*newRandomGatewayClass()))
-					return nil
+					return apierrors.NewNotFound(schema.GroupResource{
+						Group:    gatewayv1.GroupName,
+						Resource: "Gateway",
+					}, gateway.Name)
 				})
 
 			var receiver resolvedGatewayDetails
-			_, err := model.resolveReconcileRequest(t.Context(), req, &receiver)
+			accepted, err := model.resolveReconcileRequest(t.Context(), req, &receiver)
+
+			require.NoError(t, err)
+			assert.False(t, accepted)
+		})
+
+		t.Run("handle get gateway error", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			gateway := newRandomGateway()
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: gateway.Namespace,
+					Name:      gateway.Name,
+				},
+			}
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+
+			wantErr := errors.New(faker.Sentence())
+			mockClient.EXPECT().
+				Get(t.Context(), req.NamespacedName, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					_ apitypes.NamespacedName,
+					_ client.Object,
+					_ ...client.GetOption,
+				) error {
+					return wantErr
+				})
+
+			var receiver resolvedGatewayDetails
+			accepted, err := model.resolveReconcileRequest(t.Context(), req, &receiver)
 
 			require.Error(t, err)
-
-			var statusErr *resourceStatusError
-			require.ErrorAs(t, err, &statusErr, "Error should be a resourceStatusError")
-
-			assert.Equal(t, string(gatewayv1.GatewayConditionAccepted), statusErr.conditionType)
-			assert.Equal(t, string(gatewayv1.GatewayReasonInvalidParameters), statusErr.reason)
-			assert.Equal(t, "spec.infrastructure is missing parametersRef", statusErr.message)
-			assert.NoError(t, statusErr.cause)
+			require.ErrorIs(t, err, wantErr)
+			assert.False(t, accepted)
 		})
 
 		t.Run("missingGatewayClass", func(t *testing.T) {
@@ -214,6 +229,55 @@ func TestGatewayModelImpl(t *testing.T) {
 			accepted, err := model.resolveReconcileRequest(t.Context(), req, &receiver)
 
 			require.NoError(t, err)
+			assert.False(t, accepted)
+		})
+
+		t.Run("handle get gatewayClass error", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			gateway := newRandomGateway()
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: gateway.Namespace,
+					Name:      gateway.Name,
+				},
+			}
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+
+			mockClient.EXPECT().
+				Get(t.Context(), req.NamespacedName, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					nn apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
+					assert.Equal(t, req.NamespacedName, nn)
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
+					return nil
+				})
+
+			wantErr := errors.New(faker.Sentence())
+			mockClient.EXPECT().
+				Get(t.Context(), apitypes.NamespacedName{
+					Name: string(gateway.Spec.GatewayClassName),
+				}, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					_ apitypes.NamespacedName,
+					_ client.Object,
+					_ ...client.GetOption,
+				) error {
+					return wantErr
+				})
+
+			var receiver resolvedGatewayDetails
+			accepted, err := model.resolveReconcileRequest(t.Context(), req, &receiver)
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, wantErr)
 			assert.False(t, accepted)
 		})
 
@@ -275,6 +339,201 @@ func TestGatewayModelImpl(t *testing.T) {
 			require.NoError(t, err)
 			assert.False(t, accepted)
 		})
+
+		t.Run("missing parametersRef definition", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			gateway := newRandomGateway()
+			gateway.Spec.Infrastructure = nil
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: gateway.Namespace,
+					Name:      gateway.Name,
+				},
+			}
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+
+			mockClient.EXPECT().
+				Get(t.Context(), req.NamespacedName, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					nn apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
+					assert.Equal(t, req.NamespacedName, nn)
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
+					return nil
+				})
+
+			mockClient.EXPECT().
+				Get(t.Context(), apitypes.NamespacedName{
+					Name: string(gateway.Spec.GatewayClassName),
+				}, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					_ apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*newRandomGatewayClass()))
+					return nil
+				})
+
+			var receiver resolvedGatewayDetails
+			resolved, err := model.resolveReconcileRequest(t.Context(), req, &receiver)
+
+			require.Error(t, err)
+			assert.False(t, resolved)
+
+			var statusErr *resourceStatusError
+			require.ErrorAs(t, err, &statusErr, "Error should be a resourceStatusError")
+
+			assert.Equal(t, string(gatewayv1.GatewayConditionAccepted), statusErr.conditionType)
+			assert.Equal(t, string(gatewayv1.GatewayReasonInvalidParameters), statusErr.reason)
+			assert.Equal(t, "spec.infrastructure is missing parametersRef", statusErr.message)
+			assert.NoError(t, statusErr.cause)
+		})
+
+		t.Run("not existing GatewayConfig", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			gateway := newRandomGateway()
+			gateway.Spec.Infrastructure = &gatewayv1.GatewayInfrastructure{
+				ParametersRef: &gatewayv1.LocalParametersReference{
+					Group: ConfigRefGroup,
+					Kind:  ConfigRefKind,
+					Name:  faker.DomainName(),
+				},
+			}
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: gateway.Namespace,
+					Name:      gateway.Name,
+				},
+			}
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+
+			mockClient.EXPECT().
+				Get(t.Context(), req.NamespacedName, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					nn apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
+					assert.Equal(t, req.NamespacedName, nn)
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
+					return nil
+				})
+
+			mockClient.EXPECT().
+				Get(t.Context(), apitypes.NamespacedName{
+					Name: string(gateway.Spec.GatewayClassName),
+				}, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					_ apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*newRandomGatewayClass()))
+					return nil
+				})
+
+			wantConfigName := apitypes.NamespacedName{
+				Namespace: gateway.Namespace,
+				Name:      gateway.Spec.Infrastructure.ParametersRef.Name,
+			}
+			mockClient.EXPECT().
+				Get(t.Context(), wantConfigName, mock.Anything).
+				Return(apierrors.NewNotFound(schema.GroupResource{
+					Group:    gatewayv1.GroupName,
+					Resource: "GatewayConfig",
+				}, wantConfigName.Name))
+
+			var receiver resolvedGatewayDetails
+			_, err := model.resolveReconcileRequest(t.Context(), req, &receiver)
+
+			require.Error(t, err)
+
+			var statusErr *resourceStatusError
+			require.ErrorAs(t, err, &statusErr, "Error should be a resourceStatusError")
+
+			assert.Equal(t, string(gatewayv1.GatewayConditionAccepted), statusErr.conditionType)
+			assert.Equal(t, string(gatewayv1.GatewayReasonInvalidParameters), statusErr.reason)
+			assert.Equal(t, "spec.infrastructure is pointing to a non-existent GatewayConfig", statusErr.message)
+			assert.NoError(t, statusErr.cause)
+		})
+
+		t.Run("error getting GatewayConfig", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			gateway := newRandomGateway()
+			gateway.Spec.Infrastructure = &gatewayv1.GatewayInfrastructure{
+				ParametersRef: &gatewayv1.LocalParametersReference{
+					Group: ConfigRefGroup,
+					Kind:  ConfigRefKind,
+					Name:  faker.DomainName(),
+				},
+			}
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: gateway.Namespace,
+					Name:      gateway.Name,
+				},
+			}
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+
+			mockClient.EXPECT().
+				Get(t.Context(), req.NamespacedName, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					nn apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
+					assert.Equal(t, req.NamespacedName, nn)
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
+					return nil
+				})
+
+			mockClient.EXPECT().
+				Get(t.Context(), apitypes.NamespacedName{
+					Name: string(gateway.Spec.GatewayClassName),
+				}, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					_ apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*newRandomGatewayClass()))
+					return nil
+				})
+
+			wantErr := errors.New(faker.Sentence())
+			wantConfigName := apitypes.NamespacedName{
+				Namespace: gateway.Namespace,
+				Name:      gateway.Spec.Infrastructure.ParametersRef.Name,
+			}
+			mockClient.EXPECT().
+				Get(t.Context(), wantConfigName, mock.Anything).
+				Return(wantErr)
+
+			var receiver resolvedGatewayDetails
+			resolved, err := model.resolveReconcileRequest(t.Context(), req, &receiver)
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, wantErr)
+			assert.False(t, resolved)
+		})
 	})
 
 	t.Run("programGateway", func(t *testing.T) {
@@ -335,6 +594,120 @@ func TestGatewayModelImpl(t *testing.T) {
 			})
 
 			require.NoError(t, err)
+		})
+		t.Run("failed to get OCI Load Balancer", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			config := makeRandomGatewayConfig()
+			gateway := newRandomGateway(
+				randomGatewayWithRandomListenersOpt(),
+			)
+			loadBalancer := makeRandomOCILoadBalancer(
+				randomOCILoadBalancerWithRandomBackendSetsOpt(),
+			)
+			loadBalancer.Listeners = make(map[string]loadbalancer.Listener)
+			for _, listener := range gateway.Spec.Listeners {
+				loadBalancer.Listeners[string(listener.Name)] = makeRandomOCIListener()
+			}
+
+			wantErr := errors.New(faker.Sentence())
+			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+				}).
+				Return(loadbalancer.GetLoadBalancerResponse{}, wantErr)
+			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
+				gateway: *gateway,
+				config:  config,
+			})
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, wantErr)
+		})
+		t.Run("failed to reconcile default backend set", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			config := makeRandomGatewayConfig()
+			gateway := newRandomGateway(
+				randomGatewayWithRandomListenersOpt(),
+			)
+			loadBalancer := makeRandomOCILoadBalancer(
+				randomOCILoadBalancerWithRandomBackendSetsOpt(),
+			)
+			loadBalancer.Listeners = make(map[string]loadbalancer.Listener)
+			for _, listener := range gateway.Spec.Listeners {
+				loadBalancer.Listeners[string(listener.Name)] = makeRandomOCIListener()
+			}
+
+			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+				}).
+				Return(loadbalancer.GetLoadBalancerResponse{
+					LoadBalancer: loadBalancer,
+				}, nil)
+
+			wantErr := errors.New(faker.Sentence())
+			loadBalancerModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			loadBalancerModel.EXPECT().
+				reconcileDefaultBackendSet(t.Context(), mock.Anything).
+				Return(loadbalancer.BackendSet{}, wantErr)
+
+			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
+				gateway: *gateway,
+				config:  config,
+			})
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, wantErr)
+		})
+		t.Run("failed to reconcile listener", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			config := makeRandomGatewayConfig()
+			gateway := newRandomGateway(
+				randomGatewayWithRandomListenersOpt(),
+			)
+			loadBalancer := makeRandomOCILoadBalancer(
+				randomOCILoadBalancerWithRandomBackendSetsOpt(),
+			)
+			loadBalancer.Listeners = make(map[string]loadbalancer.Listener)
+			for _, listener := range gateway.Spec.Listeners {
+				loadBalancer.Listeners[string(listener.Name)] = makeRandomOCIListener()
+			}
+			defaultBackendSet := makeRandomOCIBackendSet()
+
+			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+				}).
+				Return(loadbalancer.GetLoadBalancerResponse{
+					LoadBalancer: loadBalancer,
+				}, nil)
+
+			loadBalancerModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			loadBalancerModel.EXPECT().
+				reconcileDefaultBackendSet(t.Context(), mock.Anything).
+				Return(defaultBackendSet, nil)
+
+			wantErr := errors.New(faker.Sentence())
+			loadBalancerModel.EXPECT().
+				reconcileHTTPListener(t.Context(), mock.Anything).
+				Return(loadbalancer.Listener{}, wantErr)
+
+			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
+				gateway: *gateway,
+				config:  config,
+			})
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, wantErr)
 		})
 	})
 }
