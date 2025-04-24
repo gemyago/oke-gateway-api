@@ -11,7 +11,6 @@ import (
 )
 
 type syncBackendEndpointsParams struct {
-	gateway             gatewayv1.Gateway
 	httpRoute           gatewayv1.HTTPRoute
 	config              types.GatewayConfig
 	resolvedBackendRefs map[string]v1.Service
