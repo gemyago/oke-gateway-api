@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -117,6 +118,202 @@ func TestHTTPRouteController(t *testing.T) {
 		result, err := controller.Reconcile(t.Context(), req)
 
 		require.NoError(t, err)
+		assert.Equal(t, reconcile.Result{}, result)
+	})
+
+	t.Run("ResolveRequestError", func(t *testing.T) {
+		deps := newMockDeps(t)
+		controller := NewHTTPRouteController(deps)
+
+		req := reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Namespace: faker.DomainName(),
+				Name:      faker.Word(),
+			},
+		}
+
+		mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+		wantErr := fmt.Errorf("resolve error: %s", faker.Sentence())
+		mockModel.EXPECT().resolveRequest(
+			t.Context(),
+			req,
+			mock.Anything,
+		).Return(false, wantErr)
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		require.ErrorIs(t, err, wantErr)
+		assert.Equal(t, reconcile.Result{}, result)
+	})
+
+	t.Run("AcceptRouteError", func(t *testing.T) {
+		deps := newMockDeps(t)
+		controller := NewHTTPRouteController(deps)
+
+		req := reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Namespace: faker.DomainName(),
+				Name:      faker.Word(),
+			},
+		}
+
+		wantResolvedData := resolvedRouteDetails{
+			httpRoute: makeRandomHTTPRoute(),
+			gatewayDetails: resolvedGatewayDetails{
+				gateway: *newRandomGateway(),
+				config:  makeRandomGatewayConfig(),
+			},
+		}
+
+		mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+		mockModel.EXPECT().resolveRequest(
+			t.Context(),
+			req,
+			mock.Anything,
+		).RunAndReturn(func(
+			_ context.Context,
+			_ reconcile.Request,
+			receiver *resolvedRouteDetails,
+		) (bool, error) {
+			*receiver = wantResolvedData
+			return true, nil
+		})
+
+		wantErr := fmt.Errorf("accept error: %s", faker.Sentence())
+		mockModel.EXPECT().acceptRoute(
+			t.Context(),
+			wantResolvedData,
+		).Return(nil, wantErr)
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		require.ErrorIs(t, err, wantErr)
+		assert.Equal(t, reconcile.Result{}, result)
+	})
+
+	t.Run("ResolveBackendRefsError", func(t *testing.T) {
+		deps := newMockDeps(t)
+		controller := NewHTTPRouteController(deps)
+
+		req := reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Namespace: faker.DomainName(),
+				Name:      faker.Word(),
+			},
+		}
+
+		wantResolvedData := resolvedRouteDetails{
+			httpRoute: makeRandomHTTPRoute(),
+			gatewayDetails: resolvedGatewayDetails{
+				gateway: *newRandomGateway(),
+				config:  makeRandomGatewayConfig(),
+			},
+		}
+
+		mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+		mockModel.EXPECT().resolveRequest(
+			t.Context(),
+			req,
+			mock.Anything,
+		).RunAndReturn(func(
+			_ context.Context,
+			_ reconcile.Request,
+			receiver *resolvedRouteDetails,
+		) (bool, error) {
+			*receiver = wantResolvedData
+			return true, nil
+		})
+
+		wantAcceptedRoute := makeRandomHTTPRoute()
+		mockModel.EXPECT().acceptRoute(
+			t.Context(),
+			wantResolvedData,
+		).Return(&wantAcceptedRoute, nil)
+
+		wantErr := fmt.Errorf("resolve backend refs error: %s", faker.Sentence())
+		mockModel.EXPECT().resolveBackendRefs(
+			t.Context(),
+			resolveBackendRefsParams{
+				httpRoute: wantAcceptedRoute,
+			},
+		).Return(nil, wantErr)
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		require.ErrorIs(t, err, wantErr)
+		assert.Equal(t, reconcile.Result{}, result)
+	})
+
+	t.Run("ProgramRouteError", func(t *testing.T) {
+		deps := newMockDeps(t)
+		controller := NewHTTPRouteController(deps)
+
+		req := reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Namespace: faker.DomainName(),
+				Name:      faker.Word(),
+			},
+		}
+
+		wantResolvedData := resolvedRouteDetails{
+			httpRoute: makeRandomHTTPRoute(),
+			gatewayDetails: resolvedGatewayDetails{
+				gateway: *newRandomGateway(),
+				config:  makeRandomGatewayConfig(),
+			},
+		}
+
+		wantBackendRefs := make(map[string]v1.Service)
+		for range 3 {
+			svc := makeRandomService()
+			fullName := types.NamespacedName{
+				Namespace: svc.Namespace,
+				Name:      svc.Name,
+			}
+			wantBackendRefs[fullName.String()] = svc
+		}
+
+		mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+		mockModel.EXPECT().resolveRequest(
+			t.Context(),
+			req,
+			mock.Anything,
+		).RunAndReturn(func(
+			_ context.Context,
+			_ reconcile.Request,
+			receiver *resolvedRouteDetails,
+		) (bool, error) {
+			*receiver = wantResolvedData
+			return true, nil
+		})
+
+		wantAcceptedRoute := makeRandomHTTPRoute()
+		mockModel.EXPECT().acceptRoute(
+			t.Context(),
+			wantResolvedData,
+		).Return(&wantAcceptedRoute, nil)
+
+		mockModel.EXPECT().resolveBackendRefs(
+			t.Context(),
+			resolveBackendRefsParams{
+				httpRoute: wantAcceptedRoute,
+			},
+		).Return(wantBackendRefs, nil)
+
+		wantErr := fmt.Errorf("program route error: %s", faker.Sentence())
+		mockModel.EXPECT().programRoute(
+			t.Context(),
+			programRouteParams{
+				gateway:             wantResolvedData.gatewayDetails.gateway,
+				config:              wantResolvedData.gatewayDetails.config,
+				httpRoute:           wantAcceptedRoute,
+				resolvedBackendRefs: wantBackendRefs,
+			},
+		).Return(wantErr)
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		require.ErrorIs(t, err, wantErr)
 		assert.Equal(t, reconcile.Result{}, result)
 	})
 }
