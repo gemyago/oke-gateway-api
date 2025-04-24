@@ -304,7 +304,7 @@ type httpRouteModelDeps struct {
 func newHTTPRouteModel(deps httpRouteModelDeps) httpRouteModel {
 	return &httpRouteModelImpl{
 		client:               deps.K8sClient,
-		logger:               deps.RootLogger.With("component", "httproute-model"),
+		logger:               deps.RootLogger.WithGroup("httproute-model"),
 		gatewayModel:         deps.GatewayModel,
 		ociLoadBalancerModel: deps.OciLBModel,
 	}

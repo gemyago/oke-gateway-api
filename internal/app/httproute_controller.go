@@ -26,7 +26,7 @@ type HTTPRouteControllerDeps struct {
 // NewHTTPRouteController creates a new HTTPRouteController.
 func NewHTTPRouteController(deps HTTPRouteControllerDeps) *HTTPRouteController {
 	return &HTTPRouteController{
-		logger:         deps.RootLogger,
+		logger:         deps.RootLogger.WithGroup("httproute-controller"),
 		httpRouteModel: deps.HTTPRouteModel,
 	}
 }

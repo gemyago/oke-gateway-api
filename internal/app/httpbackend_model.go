@@ -24,6 +24,14 @@ type httpBackendModel interface {
 	syncBackendEndpoints(ctx context.Context, params syncBackendEndpointsParams) error
 }
 
+type httpBackendModelImpl struct {
+	logger *slog.Logger
+}
+
+func (m *httpBackendModelImpl) syncBackendEndpoints(ctx context.Context, params syncBackendEndpointsParams) error {
+	return nil
+}
+
 // httpBackendModelDeps contains the dependencies for the HTTPBackendModel.
 type httpBackendModelDeps struct {
 	dig.In
@@ -34,6 +42,8 @@ type httpBackendModelDeps struct {
 }
 
 // newHTTPBackendModel creates a new HTTPBackendModel.
-func newHTTPBackendModel(_ httpBackendModelDeps) httpBackendModel {
-	panic("NewHTTPBackendModel not implemented") // TDD Step: Start with panic
+func newHTTPBackendModel(deps httpBackendModelDeps) httpBackendModel {
+	return &httpBackendModelImpl{
+		logger: deps.RootLogger.WithGroup("http-backend-model"),
+	}
 }

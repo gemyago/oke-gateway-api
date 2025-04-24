@@ -35,7 +35,7 @@ type GatewayControllerDeps struct {
 func NewGatewayController(deps GatewayControllerDeps) *GatewayController {
 	return &GatewayController{
 		client:         deps.K8sClient,
-		logger:         deps.RootLogger,
+		logger:         deps.RootLogger.WithGroup("gateway-controller"),
 		resourcesModel: deps.ResourcesModel, // Initialize resourcesModel
 		gatewayModel:   deps.GatewayModel,
 	}

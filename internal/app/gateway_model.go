@@ -160,7 +160,7 @@ type gatewayModelDeps struct {
 func newGatewayModel(deps gatewayModelDeps) gatewayModel {
 	return &gatewayModelImpl{
 		client:               deps.K8sClient,
-		logger:               deps.RootLogger,
+		logger:               deps.RootLogger.WithGroup("gateway-model"),
 		ociClient:            deps.OciClient,
 		ociLoadBalancerModel: deps.OciLoadBalancerModel,
 	}
