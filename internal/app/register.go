@@ -21,5 +21,6 @@ func Register(container *dig.Container) error {
 		newHTTPRouteModel,
 		newOciLoadBalancerModel,
 		newHTTPBackendModel,
+		NewWatchesModel,
 	)
 }
