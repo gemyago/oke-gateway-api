@@ -6,14 +6,12 @@ import (
 
 	"github.com/gemyago/oke-gateway-api/internal/types"
 	"go.uber.org/dig"
-	v1 "k8s.io/api/core/v1"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 type syncBackendEndpointsParams struct {
-	httpRoute           gatewayv1.HTTPRoute
-	config              types.GatewayConfig
-	resolvedBackendRefs map[string]v1.Service
+	httpRoute gatewayv1.HTTPRoute
+	config    types.GatewayConfig
 }
 
 // httpBackendModel defines the interface for managing OCI backend sets based on HTTPRoute definitions.
@@ -29,6 +27,10 @@ type httpBackendModelImpl struct {
 }
 
 func (m *httpBackendModelImpl) syncBackendEndpoints(ctx context.Context, params syncBackendEndpointsParams) error {
+	m.logger.InfoContext(ctx, "Syncing backend endpoints",
+		slog.String("httpRoute", params.httpRoute.Name),
+		slog.String("config", params.config.Name),
+	)
 	return nil
 }
 
