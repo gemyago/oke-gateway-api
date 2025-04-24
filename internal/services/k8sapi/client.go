@@ -4,6 +4,7 @@ package k8sapi
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -21,12 +22,15 @@ import (
 type ConfigDeps struct {
 	dig.In
 
+	RootLogger *slog.Logger
+
 	// This can be set via APP_K8SAPI_NOOP env variable
 	Noop bool `name:"config.k8sapi.noop"`
 }
 
 func newConfig(deps ConfigDeps) (*rest.Config, error) {
 	if deps.Noop {
+		deps.RootLogger.Warn("Kubernetes API client is in noop mode")
 		return &rest.Config{}, nil
 	}
 

@@ -10,7 +10,6 @@ func Register(container *dig.Container) error {
 	return di.ProvideAll(container,
 		newConfigProvider,
 		newLoadBalancerClient,
-		newWorkRequestsClient,
 		NewWorkRequestsWatcher,
 		func(c loadbalancer.LoadBalancerClient) workRequestsClient { return c },
 	)

@@ -13,5 +13,8 @@
   },
   "k8sapi": {
     "noop": false
+  },
+  "ociapi": {
+    "noop": false
   }
 }
