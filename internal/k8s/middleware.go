@@ -63,8 +63,8 @@ func wireupReconciler(
 	ctrl reconcile.TypedReconciler[reconcile.Request],
 	middlewares ...controllerMiddleware[reconcile.Request],
 ) reconcile.TypedReconciler[reconcile.Request] {
-	for _, middleware := range middlewares {
-		ctrl = middleware(ctrl)
+	for i := len(middlewares) - 1; i >= 0; i-- {
+		ctrl = middlewares[i](ctrl)
 	}
 	return ctrl
 }
