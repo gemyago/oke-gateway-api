@@ -74,7 +74,7 @@ func newRandomGateway(
 
 func randomGatewayWithRandomListenersOpt() randomGatewayOpt {
 	return func(gw *gatewayv1.Gateway) {
-		gw.Spec.Listeners = make([]gatewayv1.Listener, rand.IntN(3))
+		gw.Spec.Listeners = make([]gatewayv1.Listener, 2+rand.IntN(3))
 		for i := range gw.Spec.Listeners {
 			gw.Spec.Listeners[i] = makeRandomHTTPListener()
 		}
