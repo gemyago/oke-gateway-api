@@ -238,6 +238,8 @@ func (m *httpRouteModelImpl) resolveBackendRefs(
 				slog.String("uuid", string(service.UID)),
 			)
 			resolvedBackendRefs[fullName.String()] = service
+
+			// TODO: Maybe check port and other stuff here
 		}
 	}
 
