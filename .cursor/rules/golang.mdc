@@ -5,6 +5,8 @@ alwaysApply: false
 ---
 # golang project rules, apply in agent mode
 
+Please also apply [general.mdc](mdc:.cursor/rules/general.mdc) rules
+
 ## common rules
 - Build plan, ALWAYS confirm before proceeding
 - TDD must be followed if adding new stuff, which means:
@@ -22,5 +24,5 @@ alwaysApply: false
 - when implementing multiple test cases, confirm after each case
 - use require.Error or require.ErrorIs when asserting errors
 - use faker (github.com/go-faker/faker/v4) to generate random texts
-- when tests ready show command to run tests in form and offer to run it (yes using gow): 
-  `gow test -v ./<package path> --run <test name>`
+- when tests ready show command to run tests in form and offer to run it: 
+  `go test -v ./<package path> --run <test name>`

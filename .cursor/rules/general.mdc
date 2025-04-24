@@ -1,9 +1,11 @@
 ---
-description: 
+description: General rules when editing code
 globs: 
-alwaysApply: true
+alwaysApply: false
 ---
 
 # General rules when suggesting code
 
 - Do not include a lot of comments. Only for most complex or weird cases.
+- When implementation is done - remove useless comments
+- In the end of implementation - offer to commit updated files
