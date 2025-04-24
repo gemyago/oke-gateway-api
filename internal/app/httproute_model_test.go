@@ -84,7 +84,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
-			gatewayModel.EXPECT().acceptReconcileRequest(
+			gatewayModel.EXPECT().resolveReconcileRequest(
 				t.Context(),
 				reconcile.Request{
 					NamespacedName: types.NamespacedName{
@@ -95,7 +95,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				mock.Anything,
 			).Return(false, nil)
 
-			gatewayModel.EXPECT().acceptReconcileRequest(
+			gatewayModel.EXPECT().resolveReconcileRequest(
 				t.Context(),
 				reconcile.Request{
 					NamespacedName: types.NamespacedName{
@@ -108,7 +108,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			gatewayData := makeRandomAcceptedGatewayDetails()
 
-			gatewayModel.EXPECT().acceptReconcileRequest(
+			gatewayModel.EXPECT().resolveReconcileRequest(
 				t.Context(),
 				reconcile.Request{
 					NamespacedName: types.NamespacedName{
@@ -120,7 +120,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			).RunAndReturn(func(
 				_ context.Context,
 				_ reconcile.Request,
-				receiver *acceptedGatewayDetails,
+				receiver *resolvedGatewayDetails,
 			) (bool, error) {
 				*receiver = *gatewayData
 				return true, nil
@@ -160,7 +160,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			gatewayData := makeRandomAcceptedGatewayDetails()
 
-			gatewayModel.EXPECT().acceptReconcileRequest(
+			gatewayModel.EXPECT().resolveReconcileRequest(
 				t.Context(),
 				reconcile.Request{
 					NamespacedName: types.NamespacedName{
@@ -172,7 +172,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			).RunAndReturn(func(
 				_ context.Context,
 				_ reconcile.Request,
-				receiver *acceptedGatewayDetails,
+				receiver *resolvedGatewayDetails,
 			) (bool, error) {
 				*receiver = *gatewayData
 				return true, nil
@@ -211,7 +211,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
-			gatewayModel.EXPECT().acceptReconcileRequest(
+			gatewayModel.EXPECT().resolveReconcileRequest(
 				t.Context(),
 				reconcile.Request{
 					NamespacedName: types.NamespacedName{
@@ -222,7 +222,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				mock.Anything,
 			).Return(false, nil)
 
-			gatewayModel.EXPECT().acceptReconcileRequest(
+			gatewayModel.EXPECT().resolveReconcileRequest(
 				t.Context(),
 				reconcile.Request{
 					NamespacedName: types.NamespacedName{
@@ -272,7 +272,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			model := newHTTPRouteModel(deps)
 
 			routeData := resolvedRouteDetails{
-				gatewayDetails: acceptedGatewayDetails{
+				gatewayDetails: resolvedGatewayDetails{
 					gateway:      *newRandomGateway(),
 					gatewayClass: *newRandomGatewayClass(),
 				},
@@ -331,7 +331,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				},
 			)
 			routeData := resolvedRouteDetails{
-				gatewayDetails: acceptedGatewayDetails{
+				gatewayDetails: resolvedGatewayDetails{
 					gateway:      *newRandomGateway(),
 					gatewayClass: *gatewayClass,
 				},
@@ -402,7 +402,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				},
 			)
 			routeData := resolvedRouteDetails{
-				gatewayDetails: acceptedGatewayDetails{
+				gatewayDetails: resolvedGatewayDetails{
 					gateway:      *newRandomGateway(),
 					gatewayClass: *gatewayClass,
 				},
@@ -441,7 +441,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				},
 			)
 			routeData := resolvedRouteDetails{
-				gatewayDetails: acceptedGatewayDetails{
+				gatewayDetails: resolvedGatewayDetails{
 					gateway:      *newRandomGateway(),
 					gatewayClass: *gatewayClass,
 				},

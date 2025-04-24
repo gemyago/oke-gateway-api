@@ -45,7 +45,7 @@ func TestGatewayController(t *testing.T) {
 
 			// Mock Get
 			mockGatewayModel.EXPECT().
-				acceptReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *acceptedGatewayDetails) bool {
+				resolveReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *resolvedGatewayDetails) bool {
 					receiver.gateway = *gateway
 					return true
 				})).
@@ -71,7 +71,7 @@ func TestGatewayController(t *testing.T) {
 				Return(false).Once()
 
 			mockGatewayModel.EXPECT().
-				programGateway(t.Context(), &acceptedGatewayDetails{
+				programGateway(t.Context(), &resolvedGatewayDetails{
 					gateway: *gateway,
 				}).
 				Return(nil).Once()
@@ -110,7 +110,7 @@ func TestGatewayController(t *testing.T) {
 
 			wantErr := errors.New(faker.Sentence())
 			mockGatewayModel.EXPECT().
-				acceptReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *acceptedGatewayDetails) bool {
+				resolveReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *resolvedGatewayDetails) bool {
 					receiver.gateway = *gateway
 					return true
 				})).
@@ -146,7 +146,7 @@ func TestGatewayController(t *testing.T) {
 			}
 
 			mockGatewayModel.EXPECT().
-				acceptReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *acceptedGatewayDetails) bool {
+				resolveReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *resolvedGatewayDetails) bool {
 					receiver.gateway = *gateway
 					return true
 				})).
@@ -192,7 +192,7 @@ func TestGatewayController(t *testing.T) {
 			}
 
 			mockGatewayModel.EXPECT().
-				acceptReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *acceptedGatewayDetails) bool {
+				resolveReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *resolvedGatewayDetails) bool {
 					receiver.gateway = *gateway
 					return true
 				})).
@@ -226,7 +226,7 @@ func TestGatewayController(t *testing.T) {
 			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
 			mockGatewayModel.EXPECT().
-				acceptReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *acceptedGatewayDetails) bool {
+				resolveReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *resolvedGatewayDetails) bool {
 					receiver.gateway = *gateway
 					return true
 				})).
@@ -271,7 +271,7 @@ func TestGatewayController(t *testing.T) {
 			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
 			mockGatewayModel.EXPECT().
-				acceptReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *acceptedGatewayDetails) bool {
+				resolveReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *resolvedGatewayDetails) bool {
 					receiver.gateway = *gateway
 					return true
 				})).
@@ -329,7 +329,7 @@ func TestGatewayController(t *testing.T) {
 			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
 			mockGatewayModel.EXPECT().
-				acceptReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *acceptedGatewayDetails) bool {
+				resolveReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *resolvedGatewayDetails) bool {
 					receiver.gateway = *gateway
 					return true
 				})).
@@ -377,7 +377,7 @@ func TestGatewayController(t *testing.T) {
 			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
 			mockGatewayModel.EXPECT().
-				acceptReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *acceptedGatewayDetails) bool {
+				resolveReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *resolvedGatewayDetails) bool {
 					receiver.gateway = *gateway
 					return true
 				})).
@@ -413,7 +413,7 @@ func TestGatewayController(t *testing.T) {
 			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
 			mockGatewayModel.EXPECT().
-				acceptReconcileRequest(t.Context(), req, mock.Anything).
+				resolveReconcileRequest(t.Context(), req, mock.Anything).
 				Return(false, nil).Once()
 
 			result, err := controller.Reconcile(t.Context(), req)

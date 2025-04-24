@@ -99,8 +99,8 @@ func makeRandomHTTPListener(
 	return listener
 }
 
-func makeRandomAcceptedGatewayDetails() *acceptedGatewayDetails {
-	return &acceptedGatewayDetails{
+func makeRandomAcceptedGatewayDetails() *resolvedGatewayDetails {
+	return &resolvedGatewayDetails{
 		gateway:      *newRandomGateway(),
 		gatewayClass: *newRandomGatewayClass(),
 		config:       makeRandomGatewayConfig(),

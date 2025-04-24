@@ -36,7 +36,7 @@ func TestHTTPRouteController(t *testing.T) {
 
 		wantResolvedData := resolvedRouteDetails{
 			httpRoute: makeRandomHTTPRoute(),
-			gatewayDetails: acceptedGatewayDetails{
+			gatewayDetails: resolvedGatewayDetails{
 				gateway: *newRandomGateway(),
 				config:  makeRandomGatewayConfig(),
 			},

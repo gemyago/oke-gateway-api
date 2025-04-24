@@ -14,25 +14,25 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-type acceptedGatewayDetails struct {
+type resolvedGatewayDetails struct {
 	gateway      gatewayv1.Gateway
 	gatewayClass gatewayv1.GatewayClass
 	config       types.GatewayConfig
 }
 
 type gatewayModel interface {
-	// acceptReconcileRequest accepts a reconcile request and returns true if the request is accepted.
+	// resolveReconcileRequest will resolve related resources for the reconcile request.
 	// If returns false if the request is not relevant for this controller.
 	// It returns true if the request is relevant for this controller.
-	// It may return an error if there was error accepting the request.
+	// It may return an error if there was error resolving the request.
 	// If error happens, it may not be always known if the request is relevant.
-	acceptReconcileRequest(
+	resolveReconcileRequest(
 		ctx context.Context,
 		req reconcile.Request,
-		receiver *acceptedGatewayDetails,
+		receiver *resolvedGatewayDetails,
 	) (bool, error)
 
-	programGateway(ctx context.Context, data *acceptedGatewayDetails) error
+	programGateway(ctx context.Context, data *resolvedGatewayDetails) error
 }
 
 type gatewayModelImpl struct {
@@ -42,12 +42,10 @@ type gatewayModelImpl struct {
 	ociLoadBalancerModel ociLoadBalancerModel
 }
 
-// TODO: Maybe rename to something like resolveReconcileRequest
-// since it's not accepting but resolving in practice
-func (m *gatewayModelImpl) acceptReconcileRequest(
+func (m *gatewayModelImpl) resolveReconcileRequest(
 	ctx context.Context,
 	req reconcile.Request,
-	receiver *acceptedGatewayDetails,
+	receiver *resolvedGatewayDetails,
 ) (bool, error) {
 	if err := m.client.Get(ctx, req.NamespacedName, &receiver.gateway); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -98,7 +96,7 @@ func (m *gatewayModelImpl) acceptReconcileRequest(
 	return true, nil
 }
 
-func (m *gatewayModelImpl) programGateway(ctx context.Context, data *acceptedGatewayDetails) error {
+func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGatewayDetails) error {
 	loadBalancerID := data.config.Spec.LoadBalancerID
 	m.logger.DebugContext(ctx, "Fetching OCI Load Balancer details",
 		slog.String("loadBalancerId", loadBalancerID),

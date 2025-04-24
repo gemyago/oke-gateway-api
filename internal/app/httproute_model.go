@@ -20,7 +20,7 @@ import (
 )
 
 type resolvedRouteDetails struct {
-	gatewayDetails acceptedGatewayDetails
+	gatewayDetails resolvedGatewayDetails
 	matchedRef     gatewayv1.ParentReference
 	httpRoute      gatewayv1.HTTPRoute
 }
@@ -105,7 +105,7 @@ func (m *httpRouteModelImpl) resolveRequest(
 		return false, err
 	}
 
-	var resolvedGatewayData acceptedGatewayDetails
+	var resolvedGatewayData resolvedGatewayDetails
 	var matchedRef gatewayv1.ParentReference
 	gatewayAccepted := false
 	for _, parentRef := range httpRoute.Spec.ParentRefs {
@@ -121,7 +121,7 @@ func (m *httpRouteModelImpl) resolveRequest(
 			slog.String("parentName", parentName.String()),
 			slog.Any("parentRef", parentRef),
 		)
-		accepted, err := m.gatewayModel.acceptReconcileRequest(ctx, reconcile.Request{
+		accepted, err := m.gatewayModel.resolveReconcileRequest(ctx, reconcile.Request{
 			NamespacedName: parentName,
 		}, &resolvedGatewayData)
 		if err != nil {
