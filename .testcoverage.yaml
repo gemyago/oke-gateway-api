@@ -21,5 +21,6 @@ exclude:
   paths:
     - testing.go
     - mock_.*.go
+    - zz_generated.*.go
     - internal/api/http/v1routes/.* # Generated code
     - internal/app/models/.* # Generated code
