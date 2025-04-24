@@ -3,11 +3,12 @@
 package k8sapi
 
 import (
-	"flag"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/gemyago/oke-gateway-api/internal/types"
+	"go.uber.org/dig"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -17,20 +18,27 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-func newConfig() (*rest.Config, error) {
-	// create new config
-	var kubeconfig *string
-	if home := homedir.HomeDir(); home != "" {
-		kubeconfig = flag.String(
-			"kubeconfig",
-			filepath.Join(home, ".kube", "config"),
-			"(optional) absolute path to the kubeconfig file",
-		)
-	} else {
-		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
+type ConfigDeps struct {
+	dig.In
+
+	// This can be set via APP_K8SAPI_NOOP env variable
+	Noop bool `name:"config.k8sapi.noop"`
+}
+
+func newConfig(deps ConfigDeps) (*rest.Config, error) {
+	if deps.Noop {
+		return &rest.Config{}, nil
 	}
 
-	return clientcmd.BuildConfigFromFlags("", *kubeconfig)
+	kubeconfig := os.Getenv("KUBECONFIG")
+
+	if kubeconfig == "" {
+		if home := homedir.HomeDir(); home != "" {
+			kubeconfig = filepath.Join(home, ".kube", "config")
+		}
+	}
+
+	return clientcmd.BuildConfigFromFlags("", kubeconfig)
 }
 
 func newClient(config *rest.Config) (client.Client, error) {

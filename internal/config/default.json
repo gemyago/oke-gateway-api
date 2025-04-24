@@ -10,5 +10,8 @@
     "writeTimeout": "8s",
     "mode": "echo",
     "accessLogsLevel": ""
+  },
+  "k8sapi": {
+    "noop": false
   }
 }
