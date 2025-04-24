@@ -10,8 +10,6 @@ alwaysApply: false
 - TDD must be followed if adding new stuff, which means:
   1. Add stub declarations (for struct function panic not implemented)
   2. Add or extend tests that are testing desired logic
-    - after extending, show command to run tests in form (yes using gow): 
-      `gow test -v ./<package path> --run <test name>`
   3. Implement the logic
 - Use mockery to create mocks for dependencies
   - add mocks to @.mockery.yaml
@@ -24,3 +22,5 @@ alwaysApply: false
 - when implementing multiple test cases, confirm after each case
 - use require.Error or require.ErrorIs when asserting errors
 - use faker (github.com/go-faker/faker/v4) to generate random texts
+- when tests ready show command to run tests in form and offer to run it (yes using gow): 
+  `gow test -v ./<package path> --run <test name>`
