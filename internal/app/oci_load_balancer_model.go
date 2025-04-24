@@ -43,6 +43,9 @@ type ociLoadBalancerModel interface {
 		ctx context.Context,
 		params reconcileHTTPListenerParams,
 	) (loadbalancer.Listener, error)
+
+	// TODO: It may not need to return the backend set
+	// review and update
 	reconcileBackendSet(
 		ctx context.Context,
 		params reconcileBackendSetParams,
