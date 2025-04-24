@@ -39,12 +39,12 @@ func NewRootHandler(deps RootHandlerDeps) http.Handler {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		w.WriteHeader(http.StatusOK)
 		err = json.NewEncoder(w).Encode(EchoResponse{
 			RequestHeaders: r.Header,
 			RequestBody:    string(body),
