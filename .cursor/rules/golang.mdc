@@ -22,3 +22,5 @@ alwaysApply: false
 - prefer single top-level function per component and do multiple nested run blocks
 - define newMockDeps function in the stop of the func that will initialize dependencies (if applicable)
 - when implementing multiple test cases, confirm after each case
+- use require.Error or require.ErrorIs when asserting errors
+- use faker (github.com/go-faker/faker/v4) to generate random texts

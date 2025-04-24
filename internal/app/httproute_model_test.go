@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"reflect"
@@ -264,6 +265,66 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			require.NoError(t, err)
 			assert.False(t, accepted, "parent should not be resolved")
 		})
+
+		t.Run("client get error", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: faker.Word(),
+					Name:      faker.Word(),
+				},
+			}
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			expectedErr := errors.New(faker.Sentence())
+			mockK8sClient.EXPECT().Get(t.Context(), req.NamespacedName, mock.Anything).Return(expectedErr)
+
+			var receiver resolvedRouteDetails
+			accepted, err := model.resolveRequest(t.Context(), req, &receiver)
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, expectedErr)
+			assert.False(t, accepted, "should not be accepted on error")
+		})
+
+		t.Run("gateway resolve error", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: faker.Word(),
+					Name:      faker.Word(),
+				},
+			}
+			workingRef := makeRandomParentRef()
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithRandomParentRefOpt(workingRef),
+			)
+
+			setupClientGet(t, deps.K8sClient, req.NamespacedName, route)
+
+			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+			expectedErr := errors.New(faker.Sentence())
+			gatewayModel.EXPECT().resolveReconcileRequest(
+				t.Context(),
+				reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Namespace: string(lo.FromPtr(workingRef.Namespace)),
+						Name:      string(workingRef.Name),
+					},
+				},
+				mock.Anything,
+			).Return(false, expectedErr)
+
+			var receiver resolvedRouteDetails
+			accepted, err := model.resolveRequest(t.Context(), req, &receiver)
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, expectedErr)
+			assert.False(t, accepted, "should not be accepted on error")
+		})
 	})
 
 	t.Run("acceptRoute", func(t *testing.T) {
@@ -487,6 +548,34 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			assert.Equal(t, metav1.ConditionTrue, gotCondition.Status)
 			assert.Equal(t, string(gatewayv1.RouteReasonAccepted), gotCondition.Reason)
 		})
+
+		t.Run("client status update error", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			routeData := resolvedRouteDetails{
+				gatewayDetails: resolvedGatewayDetails{
+					gateway:      *newRandomGateway(),
+					gatewayClass: *newRandomGatewayClass(),
+				},
+				httpRoute: makeRandomHTTPRoute(),
+			}
+
+			mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+			expectedErr := errors.New(faker.Sentence())
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().Status().Return(mockStatusWriter)
+
+			mockStatusWriter.EXPECT().
+				Update(t.Context(), mock.Anything).
+				Return(expectedErr)
+
+			_, err := model.acceptRoute(t.Context(), routeData)
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, expectedErr)
+		})
 	})
 
 	t.Run("resolveBackendRefs", func(t *testing.T) {
@@ -542,6 +631,31 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				}
 				assert.Equal(t, service, resolvedBackendRefs[fullName.String()])
 			}
+		})
+
+		t.Run("backend service get error", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			backendRef := makeRandomBackendRef()
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRandomRulesOpt(
+					randomHTTPRouteRule(
+						randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef),
+					),
+				),
+			)
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			expectedErr := errors.New(faker.Sentence())
+			mockK8sClient.EXPECT().Get(t.Context(), mock.Anything, mock.Anything).Return(expectedErr)
+
+			_, err := model.resolveBackendRefs(t.Context(), resolveBackendRefsParams{
+				httpRoute: httpRoute,
+			})
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, expectedErr)
 		})
 	})
 
@@ -624,6 +738,49 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			err := model.programRoute(t.Context(), params)
 			require.NoError(t, err)
+		})
+
+		t.Run("reconcile backend set error", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			backendRef := makeRandomBackendRef()
+			rule1 := randomHTTPRouteRule(
+				randomHTTPRouteRuleWithRandomNameOpt(),
+				randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef),
+			)
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRandomRulesOpt(rule1),
+			)
+
+			wantBsName := fmt.Sprintf("%s-%s", httpRoute.Name, *rule1.Name)
+			service := makeRandomService(randomServiceFromBackendRef(backendRef, &httpRoute))
+			resolvedBackendRefs := map[string]corev1.Service{
+				types.NamespacedName{Namespace: service.Namespace, Name: service.Name}.String(): service,
+			}
+
+			params := programRouteParams{
+				gateway:             *newRandomGateway(),
+				config:              makeRandomGatewayConfig(),
+				httpRoute:           httpRoute,
+				resolvedBackendRefs: resolvedBackendRefs,
+			}
+
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			expectedErr := errors.New(faker.Sentence())
+			port := int32(*backendRef.BackendRef.Port)
+			ociLBModel.EXPECT().reconcileBackendSet(t.Context(), reconcileBackendSetParams{
+				loadBalancerID: params.config.Spec.LoadBalancerID,
+				name:           wantBsName,
+				healthChecker: &loadbalancer.HealthCheckerDetails{
+					Protocol: lo.ToPtr("TCP"),
+					Port:     lo.ToPtr(int(port)),
+				},
+			}).Return(loadbalancer.BackendSet{}, expectedErr)
+
+			err := model.programRoute(t.Context(), params)
+			require.Error(t, err)
+			require.ErrorIs(t, err, expectedErr)
 		})
 	})
 }
