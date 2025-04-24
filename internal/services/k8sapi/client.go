@@ -1,3 +1,5 @@
+// coverage-ignore
+
 package k8sapi
 
 import (

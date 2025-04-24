@@ -24,3 +24,5 @@ exclude:
     - zz_generated.*.go
     - internal/api/http/v1routes/.* # Generated code
     - internal/app/models/.* # Generated code
+    - internal/services/k8sapi/client.go # Hard to test init code
+    - internal/services/ociapi/clients.go # Hard to test init code
