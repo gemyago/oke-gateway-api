@@ -2,12 +2,16 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"go.uber.org/dig"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
+
+const httpRouteBackendServiceIndexKey = ".metadata.backendRefs.serviceName"
 
 // WatchesModel implements the WatchesModel interface.
 type WatchesModel struct {
@@ -32,8 +36,18 @@ func NewWatchesModel(deps WatchesModelDeps) *WatchesModel {
 
 // RegisterFieldIndexers registers the indexer for HTTPRoute backend service references.
 // TODO: Implement index registration logic.
-func (m *WatchesModel) RegisterFieldIndexers(ctx context.Context, _ client.FieldIndexer) error {
-	m.logger.InfoContext(ctx, "RegisterFieldIndexers called (not implemented)")
+func (m *WatchesModel) RegisterFieldIndexers(ctx context.Context, indexer client.FieldIndexer) error {
+	if err := indexer.IndexField(ctx,
+		&gatewayv1.HTTPRoute{},
+		httpRouteBackendServiceIndexKey,
+		m.indexHTTPRouteByBackendService,
+	); err != nil {
+		return fmt.Errorf("failed to index HTTPRoute by backend service: %w", err)
+	}
+	return nil
+}
+
+func (m *WatchesModel) indexHTTPRouteByBackendService(obj client.Object) []string {
 	// panic("not implemented") // TODO: Implement
 	return nil // Stub implementation
 }
