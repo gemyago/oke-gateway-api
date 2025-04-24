@@ -219,6 +219,8 @@ func (m *httpRouteModelImpl) acceptRoute(
 	return httpRoute, nil
 }
 
+// TODO: The only reason to have this is to check that all backend refs are valid services.
+// Need to investigate if we really need to do this.
 func (m *httpRouteModelImpl) resolveBackendRefs(
 	ctx context.Context,
 	params resolveBackendRefsParams,
@@ -266,7 +268,7 @@ func (m *httpRouteModelImpl) programRoute(
 		bsName := fmt.Sprintf("%s-%s", params.httpRoute.Name, ruleName)
 
 		// TODO: Some check is required (on accept level) to check that refs within the same rule have same port
-		// as well as livliness probes. OCI load balancer does not support per backend HC
+		// as well as liveliness probes. OCI load balancer does not support per backend HC
 		// Also make sure there is at least one backend ref
 
 		firstBackendRef := rule.BackendRefs[0]
@@ -277,6 +279,8 @@ func (m *httpRouteModelImpl) programRoute(
 			name:           bsName,
 
 			// TODO: Consider using HTTP health check
+			// Need some investigation to prove that it makes sense. We may potentially be
+			// duplicating health checks. There should be pod level liveliness probes
 			healthChecker: &loadbalancer.HealthCheckerDetails{
 				Protocol: lo.ToPtr("TCP"),
 				Port:     lo.ToPtr(int(port)),
