@@ -48,6 +48,18 @@ func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Reque
 		return reconcile.Result{}, nil
 	}
 
+	// Check if programming is required before proceeding
+	required, err := r.httpRouteModel.isProgrammingRequired(ctx, resolvedData)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("failed to check if programming is required: %w", err)
+	}
+	if !required {
+		r.logger.InfoContext(ctx, "HTTPRoute programming not required, skipping reconciliation",
+			slog.String("httpRoute", req.NamespacedName.String()),
+		)
+		return reconcile.Result{}, nil
+	}
+
 	acceptedRoute, err := r.httpRouteModel.acceptRoute(ctx, resolvedData)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("failed to accept route: %w", err)

@@ -62,6 +62,12 @@ type httpRouteModel interface {
 		params resolveBackendRefsParams,
 	) (map[string]v1.Service, error)
 
+	// isProgrammingRequired checks if the route programming is required based on the current state.
+	isProgrammingRequired(
+		ctx context.Context,
+		details resolvedRouteDetails,
+	) (bool, error)
+
 	// programRoute programs a given HTTPRoute.
 	programRoute(
 		ctx context.Context,
@@ -292,6 +298,15 @@ func (m *httpRouteModelImpl) programRoute(
 	}
 
 	return nil
+}
+
+func (m *httpRouteModelImpl) isProgrammingRequired(
+	ctx context.Context,
+	details resolvedRouteDetails,
+) (bool, error) {
+	// TODO: Implement check to see if programming is actually required.
+	// For now, assume it's always required.
+	return true, nil
 }
 
 // httpRouteModelDeps defines the dependencies required for the httpRouteModel.

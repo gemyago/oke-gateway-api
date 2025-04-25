@@ -88,6 +88,63 @@ func (_c *MockhttpRouteModel_acceptRoute_Call) RunAndReturn(run func(context.Con
 	return _c
 }
 
+// isProgrammingRequired provides a mock function with given fields: ctx, details
+func (_m *MockhttpRouteModel) isProgrammingRequired(ctx context.Context, details resolvedRouteDetails) (bool, error) {
+	ret := _m.Called(ctx, details)
+
+	if len(ret) == 0 {
+		panic("no return value specified for isProgrammingRequired")
+	}
+
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, resolvedRouteDetails) (bool, error)); ok {
+		return rf(ctx, details)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, resolvedRouteDetails) bool); ok {
+		r0 = rf(ctx, details)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, resolvedRouteDetails) error); ok {
+		r1 = rf(ctx, details)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockhttpRouteModel_isProgrammingRequired_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'isProgrammingRequired'
+type MockhttpRouteModel_isProgrammingRequired_Call struct {
+	*mock.Call
+}
+
+// isProgrammingRequired is a helper method to define mock.On call
+//   - ctx context.Context
+//   - details resolvedRouteDetails
+func (_e *MockhttpRouteModel_Expecter) isProgrammingRequired(ctx interface{}, details interface{}) *MockhttpRouteModel_isProgrammingRequired_Call {
+	return &MockhttpRouteModel_isProgrammingRequired_Call{Call: _e.mock.On("isProgrammingRequired", ctx, details)}
+}
+
+func (_c *MockhttpRouteModel_isProgrammingRequired_Call) Run(run func(ctx context.Context, details resolvedRouteDetails)) *MockhttpRouteModel_isProgrammingRequired_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(resolvedRouteDetails))
+	})
+	return _c
+}
+
+func (_c *MockhttpRouteModel_isProgrammingRequired_Call) Return(_a0 bool, _a1 error) *MockhttpRouteModel_isProgrammingRequired_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockhttpRouteModel_isProgrammingRequired_Call) RunAndReturn(run func(context.Context, resolvedRouteDetails) (bool, error)) *MockhttpRouteModel_isProgrammingRequired_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // programRoute provides a mock function with given fields: ctx, params
 func (_m *MockhttpRouteModel) programRoute(ctx context.Context, params programRouteParams) error {
 	ret := _m.Called(ctx, params)

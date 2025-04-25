@@ -67,6 +67,8 @@ func TestHTTPRouteController(t *testing.T) {
 			return true, nil
 		})
 
+		mockModel.EXPECT().isProgrammingRequired(t.Context(), wantResolvedData).Return(true, nil)
+
 		wantAcceptedRoute := makeRandomHTTPRoute()
 
 		mockModel.EXPECT().acceptRoute(
@@ -179,6 +181,8 @@ func TestHTTPRouteController(t *testing.T) {
 			return true, nil
 		})
 
+		mockModel.EXPECT().isProgrammingRequired(t.Context(), wantResolvedData).Return(true, nil)
+
 		wantErr := fmt.Errorf("accept error: %s", faker.Sentence())
 		mockModel.EXPECT().acceptRoute(
 			t.Context(),
@@ -223,6 +227,8 @@ func TestHTTPRouteController(t *testing.T) {
 			*receiver = wantResolvedData
 			return true, nil
 		})
+
+		mockModel.EXPECT().isProgrammingRequired(t.Context(), wantResolvedData).Return(true, nil)
 
 		wantAcceptedRoute := makeRandomHTTPRoute()
 		mockModel.EXPECT().acceptRoute(
@@ -287,6 +293,8 @@ func TestHTTPRouteController(t *testing.T) {
 			return true, nil
 		})
 
+		mockModel.EXPECT().isProgrammingRequired(t.Context(), wantResolvedData).Return(true, nil)
+
 		wantAcceptedRoute := makeRandomHTTPRoute()
 		mockModel.EXPECT().acceptRoute(
 			t.Context(),
@@ -314,6 +322,51 @@ func TestHTTPRouteController(t *testing.T) {
 		result, err := controller.Reconcile(t.Context(), req)
 
 		require.ErrorIs(t, err, wantErr)
+		assert.Equal(t, reconcile.Result{}, result)
+	})
+
+	t.Run("ProgrammingNotRequired", func(t *testing.T) {
+		deps := newMockDeps(t)
+		controller := NewHTTPRouteController(deps)
+
+		req := reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Namespace: faker.DomainName(),
+				Name:      faker.Word(),
+			},
+		}
+
+		wantResolvedData := resolvedRouteDetails{
+			httpRoute: makeRandomHTTPRoute(),
+			gatewayDetails: resolvedGatewayDetails{
+				gateway: *newRandomGateway(),
+				config:  makeRandomGatewayConfig(),
+			},
+		}
+
+		mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+		mockModel.EXPECT().resolveRequest(
+			t.Context(),
+			req,
+			mock.Anything,
+		).RunAndReturn(func(
+			_ context.Context,
+			_ reconcile.Request,
+			receiver *resolvedRouteDetails,
+		) (bool, error) {
+			*receiver = wantResolvedData
+			return true, nil
+		})
+
+		mockModel.EXPECT().isProgrammingRequired(t.Context(), wantResolvedData).Return(false, nil)
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		mockModel.AssertNotCalled(t, "acceptRoute", mock.Anything, mock.Anything)
+		mockModel.AssertNotCalled(t, "resolveBackendRefs", mock.Anything, mock.Anything)
+		mockModel.AssertNotCalled(t, "programRoute", mock.Anything, mock.Anything)
+
+		require.NoError(t, err)
 		assert.Equal(t, reconcile.Result{}, result)
 	})
 }
