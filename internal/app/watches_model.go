@@ -15,7 +15,7 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-const httpRouteBackendServiceIndexKey = ".metadata.backendRefs.serviceName"
+const httpRouteBackendServiceIndexKey = ".metadata.backendRefs.serviceName" // Virtual field name, indexed
 
 // WatchesModel implements the WatchesModel interface.
 type WatchesModel struct {
@@ -43,19 +43,25 @@ func (m *WatchesModel) RegisterFieldIndexers(ctx context.Context, indexer client
 	if err := indexer.IndexField(ctx,
 		&gatewayv1.HTTPRoute{},
 		httpRouteBackendServiceIndexKey,
-		m.indexHTTPRouteByBackendService,
+		func(o client.Object) []string {
+			return m.indexHTTPRouteByBackendService(ctx, o)
+		},
 	); err != nil {
 		return fmt.Errorf("failed to index HTTPRoute by backend service: %w", err)
 	}
+	m.logger.DebugContext(ctx, "Field indexers registered",
+		slog.String("indexKey", httpRouteBackendServiceIndexKey),
+	)
 	return nil
 }
 
 // indexHTTPRouteByBackendService extracts the namespaced names of Services referenced
 // in an HTTPRoute's backendRefs. This is used to create an index for efficient
 // lookup when an EndpointSlice changes.
-func (m *WatchesModel) indexHTTPRouteByBackendService(obj client.Object) []string {
+func (m *WatchesModel) indexHTTPRouteByBackendService(ctx context.Context, obj client.Object) []string {
 	httpRoute, isRoute := obj.(*gatewayv1.HTTPRoute)
 	if !isRoute {
+		m.logger.WarnContext(ctx, "Received non-HTTPRoute object", slog.Any("object", obj))
 		return nil
 	}
 
@@ -76,7 +82,14 @@ func (m *WatchesModel) indexHTTPRouteByBackendService(obj client.Object) []strin
 		}
 	}
 
-	return lo.Keys(uniqueServiceKeys)
+	serviceKeys := lo.Keys(uniqueServiceKeys)
+	m.logger.DebugContext(ctx, "Indexed HTTPRoute by backend service",
+		slog.String("httpRoute", client.ObjectKeyFromObject(httpRoute).String()),
+		slog.String("indexKey", httpRouteBackendServiceIndexKey),
+		slog.Any("serviceKeys", serviceKeys),
+	)
+
+	return serviceKeys
 }
 
 // MapEndpointSliceToHTTPRoute maps EndpointSlice events to HTTPRoute reconcile requests.
@@ -97,8 +110,6 @@ func (m *WatchesModel) MapEndpointSliceToHTTPRoute(ctx context.Context, obj clie
 	ns := epSlice.Namespace
 	indexKey := path.Join(ns, svcName)
 
-	m.logger.DebugContext(ctx, "Looking for HTTPRoutes referencing service", slog.String("indexKey", indexKey))
-
 	var routeList gatewayv1.HTTPRouteList
 	// TODO: Fetch all pages?
 	if err := m.k8sClient.List(
@@ -114,12 +125,16 @@ func (m *WatchesModel) MapEndpointSliceToHTTPRoute(ctx context.Context, obj clie
 		return nil
 	}
 
-	m.logger.DebugContext(
-		ctx,
-		"Found HTTPRoutes for service",
-		slog.String("indexKey", indexKey),
-		slog.Int("count", len(routeList.Items)),
-	)
+	if len(routeList.Items) == 0 {
+		m.logger.DebugContext(
+			ctx,
+			"No HTTPRoutes found for service",
+			slog.String("service", svcName),
+			slog.String("indexKey", indexKey),
+		)
+		return nil
+	}
+
 	requests := make([]reconcile.Request, len(routeList.Items))
 	for i, route := range routeList.Items {
 		requests[i] = reconcile.Request{

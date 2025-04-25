@@ -115,7 +115,7 @@ func TestWatchesModel(t *testing.T) {
 				)
 			})
 
-			result := model.indexHTTPRouteByBackendService(&httpRoute)
+			result := model.indexHTTPRouteByBackendService(t.Context(), &httpRoute)
 
 			require.ElementsMatch(t, wantIndices, result)
 		})
@@ -148,7 +148,7 @@ func TestWatchesModel(t *testing.T) {
 				)
 			})
 
-			result := model.indexHTTPRouteByBackendService(&route)
+			result := model.indexHTTPRouteByBackendService(t.Context(), &route)
 			require.ElementsMatch(t, wantIndices, result)
 		})
 
@@ -182,7 +182,7 @@ func TestWatchesModel(t *testing.T) {
 				)
 			})
 
-			result := model.indexHTTPRouteByBackendService(&httpRoute)
+			result := model.indexHTTPRouteByBackendService(t.Context(), &httpRoute)
 			require.ElementsMatch(t, wantIndices, result)
 		})
 
@@ -190,7 +190,7 @@ func TestWatchesModel(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 
-			result := model.indexHTTPRouteByBackendService(&corev1.Service{})
+			result := model.indexHTTPRouteByBackendService(t.Context(), &corev1.Service{})
 			require.Nil(t, result)
 		})
 	})
