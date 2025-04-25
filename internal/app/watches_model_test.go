@@ -106,6 +106,40 @@ func TestWatchesModel(t *testing.T) {
 			require.ElementsMatch(t, wantIndices, result)
 		})
 
+		t.Run("deduplicate backend refs", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			refs := []gatewayv1.HTTPBackendRef{
+				makeRandomBackendRef(),
+				makeRandomBackendRef(),
+				makeRandomBackendRef(),
+			}
+
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRandomRulesOpt(
+					randomHTTPRouteRule(
+						randomHTTPRouteRuleWithRandomBackendRefsOpt(refs...),
+					),
+				),
+				randomHTTPRouteWithRandomRulesOpt(
+					randomHTTPRouteRule(
+						randomHTTPRouteRuleWithRandomBackendRefsOpt(refs...),
+					),
+				),
+			)
+
+			wantIndices := lo.Map(refs, func(ref gatewayv1.HTTPBackendRef, _ int) string {
+				return fmt.Sprintf("%v/%v",
+					*ref.BackendObjectReference.Namespace,
+					ref.BackendObjectReference.Name,
+				)
+			})
+
+			result := model.indexHTTPRouteByBackendService(&httpRoute)
+			require.ElementsMatch(t, wantIndices, result)
+		})
+
 		t.Run("ignore non route objects", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
