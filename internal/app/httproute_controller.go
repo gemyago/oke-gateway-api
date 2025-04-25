@@ -82,6 +82,16 @@ func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Reque
 		if err != nil {
 			return reconcile.Result{}, fmt.Errorf("failed to program route: %w", err)
 		}
+
+		// Mark the route as programmed by setting the ResolvedRefs condition
+		if err = r.httpRouteModel.setProgrammed(ctx, setProgrammedParams{
+			gatewayClass: resolvedData.gatewayDetails.gatewayClass,
+			gateway:      resolvedData.gatewayDetails.gateway,
+			httpRoute:    *acceptedRoute,
+			matchedRef:   resolvedData.matchedRef,
+		}); err != nil {
+			return reconcile.Result{}, fmt.Errorf("failed to set programmed status: %w", err)
+		}
 	} else {
 		r.logger.DebugContext(ctx, "HTTPRoute programming not required",
 			slog.String("httpRoute", req.NamespacedName.String()),

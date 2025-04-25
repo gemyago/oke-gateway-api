@@ -1018,4 +1018,178 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			assert.True(t, required)
 		})
 	})
+
+	t.Run("setProgrammed", func(t *testing.T) {
+		t.Run("success", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			route := makeRandomHTTPRoute()
+			route.Generation = rand.Int64N(1000) + 1
+			gatewayData := makeRandomAcceptedGatewayDetails()
+			matchedRef := makeRandomParentRef()
+			parentStatusIndex := rand.IntN(5)
+
+			route.Status.Parents = make([]gatewayv1.RouteParentStatus, parentStatusIndex+2)
+			for i := range route.Status.Parents {
+				route.Status.Parents[i] = gatewayv1.RouteParentStatus{
+					ParentRef:      makeRandomParentRef(),
+					ControllerName: gatewayData.gatewayClass.Spec.ControllerName,
+					Conditions:     []metav1.Condition{{Type: "SomeOther", Status: metav1.ConditionTrue}},
+				}
+			}
+			// Set the correct parent ref for the target index
+			route.Status.Parents[parentStatusIndex].ParentRef = matchedRef
+
+			params := setProgrammedParams{
+				httpRoute:    route, // Pass value
+				gatewayClass: gatewayData.gatewayClass,
+				gateway:      gatewayData.gateway,
+				matchedRef:   matchedRef,
+			}
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+			mockK8sClient.EXPECT().Status().Return(mockStatusWriter)
+
+			var updatedRouteInCallback *gatewayv1.HTTPRoute
+			mockStatusWriter.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.HTTPRoute")).
+				RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.SubResourceUpdateOption) error {
+					var ok bool
+					updatedRouteInCallback, ok = obj.(*gatewayv1.HTTPRoute)
+					require.True(t, ok)
+					// Simulate K8s update behavior: the passed object's status is updated
+					// We expect the implementation to pass a DeepCopy, so the original route in details shouldn't change here.
+					return nil
+				})
+
+			// The model receives details by value, so it works on a copy of httpRoute.
+			err := model.setProgrammed(t.Context(), params)
+			require.NoError(t, err)
+			require.NotNil(t, updatedRouteInCallback, "Update should have been called")
+
+			// Verify the status that was sent to Update is correct
+			require.Len(t, updatedRouteInCallback.Status.Parents, parentStatusIndex+2)
+			updatedParentStatus := updatedRouteInCallback.Status.Parents[parentStatusIndex]
+			assert.Equal(t, matchedRef, updatedParentStatus.ParentRef)
+			assert.Equal(t, gatewayData.gatewayClass.Spec.ControllerName, updatedParentStatus.ControllerName)
+
+			// Check the ResolvedRefs condition
+			resolvedCond := meta.FindStatusCondition(
+				updatedParentStatus.Conditions,
+				string(gatewayv1.RouteConditionResolvedRefs),
+			)
+			require.NotNil(t, resolvedCond)
+			assert.Equal(t, metav1.ConditionTrue, resolvedCond.Status)
+			assert.Equal(t, string(gatewayv1.RouteReasonResolvedRefs), resolvedCond.Reason)
+			assert.Equal(t, params.httpRoute.Generation, resolvedCond.ObservedGeneration)
+			assert.False(t, resolvedCond.LastTransitionTime.IsZero())
+			assert.Contains(t, resolvedCond.Message, "Route programmed by")
+
+			// Check that the pre-existing condition on the target status is still there
+			otherCond := meta.FindStatusCondition(updatedParentStatus.Conditions, "SomeOther")
+			require.NotNil(t, otherCond)
+			assert.Equal(t, metav1.ConditionTrue, otherCond.Status)
+
+			// Check that other parent statuses were not modified unexpectedly
+			for i, pStatus := range updatedRouteInCallback.Status.Parents {
+				if i == parentStatusIndex {
+					continue
+				}
+				// Compare with the original status before the call
+				assert.Equal(t, params.httpRoute.Status.Parents[i], pStatus, "Parent status at index %d should not be modified", i)
+			}
+		})
+
+		t.Run("parent status not found (wrong controller)", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			route := makeRandomHTTPRoute()
+			gatewayData := makeRandomAcceptedGatewayDetails()
+			matchedRef := makeRandomParentRef()
+
+			// Add a status, but for a different controller
+			route.Status.Parents = []gatewayv1.RouteParentStatus{
+				{
+					ParentRef:      matchedRef,
+					ControllerName: gatewayv1.GatewayController(faker.DomainName()),
+				},
+			}
+
+			details := setProgrammedParams{
+				httpRoute:    route,
+				gatewayClass: gatewayData.gatewayClass,
+				gateway:      gatewayData.gateway,
+				matchedRef:   matchedRef,
+			}
+
+			err := model.setProgrammed(t.Context(), details)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "parent status not found for controller")
+		})
+
+		t.Run("parent status not found (wrong parentRef)", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			route := makeRandomHTTPRoute()
+			gatewayData := makeRandomAcceptedGatewayDetails()
+			matchedRef := makeRandomParentRef()
+			wrongParentRef := makeRandomParentRef()
+
+			// Add a status with the correct controller, but wrong parentRef
+			route.Status.Parents = []gatewayv1.RouteParentStatus{
+				{
+					ParentRef:      wrongParentRef,
+					ControllerName: gatewayData.gatewayClass.Spec.ControllerName,
+				},
+			}
+
+			details := setProgrammedParams{
+				httpRoute:    route,
+				gatewayClass: gatewayData.gatewayClass,
+				gateway:      gatewayData.gateway,
+				matchedRef:   matchedRef, // The ref we are looking for
+			}
+
+			err := model.setProgrammed(t.Context(), details)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "parent status not found for controller")
+		})
+
+		t.Run("update fails", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			route := makeRandomHTTPRoute()
+			gatewayData := makeRandomAcceptedGatewayDetails()
+			matchedRef := makeRandomParentRef()
+
+			// Add a matching parent status entry
+			route.Status.Parents = []gatewayv1.RouteParentStatus{
+				{
+					ParentRef:      matchedRef,
+					ControllerName: gatewayData.gatewayClass.Spec.ControllerName,
+				},
+			}
+
+			details := setProgrammedParams{
+				httpRoute:    route,
+				gatewayClass: gatewayData.gatewayClass,
+				gateway:      gatewayData.gateway,
+				matchedRef:   matchedRef,
+			}
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+			mockK8sClient.EXPECT().Status().Return(mockStatusWriter)
+
+			updateErr := errors.New(faker.Sentence())
+			mockStatusWriter.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.HTTPRoute")).Return(updateErr)
+
+			err := model.setProgrammed(t.Context(), details)
+			require.ErrorIs(t, err, updateErr)
+		})
+	})
 }

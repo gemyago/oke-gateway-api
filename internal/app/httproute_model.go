@@ -36,6 +36,13 @@ type programRouteParams struct {
 	resolvedBackendRefs map[string]v1.Service
 }
 
+type setProgrammedParams struct {
+	httpRoute    gatewayv1.HTTPRoute
+	gatewayClass gatewayv1.GatewayClass
+	gateway      gatewayv1.Gateway
+	matchedRef   gatewayv1.ParentReference
+}
+
 // httpRouteModel defines the interface for managing HTTPRoute resources.
 type httpRouteModel interface {
 	// resolveRequest resolves the parent details for a given HTTPRoute.
@@ -72,6 +79,19 @@ type httpRouteModel interface {
 		ctx context.Context,
 		params programRouteParams,
 	) error
+
+	// setProgrammed marks the route as successfully programmed by updating its status.
+	setProgrammed(
+		ctx context.Context,
+		params setProgrammedParams,
+	) error
+}
+
+func parentRefEqual(a, b gatewayv1.ParentReference) bool {
+	return a.Name == b.Name &&
+		lo.FromPtr(a.Namespace) == lo.FromPtr(b.Namespace) &&
+		lo.FromPtr(a.Kind) == lo.FromPtr(b.Kind) &&
+		lo.FromPtr(a.Group) == lo.FromPtr(b.Group)
 }
 
 func backendRefName(
@@ -304,8 +324,7 @@ func (m *httpRouteModelImpl) isProgrammingRequired(
 ) (bool, error) {
 	parentStatus, found := lo.Find(details.httpRoute.Status.Parents, func(s gatewayv1.RouteParentStatus) bool {
 		return s.ControllerName == details.gatewayDetails.gatewayClass.Spec.ControllerName &&
-			// Ensure we check the status for the specific parent ref we resolved earlier
-			s.ParentRef == details.matchedRef
+			parentRefEqual(s.ParentRef, details.matchedRef)
 	})
 
 	if !found {
@@ -326,6 +345,50 @@ func (m *httpRouteModelImpl) isProgrammingRequired(
 	}
 
 	return true, nil
+}
+
+func (m *httpRouteModelImpl) setProgrammed(
+	ctx context.Context,
+	params setProgrammedParams,
+) error {
+	httpRoute := params.httpRoute.DeepCopy()
+
+	parentStatus, parentStatusIndex, found := lo.FindIndexOf(
+		httpRoute.Status.Parents,
+		func(s gatewayv1.RouteParentStatus) bool {
+			return s.ControllerName == params.gatewayClass.Spec.ControllerName &&
+				parentRefEqual(s.ParentRef, params.matchedRef)
+		},
+	)
+
+	if !found {
+		return fmt.Errorf("parent status not found for controller %s and parentRef %s",
+			params.gatewayClass.Spec.ControllerName,
+			params.matchedRef.Name,
+		)
+	}
+
+	// Update the condition for the specific parent status
+	meta.SetStatusCondition(&parentStatus.Conditions, metav1.Condition{
+		Type:               string(gatewayv1.RouteConditionResolvedRefs),
+		Status:             metav1.ConditionTrue,
+		Reason:             string(gatewayv1.RouteReasonResolvedRefs),
+		ObservedGeneration: httpRoute.Generation,
+		LastTransitionTime: metav1.Now(),
+		Message:            fmt.Sprintf("Route programmed by %s", params.gateway.Name),
+	})
+
+	httpRoute.Status.Parents[parentStatusIndex] = parentStatus
+
+	m.logger.DebugContext(ctx, "Updating HTTProute status as Programmed (ResolvedRefs=True)",
+		slog.String("route", httpRoute.Name),
+		slog.String("gateway", params.gateway.Name),
+	)
+	if err := m.client.Status().Update(ctx, httpRoute); err != nil {
+		return fmt.Errorf("failed to update programmed status for HTTProute %s: %w", httpRoute.Name, err)
+	}
+
+	return nil
 }
 
 // httpRouteModelDeps defines the dependencies required for the httpRouteModel.

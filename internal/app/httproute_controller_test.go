@@ -93,6 +93,16 @@ func TestHTTPRouteController(t *testing.T) {
 			},
 		).Return(nil)
 
+		mockModel.EXPECT().setProgrammed(
+			t.Context(),
+			setProgrammedParams{
+				gatewayClass: wantResolvedData.gatewayDetails.gatewayClass,
+				gateway:      wantResolvedData.gatewayDetails.gateway,
+				httpRoute:    wantAcceptedRoute,
+				matchedRef:   wantResolvedData.matchedRef,
+			},
+		).Return(nil)
+
 		result, err := controller.Reconcile(t.Context(), req)
 
 		require.NoError(t, err)
