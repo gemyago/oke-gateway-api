@@ -25,6 +25,7 @@ packages:
       mockname: Mock{{.InterfaceName}}
     interfaces:
       SubResourceWriter:
+      FieldIndexer:
   log/slog:
     interfaces:
       Handler:
