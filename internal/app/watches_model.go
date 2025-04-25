@@ -36,8 +36,7 @@ func NewWatchesModel(deps WatchesModelDeps) *WatchesModel {
 	}
 }
 
-// RegisterFieldIndexers registers the indexer for HTTPRoute backend service references.
-// TODO: Implement index registration logic.
+// RegisterFieldIndexers registers the indexers for the watches model.
 func (m *WatchesModel) RegisterFieldIndexers(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx,
 		&gatewayv1.HTTPRoute{},

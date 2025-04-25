@@ -1,11 +1,15 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
+	"github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
+	"github.com/go-faker/faker/v4"
 	"github.com/samber/lo"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -18,6 +22,42 @@ func TestWatchesModel(t *testing.T) {
 			Logger:    diag.RootTestLogger(),
 		}
 	}
+
+	t.Run("RegisterFieldIndexers", func(t *testing.T) {
+		t.Run("registers indexer for HTTPRoute backend service references", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			mockIndexer := k8sapi.NewMockFieldIndexer(t)
+
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+
+			err := model.RegisterFieldIndexers(t.Context(), mockIndexer)
+			require.NoError(t, err)
+		})
+
+		t.Run("returns error if indexer registration fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			mockIndexer := k8sapi.NewMockFieldIndexer(t)
+			wantErr := errors.New(faker.Sentence())
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(wantErr)
+
+			err := model.RegisterFieldIndexers(t.Context(), mockIndexer)
+			require.ErrorIs(t, err, wantErr)
+		})
+	})
 
 	t.Run("indexHTTPRouteByBackendService", func(t *testing.T) {
 		t.Run("build index of all backend refs", func(t *testing.T) {
