@@ -301,11 +301,34 @@ func (m *httpRouteModelImpl) programRoute(
 }
 
 func (m *httpRouteModelImpl) isProgrammingRequired(
-	ctx context.Context,
+	_ context.Context,
 	details resolvedRouteDetails,
 ) (bool, error) {
-	// TODO: Implement check to see if programming is actually required.
-	// For now, assume it's always required.
+	parentStatus, found := lo.Find(details.httpRoute.Status.Parents, func(s gatewayv1.RouteParentStatus) bool {
+		return s.ControllerName == details.gatewayDetails.gatewayClass.Spec.ControllerName &&
+			// TODO: Check if ParentRef also needs to be matched? The spec implies multiple statuses
+			// per controller+parentRef pair might exist, but our current logic assumes one per controller.
+			// For now, matching only ControllerName based on current usage pattern.
+			true // s.ParentRef == details.matchedRef
+	})
+
+	if !found {
+		return true, nil
+	}
+
+	resolvedRefsCondition := meta.FindStatusCondition(
+		parentStatus.Conditions,
+		string(gatewayv1.RouteConditionResolvedRefs),
+	)
+	if resolvedRefsCondition == nil {
+		return true, nil
+	}
+
+	if resolvedRefsCondition.Status == metav1.ConditionTrue &&
+		resolvedRefsCondition.ObservedGeneration == details.httpRoute.Generation {
+		return false, nil
+	}
+
 	return true, nil
 }
 
