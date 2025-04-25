@@ -13,23 +13,26 @@ import (
 
 // HTTPRouteController is a simple controller that watches HTTPRoute resources.
 type HTTPRouteController struct {
-	logger         *slog.Logger
-	httpRouteModel httpRouteModel
+	logger           *slog.Logger
+	httpRouteModel   httpRouteModel
+	httpBackendModel httpBackendModel
 }
 
 // HTTPRouteControllerDeps contains the dependencies for the HTTPRouteController.
 type HTTPRouteControllerDeps struct {
 	dig.In
 
-	RootLogger     *slog.Logger
-	HTTPRouteModel httpRouteModel
+	RootLogger       *slog.Logger
+	HTTPRouteModel   httpRouteModel
+	HTTPBackendModel httpBackendModel
 }
 
 // NewHTTPRouteController creates a new HTTPRouteController.
 func NewHTTPRouteController(deps HTTPRouteControllerDeps) *HTTPRouteController {
 	return &HTTPRouteController{
-		logger:         deps.RootLogger.WithGroup("httproute-controller"),
-		httpRouteModel: deps.HTTPRouteModel,
+		logger:           deps.RootLogger.WithGroup("httproute-controller"),
+		httpRouteModel:   deps.HTTPRouteModel,
+		httpBackendModel: deps.HTTPBackendModel,
 	}
 }
 
@@ -109,6 +112,15 @@ func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Reque
 			slog.String("httpRoute", req.NamespacedName.String()),
 		)
 	}
+
+	err = r.httpBackendModel.syncBackendEndpoints(ctx, syncBackendEndpointsParams{
+		httpRoute: resolvedData.httpRoute,
+		config:    resolvedData.gatewayDetails.config,
+	})
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("failed to sync backend endpoints: %w", err)
+	}
+
 	r.logger.InfoContext(ctx, fmt.Sprintf("Reconciled HTTProute %s", req.NamespacedName))
 
 	return reconcile.Result{}, nil

@@ -19,8 +19,9 @@ import (
 func TestHTTPRouteController(t *testing.T) {
 	newMockDeps := func(t *testing.T) HTTPRouteControllerDeps {
 		return HTTPRouteControllerDeps{
-			HTTPRouteModel: NewMockhttpRouteModel(t),
-			RootLogger:     diag.RootTestLogger(),
+			HTTPRouteModel:   NewMockhttpRouteModel(t),
+			HTTPBackendModel: NewMockhttpBackendModel(t),
+			RootLogger:       diag.RootTestLogger(),
 		}
 	}
 
@@ -100,6 +101,15 @@ func TestHTTPRouteController(t *testing.T) {
 				gateway:      wantResolvedData.gatewayDetails.gateway,
 				httpRoute:    wantAcceptedRoute,
 				matchedRef:   wantResolvedData.matchedRef,
+			},
+		).Return(nil)
+
+		mockBackendModel, _ := deps.HTTPBackendModel.(*MockhttpBackendModel)
+		mockBackendModel.EXPECT().syncBackendEndpoints(
+			t.Context(),
+			syncBackendEndpointsParams{
+				httpRoute: wantResolvedData.httpRoute,
+				config:    wantResolvedData.gatewayDetails.config,
 			},
 		).Return(nil)
 
@@ -369,6 +379,15 @@ func TestHTTPRouteController(t *testing.T) {
 		})
 
 		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, nil)
+
+		mockBackendModel, _ := deps.HTTPBackendModel.(*MockhttpBackendModel)
+		mockBackendModel.EXPECT().syncBackendEndpoints(
+			t.Context(),
+			syncBackendEndpointsParams{
+				httpRoute: wantResolvedData.httpRoute,
+				config:    wantResolvedData.gatewayDetails.config,
+			},
+		).Return(nil)
 
 		result, err := controller.Reconcile(t.Context(), req)
 
