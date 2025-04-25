@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path"
 
 	"go.uber.org/dig"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -51,8 +52,28 @@ func (m *WatchesModel) RegisterFieldIndexers(ctx context.Context, indexer client
 // in an HTTPRoute's backendRefs. This is used to create an index for efficient
 // lookup when an EndpointSlice changes.
 func (m *WatchesModel) indexHTTPRouteByBackendService(obj client.Object) []string {
-	// panic("not implemented") // TODO: Implement
-	return nil // Stub implementation
+	httpRoute, ok := obj.(*gatewayv1.HTTPRoute)
+	if !ok {
+		return nil
+	}
+
+	var serviceKeys []string
+
+	for _, rule := range httpRoute.Spec.Rules {
+		for _, backendRef := range rule.BackendRefs {
+			ns := httpRoute.Namespace
+			if backendRef.BackendObjectReference.Namespace != nil {
+				ns = string(*backendRef.BackendObjectReference.Namespace)
+			}
+			namespacedName := path.Join(
+				ns,
+				string(backendRef.BackendObjectReference.Name),
+			)
+			serviceKeys = append(serviceKeys, namespacedName)
+		}
+	}
+
+	return serviceKeys
 }
 
 // MapEndpointSliceToHTTPRoute maps EndpointSlice events to HTTPRoute reconcile requests.

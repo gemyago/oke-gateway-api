@@ -7,6 +7,7 @@ import (
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -63,7 +64,7 @@ func TestWatchesModel(t *testing.T) {
 			allRefs = append(allRefs, refs3...)
 			wantIndices := lo.Map(allRefs, func(ref gatewayv1.HTTPBackendRef, _ int) string {
 				return fmt.Sprintf("%v/%v",
-					ref.BackendObjectReference.Namespace,
+					*ref.BackendObjectReference.Namespace,
 					ref.BackendObjectReference.Name,
 				)
 			})
@@ -71,6 +72,46 @@ func TestWatchesModel(t *testing.T) {
 			result := model.indexHTTPRouteByBackendService(&httpRoute)
 
 			require.ElementsMatch(t, wantIndices, result)
+		})
+
+		t.Run("uses namespace from route as fallback", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			refs1 := []gatewayv1.HTTPBackendRef{
+				makeRandomBackendRef(
+					randomBackendRefWithNillNamespaceOpt(),
+				),
+				makeRandomBackendRef(
+					randomBackendRefWithNillNamespaceOpt(),
+				),
+			}
+
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithRandomRulesOpt(
+					randomHTTPRouteRule(
+						randomHTTPRouteRuleWithRandomBackendRefsOpt(refs1...),
+					),
+				),
+			)
+
+			wantIndices := lo.Map(refs1, func(ref gatewayv1.HTTPBackendRef, _ int) string {
+				return fmt.Sprintf("%v/%v",
+					route.Namespace,
+					ref.BackendObjectReference.Name,
+				)
+			})
+
+			result := model.indexHTTPRouteByBackendService(&route)
+			require.ElementsMatch(t, wantIndices, result)
+		})
+
+		t.Run("ignore non route objects", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			result := model.indexHTTPRouteByBackendService(&corev1.Service{})
+			require.Nil(t, result)
 		})
 	})
 }
