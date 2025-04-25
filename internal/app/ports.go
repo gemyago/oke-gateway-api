@@ -38,6 +38,9 @@ type ociLoadBalancerClient interface {
 
 	CreateBackend(ctx context.Context, request loadbalancer.CreateBackendRequest) (
 		response loadbalancer.CreateBackendResponse, err error)
+
+	UpdateBackendSet(ctx context.Context, request loadbalancer.UpdateBackendSetRequest) (
+		response loadbalancer.UpdateBackendSetResponse, err error)
 }
 
 type workRequestsWatcher interface {

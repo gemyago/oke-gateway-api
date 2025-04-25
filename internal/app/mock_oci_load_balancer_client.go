@@ -423,6 +423,63 @@ func (_c *MockociLoadBalancerClient_GetLoadBalancer_Call) RunAndReturn(run func(
 	return _c
 }
 
+// UpdateBackendSet provides a mock function with given fields: ctx, request
+func (_m *MockociLoadBalancerClient) UpdateBackendSet(ctx context.Context, request loadbalancer.UpdateBackendSetRequest) (loadbalancer.UpdateBackendSetResponse, error) {
+	ret := _m.Called(ctx, request)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateBackendSet")
+	}
+
+	var r0 loadbalancer.UpdateBackendSetResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.UpdateBackendSetRequest) (loadbalancer.UpdateBackendSetResponse, error)); ok {
+		return rf(ctx, request)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.UpdateBackendSetRequest) loadbalancer.UpdateBackendSetResponse); ok {
+		r0 = rf(ctx, request)
+	} else {
+		r0 = ret.Get(0).(loadbalancer.UpdateBackendSetResponse)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.UpdateBackendSetRequest) error); ok {
+		r1 = rf(ctx, request)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockociLoadBalancerClient_UpdateBackendSet_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateBackendSet'
+type MockociLoadBalancerClient_UpdateBackendSet_Call struct {
+	*mock.Call
+}
+
+// UpdateBackendSet is a helper method to define mock.On call
+//   - ctx context.Context
+//   - request loadbalancer.UpdateBackendSetRequest
+func (_e *MockociLoadBalancerClient_Expecter) UpdateBackendSet(ctx interface{}, request interface{}) *MockociLoadBalancerClient_UpdateBackendSet_Call {
+	return &MockociLoadBalancerClient_UpdateBackendSet_Call{Call: _e.mock.On("UpdateBackendSet", ctx, request)}
+}
+
+func (_c *MockociLoadBalancerClient_UpdateBackendSet_Call) Run(run func(ctx context.Context, request loadbalancer.UpdateBackendSetRequest)) *MockociLoadBalancerClient_UpdateBackendSet_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(loadbalancer.UpdateBackendSetRequest))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_UpdateBackendSet_Call) Return(response loadbalancer.UpdateBackendSetResponse, err error) *MockociLoadBalancerClient_UpdateBackendSet_Call {
+	_c.Call.Return(response, err)
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_UpdateBackendSet_Call) RunAndReturn(run func(context.Context, loadbalancer.UpdateBackendSetRequest) (loadbalancer.UpdateBackendSetResponse, error)) *MockociLoadBalancerClient_UpdateBackendSet_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockociLoadBalancerClient creates a new instance of MockociLoadBalancerClient. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockociLoadBalancerClient(t interface {
