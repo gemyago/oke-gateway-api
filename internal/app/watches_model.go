@@ -47,6 +47,9 @@ func (m *WatchesModel) RegisterFieldIndexers(ctx context.Context, indexer client
 	return nil
 }
 
+// indexHTTPRouteByBackendService extracts the namespaced names of Services referenced
+// in an HTTPRoute's backendRefs. This is used to create an index for efficient
+// lookup when an EndpointSlice changes.
 func (m *WatchesModel) indexHTTPRouteByBackendService(obj client.Object) []string {
 	// panic("not implemented") // TODO: Implement
 	return nil // Stub implementation
