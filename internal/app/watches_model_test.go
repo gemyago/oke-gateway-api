@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -185,6 +186,24 @@ func TestWatchesModel(t *testing.T) {
 			model := NewWatchesModel(deps)
 
 			result := model.indexHTTPRouteByBackendService(&corev1.Service{})
+			require.Nil(t, result)
+		})
+	})
+
+	t.Run("MapEndpointSliceToHTTPRoute", func(t *testing.T) {
+		t.Run("returns nil if object is not an EndpointSlice", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			result := model.MapEndpointSliceToHTTPRoute(t.Context(), &corev1.Service{})
+			require.Nil(t, result)
+		})
+
+		t.Run("ignore EndpointSlices without service name label", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			result := model.MapEndpointSliceToHTTPRoute(t.Context(), &discoveryv1.EndpointSlice{})
 			require.Nil(t, result)
 		})
 	})
