@@ -23,7 +23,10 @@ type httpBackendModel interface {
 }
 
 type httpBackendModelImpl struct {
-	logger *slog.Logger
+	logger              *slog.Logger
+	k8sClient           k8sClient
+	ociClient           ociLoadBalancerClient
+	workRequestsWatcher workRequestsWatcher
 }
 
 func (m *httpBackendModelImpl) syncBackendEndpoints(ctx context.Context, params syncBackendEndpointsParams) error {
@@ -31,6 +34,7 @@ func (m *httpBackendModelImpl) syncBackendEndpoints(ctx context.Context, params 
 		slog.String("httpRoute", params.httpRoute.Name),
 		slog.String("config", params.config.Name),
 	)
+
 	return nil
 }
 
@@ -38,14 +42,18 @@ func (m *httpBackendModelImpl) syncBackendEndpoints(ctx context.Context, params 
 type httpBackendModelDeps struct {
 	dig.In
 
-	RootLogger *slog.Logger
-	K8sClient  k8sClient // Assuming k8sClient interface is defined/accessible
-	// OCIClient  ociClient // Placeholder for OCI client interface
+	RootLogger            *slog.Logger
+	K8sClient             k8sClient
+	OciLoadBalancerClient ociLoadBalancerClient
+	WorkRequestsWatcher   workRequestsWatcher
 }
 
 // newHTTPBackendModel creates a new HTTPBackendModel.
 func newHTTPBackendModel(deps httpBackendModelDeps) httpBackendModel {
 	return &httpBackendModelImpl{
-		logger: deps.RootLogger.WithGroup("http-backend-model"),
+		logger:              deps.RootLogger.WithGroup("http-backend-model"),
+		k8sClient:           deps.K8sClient,
+		ociClient:           deps.OciLoadBalancerClient,
+		workRequestsWatcher: deps.WorkRequestsWatcher,
 	}
 }

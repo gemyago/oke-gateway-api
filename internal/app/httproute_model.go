@@ -107,6 +107,15 @@ func backendRefName(
 	}
 }
 
+func backendSetName(httpRoute gatewayv1.HTTPRoute, rule gatewayv1.HTTPRouteRule, ruleIndex int) string {
+	ruleName := lo.TernaryF(
+		rule.Name != nil,
+		func() gatewayv1.SectionName { return *rule.Name },
+		func() gatewayv1.SectionName { return gatewayv1.SectionName("rt-" + strconv.Itoa(ruleIndex)) },
+	)
+	return httpRoute.Name + "-" + string(ruleName)
+}
+
 type httpRouteModelImpl struct {
 	client       k8sClient
 	logger       *slog.Logger
@@ -285,12 +294,7 @@ func (m *httpRouteModelImpl) programRoute(
 	// backend set name must be derived from the http route name + rule name (or index if name is empty)
 
 	for i, rule := range params.httpRoute.Spec.Rules {
-		ruleName := lo.TernaryF(
-			rule.Name != nil,
-			func() gatewayv1.SectionName { return *rule.Name },
-			func() gatewayv1.SectionName { return gatewayv1.SectionName("rt-" + strconv.Itoa(i)) },
-		)
-		bsName := fmt.Sprintf("%s-%s", params.httpRoute.Name, ruleName)
+		bsName := backendSetName(params.httpRoute, rule, i)
 
 		// TODO: Some check is required (on accept level) to check that refs within the same rule have same port
 		// as well as liveliness probes. OCI load balancer does not support per backend HC
