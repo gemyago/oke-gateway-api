@@ -67,7 +67,7 @@ func TestHTTPRouteController(t *testing.T) {
 			return true, nil
 		})
 
-		mockModel.EXPECT().isProgrammingRequired(t.Context(), wantResolvedData).Return(true, nil)
+		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
 
 		wantAcceptedRoute := makeRandomHTTPRoute()
 
@@ -181,7 +181,7 @@ func TestHTTPRouteController(t *testing.T) {
 			return true, nil
 		})
 
-		mockModel.EXPECT().isProgrammingRequired(t.Context(), wantResolvedData).Return(true, nil)
+		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
 
 		wantErr := fmt.Errorf("accept error: %s", faker.Sentence())
 		mockModel.EXPECT().acceptRoute(
@@ -228,7 +228,7 @@ func TestHTTPRouteController(t *testing.T) {
 			return true, nil
 		})
 
-		mockModel.EXPECT().isProgrammingRequired(t.Context(), wantResolvedData).Return(true, nil)
+		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
 
 		wantAcceptedRoute := makeRandomHTTPRoute()
 		mockModel.EXPECT().acceptRoute(
@@ -293,7 +293,7 @@ func TestHTTPRouteController(t *testing.T) {
 			return true, nil
 		})
 
-		mockModel.EXPECT().isProgrammingRequired(t.Context(), wantResolvedData).Return(true, nil)
+		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
 
 		wantAcceptedRoute := makeRandomHTTPRoute()
 		mockModel.EXPECT().acceptRoute(
@@ -358,7 +358,7 @@ func TestHTTPRouteController(t *testing.T) {
 			return true, nil
 		})
 
-		mockModel.EXPECT().isProgrammingRequired(t.Context(), wantResolvedData).Return(false, nil)
+		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, nil)
 
 		result, err := controller.Reconcile(t.Context(), req)
 

@@ -50,10 +50,13 @@ func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Reque
 		return reconcile.Result{}, nil
 	}
 
-	// Check if programming is programmingRequired before proceeding
-	programmingRequired, err := r.httpRouteModel.isProgrammingRequired(ctx, resolvedData)
+	// Check if programming is required based on status
+	programmingRequired, err := r.httpRouteModel.isProgrammingRequired(resolvedData)
 	if err != nil {
-		return reconcile.Result{}, fmt.Errorf("failed to check if programming is required: %w", err)
+		r.logger.ErrorContext(ctx, "Failed to check if programming is required",
+			slog.String("httpRoute", req.NamespacedName.String()),
+		)
+		return reconcile.Result{}, err
 	}
 	if programmingRequired {
 		var acceptedRoute *gatewayv1.HTTPRoute

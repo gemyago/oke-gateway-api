@@ -64,7 +64,6 @@ type httpRouteModel interface {
 
 	// isProgrammingRequired checks if the route programming is required based on the current state.
 	isProgrammingRequired(
-		ctx context.Context,
 		details resolvedRouteDetails,
 	) (bool, error)
 
@@ -301,15 +300,12 @@ func (m *httpRouteModelImpl) programRoute(
 }
 
 func (m *httpRouteModelImpl) isProgrammingRequired(
-	_ context.Context,
 	details resolvedRouteDetails,
 ) (bool, error) {
 	parentStatus, found := lo.Find(details.httpRoute.Status.Parents, func(s gatewayv1.RouteParentStatus) bool {
 		return s.ControllerName == details.gatewayDetails.gatewayClass.Spec.ControllerName &&
-			// TODO: Check if ParentRef also needs to be matched? The spec implies multiple statuses
-			// per controller+parentRef pair might exist, but our current logic assumes one per controller.
-			// For now, matching only ControllerName based on current usage pattern.
-			true // s.ParentRef == details.matchedRef
+			// Ensure we check the status for the specific parent ref we resolved earlier
+			s.ParentRef == details.matchedRef
 	})
 
 	if !found {

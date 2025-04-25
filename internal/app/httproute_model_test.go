@@ -334,8 +334,10 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			routeData := resolvedRouteDetails{
 				gatewayDetails: resolvedGatewayDetails{
-					gateway:      *newRandomGateway(),
-					gatewayClass: *newRandomGatewayClass(),
+					gateway: *newRandomGateway(),
+					gatewayClass: *newRandomGatewayClass(
+						randomGatewayClassWithControllerNameOpt(gatewayv1.GatewayController(faker.Word())),
+					),
 				},
 				httpRoute: makeRandomHTTPRoute(),
 			}
@@ -810,12 +812,11 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			model := newHTTPRouteModel(deps)
 			_, details := newIsProgrammingRequiredDetails(t)
 
-			// Specific setup for this case
 			details.httpRoute.Status.Parents = []gatewayv1.RouteParentStatus{
 				{ControllerName: gatewayv1.GatewayController(faker.Word())}, // Different controller
 			}
 
-			required, err := model.isProgrammingRequired(t.Context(), details)
+			required, err := model.isProgrammingRequired(details)
 			require.NoError(t, err)
 			assert.True(t, required, "Programming should be required when no matching parent status exists")
 		})
@@ -833,7 +834,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				},
 			}
 
-			required, err := model.isProgrammingRequired(t.Context(), details)
+			required, err := model.isProgrammingRequired(details)
 			require.NoError(t, err)
 			assert.True(t, required, "Programming should be required when ResolvedRefs condition is missing")
 		})
@@ -856,7 +857,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				},
 			}
 
-			required, err := model.isProgrammingRequired(t.Context(), details)
+			required, err := model.isProgrammingRequired(details)
 			require.NoError(t, err)
 			assert.True(t, required, "Programming should be required when ResolvedRefs status is False")
 		})
@@ -882,7 +883,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				},
 			}
 
-			required, err := model.isProgrammingRequired(t.Context(), details)
+			required, err := model.isProgrammingRequired(details)
 			require.NoError(t, err)
 			assert.True(t, required, "Programming should be required when ObservedGeneration doesn't match")
 		})
@@ -907,9 +908,114 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				},
 			}
 
-			required, err := model.isProgrammingRequired(t.Context(), details)
+			required, err := model.isProgrammingRequired(details)
 			require.NoError(t, err)
 			assert.False(t, required, "Programming should not be required when status is True and generation matches")
+		})
+
+		t.Run("ProgrammingRequired/ParentRefMismatch", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			controllerName, details := newIsProgrammingRequiredDetails(t)
+			currentGeneration := details.httpRoute.Generation
+
+			mismatchedParentRef := details.matchedRef
+			mismatchedParentRef.Name = gatewayv1.ObjectName(faker.Word()) // Different name
+
+			details.httpRoute.Status.Parents = []gatewayv1.RouteParentStatus{
+				{
+					ControllerName: controllerName,
+					ParentRef:      mismatchedParentRef, // Mismatched ref
+					Conditions: []metav1.Condition{
+						{
+							Type:               string(gatewayv1.RouteConditionResolvedRefs),
+							Status:             metav1.ConditionTrue,
+							ObservedGeneration: currentGeneration, // Correct condition & generation
+						},
+					},
+				},
+			}
+
+			required, err := model.isProgrammingRequired(details)
+			require.NoError(t, err)
+			assert.True(t, required)
+		})
+
+		t.Run("ProgrammingNotRequired/CorrectParentRefFound", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			controllerName, details := newIsProgrammingRequiredDetails(t)
+			currentGeneration := details.httpRoute.Generation
+
+			mismatchedParentRef := details.matchedRef
+			mismatchedParentRef.Name = gatewayv1.ObjectName(faker.Word())
+			statusMismatchedRef := gatewayv1.RouteParentStatus{
+				ControllerName: controllerName,
+				ParentRef:      mismatchedParentRef,
+				Conditions: []metav1.Condition{
+					{
+						Type:   string(gatewayv1.RouteConditionResolvedRefs),
+						Status: metav1.ConditionFalse, // Different condition
+					},
+				},
+			}
+
+			statusCorrectRef := gatewayv1.RouteParentStatus{
+				ControllerName: controllerName,
+				ParentRef:      details.matchedRef, // Correct ref
+				Conditions: []metav1.Condition{
+					{
+						Type:               string(gatewayv1.RouteConditionResolvedRefs),
+						Status:             metav1.ConditionTrue,
+						ObservedGeneration: currentGeneration, // Correct condition & generation
+					},
+				},
+			}
+
+			details.httpRoute.Status.Parents = []gatewayv1.RouteParentStatus{statusMismatchedRef, statusCorrectRef}
+
+			required, err := model.isProgrammingRequired(details)
+			require.NoError(t, err)
+			assert.False(t, required, "Programming should not be required when the correct ParentRef status is found and valid")
+		})
+
+		t.Run("ProgrammingRequired/MatchedParentNotReady_OtherParentReady", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			controllerName, details := newIsProgrammingRequiredDetails(t)
+			currentGeneration := details.httpRoute.Generation
+
+			statusMatchedRefNotReady := gatewayv1.RouteParentStatus{
+				ControllerName: controllerName,
+				ParentRef:      details.matchedRef, // Correct ref
+				Conditions: []metav1.Condition{
+					{
+						Type:               string(gatewayv1.RouteConditionResolvedRefs),
+						Status:             metav1.ConditionTrue,
+						ObservedGeneration: currentGeneration - 1, // Mismatched generation
+					},
+				},
+			}
+
+			mismatchedParentRef := details.matchedRef
+			mismatchedParentRef.Name = gatewayv1.ObjectName(faker.Word())
+			statusOtherRefReady := gatewayv1.RouteParentStatus{
+				ControllerName: controllerName,
+				ParentRef:      mismatchedParentRef,
+				Conditions: []metav1.Condition{
+					{
+						Type:               string(gatewayv1.RouteConditionResolvedRefs),
+						Status:             metav1.ConditionTrue,
+						ObservedGeneration: currentGeneration, // Correct condition & generation
+					},
+				},
+			}
+
+			details.httpRoute.Status.Parents = []gatewayv1.RouteParentStatus{statusMatchedRefNotReady, statusOtherRefReady}
+
+			required, err := model.isProgrammingRequired(details)
+			require.NoError(t, err)
+			assert.True(t, required)
 		})
 	})
 }
