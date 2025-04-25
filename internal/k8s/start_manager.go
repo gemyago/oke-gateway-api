@@ -11,7 +11,6 @@ import (
 	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -20,12 +19,12 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-// ManagerDeps contains the dependencies for the controller manager.
-type ManagerDeps struct {
+// StartManagerDeps contains the dependencies for the controller manager.
+type StartManagerDeps struct {
 	dig.In
 
 	RootLogger       *slog.Logger
-	K8sClient        client.Client
+	Manager          manager.Manager
 	GatewayClassCtrl *app.GatewayClassController
 	GatewayCtrl      *app.GatewayController
 	HTTPRouteCtrl    *app.HTTPRouteController
@@ -34,24 +33,16 @@ type ManagerDeps struct {
 }
 
 // StartManager starts the controller manager.
-func StartManager(ctx context.Context, deps ManagerDeps) error { // coverage-ignore -- challenging to test
+func StartManager(ctx context.Context, deps StartManagerDeps) error { // coverage-ignore -- challenging to test
 	logger := deps.RootLogger.WithGroup("k8s")
 
 	rlogLogger := logr.FromSlogHandler(logger.Handler())
 	loggerCtx := logr.NewContext(ctx, rlogLogger)
 	log.SetLogger(rlogLogger)
 
-	mgr, err := manager.New(
-		deps.Config,
-		manager.Options{
-			Scheme: deps.K8sClient.Scheme(),
-		},
-	)
-	if err != nil {
-		return err
-	}
+	mgr := deps.Manager
 
-	if err = deps.WatchesModel.RegisterFieldIndexers(ctx, mgr.GetFieldIndexer()); err != nil {
+	if err := deps.WatchesModel.RegisterFieldIndexers(ctx, mgr.GetFieldIndexer()); err != nil {
 		return fmt.Errorf("failed to register field indexers: %w", err)
 	}
 
@@ -60,21 +51,21 @@ func StartManager(ctx context.Context, deps ManagerDeps) error { // coverage-ign
 		newErrorHandlingMiddleware(deps.RootLogger),
 	}
 
-	if err = builder.ControllerManagedBy(mgr).
+	if err := builder.ControllerManagedBy(mgr).
 		For(&gatewayv1.Gateway{}).
 		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
 		Complete(wireupReconciler(deps.GatewayCtrl, middlewares...)); err != nil {
 		return fmt.Errorf("failed to setup Gateway controller: %w", err)
 	}
 
-	if err = builder.ControllerManagedBy(mgr).
+	if err := builder.ControllerManagedBy(mgr).
 		For(&gatewayv1.GatewayClass{}).
 		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
 		Complete(wireupReconciler(deps.GatewayClassCtrl, middlewares...)); err != nil {
 		return fmt.Errorf("failed to setup GatewayClass controller: %w", err)
 	}
 
-	if err = builder.ControllerManagedBy(mgr).
+	if err := builder.ControllerManagedBy(mgr).
 		For(&gatewayv1.HTTPRoute{}).
 		Watches(
 			&discoveryv1.EndpointSlice{},
