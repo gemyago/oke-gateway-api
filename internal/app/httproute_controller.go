@@ -33,6 +33,47 @@ func NewHTTPRouteController(deps HTTPRouteControllerDeps) *HTTPRouteController {
 	}
 }
 
+func (r *HTTPRouteController) performProgramming(
+	ctx context.Context,
+	resolvedData resolvedRouteDetails,
+) error {
+	var acceptedRoute *gatewayv1.HTTPRoute
+	acceptedRoute, err := r.httpRouteModel.acceptRoute(ctx, resolvedData)
+	if err != nil {
+		return fmt.Errorf("failed to accept route: %w", err)
+	}
+
+	var backendRefs map[string]v1.Service
+	backendRefs, err = r.httpRouteModel.resolveBackendRefs(ctx, resolveBackendRefsParams{
+		httpRoute: *acceptedRoute,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to resolve backend refs: %w", err)
+	}
+
+	err = r.httpRouteModel.programRoute(ctx, programRouteParams{
+		gateway:             resolvedData.gatewayDetails.gateway,
+		config:              resolvedData.gatewayDetails.config,
+		httpRoute:           *acceptedRoute,
+		resolvedBackendRefs: backendRefs,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to program route: %w", err)
+	}
+
+	// Mark the route as programmed by setting the ResolvedRefs condition
+	if err = r.httpRouteModel.setProgrammed(ctx, setProgrammedParams{
+		gatewayClass: resolvedData.gatewayDetails.gatewayClass,
+		gateway:      resolvedData.gatewayDetails.gateway,
+		httpRoute:    *acceptedRoute,
+		matchedRef:   resolvedData.matchedRef,
+	}); err != nil {
+		return fmt.Errorf("failed to set programmed status: %w", err)
+	}
+
+	return nil
+}
+
 // Reconcile implements the reconcile.Reconciler interface.
 // For now, it just returns a "not implemented" error.
 func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -59,38 +100,9 @@ func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Reque
 		return reconcile.Result{}, err
 	}
 	if programmingRequired {
-		var acceptedRoute *gatewayv1.HTTPRoute
-		acceptedRoute, err = r.httpRouteModel.acceptRoute(ctx, resolvedData)
+		err = r.performProgramming(ctx, resolvedData)
 		if err != nil {
-			return reconcile.Result{}, fmt.Errorf("failed to accept route: %w", err)
-		}
-
-		var backendRefs map[string]v1.Service
-		backendRefs, err = r.httpRouteModel.resolveBackendRefs(ctx, resolveBackendRefsParams{
-			httpRoute: *acceptedRoute,
-		})
-		if err != nil {
-			return reconcile.Result{}, fmt.Errorf("failed to resolve backend refs: %w", err)
-		}
-
-		err = r.httpRouteModel.programRoute(ctx, programRouteParams{
-			gateway:             resolvedData.gatewayDetails.gateway,
-			config:              resolvedData.gatewayDetails.config,
-			httpRoute:           *acceptedRoute,
-			resolvedBackendRefs: backendRefs,
-		})
-		if err != nil {
-			return reconcile.Result{}, fmt.Errorf("failed to program route: %w", err)
-		}
-
-		// Mark the route as programmed by setting the ResolvedRefs condition
-		if err = r.httpRouteModel.setProgrammed(ctx, setProgrammedParams{
-			gatewayClass: resolvedData.gatewayDetails.gatewayClass,
-			gateway:      resolvedData.gatewayDetails.gateway,
-			httpRoute:    *acceptedRoute,
-			matchedRef:   resolvedData.matchedRef,
-		}); err != nil {
-			return reconcile.Result{}, fmt.Errorf("failed to set programmed status: %w", err)
+			return reconcile.Result{}, fmt.Errorf("failed to perform programming: %w", err)
 		}
 	} else {
 		r.logger.DebugContext(ctx, "HTTPRoute programming not required",
