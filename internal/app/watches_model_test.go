@@ -1,8 +1,10 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -13,6 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	apitypes "k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -191,6 +196,48 @@ func TestWatchesModel(t *testing.T) {
 	})
 
 	t.Run("MapEndpointSliceToHTTPRoute", func(t *testing.T) {
+		t.Run("finds matching HTTPRoutes based on service index", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			svcName := faker.DomainName()
+			ns := faker.Username()
+			indexKey := fmt.Sprintf("%v/%v", ns, svcName)
+
+			endpointSlice := makeRandomEndpointSlice(
+				randomEndpointSliceWithNamespaceOpt(ns),
+				randomEndpointSliceWithServiceNameOpt(svcName),
+			)
+
+			wantRoutes := []gatewayv1.HTTPRoute{
+				makeRandomHTTPRoute(),
+				makeRandomHTTPRoute(),
+			}
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.HTTPRouteList{},
+				client.MatchingFields{httpRouteBackendServiceIndexKey: indexKey},
+			).RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(wantRoutes))
+				return nil
+			})
+
+			wantRequests := lo.Map(wantRoutes, func(route gatewayv1.HTTPRoute, _ int) reconcile.Request {
+				return reconcile.Request{
+					NamespacedName: apitypes.NamespacedName{
+						Name:      route.Name,
+						Namespace: route.Namespace,
+					},
+				}
+			})
+
+			result := model.MapEndpointSliceToHTTPRoute(t.Context(), &endpointSlice)
+			require.ElementsMatch(t, wantRequests, result)
+		})
+
 		t.Run("returns nil if object is not an EndpointSlice", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)

@@ -8,6 +8,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -335,5 +336,43 @@ func makeRandomBackendSet(
 func randomBackendSetWithNameOpt(name string) randomBackendSetOpt {
 	return func(bs *loadbalancer.BackendSet) {
 		bs.Name = lo.ToPtr(name)
+	}
+}
+
+type randomEndpointSliceOpt func(*discoveryv1.EndpointSlice)
+
+func makeRandomEndpointSlice(
+	opts ...randomEndpointSliceOpt,
+) discoveryv1.EndpointSlice {
+	svcName := faker.Word() + "." + faker.DomainName()
+	epSlice := discoveryv1.EndpointSlice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      faker.DomainName(),
+			Namespace: faker.Username(),
+			Labels: map[string]string{
+				discoveryv1.LabelServiceName: svcName,
+			},
+		},
+	}
+
+	for _, opt := range opts {
+		opt(&epSlice)
+	}
+
+	return epSlice
+}
+
+func randomEndpointSliceWithNamespaceOpt(namespace string) randomEndpointSliceOpt {
+	return func(ep *discoveryv1.EndpointSlice) {
+		ep.Namespace = namespace
+	}
+}
+
+func randomEndpointSliceWithServiceNameOpt(serviceName string) randomEndpointSliceOpt {
+	return func(ep *discoveryv1.EndpointSlice) {
+		if ep.Labels == nil {
+			ep.Labels = make(map[string]string)
+		}
+		ep.Labels[discoveryv1.LabelServiceName] = serviceName
 	}
 }

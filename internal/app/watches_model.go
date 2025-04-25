@@ -6,8 +6,10 @@ import (
 	"log/slog"
 	"path"
 
+	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/samber/lo"
 	"go.uber.org/dig"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -79,14 +81,58 @@ func (m *WatchesModel) indexHTTPRouteByBackendService(obj client.Object) []strin
 
 // MapEndpointSliceToHTTPRoute maps EndpointSlice events to HTTPRoute reconcile requests.
 // Its signature matches handler.MapFunc.
-// TODO: Implement mapping logic using index.
 func (m *WatchesModel) MapEndpointSliceToHTTPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
-	m.logger.InfoContext(ctx,
-		"MapEndpointSliceToHTTPRoute called (not implemented)",
-		slog.Any("obj", client.ObjectKeyFromObject(obj)),
+	epSlice, ok := obj.(*discoveryv1.EndpointSlice)
+	if !ok {
+		m.logger.WarnContext(ctx, "Received non-EndpointSlice object", slog.Any("object", obj))
+		return nil
+	}
+
+	svcName, ok := epSlice.Labels[discoveryv1.LabelServiceName]
+	if !ok {
+		m.logger.WarnContext(ctx, "EndpointSlice missing service name label", slog.Any("endpointSlice", epSlice))
+		return nil
+	}
+
+	ns := epSlice.Namespace
+	indexKey := path.Join(ns, svcName)
+
+	m.logger.DebugContext(ctx, "Looking for HTTPRoutes referencing service", slog.String("indexKey", indexKey))
+
+	var routeList gatewayv1.HTTPRouteList
+	// TODO: Fetch all pages?
+	if err := m.k8sClient.List(
+		ctx,
+		&routeList,
+		client.MatchingFields{httpRouteBackendServiceIndexKey: indexKey},
+	); err != nil {
+		m.logger.ErrorContext(ctx,
+			"Failed to list HTTPRoutes for service",
+			slog.String("indexKey", indexKey),
+			diag.ErrAttr(err),
+		)
+		return nil
+	}
+
+	m.logger.DebugContext(
+		ctx,
+		"Found HTTPRoutes for service",
+		slog.String("indexKey", indexKey),
+		slog.Int("count", len(routeList.Items)),
 	)
-	// panic("not implemented") // TODO: Implement
-	return nil // Stub implementation
+	requests := make([]reconcile.Request, len(routeList.Items))
+	for i, route := range routeList.Items {
+		requests[i] = reconcile.Request{
+			NamespacedName: client.ObjectKeyFromObject(&route),
+		}
+		m.logger.InfoContext(ctx,
+			"Queueing HTTPRoute for reconciliation due to EndpointSlice change",
+			slog.String("httpRoute", client.ObjectKeyFromObject(&route).String()),
+			slog.String("endpointSlice", client.ObjectKeyFromObject(epSlice).String()),
+		)
+	}
+
+	return requests
 }
 
 // Note: indexHTTPRouteByBackendService and httpRouteBackendServiceIndexKey removed as part of stubbing.
