@@ -25,12 +25,27 @@ type syncRouteBackendRuleEndpointsParams struct {
 	ruleIndex int
 }
 
+type identifyBackendsToUpdateParams struct {
+	backendRef      gatewayv1.BackendRef
+	currentBackends []loadbalancer.BackendDetails
+	endpointSlices  []discoveryv1.EndpointSliceList
+}
+
+type identifyBackendsToUpdateResult struct {
+	updateRequired  bool
+	updatedBackends []loadbalancer.BackendDetails
+}
+
 // httpBackendModel defines the interface for managing OCI backend sets based on HTTPRoute definitions.
 type httpBackendModel interface {
 	// syncRouteBackendEndpoints synchronizes the OCI Load Balancer Backend Sets associated with the
 	// provided HTTPRoute, ensuring they contain the correct set of ready endpoints
 	// derived from the referenced Kubernetes Services' EndpointSlices.
 	syncRouteBackendEndpoints(ctx context.Context, params syncRouteBackendEndpointsParams) error
+
+	// identifyBackendsToUpdate identifies the backends that need to be updated in the OCI Load Balancer Backend Set.
+	// It will correctly handle endpoint status changes, including draining endpoints.
+	identifyBackendsToUpdate(ctx context.Context, params identifyBackendsToUpdateParams) (identifyBackendsToUpdateResult, error)
 
 	// syncRouteBackendRuleEndpoints synchronizes the OCI Load Balancer Backend Sets associated with the
 	// single rule of the provided HTTPRoute.
@@ -67,6 +82,13 @@ func (m *httpBackendModelImpl) syncRouteBackendEndpoints(
 	}
 
 	return nil
+}
+
+func (m *httpBackendModelImpl) identifyBackendsToUpdate(
+	ctx context.Context,
+	params identifyBackendsToUpdateParams,
+) (identifyBackendsToUpdateResult, error) {
+	return identifyBackendsToUpdateResult{}, nil
 }
 
 func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
