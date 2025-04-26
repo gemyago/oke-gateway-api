@@ -113,7 +113,7 @@ func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Reque
 		)
 	}
 
-	err = r.httpBackendModel.syncBackendEndpoints(ctx, syncBackendEndpointsParams{
+	err = r.httpBackendModel.syncRouteBackendEndpoints(ctx, syncRouteBackendEndpointsParams{
 		httpRoute: resolvedData.httpRoute,
 		config:    resolvedData.gatewayDetails.config,
 	})

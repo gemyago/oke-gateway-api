@@ -117,7 +117,7 @@ func TestHTTPBackendModel(t *testing.T) {
 				mockWorkRequestsWatcher.EXPECT().WaitFor(t.Context(), wantOperationID).Return(nil).Once()
 			}
 
-			err := model.syncBackendEndpoints(t.Context(), syncBackendEndpointsParams{
+			err := model.syncRouteBackendEndpoints(t.Context(), syncRouteBackendEndpointsParams{
 				httpRoute: httpRoute,
 				config:    config,
 			})

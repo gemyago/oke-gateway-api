@@ -107,7 +107,7 @@ func TestHTTPRouteController(t *testing.T) {
 		mockBackendModel, _ := deps.HTTPBackendModel.(*MockhttpBackendModel)
 		mockBackendModel.EXPECT().syncBackendEndpoints(
 			t.Context(),
-			syncBackendEndpointsParams{
+			syncRouteBackendEndpointsParams{
 				httpRoute: wantResolvedData.httpRoute,
 				config:    wantResolvedData.gatewayDetails.config,
 			},
@@ -383,7 +383,7 @@ func TestHTTPRouteController(t *testing.T) {
 		mockBackendModel, _ := deps.HTTPBackendModel.(*MockhttpBackendModel)
 		mockBackendModel.EXPECT().syncBackendEndpoints(
 			t.Context(),
-			syncBackendEndpointsParams{
+			syncRouteBackendEndpointsParams{
 				httpRoute: wantResolvedData.httpRoute,
 				config:    wantResolvedData.gatewayDetails.config,
 			},

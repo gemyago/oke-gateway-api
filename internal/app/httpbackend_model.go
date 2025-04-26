@@ -14,17 +14,17 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-type syncBackendEndpointsParams struct {
+type syncRouteBackendEndpointsParams struct {
 	httpRoute gatewayv1.HTTPRoute
 	config    types.GatewayConfig
 }
 
 // httpBackendModel defines the interface for managing OCI backend sets based on HTTPRoute definitions.
 type httpBackendModel interface {
-	// syncBackendEndpoints synchronizes the OCI Load Balancer Backend Sets associated with the
+	// syncRouteBackendEndpoints synchronizes the OCI Load Balancer Backend Sets associated with the
 	// provided HTTPRoute, ensuring they contain the correct set of ready endpoints
 	// derived from the referenced Kubernetes Services' EndpointSlices.
-	syncBackendEndpoints(ctx context.Context, params syncBackendEndpointsParams) error
+	syncRouteBackendEndpoints(ctx context.Context, params syncRouteBackendEndpointsParams) error
 }
 
 type httpBackendModelImpl struct {
@@ -34,7 +34,7 @@ type httpBackendModelImpl struct {
 	workRequestsWatcher workRequestsWatcher
 }
 
-func (m *httpBackendModelImpl) syncBackendEndpoints(ctx context.Context, params syncBackendEndpointsParams) error {
+func (m *httpBackendModelImpl) syncRouteBackendEndpoints(ctx context.Context, params syncRouteBackendEndpointsParams) error {
 	m.logger.InfoContext(ctx, "Syncing backend endpoints",
 		slog.String("httpRoute", params.httpRoute.Name),
 		slog.String("config", params.config.Name),
