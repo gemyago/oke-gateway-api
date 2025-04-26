@@ -596,10 +596,10 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			httpRoute := makeRandomHTTPRoute(
 				randomHTTPRouteWithRandomRulesOpt(
-					randomHTTPRouteRule(
+					makeRandomHTTPRouteRule(
 						randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRefs1...),
 					),
-					randomHTTPRouteRule(
+					makeRandomHTTPRouteRule(
 						randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRefs2...),
 					),
 				),
@@ -642,7 +642,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			backendRef := makeRandomBackendRef()
 			httpRoute := makeRandomHTTPRoute(
 				randomHTTPRouteWithRandomRulesOpt(
-					randomHTTPRouteRule(
+					makeRandomHTTPRouteRule(
 						randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef),
 					),
 				),
@@ -675,11 +675,11 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				makeRandomBackendRef(),
 			}
 
-			rule1 := randomHTTPRouteRule(
+			rule1 := makeRandomHTTPRouteRule(
 				randomHTTPRouteRuleWithRandomNameOpt(),
 				randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRefs1...),
 			)
-			rule2 := randomHTTPRouteRule(
+			rule2 := makeRandomHTTPRouteRule(
 				randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRefs2...),
 			)
 
@@ -747,7 +747,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			model := newHTTPRouteModel(deps)
 
 			backendRef := makeRandomBackendRef()
-			rule1 := randomHTTPRouteRule(
+			rule1 := makeRandomHTTPRouteRule(
 				randomHTTPRouteRuleWithRandomNameOpt(),
 				randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef),
 			)

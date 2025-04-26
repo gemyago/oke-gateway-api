@@ -206,7 +206,7 @@ func randomHTTPRouteWithRandomRulesOpt(rules ...gatewayv1.HTTPRouteRule) randomH
 
 type randomHTTPRouteRuleOpt func(*gatewayv1.HTTPRouteRule)
 
-func randomHTTPRouteRule(
+func makeRandomHTTPRouteRule(
 	opts ...randomHTTPRouteRuleOpt,
 ) gatewayv1.HTTPRouteRule {
 	rule := gatewayv1.HTTPRouteRule{
@@ -388,5 +388,21 @@ func randomEndpointSliceWithServiceNameOpt(serviceName string) randomEndpointSli
 			ep.Labels = make(map[string]string)
 		}
 		ep.Labels[discoveryv1.LabelServiceName] = serviceName
+	}
+}
+
+func randomEndpointSliceWithEndpointsOpt() randomEndpointSliceOpt {
+	return func(ep *discoveryv1.EndpointSlice) {
+		count := 2 + rand.IntN(5)
+		ep.Endpoints = make([]discoveryv1.Endpoint, count)
+		for i := range ep.Endpoints {
+			ep.Endpoints[i] = makeRandomEndpoint()
+		}
+	}
+}
+
+func makeRandomEndpoint() discoveryv1.Endpoint {
+	return discoveryv1.Endpoint{
+		Addresses: []string{faker.IPv4()},
 	}
 }
