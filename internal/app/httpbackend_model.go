@@ -79,14 +79,10 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 	var ruleBackends []loadbalancer.BackendDetails
 	firstRefPort := int32(*rule.BackendRefs[0].BackendObjectReference.Port)
 
-	m.logger.DebugContext(ctx, "Syncing backend endpoints for rule",
-		slog.Int("ruleIndex", params.ruleIndex),
-		slog.String("httpRoute", params.httpRoute.Name),
-		slog.String("backendSetName", backendSetName),
-	)
-
 	for _, backendRef := range rule.BackendRefs {
 		var endpointSlices discoveryv1.EndpointSliceList
+
+		// TODO: Paginate?
 		if err := m.k8sClient.List(ctx, &endpointSlices, client.MatchingLabels{
 			discoveryv1.LabelServiceName: string(backendRef.BackendObjectReference.Name),
 		}); err != nil {
@@ -107,6 +103,13 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 
 		ruleBackends = append(ruleBackends, refBackends...)
 	}
+
+	m.logger.DebugContext(ctx, "Syncing backend endpoints for rule",
+		slog.Int("ruleIndex", params.ruleIndex),
+		slog.String("httpRoute", params.httpRoute.Name),
+		slog.String("backendSetName", backendSetName),
+		slog.Int("ruleBackends", len(ruleBackends)),
+	)
 
 	ociBackendSet, err := m.ociClient.UpdateBackendSet(ctx, loadbalancer.UpdateBackendSetRequest{
 		LoadBalancerId: &params.config.Spec.LoadBalancerID,
