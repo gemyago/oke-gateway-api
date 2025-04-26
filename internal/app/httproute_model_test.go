@@ -788,7 +788,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 	t.Run("isProgrammingRequired", func(t *testing.T) {
 		// Helper to create base details for isProgrammingRequired tests
-		newIsProgrammingRequiredDetails := func(t *testing.T) (gatewayv1.GatewayController, resolvedRouteDetails) {
+		newIsProgrammingRequiredDetails := func() (gatewayv1.GatewayController, resolvedRouteDetails) {
 			controllerName := gatewayv1.GatewayController(faker.DomainName())
 			route := makeRandomHTTPRoute()
 			route.Generation = rand.Int64N(10000) + 1 // Start with a random generation
@@ -810,7 +810,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		t.Run("ProgrammingRequired/NoMatchingParentStatus", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
-			_, details := newIsProgrammingRequiredDetails(t)
+			_, details := newIsProgrammingRequiredDetails()
 
 			details.httpRoute.Status.Parents = []gatewayv1.RouteParentStatus{
 				{ControllerName: gatewayv1.GatewayController(faker.Word())}, // Different controller
@@ -824,7 +824,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		t.Run("ProgrammingRequired/ParentStatusFound_NoResolvedRefsCondition", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
-			controllerName, details := newIsProgrammingRequiredDetails(t)
+			controllerName, details := newIsProgrammingRequiredDetails()
 
 			details.httpRoute.Status.Parents = []gatewayv1.RouteParentStatus{
 				{
@@ -842,7 +842,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		t.Run("ProgrammingRequired/ResolvedRefsCondition_StatusFalse", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
-			controllerName, details := newIsProgrammingRequiredDetails(t)
+			controllerName, details := newIsProgrammingRequiredDetails()
 
 			details.httpRoute.Status.Parents = []gatewayv1.RouteParentStatus{
 				{
@@ -865,7 +865,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		t.Run("ProgrammingRequired/ResolvedRefsCondition_GenerationMismatch", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
-			controllerName, details := newIsProgrammingRequiredDetails(t)
+			controllerName, details := newIsProgrammingRequiredDetails()
 			observedGeneration := details.httpRoute.Generation    // Get the initial random generation
 			details.httpRoute.Generation = observedGeneration + 1 // Increment current generation
 
@@ -891,7 +891,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		t.Run("ProgrammingNotRequired/ResolvedRefsCondition_StatusTrue_GenerationMatch", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
-			controllerName, details := newIsProgrammingRequiredDetails(t)
+			controllerName, details := newIsProgrammingRequiredDetails()
 			currentGeneration := details.httpRoute.Generation // Get the initial random generation
 
 			details.httpRoute.Status.Parents = []gatewayv1.RouteParentStatus{
@@ -916,7 +916,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		t.Run("ProgrammingRequired/ParentRefMismatch", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
-			controllerName, details := newIsProgrammingRequiredDetails(t)
+			controllerName, details := newIsProgrammingRequiredDetails()
 			currentGeneration := details.httpRoute.Generation
 
 			mismatchedParentRef := details.matchedRef
@@ -944,7 +944,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		t.Run("ProgrammingNotRequired/CorrectParentRefFound", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
-			controllerName, details := newIsProgrammingRequiredDetails(t)
+			controllerName, details := newIsProgrammingRequiredDetails()
 			currentGeneration := details.httpRoute.Generation
 
 			mismatchedParentRef := details.matchedRef
@@ -982,7 +982,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		t.Run("ProgrammingRequired/MatchedParentNotReady_OtherParentReady", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
-			controllerName, details := newIsProgrammingRequiredDetails(t)
+			controllerName, details := newIsProgrammingRequiredDetails()
 			currentGeneration := details.httpRoute.Generation
 
 			statusMatchedRefNotReady := gatewayv1.RouteParentStatus{
