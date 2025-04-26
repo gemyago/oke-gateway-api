@@ -389,5 +389,282 @@ func TestHTTPBackendModel(t *testing.T) {
 			assert.ElementsMatch(t, expectedResult.updatedBackends, result.updatedBackends)
 			assert.Equal(t, expectedResult.updateRequired, result.updateRequired)
 		})
+
+		t.Run("backend removal", func(t *testing.T) {
+			model := newHTTPBackendModel(newMockDeps(t))
+			refPort := int32(rand.IntN(65534) + 1)
+
+			// Start with 3 backends
+			initialEndpoints := makeFewRandomEndpoints(3, randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
+			currentBackends := lo.Map(initialEndpoints, func(ep discoveryv1.Endpoint, _ int) loadbalancer.BackendDetails {
+				return loadbalancer.BackendDetails{
+					IpAddress: &ep.Addresses[0],
+					Port:      lo.ToPtr(int(refPort)),
+					Drain:     lo.ToPtr(false),
+				}
+			})
+
+			// Provide slices representing only the first 2 endpoints
+			remainingEndpoints := initialEndpoints[:2]
+			endpointSlices := []discoveryv1.EndpointSlice{
+				{
+					Endpoints: remainingEndpoints,
+				},
+			}
+
+			params := identifyBackendsToUpdateParams{
+				endpointPort:    refPort,
+				currentBackends: currentBackends,
+				endpointSlices:  endpointSlices,
+			}
+
+			// Expected: only the first 2 backends remain
+			expectedUpdatedBackends := lo.Map(remainingEndpoints, func(ep discoveryv1.Endpoint, _ int) loadbalancer.BackendDetails {
+				return loadbalancer.BackendDetails{
+					IpAddress: &ep.Addresses[0],
+					Port:      lo.ToPtr(int(refPort)),
+					Drain:     lo.ToPtr(false),
+				}
+			})
+			expectedResult := identifyBackendsToUpdateResult{
+				updateRequired:  true,
+				updatedBackends: expectedUpdatedBackends,
+			}
+
+			result, err := model.identifyBackendsToUpdate(t.Context(), params)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expectedResult.updatedBackends, result.updatedBackends)
+			assert.Equal(t, expectedResult.updateRequired, result.updateRequired)
+		})
+
+		t.Run("drain status update - start draining", func(t *testing.T) {
+			model := newHTTPBackendModel(newMockDeps(t))
+			refPort := int32(rand.IntN(65534) + 1)
+
+			// Start with 1 backend, not draining
+			initialEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
+			currentBackends := []loadbalancer.BackendDetails{
+				{
+					IpAddress: &initialEndpoint.Addresses[0],
+					Port:      lo.ToPtr(int(refPort)),
+					Drain:     lo.ToPtr(false),
+				},
+			}
+
+			// Provide slice where endpoint is now terminating
+			drainingEndpoint := initialEndpoint // Modify the same endpoint
+			drainingEndpoint.Conditions.Terminating = lo.ToPtr(true)
+			endpointSlices := []discoveryv1.EndpointSlice{
+				{Endpoints: []discoveryv1.Endpoint{drainingEndpoint}},
+			}
+
+			params := identifyBackendsToUpdateParams{
+				endpointPort:    refPort,
+				currentBackends: currentBackends,
+				endpointSlices:  endpointSlices,
+			}
+
+			// Expected: backend is now draining
+			expectedUpdatedBackends := []loadbalancer.BackendDetails{
+				{
+					IpAddress: &initialEndpoint.Addresses[0],
+					Port:      lo.ToPtr(int(refPort)),
+					Drain:     lo.ToPtr(true),
+				},
+			}
+			expectedResult := identifyBackendsToUpdateResult{
+				updateRequired:  true,
+				updatedBackends: expectedUpdatedBackends,
+			}
+
+			result, err := model.identifyBackendsToUpdate(t.Context(), params)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expectedResult.updatedBackends, result.updatedBackends)
+			assert.Equal(t, expectedResult.updateRequired, result.updateRequired)
+		})
+
+		t.Run("drain status update - stop draining", func(t *testing.T) {
+			model := newHTTPBackendModel(newMockDeps(t))
+			refPort := int32(rand.IntN(65534) + 1)
+
+			// Start with 1 backend, draining
+			initialEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(true)))
+			currentBackends := []loadbalancer.BackendDetails{
+				{
+					IpAddress: &initialEndpoint.Addresses[0],
+					Port:      lo.ToPtr(int(refPort)),
+					Drain:     lo.ToPtr(true),
+				},
+			}
+
+			// Provide slice where endpoint is no longer terminating
+			notDrainingEndpoint := initialEndpoint // Modify the same endpoint
+			notDrainingEndpoint.Conditions.Terminating = lo.ToPtr(false)
+			endpointSlices := []discoveryv1.EndpointSlice{
+				{Endpoints: []discoveryv1.Endpoint{notDrainingEndpoint}},
+			}
+
+			params := identifyBackendsToUpdateParams{
+				endpointPort:    refPort,
+				currentBackends: currentBackends,
+				endpointSlices:  endpointSlices,
+			}
+
+			// Expected: backend is no longer draining
+			expectedUpdatedBackends := []loadbalancer.BackendDetails{
+				{
+					IpAddress: &initialEndpoint.Addresses[0],
+					Port:      lo.ToPtr(int(refPort)),
+					Drain:     lo.ToPtr(false),
+				},
+			}
+			expectedResult := identifyBackendsToUpdateResult{
+				updateRequired:  true,
+				updatedBackends: expectedUpdatedBackends,
+			}
+
+			result, err := model.identifyBackendsToUpdate(t.Context(), params)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expectedResult.updatedBackends, result.updatedBackends)
+			assert.Equal(t, expectedResult.updateRequired, result.updateRequired)
+		})
+
+		t.Run("no changes needed", func(t *testing.T) {
+			model := newHTTPBackendModel(newMockDeps(t))
+			refPort := int32(rand.IntN(65534) + 1)
+
+			// Start with 2 backends, one draining
+			ep1 := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
+			ep2 := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(true)))
+			initialEndpoints := []discoveryv1.Endpoint{ep1, ep2}
+			currentBackends := lo.Map(initialEndpoints, func(ep discoveryv1.Endpoint, _ int) loadbalancer.BackendDetails {
+				return loadbalancer.BackendDetails{
+					IpAddress: &ep.Addresses[0],
+					Port:      lo.ToPtr(int(refPort)),
+					Drain:     ep.Conditions.Terminating,
+				}
+			})
+
+			// Provide slices representing the same endpoints
+			endpointSlices := []discoveryv1.EndpointSlice{
+				{Endpoints: initialEndpoints},
+			}
+
+			params := identifyBackendsToUpdateParams{
+				endpointPort:    refPort,
+				currentBackends: currentBackends,
+				endpointSlices:  endpointSlices,
+			}
+
+			// Expected: no change
+			expectedResult := identifyBackendsToUpdateResult{
+				updateRequired:  false,
+				updatedBackends: currentBackends, // Should be the same
+			}
+
+			result, err := model.identifyBackendsToUpdate(t.Context(), params)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expectedResult.updatedBackends, result.updatedBackends)
+			assert.Equal(t, expectedResult.updateRequired, result.updateRequired)
+		})
+
+		t.Run("all backends removed (empty slices)", func(t *testing.T) {
+			model := newHTTPBackendModel(newMockDeps(t))
+			refPort := int32(rand.IntN(65534) + 1)
+
+			// Start with 2 backends
+			initialEndpoints := makeFewRandomEndpoints(2, randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
+			currentBackends := lo.Map(initialEndpoints, func(ep discoveryv1.Endpoint, _ int) loadbalancer.BackendDetails {
+				return loadbalancer.BackendDetails{
+					IpAddress: &ep.Addresses[0],
+					Port:      lo.ToPtr(int(refPort)),
+					Drain:     lo.ToPtr(false),
+				}
+			})
+
+			// Provide empty slices
+			endpointSlices := []discoveryv1.EndpointSlice{}
+
+			params := identifyBackendsToUpdateParams{
+				endpointPort:    refPort,
+				currentBackends: currentBackends,
+				endpointSlices:  endpointSlices,
+			}
+
+			// Expected: empty backends, update required
+			expectedResult := identifyBackendsToUpdateResult{
+				updateRequired:  true,
+				updatedBackends: []loadbalancer.BackendDetails{},
+			}
+
+			result, err := model.identifyBackendsToUpdate(t.Context(), params)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expectedResult.updatedBackends, result.updatedBackends)
+			assert.Equal(t, expectedResult.updateRequired, result.updateRequired)
+		})
+
+		t.Run("all backends removed (non-ready slices)", func(t *testing.T) {
+			model := newHTTPBackendModel(newMockDeps(t))
+			refPort := int32(rand.IntN(65534) + 1)
+
+			// Start with 2 backends
+			initialEndpoints := makeFewRandomEndpoints(2, randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
+			currentBackends := lo.Map(initialEndpoints, func(ep discoveryv1.Endpoint, _ int) loadbalancer.BackendDetails {
+				return loadbalancer.BackendDetails{
+					IpAddress: &ep.Addresses[0],
+					Port:      lo.ToPtr(int(refPort)),
+					Drain:     lo.ToPtr(false),
+				}
+			})
+
+			// Provide slices with only non-ready endpoints
+			nonReadyEndpoints := makeFewRandomEndpoints(2, randomEndpointWithConditionsOpt(lo.ToPtr(false), nil))
+			endpointSlices := []discoveryv1.EndpointSlice{
+				{Endpoints: nonReadyEndpoints},
+			}
+
+			params := identifyBackendsToUpdateParams{
+				endpointPort:    refPort,
+				currentBackends: currentBackends,
+				endpointSlices:  endpointSlices,
+			}
+
+			// Expected: empty backends, update required
+			expectedResult := identifyBackendsToUpdateResult{
+				updateRequired:  true,
+				updatedBackends: []loadbalancer.BackendDetails{},
+			}
+
+			result, err := model.identifyBackendsToUpdate(t.Context(), params)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expectedResult.updatedBackends, result.updatedBackends)
+			assert.Equal(t, expectedResult.updateRequired, result.updateRequired)
+		})
+
+		t.Run("empty input (no change)", func(t *testing.T) {
+			model := newHTTPBackendModel(newMockDeps(t))
+			refPort := int32(rand.IntN(65534) + 1)
+
+			// Start with empty
+			currentBackends := []loadbalancer.BackendDetails{}
+			endpointSlices := []discoveryv1.EndpointSlice{}
+
+			params := identifyBackendsToUpdateParams{
+				endpointPort:    refPort,
+				currentBackends: currentBackends,
+				endpointSlices:  endpointSlices,
+			}
+
+			// Expected: empty backends, no update required
+			expectedResult := identifyBackendsToUpdateResult{
+				updateRequired:  false,
+				updatedBackends: []loadbalancer.BackendDetails{},
+			}
+
+			result, err := model.identifyBackendsToUpdate(t.Context(), params)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expectedResult.updatedBackends, result.updatedBackends)
+			assert.Equal(t, expectedResult.updateRequired, result.updateRequired)
+		})
 	})
 }

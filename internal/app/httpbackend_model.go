@@ -45,7 +45,10 @@ type httpBackendModel interface {
 
 	// identifyBackendsToUpdate identifies the backends that need to be updated in the OCI Load Balancer Backend Set.
 	// It will correctly handle endpoint status changes, including draining endpoints.
-	identifyBackendsToUpdate(ctx context.Context, params identifyBackendsToUpdateParams) (identifyBackendsToUpdateResult, error)
+	identifyBackendsToUpdate(
+		ctx context.Context,
+		params identifyBackendsToUpdateParams,
+	) (identifyBackendsToUpdateResult, error)
 
 	// syncRouteBackendRuleEndpoints synchronizes the OCI Load Balancer Backend Sets associated with the
 	// single rule of the provided HTTPRoute.
