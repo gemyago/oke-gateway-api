@@ -48,7 +48,7 @@ type MockhttpBackendModel_syncRouteBackendEndpoints_Call struct {
 
 // syncRouteBackendEndpoints is a helper method to define mock.On call
 //   - ctx context.Context
-//   - params syncBackendEndpointsParams
+//   - params syncRouteBackendEndpointsParams
 func (_e *MockhttpBackendModel_Expecter) syncRouteBackendEndpoints(ctx interface{}, params interface{}) *MockhttpBackendModel_syncRouteBackendEndpoints_Call {
 	return &MockhttpBackendModel_syncRouteBackendEndpoints_Call{Call: _e.mock.On("syncRouteBackendEndpoints", ctx, params)}
 }
@@ -66,6 +66,53 @@ func (_c *MockhttpBackendModel_syncRouteBackendEndpoints_Call) Return(_a0 error)
 }
 
 func (_c *MockhttpBackendModel_syncRouteBackendEndpoints_Call) RunAndReturn(run func(context.Context, syncRouteBackendEndpointsParams) error) *MockhttpBackendModel_syncRouteBackendEndpoints_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// syncRouteBackendRouteEndpoints provides a mock function with given fields: ctx, params
+func (_m *MockhttpBackendModel) syncRouteBackendRouteEndpoints(ctx context.Context, params syncRouteBackendRouteEndpointsParams) error {
+	ret := _m.Called(ctx, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for syncRouteBackendRouteEndpoints")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, syncRouteBackendRouteEndpointsParams) error); ok {
+		r0 = rf(ctx, params)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockhttpBackendModel_syncRouteBackendRouteEndpoints_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'syncRouteBackendRouteEndpoints'
+type MockhttpBackendModel_syncRouteBackendRouteEndpoints_Call struct {
+	*mock.Call
+}
+
+// syncRouteBackendRouteEndpoints is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params syncRouteBackendRouteEndpointsParams
+func (_e *MockhttpBackendModel_Expecter) syncRouteBackendRouteEndpoints(ctx interface{}, params interface{}) *MockhttpBackendModel_syncRouteBackendRouteEndpoints_Call {
+	return &MockhttpBackendModel_syncRouteBackendRouteEndpoints_Call{Call: _e.mock.On("syncRouteBackendRouteEndpoints", ctx, params)}
+}
+
+func (_c *MockhttpBackendModel_syncRouteBackendRouteEndpoints_Call) Run(run func(ctx context.Context, params syncRouteBackendRouteEndpointsParams)) *MockhttpBackendModel_syncRouteBackendRouteEndpoints_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(syncRouteBackendRouteEndpointsParams))
+	})
+	return _c
+}
+
+func (_c *MockhttpBackendModel_syncRouteBackendRouteEndpoints_Call) Return(_a0 error) *MockhttpBackendModel_syncRouteBackendRouteEndpoints_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockhttpBackendModel_syncRouteBackendRouteEndpoints_Call) RunAndReturn(run func(context.Context, syncRouteBackendRouteEndpointsParams) error) *MockhttpBackendModel_syncRouteBackendRouteEndpoints_Call {
 	_c.Call.Return(run)
 	return _c
 }

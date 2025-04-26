@@ -105,7 +105,7 @@ func TestHTTPRouteController(t *testing.T) {
 		).Return(nil)
 
 		mockBackendModel, _ := deps.HTTPBackendModel.(*MockhttpBackendModel)
-		mockBackendModel.EXPECT().syncBackendEndpoints(
+		mockBackendModel.EXPECT().syncRouteBackendEndpoints(
 			t.Context(),
 			syncRouteBackendEndpointsParams{
 				httpRoute: wantResolvedData.httpRoute,
@@ -381,7 +381,7 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, nil)
 
 		mockBackendModel, _ := deps.HTTPBackendModel.(*MockhttpBackendModel)
-		mockBackendModel.EXPECT().syncBackendEndpoints(
+		mockBackendModel.EXPECT().syncRouteBackendEndpoints(
 			t.Context(),
 			syncRouteBackendEndpointsParams{
 				httpRoute: wantResolvedData.httpRoute,
