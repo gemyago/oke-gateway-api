@@ -156,6 +156,6 @@ func newHTTPBackendModel(deps httpBackendModelDeps) httpBackendModel {
 		workRequestsWatcher: deps.WorkRequestsWatcher,
 		self:                deps.self,
 	}
-	deps.self = lo.Ternary[httpBackendModel](model.self != nil, model.self, model)
+	model.self = lo.Ternary[httpBackendModel](model.self != nil, model.self, model)
 	return model
 }
