@@ -26,9 +26,9 @@ type syncRouteBackendRuleEndpointsParams struct {
 }
 
 type identifyBackendsToUpdateParams struct {
-	backendRef      gatewayv1.BackendRef
+	endpointPort    int32
 	currentBackends []loadbalancer.BackendDetails
-	endpointSlices  []discoveryv1.EndpointSliceList
+	endpointSlices  []discoveryv1.EndpointSlice
 }
 
 type identifyBackendsToUpdateResult struct {
@@ -88,7 +88,57 @@ func (m *httpBackendModelImpl) identifyBackendsToUpdate(
 	ctx context.Context,
 	params identifyBackendsToUpdateParams,
 ) (identifyBackendsToUpdateResult, error) {
-	return identifyBackendsToUpdateResult{}, nil
+	desiredBackendsMap := make(map[string]loadbalancer.BackendDetails)
+
+	for _, slice := range params.endpointSlices {
+		for _, endpoint := range slice.Endpoints {
+			if endpoint.Conditions.Ready != nil && !*endpoint.Conditions.Ready {
+				continue
+			}
+			if len(endpoint.Addresses) == 0 {
+				m.logger.WarnContext(ctx, "Endpoint has no addresses", slog.Any("endpoint", endpoint))
+				continue
+			}
+			ipAddress := endpoint.Addresses[0]
+			isDraining := endpoint.Conditions.Terminating != nil && *endpoint.Conditions.Terminating
+
+			desiredBackendsMap[ipAddress] = loadbalancer.BackendDetails{
+				Port:      lo.ToPtr(int(params.endpointPort)),
+				IpAddress: &ipAddress,
+				Drain:     lo.ToPtr(isDraining),
+				// Weight, MaxConnections, Backup, Offline are not managed here
+			}
+		}
+	}
+
+	currentBackendsMap := lo.SliceToMap(
+		lo.Filter(params.currentBackends, func(b loadbalancer.BackendDetails, _ int) bool {
+			return b.IpAddress != nil
+		}),
+		func(b loadbalancer.BackendDetails) (string, loadbalancer.BackendDetails) {
+			return *b.IpAddress, b
+		},
+	)
+
+	updateRequired := false
+	if len(desiredBackendsMap) != len(currentBackendsMap) {
+		updateRequired = true
+	} else {
+		for ip, desired := range desiredBackendsMap {
+			current, exists := currentBackendsMap[ip]
+			if !exists || lo.FromPtr(desired.Drain) != lo.FromPtr(current.Drain) {
+				updateRequired = true
+				break
+			}
+		}
+	}
+
+	updatedBackends := lo.Values(desiredBackendsMap)
+
+	return identifyBackendsToUpdateResult{
+		updateRequired:  updateRequired,
+		updatedBackends: updatedBackends,
+	}, nil
 }
 
 func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(

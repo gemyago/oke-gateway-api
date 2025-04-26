@@ -401,8 +401,34 @@ func randomEndpointSliceWithEndpointsOpt() randomEndpointSliceOpt {
 	}
 }
 
-func makeRandomEndpoint() discoveryv1.Endpoint {
-	return discoveryv1.Endpoint{
-		Addresses: []string{faker.IPv4()},
+type randomEndpointOpt func(*discoveryv1.Endpoint)
+
+// makeFewRandomEndpoints generates a slice of random endpoints.
+func makeFewRandomEndpoints(count int, opts ...randomEndpointOpt) []discoveryv1.Endpoint {
+	endpoints := make([]discoveryv1.Endpoint, count)
+	for i := range endpoints {
+		endpoints[i] = makeRandomEndpoint(opts...)
 	}
+	return endpoints
+}
+
+// randomEndpointWithConditionsOpt sets the Ready and Terminating conditions.
+func randomEndpointWithConditionsOpt(ready *bool, terminating *bool) randomEndpointOpt {
+	return func(ep *discoveryv1.Endpoint) {
+		ep.Conditions.Ready = ready
+		ep.Conditions.Terminating = terminating
+	}
+}
+
+func makeRandomEndpoint(opts ...randomEndpointOpt) discoveryv1.Endpoint {
+	ep := discoveryv1.Endpoint{
+		Addresses: []string{faker.IPv4()},
+		// Conditions are left nil by default, specific tests should set them.
+	}
+
+	for _, opt := range opts {
+		opt(&ep)
+	}
+
+	return ep
 }

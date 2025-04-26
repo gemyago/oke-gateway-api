@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"math/rand/v2"
 	"testing"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
@@ -218,56 +220,29 @@ func TestHTTPBackendModel(t *testing.T) {
 			config := makeRandomGatewayConfig()
 			refPort := int32(*ref.BackendObjectReference.Port)
 
-			// Define endpoints with different conditions manually
+			// Define endpoints using makeRandomEndpoint with randomEndpointWithConditionsOpt
 			// Include if Ready != false.
 			// Drain if Terminating == true.
 
 			// Case 1: Ready=true, Terminating=false -> Include, Drain=false
-			readyNotTerminating := makeRandomEndpoint()
-			readyNotTerminating.Conditions = discoveryv1.EndpointConditions{
-				Ready:       lo.ToPtr(true),
-				Terminating: lo.ToPtr(false),
-			}
+			readyNotTerminating := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
 			// Case 2: Ready=true, Terminating=nil -> Include, Drain=false
-			readyNilTerminating := makeRandomEndpoint()
-			readyNilTerminating.Conditions = discoveryv1.EndpointConditions{
-				Ready:       lo.ToPtr(true),
-				Terminating: nil,
-			}
+			readyNilTerminating := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), nil))
 			// Case 3: Ready=false -> Exclude
-			notReadyEndpoint := makeRandomEndpoint()
-			notReadyEndpoint.Conditions = discoveryv1.EndpointConditions{Ready: lo.ToPtr(false)}
+			notReadyEndpoint := makeRandomEndpoint(
+				randomEndpointWithConditionsOpt(lo.ToPtr(false), nil),
+			) // Terminating doesn't matter here
 
 			// Case 4: Ready=true, Terminating=true -> Include, Drain=true
-			terminatingReadyEndpoint := makeRandomEndpoint()
-			terminatingReadyEndpoint.Conditions = discoveryv1.EndpointConditions{
-				Ready:       lo.ToPtr(true),
-				Terminating: lo.ToPtr(true),
-			}
+			terminatingReadyEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(true)))
 			// Case 5: Ready=false, Terminating=true -> Exclude (Ready=false takes priority)
-			terminatingNotReadyEndpoint := makeRandomEndpoint()
-			terminatingNotReadyEndpoint.Conditions = discoveryv1.EndpointConditions{
-				Ready:       lo.ToPtr(false),
-				Terminating: lo.ToPtr(true),
-			}
+			terminatingNotReadyEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(false), lo.ToPtr(true)))
 			// Case 6: Ready=nil, Terminating=true -> Include, Drain=true
-			terminatingNilReadyEndpoint := makeRandomEndpoint()
-			terminatingNilReadyEndpoint.Conditions = discoveryv1.EndpointConditions{
-				Ready:       nil,
-				Terminating: lo.ToPtr(true),
-			}
+			terminatingNilReadyEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(nil, lo.ToPtr(true)))
 			// Case 7: Ready=nil, Terminating=false -> Include, Drain=false
-			nilReadyNotTerminatingEndpoint := makeRandomEndpoint()
-			nilReadyNotTerminatingEndpoint.Conditions = discoveryv1.EndpointConditions{
-				Ready:       nil,
-				Terminating: lo.ToPtr(false),
-			}
+			nilReadyNotTerminatingEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(nil, lo.ToPtr(false)))
 			// Case 8: Ready=nil, Terminating=nil -> Include, Drain=false
-			nilReadyNilTerminatingEndpoint := makeRandomEndpoint()
-			nilReadyNilTerminatingEndpoint.Conditions = discoveryv1.EndpointConditions{
-				Ready:       nil,
-				Terminating: nil,
-			}
+			nilReadyNilTerminatingEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(nil, nil))
 
 			endpointSlice := makeRandomEndpointSlice(
 				randomEndpointSliceWithServiceNameOpt(string(ref.BackendObjectReference.Name)),
@@ -354,6 +329,65 @@ func TestHTTPBackendModel(t *testing.T) {
 			})
 
 			require.NoError(t, err)
+		})
+	})
+
+	t.Run("identifyBackendsToUpdate", func(t *testing.T) {
+		t.Run("happy path - add new backends", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPBackendModel(deps)
+			refPort := int32(rand.IntN(65534) + 1)
+
+			currentBackends := []loadbalancer.BackendDetails{} // Initially empty
+
+			// Create multiple ready, non-terminating endpoints using makeFewRandomEndpoints
+			numEndpoints := 3 + rand.IntN(3) // 3 to 5 endpoints
+			endpoints := makeFewRandomEndpoints(
+				numEndpoints,
+				randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)), // All ready, not terminating
+			)
+
+			// Distribute endpoints into multiple slices and lists
+			slice1 := discoveryv1.EndpointSlice{
+				ObjectMeta: metav1.ObjectMeta{Name: faker.UUIDHyphenated()},
+				Endpoints:  endpoints[:numEndpoints/2], // First half
+			}
+			slice2 := discoveryv1.EndpointSlice{
+				ObjectMeta: metav1.ObjectMeta{Name: faker.UUIDHyphenated()},
+				Endpoints:  endpoints[numEndpoints/2:], // Second half
+			}
+
+			endpointSlices := []discoveryv1.EndpointSlice{slice1, slice2}
+
+			params := identifyBackendsToUpdateParams{
+				endpointPort:    refPort,
+				currentBackends: currentBackends,
+				endpointSlices:  endpointSlices,
+			}
+
+			// Calculate expected backends from ALL endpoints
+			expectedUpdatedBackends := make([]loadbalancer.BackendDetails, 0, numEndpoints)
+			for _, endpoint := range endpoints {
+				expectedUpdatedBackends = append(expectedUpdatedBackends, loadbalancer.BackendDetails{
+					IpAddress: &endpoint.Addresses[0],
+					Port:      lo.ToPtr(int(refPort)),
+					Drain:     lo.ToPtr(false),
+				})
+			}
+
+			expectedResult := identifyBackendsToUpdateResult{
+				updateRequired:  true,
+				updatedBackends: expectedUpdatedBackends,
+			}
+
+			// Act
+			result, err := model.identifyBackendsToUpdate(t.Context(), params)
+
+			// Assert
+			require.NoError(t, err)
+			// This assertion is expected to fail initially
+			assert.ElementsMatch(t, expectedResult.updatedBackends, result.updatedBackends)
+			assert.Equal(t, expectedResult.updateRequired, result.updateRequired)
 		})
 	})
 }
