@@ -42,6 +42,9 @@ type httpBackendModelImpl struct {
 	k8sClient           k8sClient
 	ociClient           ociLoadBalancerClient
 	workRequestsWatcher workRequestsWatcher
+
+	// Used to allow mocking own methods in tests
+	self httpBackendModel
 }
 
 func (m *httpBackendModelImpl) syncRouteBackendEndpoints(
@@ -54,7 +57,7 @@ func (m *httpBackendModelImpl) syncRouteBackendEndpoints(
 	)
 
 	for index := range params.httpRoute.Spec.Rules {
-		if err := m.syncRouteBackendRuleEndpoints(ctx, syncRouteBackendRuleEndpointsParams{
+		if err := m.self.syncRouteBackendRuleEndpoints(ctx, syncRouteBackendRuleEndpointsParams{
 			httpRoute: params.httpRoute,
 			config:    params.config,
 			ruleIndex: index,
@@ -133,20 +136,26 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 
 // httpBackendModelDeps contains the dependencies for the HTTPBackendModel.
 type httpBackendModelDeps struct {
-	dig.In
+	dig.In `ignore-unexported:"true"`
 
 	RootLogger            *slog.Logger
 	K8sClient             k8sClient
 	OciLoadBalancerClient ociLoadBalancerClient
 	WorkRequestsWatcher   workRequestsWatcher
+
+	// Used to allow mocking own methods in tests
+	self httpBackendModel
 }
 
 // newHTTPBackendModel creates a new HTTPBackendModel.
 func newHTTPBackendModel(deps httpBackendModelDeps) httpBackendModel {
-	return &httpBackendModelImpl{
+	model := &httpBackendModelImpl{
 		logger:              deps.RootLogger.WithGroup("http-backend-model"),
 		k8sClient:           deps.K8sClient,
 		ociClient:           deps.OciLoadBalancerClient,
 		workRequestsWatcher: deps.WorkRequestsWatcher,
+		self:                deps.self,
 	}
+	deps.self = lo.Ternary[httpBackendModel](model.self != nil, model.self, model)
+	return model
 }

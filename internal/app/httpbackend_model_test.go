@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -23,8 +24,96 @@ func TestHTTPBackendModel(t *testing.T) {
 			RootLogger:            diag.RootTestLogger(),
 			OciLoadBalancerClient: NewMockociLoadBalancerClient(t),
 			WorkRequestsWatcher:   NewMockworkRequestsWatcher(t),
+			self:                  NewMockhttpBackendModel(t),
 		}
 	}
+
+	t.Run("syncRouteBackendEndpoints", func(t *testing.T) {
+		t.Run("sync all rules", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPBackendModel(deps)
+
+			rules := []gatewayv1.HTTPRouteRule{
+				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt()),
+				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt()),
+			}
+
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRandomRulesOpt(rules...),
+			)
+
+			config := makeRandomGatewayConfig()
+
+			mockSelf, _ := deps.self.(*MockhttpBackendModel)
+
+			// Expect syncRouteBackendRuleEndpoints to be called for each rule
+			for i := range rules {
+				mockSelf.EXPECT().syncRouteBackendRuleEndpoints(
+					t.Context(),
+					syncRouteBackendRuleEndpointsParams{
+						httpRoute: httpRoute,
+						config:    config,
+						ruleIndex: i,
+					},
+				).Return(nil).Once()
+			}
+
+			err := model.syncRouteBackendEndpoints(t.Context(), syncRouteBackendEndpointsParams{
+				httpRoute: httpRoute,
+				config:    config,
+			})
+
+			assert.NoError(t, err)
+		})
+
+		t.Run("propagate rule sync error", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPBackendModel(deps)
+
+			rules := []gatewayv1.HTTPRouteRule{
+				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt()),
+				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt()),
+			}
+
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRandomRulesOpt(rules...),
+			)
+
+			config := makeRandomGatewayConfig()
+
+			mockSelf, _ := deps.self.(*MockhttpBackendModel)
+
+			expectedErr := errors.New(faker.Sentence())
+
+			// First rule sync succeeds
+			mockSelf.EXPECT().syncRouteBackendRuleEndpoints(
+				t.Context(),
+				syncRouteBackendRuleEndpointsParams{
+					httpRoute: httpRoute,
+					config:    config,
+					ruleIndex: 0,
+				},
+			).Return(nil).Once()
+
+			// Second rule sync fails
+			mockSelf.EXPECT().syncRouteBackendRuleEndpoints(
+				t.Context(),
+				syncRouteBackendRuleEndpointsParams{
+					httpRoute: httpRoute,
+					config:    config,
+					ruleIndex: 1,
+				},
+			).Return(expectedErr).Once()
+
+			err := model.syncRouteBackendEndpoints(t.Context(), syncRouteBackendEndpointsParams{
+				httpRoute: httpRoute,
+				config:    config,
+			})
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, expectedErr)
+		})
+	})
 
 	t.Run("syncRouteBackendRuleEndpoints", func(t *testing.T) {
 		t.Run("update backend set", func(t *testing.T) {
