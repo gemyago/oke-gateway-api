@@ -95,7 +95,7 @@ spec:
     spec:
       containers:
       - name: echo
-        image: ghcr.io/gemyago/oke-gateway-api-server:git-commit-804f762
+        image: ghcr.io/gemyago/oke-gateway-api-server:git-commit-839515d
         args:
           - start
           - --json-logs

@@ -79,6 +79,7 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 	var ruleBackends []loadbalancer.BackendDetails
 	firstRefPort := int32(*rule.BackendRefs[0].BackendObjectReference.Port)
 
+	drainingCount := 0
 	for _, backendRef := range rule.BackendRefs {
 		var endpointSlices discoveryv1.EndpointSliceList
 
@@ -94,9 +95,25 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 		refBackends := make([]loadbalancer.BackendDetails, 0, len(endpointSlices.Items))
 		for _, endpointSlice := range endpointSlices.Items {
 			for _, endpoint := range endpointSlice.Endpoints {
+				// Skip endpoint if it's explicitly marked as not ready
+				if endpoint.Conditions.Ready != nil && !*endpoint.Conditions.Ready {
+					continue
+				}
+
+				// Determine if the backend should be marked for draining
+				isDraining := endpoint.Conditions.Terminating != nil && *endpoint.Conditions.Terminating
+
+				if isDraining {
+					m.logger.DebugContext(ctx, "Draining endpoint",
+						slog.String("endpoint", endpoint.Addresses[0]),
+					)
+					drainingCount++
+				}
+
 				refBackends = append(refBackends, loadbalancer.BackendDetails{
 					Port:      lo.ToPtr(int(refPort)),
 					IpAddress: &endpoint.Addresses[0],
+					Drain:     lo.ToPtr(isDraining),
 				})
 			}
 		}
@@ -104,11 +121,12 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 		ruleBackends = append(ruleBackends, refBackends...)
 	}
 
-	m.logger.DebugContext(ctx, "Syncing backend endpoints for rule",
+	m.logger.InfoContext(ctx, "Syncing backend endpoints for rule",
 		slog.Int("ruleIndex", params.ruleIndex),
 		slog.String("httpRoute", params.httpRoute.Name),
 		slog.String("backendSetName", backendSetName),
 		slog.Int("ruleBackends", len(ruleBackends)),
+		slog.Int("drainingBackends", drainingCount),
 	)
 
 	ociBackendSet, err := m.ociClient.UpdateBackendSet(ctx, loadbalancer.UpdateBackendSetRequest{
