@@ -8,6 +8,7 @@ import (
 func Register(container *dig.Container) error {
 	return di.ProvideAll(container,
 		newConfig,
+		newManager,
 		newClient,
 	)
 }

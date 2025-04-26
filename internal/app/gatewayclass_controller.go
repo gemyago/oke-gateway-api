@@ -32,7 +32,7 @@ type GatewayClassControllerDeps struct {
 func NewGatewayClassController(deps GatewayClassControllerDeps) *GatewayClassController {
 	return &GatewayClassController{
 		client:         deps.K8sClient,
-		logger:         deps.RootLogger,
+		logger:         deps.RootLogger.WithGroup("gateway-class-controller"),
 		resourcesModel: deps.ResourcesModel,
 	}
 }

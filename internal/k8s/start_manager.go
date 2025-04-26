@@ -8,9 +8,10 @@ import (
 	"github.com/gemyago/oke-gateway-api/internal/app"
 	"github.com/go-logr/logr"
 	"go.uber.org/dig"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -18,42 +19,31 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-// ManagerDeps contains the dependencies for the controller manager.
-type ManagerDeps struct {
+// StartManagerDeps contains the dependencies for the controller manager.
+type StartManagerDeps struct {
 	dig.In
 
 	RootLogger       *slog.Logger
-	K8sClient        client.Client
+	Manager          manager.Manager
 	GatewayClassCtrl *app.GatewayClassController
 	GatewayCtrl      *app.GatewayController
 	HTTPRouteCtrl    *app.HTTPRouteController
+	WatchesModel     *app.WatchesModel
 	Config           *rest.Config
 }
 
 // StartManager starts the controller manager.
-func StartManager(ctx context.Context, deps ManagerDeps) error { // coverage-ignore -- challenging to test
+func StartManager(ctx context.Context, deps StartManagerDeps) error { // coverage-ignore -- challenging to test
 	logger := deps.RootLogger.WithGroup("k8s")
 
 	rlogLogger := logr.FromSlogHandler(logger.Handler())
 	loggerCtx := logr.NewContext(ctx, rlogLogger)
 	log.SetLogger(rlogLogger)
 
-	// Create a new manager
-	mgr, err := manager.New(
-		deps.Config,
-		manager.Options{
-			Scheme: deps.K8sClient.Scheme(),
+	mgr := deps.Manager
 
-			// TODO: Per reconciliation correlation is required
-			// BaseContext: func() context.Context {
-			// 	return diag.SetLogAttributesToContext(ctx, diag.LogAttributes{
-			// 		CorrelationID: slog.StringValue(uuid.New().String()),
-			// 	})
-			// },
-		},
-	)
-	if err != nil {
-		return err
+	if err := deps.WatchesModel.RegisterFieldIndexers(ctx, mgr.GetFieldIndexer()); err != nil {
+		return fmt.Errorf("failed to register field indexers: %w", err)
 	}
 
 	middlewares := []controllerMiddleware[reconcile.Request]{
@@ -61,31 +51,31 @@ func StartManager(ctx context.Context, deps ManagerDeps) error { // coverage-ign
 		newErrorHandlingMiddleware(deps.RootLogger),
 	}
 
-	// Register the Gateway controller
-	if err = builder.ControllerManagedBy(mgr).
+	if err := builder.ControllerManagedBy(mgr).
 		For(&gatewayv1.Gateway{}).
 		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
 		Complete(wireupReconciler(deps.GatewayCtrl, middlewares...)); err != nil {
 		return fmt.Errorf("failed to setup Gateway controller: %w", err)
 	}
 
-	// Register the GatewayClass controller
-	if err = builder.ControllerManagedBy(mgr).
+	if err := builder.ControllerManagedBy(mgr).
 		For(&gatewayv1.GatewayClass{}).
 		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
 		Complete(wireupReconciler(deps.GatewayClassCtrl, middlewares...)); err != nil {
 		return fmt.Errorf("failed to setup GatewayClass controller: %w", err)
 	}
 
-	// Register the HTTPRoute controller
-	if err = builder.ControllerManagedBy(mgr).
+	if err := builder.ControllerManagedBy(mgr).
 		For(&gatewayv1.HTTPRoute{}).
+		Watches(
+			&discoveryv1.EndpointSlice{},
+			handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapEndpointSliceToHTTPRoute),
+		).
 		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
 		Complete(wireupReconciler(deps.HTTPRouteCtrl, middlewares...)); err != nil {
 		return fmt.Errorf("failed to setup HTTPRoute controller: %w", err)
 	}
 
-	// Start the manager
 	logger.InfoContext(loggerCtx, "Starting controller manager")
 	return mgr.Start(loggerCtx)
 }

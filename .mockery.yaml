@@ -13,18 +13,20 @@ packages:
       ociLoadBalancerModel:
       workRequestsWatcher:
       httpRouteModel:
+      httpBackendModel:
   github.com/gemyago/oke-gateway-api/internal/services/ociapi:
     interfaces:
       workRequestsClient:
   sigs.k8s.io/controller-runtime/pkg/client:
+    config:
+      inpackage: false
+      outpkg: 'k8sapi'
+      dir: 'internal/services/k8sapi'
+      filename: "mock_{{.InterfaceNameSnake}}.go"
+      mockname: Mock{{.InterfaceName}}
     interfaces:
       SubResourceWriter:
-        config:
-          inpackage: false
-          outpkg: 'k8sapi'
-          dir: 'internal/services/k8sapi'
-          filename: "mock_subresource_writer.go"
-          mockname: MockSubResourceWriter
+      FieldIndexer:
   log/slog:
     interfaces:
       Handler:

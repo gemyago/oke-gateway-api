@@ -13,9 +13,6 @@ Please also apply [general.mdc](mdc:.cursor/rules/general.mdc) rules
   1. Add stub declarations (for struct function panic not implemented)
   2. Add or extend tests that are testing desired logic
   3. Implement the logic
-- Use mockery to create mocks for dependencies
-  - add mocks to @.mockery.yaml
-  - run `mockery` from root to regenerate
 
 ## Rules for tests
 - define tests in same package
@@ -26,3 +23,6 @@ Please also apply [general.mdc](mdc:.cursor/rules/general.mdc) rules
 - use faker (github.com/go-faker/faker/v4) to generate random texts
 - when tests ready show command to run tests in form and offer to run it: 
   `go test -v ./<package path> --run <test name>`
+- Use mockery to create mocks for dependencies
+  - add mocks to @.mockery.yaml
+  - run `mockery` from root to regenerate

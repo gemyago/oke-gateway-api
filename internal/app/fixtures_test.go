@@ -8,6 +8,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -15,7 +16,11 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-func newRandomGatewayClass() *gatewayv1.GatewayClass {
+type randomGatewayClassOpt func(*gatewayv1.GatewayClass)
+
+func newRandomGatewayClass(
+	opts ...randomGatewayClassOpt,
+) *gatewayv1.GatewayClass {
 	gc := &gatewayv1.GatewayClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            faker.DomainName(),
@@ -28,7 +33,17 @@ func newRandomGatewayClass() *gatewayv1.GatewayClass {
 		},
 	}
 
+	for _, opt := range opts {
+		opt(gc)
+	}
+
 	return gc
+}
+
+func randomGatewayClassWithControllerNameOpt(controllerName gatewayv1.GatewayController) randomGatewayClassOpt {
+	return func(gc *gatewayv1.GatewayClass) {
+		gc.Spec.ControllerName = controllerName
+	}
 }
 
 func makeRandomGatewayConfig() types.GatewayConfig {
@@ -191,7 +206,7 @@ func randomHTTPRouteWithRandomRulesOpt(rules ...gatewayv1.HTTPRouteRule) randomH
 
 type randomHTTPRouteRuleOpt func(*gatewayv1.HTTPRouteRule)
 
-func randomHTTPRouteRule(
+func makeRandomHTTPRouteRule(
 	opts ...randomHTTPRouteRuleOpt,
 ) gatewayv1.HTTPRouteRule {
 	rule := gatewayv1.HTTPRouteRule{
@@ -335,5 +350,59 @@ func makeRandomBackendSet(
 func randomBackendSetWithNameOpt(name string) randomBackendSetOpt {
 	return func(bs *loadbalancer.BackendSet) {
 		bs.Name = lo.ToPtr(name)
+	}
+}
+
+type randomEndpointSliceOpt func(*discoveryv1.EndpointSlice)
+
+func makeRandomEndpointSlice(
+	opts ...randomEndpointSliceOpt,
+) discoveryv1.EndpointSlice {
+	svcName := faker.Word() + "." + faker.DomainName()
+	epSlice := discoveryv1.EndpointSlice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      faker.DomainName(),
+			Namespace: faker.Username(),
+			Labels: map[string]string{
+				discoveryv1.LabelServiceName: svcName,
+			},
+		},
+	}
+
+	for _, opt := range opts {
+		opt(&epSlice)
+	}
+
+	return epSlice
+}
+
+func randomEndpointSliceWithNamespaceOpt(namespace string) randomEndpointSliceOpt {
+	return func(ep *discoveryv1.EndpointSlice) {
+		ep.Namespace = namespace
+	}
+}
+
+func randomEndpointSliceWithServiceNameOpt(serviceName string) randomEndpointSliceOpt {
+	return func(ep *discoveryv1.EndpointSlice) {
+		if ep.Labels == nil {
+			ep.Labels = make(map[string]string)
+		}
+		ep.Labels[discoveryv1.LabelServiceName] = serviceName
+	}
+}
+
+func randomEndpointSliceWithEndpointsOpt() randomEndpointSliceOpt {
+	return func(ep *discoveryv1.EndpointSlice) {
+		count := 2 + rand.IntN(5)
+		ep.Endpoints = make([]discoveryv1.Endpoint, count)
+		for i := range ep.Endpoints {
+			ep.Endpoints[i] = makeRandomEndpoint()
+		}
+	}
+}
+
+func makeRandomEndpoint() discoveryv1.Endpoint {
+	return discoveryv1.Endpoint{
+		Addresses: []string{faker.IPv4()},
 	}
 }

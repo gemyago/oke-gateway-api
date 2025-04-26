@@ -36,6 +36,13 @@ type programRouteParams struct {
 	resolvedBackendRefs map[string]v1.Service
 }
 
+type setProgrammedParams struct {
+	httpRoute    gatewayv1.HTTPRoute
+	gatewayClass gatewayv1.GatewayClass
+	gateway      gatewayv1.Gateway
+	matchedRef   gatewayv1.ParentReference
+}
+
 // httpRouteModel defines the interface for managing HTTPRoute resources.
 type httpRouteModel interface {
 	// resolveRequest resolves the parent details for a given HTTPRoute.
@@ -62,11 +69,29 @@ type httpRouteModel interface {
 		params resolveBackendRefsParams,
 	) (map[string]v1.Service, error)
 
+	// isProgrammingRequired checks if the route programming is required based on the current state.
+	isProgrammingRequired(
+		details resolvedRouteDetails,
+	) (bool, error)
+
 	// programRoute programs a given HTTPRoute.
 	programRoute(
 		ctx context.Context,
 		params programRouteParams,
 	) error
+
+	// setProgrammed marks the route as successfully programmed by updating its status.
+	setProgrammed(
+		ctx context.Context,
+		params setProgrammedParams,
+	) error
+}
+
+func parentRefEqual(a, b gatewayv1.ParentReference) bool {
+	return a.Name == b.Name &&
+		lo.FromPtr(a.Namespace) == lo.FromPtr(b.Namespace) &&
+		lo.FromPtr(a.Kind) == lo.FromPtr(b.Kind) &&
+		lo.FromPtr(a.Group) == lo.FromPtr(b.Group)
 }
 
 func backendRefName(
@@ -80,6 +105,15 @@ func backendRefName(
 			func() string { return string(*backendRef.BackendObjectReference.Namespace) },
 		).Else(defaultNamespace),
 	}
+}
+
+func backendSetName(httpRoute gatewayv1.HTTPRoute, rule gatewayv1.HTTPRouteRule, ruleIndex int) string {
+	ruleName := lo.TernaryF(
+		rule.Name != nil,
+		func() gatewayv1.SectionName { return *rule.Name },
+		func() gatewayv1.SectionName { return gatewayv1.SectionName("rt-" + strconv.Itoa(ruleIndex)) },
+	)
+	return httpRoute.Name + "-" + string(ruleName)
 }
 
 type httpRouteModelImpl struct {
@@ -219,6 +253,8 @@ func (m *httpRouteModelImpl) acceptRoute(
 	return httpRoute, nil
 }
 
+// TODO: The only reason to have this is to check that all backend refs are valid services.
+// Need to investigate if we really need to do this.
 func (m *httpRouteModelImpl) resolveBackendRefs(
 	ctx context.Context,
 	params resolveBackendRefsParams,
@@ -238,6 +274,8 @@ func (m *httpRouteModelImpl) resolveBackendRefs(
 				slog.String("uuid", string(service.UID)),
 			)
 			resolvedBackendRefs[fullName.String()] = service
+
+			// TODO: Maybe check port and other stuff here
 		}
 	}
 
@@ -256,15 +294,10 @@ func (m *httpRouteModelImpl) programRoute(
 	// backend set name must be derived from the http route name + rule name (or index if name is empty)
 
 	for i, rule := range params.httpRoute.Spec.Rules {
-		ruleName := lo.TernaryF(
-			rule.Name != nil,
-			func() gatewayv1.SectionName { return *rule.Name },
-			func() gatewayv1.SectionName { return gatewayv1.SectionName("rt-" + strconv.Itoa(i)) },
-		)
-		bsName := fmt.Sprintf("%s-%s", params.httpRoute.Name, ruleName)
+		bsName := backendSetName(params.httpRoute, rule, i)
 
 		// TODO: Some check is required (on accept level) to check that refs within the same rule have same port
-		// as well as livliness probes. OCI load balancer does not support per backend HC
+		// as well as liveliness probes. OCI load balancer does not support per backend HC
 		// Also make sure there is at least one backend ref
 
 		firstBackendRef := rule.BackendRefs[0]
@@ -275,6 +308,8 @@ func (m *httpRouteModelImpl) programRoute(
 			name:           bsName,
 
 			// TODO: Consider using HTTP health check
+			// Need some investigation to prove that it makes sense. We may potentially be
+			// duplicating health checks. There should be pod level liveliness probes
 			healthChecker: &loadbalancer.HealthCheckerDetails{
 				Protocol: lo.ToPtr("TCP"),
 				Port:     lo.ToPtr(int(port)),
@@ -283,6 +318,78 @@ func (m *httpRouteModelImpl) programRoute(
 		if err != nil {
 			return fmt.Errorf("failed to reconcile backend set %s: %w", bsName, err)
 		}
+	}
+
+	return nil
+}
+
+func (m *httpRouteModelImpl) isProgrammingRequired(
+	details resolvedRouteDetails,
+) (bool, error) {
+	parentStatus, found := lo.Find(details.httpRoute.Status.Parents, func(s gatewayv1.RouteParentStatus) bool {
+		return s.ControllerName == details.gatewayDetails.gatewayClass.Spec.ControllerName &&
+			parentRefEqual(s.ParentRef, details.matchedRef)
+	})
+
+	if !found {
+		return true, nil
+	}
+
+	resolvedRefsCondition := meta.FindStatusCondition(
+		parentStatus.Conditions,
+		string(gatewayv1.RouteConditionResolvedRefs),
+	)
+	if resolvedRefsCondition == nil {
+		return true, nil
+	}
+
+	if resolvedRefsCondition.Status == metav1.ConditionTrue &&
+		resolvedRefsCondition.ObservedGeneration == details.httpRoute.Generation {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+func (m *httpRouteModelImpl) setProgrammed(
+	ctx context.Context,
+	params setProgrammedParams,
+) error {
+	httpRoute := params.httpRoute.DeepCopy()
+
+	parentStatus, parentStatusIndex, found := lo.FindIndexOf(
+		httpRoute.Status.Parents,
+		func(s gatewayv1.RouteParentStatus) bool {
+			return s.ControllerName == params.gatewayClass.Spec.ControllerName &&
+				parentRefEqual(s.ParentRef, params.matchedRef)
+		},
+	)
+
+	if !found {
+		return fmt.Errorf("parent status not found for controller %s and parentRef %s",
+			params.gatewayClass.Spec.ControllerName,
+			params.matchedRef.Name,
+		)
+	}
+
+	// Update the condition for the specific parent status
+	meta.SetStatusCondition(&parentStatus.Conditions, metav1.Condition{
+		Type:               string(gatewayv1.RouteConditionResolvedRefs),
+		Status:             metav1.ConditionTrue,
+		Reason:             string(gatewayv1.RouteReasonResolvedRefs),
+		ObservedGeneration: httpRoute.Generation,
+		LastTransitionTime: metav1.Now(),
+		Message:            fmt.Sprintf("Route programmed by %s", params.gateway.Name),
+	})
+
+	httpRoute.Status.Parents[parentStatusIndex] = parentStatus
+
+	m.logger.DebugContext(ctx, "Updating HTTProute status as Programmed (ResolvedRefs=True)",
+		slog.String("route", httpRoute.Name),
+		slog.String("gateway", params.gateway.Name),
+	)
+	if err := m.client.Status().Update(ctx, httpRoute); err != nil {
+		return fmt.Errorf("failed to update programmed status for HTTProute %s: %w", httpRoute.Name, err)
 	}
 
 	return nil
@@ -302,7 +409,7 @@ type httpRouteModelDeps struct {
 func newHTTPRouteModel(deps httpRouteModelDeps) httpRouteModel {
 	return &httpRouteModelImpl{
 		client:               deps.K8sClient,
-		logger:               deps.RootLogger.With("component", "httproute-model"),
+		logger:               deps.RootLogger.WithGroup("httproute-model"),
 		gatewayModel:         deps.GatewayModel,
 		ociLoadBalancerModel: deps.OciLBModel,
 	}

@@ -16,6 +16,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -45,7 +46,7 @@ func newConfig(deps ConfigDeps) (*rest.Config, error) {
 	return clientcmd.BuildConfigFromFlags("", kubeconfig)
 }
 
-func newClient(config *rest.Config) (client.Client, error) {
+func newManager(config *rest.Config) (manager.Manager, error) {
 	scheme := runtime.NewScheme()
 
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
@@ -60,7 +61,11 @@ func newClient(config *rest.Config) (client.Client, error) {
 		return nil, fmt.Errorf("failed to add gateway api scheme: %w", err)
 	}
 
-	return client.New(config, client.Options{
+	return manager.New(config, manager.Options{
 		Scheme: scheme,
 	})
+}
+
+func newClient(manager manager.Manager) (client.Client, error) {
+	return manager.GetClient(), nil
 }

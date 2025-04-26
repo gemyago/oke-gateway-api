@@ -24,7 +24,7 @@ type startServerParams struct {
 
 	*services.ShutdownHooks
 
-	ManagerDeps k8s.ManagerDeps
+	ManagerDeps k8s.StartManagerDeps
 
 	noop bool
 }
