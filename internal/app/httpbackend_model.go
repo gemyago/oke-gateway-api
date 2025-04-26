@@ -19,7 +19,7 @@ type syncRouteBackendEndpointsParams struct {
 	config    types.GatewayConfig
 }
 
-type syncRouteBackendRouteEndpointsParams struct {
+type syncRouteBackendRuleEndpointsParams struct {
 	httpRoute gatewayv1.HTTPRoute
 	config    types.GatewayConfig
 	ruleIndex int
@@ -32,9 +32,9 @@ type httpBackendModel interface {
 	// derived from the referenced Kubernetes Services' EndpointSlices.
 	syncRouteBackendEndpoints(ctx context.Context, params syncRouteBackendEndpointsParams) error
 
-	// syncRouteBackendRouteEndpoints synchronizes the OCI Load Balancer Backend Sets associated with the
+	// syncRouteBackendRuleEndpoints synchronizes the OCI Load Balancer Backend Sets associated with the
 	// single rule of the provided HTTPRoute.
-	syncRouteBackendRouteEndpoints(ctx context.Context, params syncRouteBackendRouteEndpointsParams) error
+	syncRouteBackendRuleEndpoints(ctx context.Context, params syncRouteBackendRuleEndpointsParams) error
 }
 
 type httpBackendModelImpl struct {
@@ -54,7 +54,7 @@ func (m *httpBackendModelImpl) syncRouteBackendEndpoints(
 	)
 
 	for index := range params.httpRoute.Spec.Rules {
-		if err := m.syncRouteBackendRouteEndpoints(ctx, syncRouteBackendRouteEndpointsParams{
+		if err := m.syncRouteBackendRuleEndpoints(ctx, syncRouteBackendRuleEndpointsParams{
 			httpRoute: params.httpRoute,
 			config:    params.config,
 			ruleIndex: index,
@@ -66,9 +66,9 @@ func (m *httpBackendModelImpl) syncRouteBackendEndpoints(
 	return nil
 }
 
-func (m *httpBackendModelImpl) syncRouteBackendRouteEndpoints(
+func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 	ctx context.Context,
-	params syncRouteBackendRouteEndpointsParams,
+	params syncRouteBackendRuleEndpointsParams,
 ) error {
 	rule := params.httpRoute.Spec.Rules[params.ruleIndex]
 
