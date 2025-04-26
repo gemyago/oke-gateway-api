@@ -44,7 +44,10 @@ type httpBackendModelImpl struct {
 	workRequestsWatcher workRequestsWatcher
 }
 
-func (m *httpBackendModelImpl) syncRouteBackendEndpoints(ctx context.Context, params syncRouteBackendEndpointsParams) error {
+func (m *httpBackendModelImpl) syncRouteBackendEndpoints(
+	ctx context.Context,
+	params syncRouteBackendEndpointsParams,
+) error {
 	m.logger.InfoContext(ctx, "Syncing backend endpoints",
 		slog.String("httpRoute", params.httpRoute.Name),
 		slog.String("config", params.config.Name),
@@ -63,7 +66,10 @@ func (m *httpBackendModelImpl) syncRouteBackendEndpoints(ctx context.Context, pa
 	return nil
 }
 
-func (m *httpBackendModelImpl) syncRouteBackendRouteEndpoints(ctx context.Context, params syncRouteBackendRouteEndpointsParams) error {
+func (m *httpBackendModelImpl) syncRouteBackendRouteEndpoints(
+	ctx context.Context,
+	params syncRouteBackendRouteEndpointsParams,
+) error {
 	rule := params.httpRoute.Spec.Rules[params.ruleIndex]
 
 	backendSetName := backendSetName(params.httpRoute, rule, params.ruleIndex)
