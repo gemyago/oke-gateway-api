@@ -238,6 +238,59 @@ func TestWatchesModel(t *testing.T) {
 			require.ElementsMatch(t, wantRequests, result)
 		})
 
+		t.Run("returns nil if k8s client returns error", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			svcName := faker.DomainName()
+			ns := faker.Username()
+			indexKey := fmt.Sprintf("%v/%v", ns, svcName)
+
+			endpointSlice := makeRandomEndpointSlice(
+				randomEndpointSliceWithNamespaceOpt(ns),
+				randomEndpointSliceWithServiceNameOpt(svcName),
+			)
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			wantErr := errors.New(faker.Sentence())
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.HTTPRouteList{},
+				client.MatchingFields{httpRouteBackendServiceIndexKey: indexKey},
+			).Return(wantErr)
+
+			result := model.MapEndpointSliceToHTTPRoute(t.Context(), &endpointSlice)
+			require.Nil(t, result)
+		})
+
+		t.Run("returns nil when no routes found", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			svcName := faker.DomainName()
+			ns := faker.Username()
+			indexKey := fmt.Sprintf("%v/%v", ns, svcName)
+
+			endpointSlice := makeRandomEndpointSlice(
+				randomEndpointSliceWithNamespaceOpt(ns),
+				randomEndpointSliceWithServiceNameOpt(svcName),
+			)
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.HTTPRouteList{},
+				client.MatchingFields{httpRouteBackendServiceIndexKey: indexKey},
+			).RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				// Ensure Items field is explicitly set to an empty slice
+				reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.HTTPRoute{}))
+				return nil
+			})
+
+			result := model.MapEndpointSliceToHTTPRoute(t.Context(), &endpointSlice)
+			require.Nil(t, result)
+		})
+
 		t.Run("returns nil if object is not an EndpointSlice", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
