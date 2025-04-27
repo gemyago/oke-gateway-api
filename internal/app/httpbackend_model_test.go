@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/rand/v2"
 	"testing"
 
@@ -338,7 +339,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			model := newHTTPBackendModel(deps)
 			refPort := int32(rand.IntN(65534) + 1)
 
-			currentBackends := []loadbalancer.BackendDetails{} // Initially empty
+			currentBackends := []loadbalancer.Backend{}
 
 			// Create multiple ready, non-terminating endpoints using makeFewRandomEndpoints
 			numEndpoints := 3 + rand.IntN(3) // 3 to 5 endpoints
@@ -394,17 +395,16 @@ func TestHTTPBackendModel(t *testing.T) {
 			model := newHTTPBackendModel(newMockDeps(t))
 			refPort := int32(rand.IntN(65534) + 1)
 
-			// Start with 3 backends
 			initialEndpoints := makeFewRandomEndpoints(3, randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
-			currentBackends := lo.Map(initialEndpoints, func(ep discoveryv1.Endpoint, _ int) loadbalancer.BackendDetails {
-				return loadbalancer.BackendDetails{
+			currentBackends := lo.Map(initialEndpoints, func(ep discoveryv1.Endpoint, i int) loadbalancer.Backend {
+				return loadbalancer.Backend{
+					Name:      lo.ToPtr(fmt.Sprintf("backend-%d", i)),
 					IpAddress: &ep.Addresses[0],
 					Port:      lo.ToPtr(int(refPort)),
 					Drain:     lo.ToPtr(false),
 				}
 			})
 
-			// Provide slices representing only the first 2 endpoints
 			remainingEndpoints := initialEndpoints[:2]
 			endpointSlices := []discoveryv1.EndpointSlice{
 				{
@@ -418,7 +418,6 @@ func TestHTTPBackendModel(t *testing.T) {
 				endpointSlices:  endpointSlices,
 			}
 
-			// Expected: only the first 2 backends remain
 			expectedUpdatedBackends := lo.Map(remainingEndpoints, func(ep discoveryv1.Endpoint, _ int) loadbalancer.BackendDetails {
 				return loadbalancer.BackendDetails{
 					IpAddress: &ep.Addresses[0],
@@ -441,18 +440,17 @@ func TestHTTPBackendModel(t *testing.T) {
 			model := newHTTPBackendModel(newMockDeps(t))
 			refPort := int32(rand.IntN(65534) + 1)
 
-			// Start with 1 backend, not draining
 			initialEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
-			currentBackends := []loadbalancer.BackendDetails{
+			currentBackends := []loadbalancer.Backend{
 				{
+					Name:      lo.ToPtr(faker.Word()),
 					IpAddress: &initialEndpoint.Addresses[0],
 					Port:      lo.ToPtr(int(refPort)),
 					Drain:     lo.ToPtr(false),
 				},
 			}
 
-			// Provide slice where endpoint is now terminating
-			drainingEndpoint := initialEndpoint // Modify the same endpoint
+			drainingEndpoint := initialEndpoint
 			drainingEndpoint.Conditions.Terminating = lo.ToPtr(true)
 			endpointSlices := []discoveryv1.EndpointSlice{
 				{Endpoints: []discoveryv1.Endpoint{drainingEndpoint}},
@@ -464,7 +462,6 @@ func TestHTTPBackendModel(t *testing.T) {
 				endpointSlices:  endpointSlices,
 			}
 
-			// Expected: backend is now draining
 			expectedUpdatedBackends := []loadbalancer.BackendDetails{
 				{
 					IpAddress: &initialEndpoint.Addresses[0],
@@ -487,18 +484,17 @@ func TestHTTPBackendModel(t *testing.T) {
 			model := newHTTPBackendModel(newMockDeps(t))
 			refPort := int32(rand.IntN(65534) + 1)
 
-			// Start with 1 backend, draining
 			initialEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(true)))
-			currentBackends := []loadbalancer.BackendDetails{
+			currentBackends := []loadbalancer.Backend{
 				{
+					Name:      lo.ToPtr(faker.Word()),
 					IpAddress: &initialEndpoint.Addresses[0],
 					Port:      lo.ToPtr(int(refPort)),
 					Drain:     lo.ToPtr(true),
 				},
 			}
 
-			// Provide slice where endpoint is no longer terminating
-			notDrainingEndpoint := initialEndpoint // Modify the same endpoint
+			notDrainingEndpoint := initialEndpoint
 			notDrainingEndpoint.Conditions.Terminating = lo.ToPtr(false)
 			endpointSlices := []discoveryv1.EndpointSlice{
 				{Endpoints: []discoveryv1.Endpoint{notDrainingEndpoint}},
@@ -510,7 +506,6 @@ func TestHTTPBackendModel(t *testing.T) {
 				endpointSlices:  endpointSlices,
 			}
 
-			// Expected: backend is no longer draining
 			expectedUpdatedBackends := []loadbalancer.BackendDetails{
 				{
 					IpAddress: &initialEndpoint.Addresses[0],
@@ -533,19 +528,18 @@ func TestHTTPBackendModel(t *testing.T) {
 			model := newHTTPBackendModel(newMockDeps(t))
 			refPort := int32(rand.IntN(65534) + 1)
 
-			// Start with 2 backends, one draining
 			ep1 := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
 			ep2 := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(true)))
 			initialEndpoints := []discoveryv1.Endpoint{ep1, ep2}
-			currentBackends := lo.Map(initialEndpoints, func(ep discoveryv1.Endpoint, _ int) loadbalancer.BackendDetails {
-				return loadbalancer.BackendDetails{
+			currentBackends := lo.Map(initialEndpoints, func(ep discoveryv1.Endpoint, i int) loadbalancer.Backend {
+				return loadbalancer.Backend{
+					Name:      lo.ToPtr(fmt.Sprintf("backend-%d", i)),
 					IpAddress: &ep.Addresses[0],
 					Port:      lo.ToPtr(int(refPort)),
 					Drain:     ep.Conditions.Terminating,
 				}
 			})
 
-			// Provide slices representing the same endpoints
 			endpointSlices := []discoveryv1.EndpointSlice{
 				{Endpoints: initialEndpoints},
 			}
@@ -556,10 +550,15 @@ func TestHTTPBackendModel(t *testing.T) {
 				endpointSlices:  endpointSlices,
 			}
 
-			// Expected: no change
 			expectedResult := identifyBackendsToUpdateResult{
-				updateRequired:  false,
-				updatedBackends: currentBackends, // Should be the same
+				updateRequired: false,
+				updatedBackends: lo.Map(currentBackends, func(b loadbalancer.Backend, _ int) loadbalancer.BackendDetails {
+					return loadbalancer.BackendDetails{
+						IpAddress: b.IpAddress,
+						Port:      b.Port,
+						Drain:     b.Drain,
+					}
+				}),
 			}
 
 			result, err := model.identifyBackendsToUpdate(t.Context(), params)
@@ -572,17 +571,16 @@ func TestHTTPBackendModel(t *testing.T) {
 			model := newHTTPBackendModel(newMockDeps(t))
 			refPort := int32(rand.IntN(65534) + 1)
 
-			// Start with 2 backends
 			initialEndpoints := makeFewRandomEndpoints(2, randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
-			currentBackends := lo.Map(initialEndpoints, func(ep discoveryv1.Endpoint, _ int) loadbalancer.BackendDetails {
-				return loadbalancer.BackendDetails{
+			currentBackends := lo.Map(initialEndpoints, func(ep discoveryv1.Endpoint, i int) loadbalancer.Backend {
+				return loadbalancer.Backend{
+					Name:      lo.ToPtr(fmt.Sprintf("backend-%d", i)),
 					IpAddress: &ep.Addresses[0],
 					Port:      lo.ToPtr(int(refPort)),
 					Drain:     lo.ToPtr(false),
 				}
 			})
 
-			// Provide empty slices
 			endpointSlices := []discoveryv1.EndpointSlice{}
 
 			params := identifyBackendsToUpdateParams{
@@ -591,7 +589,6 @@ func TestHTTPBackendModel(t *testing.T) {
 				endpointSlices:  endpointSlices,
 			}
 
-			// Expected: empty backends, update required
 			expectedResult := identifyBackendsToUpdateResult{
 				updateRequired:  true,
 				updatedBackends: []loadbalancer.BackendDetails{},
@@ -607,17 +604,16 @@ func TestHTTPBackendModel(t *testing.T) {
 			model := newHTTPBackendModel(newMockDeps(t))
 			refPort := int32(rand.IntN(65534) + 1)
 
-			// Start with 2 backends
 			initialEndpoints := makeFewRandomEndpoints(2, randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
-			currentBackends := lo.Map(initialEndpoints, func(ep discoveryv1.Endpoint, _ int) loadbalancer.BackendDetails {
-				return loadbalancer.BackendDetails{
+			currentBackends := lo.Map(initialEndpoints, func(ep discoveryv1.Endpoint, i int) loadbalancer.Backend {
+				return loadbalancer.Backend{
+					Name:      lo.ToPtr(fmt.Sprintf("backend-%d", i)),
 					IpAddress: &ep.Addresses[0],
 					Port:      lo.ToPtr(int(refPort)),
 					Drain:     lo.ToPtr(false),
 				}
 			})
 
-			// Provide slices with only non-ready endpoints
 			nonReadyEndpoints := makeFewRandomEndpoints(2, randomEndpointWithConditionsOpt(lo.ToPtr(false), nil))
 			endpointSlices := []discoveryv1.EndpointSlice{
 				{Endpoints: nonReadyEndpoints},
@@ -629,7 +625,6 @@ func TestHTTPBackendModel(t *testing.T) {
 				endpointSlices:  endpointSlices,
 			}
 
-			// Expected: empty backends, update required
 			expectedResult := identifyBackendsToUpdateResult{
 				updateRequired:  true,
 				updatedBackends: []loadbalancer.BackendDetails{},
@@ -645,8 +640,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			model := newHTTPBackendModel(newMockDeps(t))
 			refPort := int32(rand.IntN(65534) + 1)
 
-			// Start with empty
-			currentBackends := []loadbalancer.BackendDetails{}
+			currentBackends := []loadbalancer.Backend{}
 			endpointSlices := []discoveryv1.EndpointSlice{}
 
 			params := identifyBackendsToUpdateParams{
@@ -655,7 +649,6 @@ func TestHTTPBackendModel(t *testing.T) {
 				endpointSlices:  endpointSlices,
 			}
 
-			// Expected: empty backends, no update required
 			expectedResult := identifyBackendsToUpdateResult{
 				updateRequired:  false,
 				updatedBackends: []loadbalancer.BackendDetails{},

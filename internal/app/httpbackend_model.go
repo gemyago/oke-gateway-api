@@ -27,7 +27,7 @@ type syncRouteBackendRuleEndpointsParams struct {
 
 type identifyBackendsToUpdateParams struct {
 	endpointPort    int32
-	currentBackends []loadbalancer.BackendDetails
+	currentBackends []loadbalancer.Backend
 	endpointSlices  []discoveryv1.EndpointSlice
 }
 
@@ -115,10 +115,10 @@ func (m *httpBackendModelImpl) identifyBackendsToUpdate(
 	}
 
 	currentBackendsMap := lo.SliceToMap(
-		lo.Filter(params.currentBackends, func(b loadbalancer.BackendDetails, _ int) bool {
+		lo.Filter(params.currentBackends, func(b loadbalancer.Backend, _ int) bool {
 			return b.IpAddress != nil
 		}),
-		func(b loadbalancer.BackendDetails) (string, loadbalancer.BackendDetails) {
+		func(b loadbalancer.Backend) (string, loadbalancer.Backend) {
 			return *b.IpAddress, b
 		},
 	)
