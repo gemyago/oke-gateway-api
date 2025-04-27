@@ -656,5 +656,291 @@ func TestHTTPBackendModel(t *testing.T) {
 			assert.Equal(t, expectedResult.updateRequired, result.updateRequired)
 			assert.Equal(t, expectedResult.drainingCount, result.drainingCount)
 		})
+
+		t.Run("endpoint with no addresses", func(t *testing.T) {
+			model := newHTTPBackendModel(newMockDeps(t))
+			refPort := int32(rand.IntN(65534) + 1)
+
+			// One endpoint with address, one without
+			endpointWithAddr := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
+			endpointWithoutAddr := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
+			endpointWithoutAddr.Addresses = []string{}
+
+			currentBackends := []loadbalancer.Backend{}
+			endpointSlices := []discoveryv1.EndpointSlice{
+				{Endpoints: []discoveryv1.Endpoint{endpointWithAddr, endpointWithoutAddr}},
+			}
+
+			params := identifyBackendsToUpdateParams{
+				endpointPort:    refPort,
+				currentBackends: currentBackends,
+				endpointSlices:  endpointSlices,
+			}
+
+			// Only the endpoint with an address should be included
+			expectedUpdatedBackends := []loadbalancer.BackendDetails{
+				{
+					IpAddress: &endpointWithAddr.Addresses[0],
+					Port:      lo.ToPtr(int(refPort)),
+					Drain:     lo.ToPtr(false),
+				},
+			}
+			expectedResult := identifyBackendsToUpdateResult{
+				updateRequired:  true, // Adding one backend
+				updatedBackends: expectedUpdatedBackends,
+				drainingCount:   0,
+			}
+
+			result, err := model.identifyBackendsToUpdate(t.Context(), params)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, expectedResult.updatedBackends, result.updatedBackends)
+			assert.Equal(t, expectedResult.updateRequired, result.updateRequired)
+			assert.Equal(t, expectedResult.drainingCount, result.drainingCount)
+		})
+	})
+
+	t.Run("syncRouteBackendRuleEndpoints error handling", func(t *testing.T) {
+		t.Run("k8s list error", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPBackendModel(deps)
+
+			ref := makeRandomBackendRef()
+			rule := makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(ref))
+			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRandomRulesOpt(rule))
+			config := makeRandomGatewayConfig()
+			ruleIndex := 0
+			backendSetName := backendSetName(httpRoute, rule, ruleIndex)
+			expectedErr := errors.New(faker.Sentence())
+
+			sampleBackendSet := makeRandomOCIBackendSet(randomOCIBackendSetWithNameOpt(backendSetName))
+
+			mockOciClient, _ := deps.OciLoadBalancerClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().GetBackendSet(
+				t.Context(),
+				loadbalancer.GetBackendSetRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+					BackendSetName: &backendSetName,
+				},
+			).Return(loadbalancer.GetBackendSetResponse{BackendSet: sampleBackendSet}, nil).Once()
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				mock.Anything,
+				client.MatchingLabels{
+					discoveryv1.LabelServiceName: string(ref.BackendObjectReference.Name),
+				},
+			).Return(expectedErr).Once()
+
+			err := model.syncRouteBackendRuleEndpoints(t.Context(), syncRouteBackendRuleEndpointsParams{
+				httpRoute: httpRoute,
+				config:    config,
+				ruleIndex: ruleIndex,
+			})
+
+			require.ErrorIs(t, err, expectedErr)
+		})
+
+		t.Run("identify backends error", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPBackendModel(deps)
+
+			ref := makeRandomBackendRef()
+			rule := makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(ref))
+			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRandomRulesOpt(rule))
+			config := makeRandomGatewayConfig()
+			ruleIndex := 0
+			backendSetName := backendSetName(httpRoute, rule, ruleIndex)
+			expectedErr := errors.New(faker.Sentence())
+
+			endpointSlice := makeRandomEndpointSlice(randomEndpointSliceWithEndpointsOpt())
+			endpointSlices := []discoveryv1.EndpointSlice{endpointSlice}
+			currentBackends := makeFewRandomOCIBackends()
+			sampleBackendSet := makeRandomOCIBackendSet(
+				randomOCIBackendSetWithNameOpt(backendSetName),
+				randomOCIBackendSetWithBackendsOpt(currentBackends),
+			)
+
+			mockOciClient, _ := deps.OciLoadBalancerClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().GetBackendSet(
+				t.Context(),
+				loadbalancer.GetBackendSetRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+					BackendSetName: &backendSetName,
+				},
+			).Return(loadbalancer.GetBackendSetResponse{BackendSet: sampleBackendSet}, nil).Once()
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				mock.Anything,
+				client.MatchingLabels{
+					discoveryv1.LabelServiceName: string(ref.BackendObjectReference.Name),
+				},
+			).RunAndReturn(func(_ context.Context, ol client.ObjectList, _ ...client.ListOption) error {
+				epSliceList, ok := ol.(*discoveryv1.EndpointSliceList)
+				require.True(t, ok)
+				epSliceList.Items = append(epSliceList.Items, endpointSlice)
+				return nil
+			}).Once()
+
+			mockSelf, _ := deps.self.(*MockhttpBackendModel)
+			mockSelf.EXPECT().identifyBackendsToUpdate(
+				t.Context(),
+				identifyBackendsToUpdateParams{
+					endpointPort:    int32(*ref.BackendObjectReference.Port),
+					currentBackends: currentBackends,
+					endpointSlices:  endpointSlices,
+				},
+			).Return(identifyBackendsToUpdateResult{}, expectedErr).Once()
+
+			err := model.syncRouteBackendRuleEndpoints(t.Context(), syncRouteBackendRuleEndpointsParams{
+				httpRoute: httpRoute,
+				config:    config,
+				ruleIndex: ruleIndex,
+			})
+
+			require.ErrorIs(t, err, expectedErr)
+		})
+
+		t.Run("oci update error", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPBackendModel(deps)
+
+			ref := makeRandomBackendRef()
+			rule := makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(ref))
+			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRandomRulesOpt(rule))
+			config := makeRandomGatewayConfig()
+			ruleIndex := 0
+			backendSetName := backendSetName(httpRoute, rule, ruleIndex)
+			expectedErr := errors.New(faker.Sentence())
+
+			endpointSlice := makeRandomEndpointSlice(randomEndpointSliceWithEndpointsOpt())
+			endpointSlices := []discoveryv1.EndpointSlice{endpointSlice}
+			currentBackends := makeFewRandomOCIBackends()
+			sampleBackendSet := makeRandomOCIBackendSet(
+				randomOCIBackendSetWithNameOpt(backendSetName),
+				randomOCIBackendSetWithBackendsOpt(currentBackends),
+			)
+			wantUpdatedBackends := makeFewRandomOCIBackendDetails()
+
+			mockOciClient, _ := deps.OciLoadBalancerClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().GetBackendSet(
+				t.Context(),
+				loadbalancer.GetBackendSetRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+					BackendSetName: &backendSetName,
+				},
+			).Return(loadbalancer.GetBackendSetResponse{BackendSet: sampleBackendSet}, nil).Once()
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				mock.Anything,
+				client.MatchingLabels{
+					discoveryv1.LabelServiceName: string(ref.BackendObjectReference.Name),
+				},
+			).RunAndReturn(func(_ context.Context, ol client.ObjectList, _ ...client.ListOption) error {
+				epSliceList, ok := ol.(*discoveryv1.EndpointSliceList)
+				require.True(t, ok)
+				epSliceList.Items = append(epSliceList.Items, endpointSlice)
+				return nil
+			}).Once()
+
+			mockSelf, _ := deps.self.(*MockhttpBackendModel)
+			mockSelf.EXPECT().identifyBackendsToUpdate(
+				t.Context(),
+				identifyBackendsToUpdateParams{
+					endpointPort:    int32(*ref.BackendObjectReference.Port),
+					currentBackends: currentBackends,
+					endpointSlices:  endpointSlices,
+				},
+			).Return(identifyBackendsToUpdateResult{updateRequired: true, updatedBackends: wantUpdatedBackends}, nil).Once()
+
+			mockOciClient.EXPECT().UpdateBackendSet(
+				t.Context(),
+				mock.Anything, // We don't need to assert the details here, just that it's called
+			).Return(loadbalancer.UpdateBackendSetResponse{}, expectedErr).Once()
+
+			err := model.syncRouteBackendRuleEndpoints(t.Context(), syncRouteBackendRuleEndpointsParams{
+				httpRoute: httpRoute,
+				config:    config,
+				ruleIndex: ruleIndex,
+			})
+
+			require.ErrorIs(t, err, expectedErr)
+		})
+
+		t.Run("oci wait for work request error", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPBackendModel(deps)
+
+			ref := makeRandomBackendRef()
+			rule := makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(ref))
+			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRandomRulesOpt(rule))
+			config := makeRandomGatewayConfig()
+			ruleIndex := 0
+			backendSetName := backendSetName(httpRoute, rule, ruleIndex)
+			expectedErr := errors.New(faker.Sentence())
+
+			endpointSlice := makeRandomEndpointSlice(randomEndpointSliceWithEndpointsOpt())
+			endpointSlices := []discoveryv1.EndpointSlice{endpointSlice}
+			currentBackends := makeFewRandomOCIBackends()
+			sampleBackendSet := makeRandomOCIBackendSet(
+				randomOCIBackendSetWithNameOpt(backendSetName),
+				randomOCIBackendSetWithBackendsOpt(currentBackends),
+			)
+			wantUpdatedBackends := makeFewRandomOCIBackendDetails()
+			wantOperationID := faker.UUIDHyphenated()
+
+			mockOciClient, _ := deps.OciLoadBalancerClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().GetBackendSet(
+				t.Context(),
+				loadbalancer.GetBackendSetRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+					BackendSetName: &backendSetName,
+				},
+			).Return(loadbalancer.GetBackendSetResponse{BackendSet: sampleBackendSet}, nil).Once()
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				mock.Anything,
+				client.MatchingLabels{
+					discoveryv1.LabelServiceName: string(ref.BackendObjectReference.Name),
+				},
+			).RunAndReturn(func(_ context.Context, ol client.ObjectList, _ ...client.ListOption) error {
+				epSliceList, ok := ol.(*discoveryv1.EndpointSliceList)
+				require.True(t, ok)
+				epSliceList.Items = append(epSliceList.Items, endpointSlice)
+				return nil
+			}).Once()
+
+			mockSelf, _ := deps.self.(*MockhttpBackendModel)
+			mockSelf.EXPECT().identifyBackendsToUpdate(
+				t.Context(),
+				identifyBackendsToUpdateParams{
+					endpointPort:    int32(*ref.BackendObjectReference.Port),
+					currentBackends: currentBackends,
+					endpointSlices:  endpointSlices,
+				},
+			).Return(identifyBackendsToUpdateResult{updateRequired: true, updatedBackends: wantUpdatedBackends}, nil).Once()
+
+			mockOciClient.EXPECT().UpdateBackendSet(
+				t.Context(),
+				mock.Anything,
+			).Return(loadbalancer.UpdateBackendSetResponse{OpcWorkRequestId: &wantOperationID}, nil).Once()
+
+			mockWorkRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+			mockWorkRequestsWatcher.EXPECT().WaitFor(t.Context(), wantOperationID).Return(expectedErr).Once()
+
+			err := model.syncRouteBackendRuleEndpoints(t.Context(), syncRouteBackendRuleEndpointsParams{
+				httpRoute: httpRoute,
+				config:    config,
+				ruleIndex: ruleIndex,
+			})
+
+			require.ErrorIs(t, err, expectedErr)
+		})
 	})
 }
