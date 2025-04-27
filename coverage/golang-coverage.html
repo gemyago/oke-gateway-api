@@ -89,7 +89,7 @@
 				
 				<option value="file16">github.com/gemyago/oke-gateway-api/internal/app/gatewayclass_controller.go (100.0%)</option>
 				
-				<option value="file17">github.com/gemyago/oke-gateway-api/internal/app/httpbackend_model.go (91.9%)</option>
+				<option value="file17">github.com/gemyago/oke-gateway-api/internal/app/httpbackend_model.go (98.5%)</option>
 				
 				<option value="file18">github.com/gemyago/oke-gateway-api/internal/app/httproute_controller.go (100.0%)</option>
 				
@@ -97,7 +97,7 @@
 				
 				<option value="file20">github.com/gemyago/oke-gateway-api/internal/app/mock_gateway_model.go (70.5%)</option>
 				
-				<option value="file21">github.com/gemyago/oke-gateway-api/internal/app/mock_http_backend_model.go (63.2%)</option>
+				<option value="file21">github.com/gemyago/oke-gateway-api/internal/app/mock_http_backend_model.go (61.7%)</option>
 				
 				<option value="file22">github.com/gemyago/oke-gateway-api/internal/app/mock_http_route_model.go (63.3%)</option>
 				
@@ -1252,7 +1252,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
                 return fmt.Errorf("failed to program default backend set: %w", err)
         }</span>
 
-        <span class="cov3" title="2">for _, listenerSpec := range data.gateway.Spec.Listeners </span><span class="cov4" title="3">{
+        <span class="cov3" title="2">for _, listenerSpec := range data.gateway.Spec.Listeners </span><span class="cov6" title="5">{
                 // TODO: Support listener with hostname
 
                 _, err = m.ociLoadBalancerModel.reconcileHTTPListener(ctx, reconcileHTTPListenerParams{
@@ -1417,12 +1417,31 @@ type syncRouteBackendRuleEndpointsParams struct {
         ruleIndex int
 }
 
+type identifyBackendsToUpdateParams struct {
+        endpointPort    int32
+        currentBackends []loadbalancer.Backend
+        endpointSlices  []discoveryv1.EndpointSlice
+}
+
+type identifyBackendsToUpdateResult struct {
+        updateRequired  bool
+        updatedBackends []loadbalancer.BackendDetails
+        drainingCount   int
+}
+
 // httpBackendModel defines the interface for managing OCI backend sets based on HTTPRoute definitions.
 type httpBackendModel interface {
         // syncRouteBackendEndpoints synchronizes the OCI Load Balancer Backend Sets associated with the
         // provided HTTPRoute, ensuring they contain the correct set of ready endpoints
         // derived from the referenced Kubernetes Services' EndpointSlices.
         syncRouteBackendEndpoints(ctx context.Context, params syncRouteBackendEndpointsParams) error
+
+        // identifyBackendsToUpdate identifies the backends that need to be updated in the OCI Load Balancer Backend Set.
+        // It will correctly handle endpoint status changes, including draining endpoints.
+        identifyBackendsToUpdate(
+                ctx context.Context,
+                params identifyBackendsToUpdateParams,
+        ) (identifyBackendsToUpdateResult, error)
 
         // syncRouteBackendRuleEndpoints synchronizes the OCI Load Balancer Backend Sets associated with the
         // single rule of the provided HTTPRoute.
@@ -1461,90 +1480,187 @@ func (m *httpBackendModelImpl) syncRouteBackendEndpoints(
         <span class="cov1" title="1">return nil</span>
 }
 
+func (m *httpBackendModelImpl) identifyBackendsToUpdate(
+        ctx context.Context,
+        params identifyBackendsToUpdateParams,
+) (identifyBackendsToUpdateResult, error) <span class="cov7" title="9">{
+        desiredBackendsMap := make(map[string]loadbalancer.BackendDetails)
+        var drainingCount int
+
+        for _, slice := range params.endpointSlices </span><span class="cov7" title="8">{
+                for _, endpoint := range slice.Endpoints </span><span class="cov9" title="15">{
+                        if endpoint.Conditions.Ready != nil &amp;&amp; !*endpoint.Conditions.Ready </span><span class="cov3" title="2">{
+                                continue</span>
+                        }
+                        <span class="cov8" title="13">if len(endpoint.Addresses) == 0 </span><span class="cov1" title="1">{
+                                m.logger.WarnContext(ctx, "Endpoint has no addresses", slog.Any("endpoint", endpoint))
+                                continue</span>
+                        }
+                        <span class="cov8" title="12">ipAddress := endpoint.Addresses[0]
+                        isDraining := endpoint.Conditions.Terminating != nil &amp;&amp; *endpoint.Conditions.Terminating
+
+                        if isDraining </span><span class="cov3" title="2">{
+                                drainingCount++
+                        }</span>
+
+                        <span class="cov8" title="12">desiredBackendsMap[ipAddress] = loadbalancer.BackendDetails{
+                                Port:      lo.ToPtr(int(params.endpointPort)),
+                                IpAddress: &amp;ipAddress,
+                                Drain:     lo.ToPtr(isDraining),
+                                // Weight, MaxConnections, Backup, Offline are not managed here
+                        }</span>
+                }
+        }
+
+        <span class="cov7" title="9">currentBackendsMap := lo.SliceToMap(
+                lo.Filter(params.currentBackends, func(b loadbalancer.Backend, _ int) bool </span><span class="cov8" title="11">{
+                        return b.IpAddress != nil
+                }</span>),
+                func(b loadbalancer.Backend) (string, loadbalancer.Backend) <span class="cov8" title="11">{
+                        return *b.IpAddress, b
+                }</span>,
+        )
+
+        <span class="cov7" title="9">updateRequired := false
+        if len(desiredBackendsMap) != len(currentBackendsMap) </span><span class="cov6" title="5">{
+                updateRequired = true
+        }</span> else<span class="cov5" title="4"> {
+                for ip, desired := range desiredBackendsMap </span><span class="cov5" title="4">{
+                        current, exists := currentBackendsMap[ip]
+                        if !exists || lo.FromPtr(desired.Drain) != lo.FromPtr(current.Drain) </span><span class="cov3" title="2">{
+                                updateRequired = true
+                                break</span>
+                        }
+                }
+        }
+
+        <span class="cov7" title="9">updatedBackends := lo.Values(desiredBackendsMap)
+
+        return identifyBackendsToUpdateResult{
+                updateRequired:  updateRequired,
+                updatedBackends: updatedBackends,
+                drainingCount:   drainingCount,
+        }, nil</span>
+}
+
 func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
         ctx context.Context,
         params syncRouteBackendRuleEndpointsParams,
-) error <span class="cov3" title="2">{
+) error <span class="cov6" title="6">{
         rule := params.httpRoute.Spec.Rules[params.ruleIndex]
 
         backendSetName := backendSetName(params.httpRoute, rule, params.ruleIndex)
-        var ruleBackends []loadbalancer.BackendDetails
+
+        getResp, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
+                LoadBalancerId: &amp;params.config.Spec.LoadBalancerID,
+                BackendSetName: &amp;backendSetName,
+        })
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to get backend set %s: %w", backendSetName, err)
+        }</span>
+        <span class="cov6" title="6">existingBackendSet := getResp.BackendSet
+
+        // All backends should have the same port
         firstRefPort := int32(*rule.BackendRefs[0].BackendObjectReference.Port)
 
-        drainingCount := 0
-        for _, backendRef := range rule.BackendRefs </span><span class="cov4" title="3">{
+        allEndpointSlices := make([]discoveryv1.EndpointSlice, 0)
+        for _, backendRef := range rule.BackendRefs </span><span class="cov7" title="7">{
                 var endpointSlices discoveryv1.EndpointSliceList
 
-                // TODO: Paginate?
-                if err := m.k8sClient.List(ctx, &amp;endpointSlices, client.MatchingLabels{
+                if err = m.k8sClient.List(ctx, &amp;endpointSlices, client.MatchingLabels{
                         discoveryv1.LabelServiceName: string(backendRef.BackendObjectReference.Name),
-                }); err != nil </span><span class="cov0" title="0">{
+                }); err != nil </span><span class="cov1" title="1">{
                         return fmt.Errorf("failed to list endpoint slices for backend %s: %w", backendRef.BackendObjectReference.Name, err)
                 }</span>
-
-                <span class="cov4" title="3">refPort := int32(*backendRef.BackendObjectReference.Port)
-
-                refBackends := make([]loadbalancer.BackendDetails, 0, len(endpointSlices.Items))
-                for _, endpointSlice := range endpointSlices.Items </span><span class="cov4" title="3">{
-                        for _, endpoint := range endpointSlice.Endpoints </span><span class="cov10" title="17">{
-                                // Skip endpoint if it's explicitly marked as not ready
-                                if endpoint.Conditions.Ready != nil &amp;&amp; !*endpoint.Conditions.Ready </span><span class="cov3" title="2">{
-                                        continue</span>
-                                }
-
-                                // Determine if the backend should be marked for draining
-                                <span class="cov9" title="15">isDraining := endpoint.Conditions.Terminating != nil &amp;&amp; *endpoint.Conditions.Terminating
-
-                                if isDraining </span><span class="cov3" title="2">{
-                                        m.logger.DebugContext(ctx, "Draining endpoint",
-                                                slog.String("endpoint", endpoint.Addresses[0]),
-                                        )
-                                        drainingCount++
-                                }</span>
-
-                                <span class="cov9" title="15">refBackends = append(refBackends, loadbalancer.BackendDetails{
-                                        Port:      lo.ToPtr(int(refPort)),
-                                        IpAddress: &amp;endpoint.Addresses[0],
-                                        Drain:     lo.ToPtr(isDraining),
-                                })</span>
-                        }
-                }
-
-                <span class="cov4" title="3">ruleBackends = append(ruleBackends, refBackends...)</span>
+                <span class="cov6" title="6">allEndpointSlices = append(allEndpointSlices, endpointSlices.Items...)</span>
         }
 
-        <span class="cov3" title="2">m.logger.InfoContext(ctx, "Syncing backend endpoints for rule",
+        <span class="cov6" title="5">backendsToUpdate, err := m.self.identifyBackendsToUpdate(ctx, identifyBackendsToUpdateParams{
+                endpointPort:    firstRefPort,
+                currentBackends: existingBackendSet.Backends,
+                endpointSlices:  allEndpointSlices,
+        })
+        if err != nil </span><span class="cov1" title="1">{
+                return fmt.Errorf("failed to identify backends to update: %w", err)
+        }</span>
+
+        <span class="cov5" title="4">if !backendsToUpdate.updateRequired </span><span class="cov1" title="1">{
+                m.logger.InfoContext(ctx, "Backend set already up-to-date, skipping update",
+                        slog.String("backendSetName", backendSetName),
+                        slog.String("httpRoute", params.httpRoute.Name),
+                        slog.Int("ruleIndex", params.ruleIndex),
+                )
+                return nil
+        }</span>
+
+        <span class="cov4" title="3">m.logger.InfoContext(ctx, "Syncing backend endpoints for rule",
                 slog.Int("ruleIndex", params.ruleIndex),
                 slog.String("httpRoute", params.httpRoute.Name),
                 slog.String("backendSetName", backendSetName),
-                slog.Int("ruleBackends", len(ruleBackends)),
-                slog.Int("drainingBackends", drainingCount),
+                slog.Int("currentBackends", len(existingBackendSet.Backends)),
+                slog.Int("updatedBackends", len(backendsToUpdate.updatedBackends)),
+                slog.Int("drainingCount", backendsToUpdate.drainingCount),
         )
 
-        ociBackendSet, err := m.ociClient.UpdateBackendSet(ctx, loadbalancer.UpdateBackendSetRequest{
-                LoadBalancerId: &amp;params.config.Spec.LoadBalancerID,
-                BackendSetName: &amp;backendSetName,
-                UpdateBackendSetDetails: loadbalancer.UpdateBackendSetDetails{
-                        Backends: ruleBackends,
-
-                        // TODO: Better fetch the HC from existing backend set
-                        // route reconciliation is managing it
-                        Policy: lo.ToPtr("ROUND_ROBIN"),
-                        HealthChecker: &amp;loadbalancer.HealthCheckerDetails{
-                                Protocol: lo.ToPtr("TCP"),
-                                Port:     lo.ToPtr(int(firstRefPort)),
-                        },
-                },
+        ociUpdateResp, err := m.ociClient.UpdateBackendSet(ctx, loadbalancer.UpdateBackendSetRequest{
+                LoadBalancerId:          &amp;params.config.Spec.LoadBalancerID,
+                BackendSetName:          &amp;backendSetName,
+                UpdateBackendSetDetails: makeUpdateOciBackendSetDetails(existingBackendSet, backendsToUpdate.updatedBackends),
         })
-        if err != nil </span><span class="cov0" title="0">{
+        if err != nil </span><span class="cov1" title="1">{
                 return fmt.Errorf("failed to update backend set %s: %w", backendSetName, err)
         }</span>
 
-        <span class="cov3" title="2">err = m.workRequestsWatcher.WaitFor(ctx, *ociBackendSet.OpcWorkRequestId)
-        if err != nil </span><span class="cov0" title="0">{
+        <span class="cov3" title="2">err = m.workRequestsWatcher.WaitFor(ctx, *ociUpdateResp.OpcWorkRequestId)
+        if err != nil </span><span class="cov1" title="1">{
                 return fmt.Errorf("failed to wait for backend set %s to be updated: %w", backendSetName, err)
         }</span>
-        <span class="cov3" title="2">return nil</span>
+        <span class="cov1" title="1">return nil</span>
+}
+
+func makeUpdateOciBackendSetDetails(
+        existingBackendSet loadbalancer.BackendSet,
+        newBackends []loadbalancer.BackendDetails,
+) loadbalancer.UpdateBackendSetDetails <span class="cov4" title="3">{
+        updateDetails := loadbalancer.UpdateBackendSetDetails{
+                Backends: newBackends,
+
+                Policy:                                  existingBackendSet.Policy,
+                SessionPersistenceConfiguration:         existingBackendSet.SessionPersistenceConfiguration,
+                LbCookieSessionPersistenceConfiguration: existingBackendSet.LbCookieSessionPersistenceConfiguration,
+        }
+
+        if existingBackendSet.HealthChecker != nil </span><span class="cov4" title="3">{
+                updateDetails.HealthChecker = &amp;loadbalancer.HealthCheckerDetails{
+                        Protocol:          existingBackendSet.HealthChecker.Protocol,
+                        UrlPath:           existingBackendSet.HealthChecker.UrlPath,
+                        Port:              existingBackendSet.HealthChecker.Port,
+                        ReturnCode:        existingBackendSet.HealthChecker.ReturnCode,
+                        Retries:           existingBackendSet.HealthChecker.Retries,
+                        TimeoutInMillis:   existingBackendSet.HealthChecker.TimeoutInMillis,
+                        IntervalInMillis:  existingBackendSet.HealthChecker.IntervalInMillis,
+                        ResponseBodyRegex: existingBackendSet.HealthChecker.ResponseBodyRegex,
+                        IsForcePlainText:  existingBackendSet.HealthChecker.IsForcePlainText,
+                }
+        }</span>
+
+        <span class="cov4" title="3">if existingBackendSet.SslConfiguration != nil </span><span class="cov4" title="3">{
+                updateDetails.SslConfiguration = &amp;loadbalancer.SslConfigurationDetails{
+                        CertificateName:                existingBackendSet.SslConfiguration.CertificateName,
+                        TrustedCertificateAuthorityIds: existingBackendSet.SslConfiguration.TrustedCertificateAuthorityIds,
+                        VerifyDepth:                    existingBackendSet.SslConfiguration.VerifyDepth,
+                        VerifyPeerCertificate:          existingBackendSet.SslConfiguration.VerifyPeerCertificate,
+                        CertificateIds:                 existingBackendSet.SslConfiguration.CertificateIds,
+                        CipherSuiteName:                existingBackendSet.SslConfiguration.CipherSuiteName,
+                        ServerOrderPreference: loadbalancer.SslConfigurationDetailsServerOrderPreferenceEnum(
+                                existingBackendSet.SslConfiguration.ServerOrderPreference,
+                        ),
+                        Protocols:            existingBackendSet.SslConfiguration.Protocols,
+                        HasSessionResumption: existingBackendSet.SslConfiguration.HasSessionResumption,
+                }
+        }</span>
+
+        <span class="cov4" title="3">return updateDetails</span>
 }
 
 // httpBackendModelDeps contains the dependencies for the HTTPBackendModel.
@@ -1561,7 +1677,7 @@ type httpBackendModelDeps struct {
 }
 
 // newHTTPBackendModel creates a new HTTPBackendModel.
-func newHTTPBackendModel(deps httpBackendModelDeps) httpBackendModel <span class="cov6" title="5">{
+func newHTTPBackendModel(deps httpBackendModelDeps) httpBackendModel <span class="cov10" title="18">{
         model := &amp;httpBackendModelImpl{
                 logger:              deps.RootLogger.WithGroup("http-backend-model"),
                 k8sClient:           deps.K8sClient,
@@ -1792,7 +1908,7 @@ type httpRouteModel interface {
         ) error
 }
 
-func parentRefEqual(a, b gatewayv1.ParentReference) bool <span class="cov7" title="12">{
+func parentRefEqual(a, b gatewayv1.ParentReference) bool <span class="cov7" title="13">{
         return a.Name == b.Name &amp;&amp;
                 lo.FromPtr(a.Namespace) == lo.FromPtr(b.Namespace) &amp;&amp;
                 lo.FromPtr(a.Kind) == lo.FromPtr(b.Kind) &amp;&amp;
@@ -1812,13 +1928,13 @@ func backendRefName(
         }
 }
 
-func backendSetName(httpRoute gatewayv1.HTTPRoute, rule gatewayv1.HTTPRouteRule, ruleIndex int) string <span class="cov5" title="6">{
+func backendSetName(httpRoute gatewayv1.HTTPRoute, rule gatewayv1.HTTPRouteRule, ruleIndex int) string <span class="cov8" title="15">{
         ruleName := lo.TernaryF(
                 rule.Name != nil,
                 func() gatewayv1.SectionName </span><span class="cov2" title="2">{ return *rule.Name }</span>,
-                func() gatewayv1.SectionName <span class="cov4" title="4">{ return gatewayv1.SectionName("rt-" + strconv.Itoa(ruleIndex)) }</span>,
+                func() gatewayv1.SectionName <span class="cov7" title="13">{ return gatewayv1.SectionName("rt-" + strconv.Itoa(ruleIndex)) }</span>,
         )
-        <span class="cov5" title="6">return httpRoute.Name + "-" + string(ruleName)</span>
+        <span class="cov8" title="15">return httpRoute.Name + "-" + string(ruleName)</span>
 }
 
 type httpRouteModelImpl struct {
@@ -2064,7 +2180,7 @@ func (m *httpRouteModelImpl) setProgrammed(
 
         parentStatus, parentStatusIndex, found := lo.FindIndexOf(
                 httpRoute.Status.Parents,
-                func(s gatewayv1.RouteParentStatus) bool </span><span class="cov5" title="5">{
+                func(s gatewayv1.RouteParentStatus) bool </span><span class="cov5" title="6">{
                         return s.ControllerName == params.gatewayClass.Spec.ControllerName &amp;&amp;
                                 parentRefEqual(s.ParentRef, params.matchedRef)
                 }</span>,
@@ -2288,8 +2404,65 @@ type MockhttpBackendModel_Expecter struct {
         mock *mock.Mock
 }
 
-func (_m *MockhttpBackendModel) EXPECT() *MockhttpBackendModel_Expecter <span class="cov7" title="7">{
+func (_m *MockhttpBackendModel) EXPECT() *MockhttpBackendModel_Expecter <span class="cov7" title="12">{
         return &amp;MockhttpBackendModel_Expecter{mock: &amp;_m.Mock}
+}</span>
+
+// identifyBackendsToUpdate provides a mock function with given fields: ctx, params
+func (_m *MockhttpBackendModel) identifyBackendsToUpdate(ctx context.Context, params identifyBackendsToUpdateParams) (identifyBackendsToUpdateResult, error) <span class="cov5" title="5">{
+        ret := _m.Called(ctx, params)
+
+        if len(ret) == 0 </span><span class="cov0" title="0">{
+                panic("no return value specified for identifyBackendsToUpdate")</span>
+        }
+
+        <span class="cov5" title="5">var r0 identifyBackendsToUpdateResult
+        var r1 error
+        if rf, ok := ret.Get(0).(func(context.Context, identifyBackendsToUpdateParams) (identifyBackendsToUpdateResult, error)); ok </span><span class="cov0" title="0">{
+                return rf(ctx, params)
+        }</span>
+        <span class="cov5" title="5">if rf, ok := ret.Get(0).(func(context.Context, identifyBackendsToUpdateParams) identifyBackendsToUpdateResult); ok </span><span class="cov0" title="0">{
+                r0 = rf(ctx, params)
+        }</span> else<span class="cov5" title="5"> {
+                r0 = ret.Get(0).(identifyBackendsToUpdateResult)
+        }</span>
+
+        <span class="cov5" title="5">if rf, ok := ret.Get(1).(func(context.Context, identifyBackendsToUpdateParams) error); ok </span><span class="cov0" title="0">{
+                r1 = rf(ctx, params)
+        }</span> else<span class="cov5" title="5"> {
+                r1 = ret.Error(1)
+        }</span>
+
+        <span class="cov5" title="5">return r0, r1</span>
+}
+
+// MockhttpBackendModel_identifyBackendsToUpdate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'identifyBackendsToUpdate'
+type MockhttpBackendModel_identifyBackendsToUpdate_Call struct {
+        *mock.Call
+}
+
+// identifyBackendsToUpdate is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params identifyBackendsToUpdateParams
+func (_e *MockhttpBackendModel_Expecter) identifyBackendsToUpdate(ctx interface{}, params interface{}) *MockhttpBackendModel_identifyBackendsToUpdate_Call <span class="cov5" title="5">{
+        return &amp;MockhttpBackendModel_identifyBackendsToUpdate_Call{Call: _e.mock.On("identifyBackendsToUpdate", ctx, params)}
+}</span>
+
+func (_c *MockhttpBackendModel_identifyBackendsToUpdate_Call) Run(run func(ctx context.Context, params identifyBackendsToUpdateParams)) *MockhttpBackendModel_identifyBackendsToUpdate_Call <span class="cov0" title="0">{
+        _c.Call.Run(func(args mock.Arguments) </span><span class="cov0" title="0">{
+                run(args[0].(context.Context), args[1].(identifyBackendsToUpdateParams))
+        }</span>)
+        <span class="cov0" title="0">return _c</span>
+}
+
+func (_c *MockhttpBackendModel_identifyBackendsToUpdate_Call) Return(_a0 identifyBackendsToUpdateResult, _a1 error) *MockhttpBackendModel_identifyBackendsToUpdate_Call <span class="cov5" title="5">{
+        _c.Call.Return(_a0, _a1)
+        return _c
+}</span>
+
+func (_c *MockhttpBackendModel_identifyBackendsToUpdate_Call) RunAndReturn(run func(context.Context, identifyBackendsToUpdateParams) (identifyBackendsToUpdateResult, error)) *MockhttpBackendModel_identifyBackendsToUpdate_Call <span class="cov0" title="0">{
+        _c.Call.Return(run)
+        return _c
 }</span>
 
 // syncRouteBackendEndpoints provides a mock function with given fields: ctx, params
@@ -2340,21 +2513,21 @@ func (_c *MockhttpBackendModel_syncRouteBackendEndpoints_Call) RunAndReturn(run 
 }</span>
 
 // syncRouteBackendRuleEndpoints provides a mock function with given fields: ctx, params
-func (_m *MockhttpBackendModel) syncRouteBackendRuleEndpoints(ctx context.Context, params syncRouteBackendRuleEndpointsParams) error <span class="cov5" title="4">{
+func (_m *MockhttpBackendModel) syncRouteBackendRuleEndpoints(ctx context.Context, params syncRouteBackendRuleEndpointsParams) error <span class="cov4" title="4">{
         ret := _m.Called(ctx, params)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for syncRouteBackendRuleEndpoints")</span>
         }
 
-        <span class="cov5" title="4">var r0 error
+        <span class="cov4" title="4">var r0 error
         if rf, ok := ret.Get(0).(func(context.Context, syncRouteBackendRuleEndpointsParams) error); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, params)
-        }</span> else<span class="cov5" title="4"> {
+        }</span> else<span class="cov4" title="4"> {
                 r0 = ret.Error(0)
         }</span>
 
-        <span class="cov5" title="4">return r0</span>
+        <span class="cov4" title="4">return r0</span>
 }
 
 // MockhttpBackendModel_syncRouteBackendRuleEndpoints_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'syncRouteBackendRuleEndpoints'
@@ -2365,7 +2538,7 @@ type MockhttpBackendModel_syncRouteBackendRuleEndpoints_Call struct {
 // syncRouteBackendRuleEndpoints is a helper method to define mock.On call
 //   - ctx context.Context
 //   - params syncRouteBackendRuleEndpointsParams
-func (_e *MockhttpBackendModel_Expecter) syncRouteBackendRuleEndpoints(ctx interface{}, params interface{}) *MockhttpBackendModel_syncRouteBackendRuleEndpoints_Call <span class="cov5" title="4">{
+func (_e *MockhttpBackendModel_Expecter) syncRouteBackendRuleEndpoints(ctx interface{}, params interface{}) *MockhttpBackendModel_syncRouteBackendRuleEndpoints_Call <span class="cov4" title="4">{
         return &amp;MockhttpBackendModel_syncRouteBackendRuleEndpoints_Call{Call: _e.mock.On("syncRouteBackendRuleEndpoints", ctx, params)}
 }</span>
 
@@ -2376,7 +2549,7 @@ func (_c *MockhttpBackendModel_syncRouteBackendRuleEndpoints_Call) Run(run func(
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockhttpBackendModel_syncRouteBackendRuleEndpoints_Call) Return(_a0 error) *MockhttpBackendModel_syncRouteBackendRuleEndpoints_Call <span class="cov5" title="4">{
+func (_c *MockhttpBackendModel_syncRouteBackendRuleEndpoints_Call) Return(_a0 error) *MockhttpBackendModel_syncRouteBackendRuleEndpoints_Call <span class="cov4" title="4">{
         _c.Call.Return(_a0)
         return _c
 }</span>
@@ -2391,13 +2564,13 @@ func (_c *MockhttpBackendModel_syncRouteBackendRuleEndpoints_Call) RunAndReturn(
 func NewMockhttpBackendModel(t interface {
         mock.TestingT
         Cleanup(func())
-}) *MockhttpBackendModel <span class="cov10" title="14">{
+}) *MockhttpBackendModel <span class="cov10" title="27">{
         mock := &amp;MockhttpBackendModel{}
         mock.Mock.Test(t)
 
-        t.Cleanup(func() </span><span class="cov10" title="14">{ mock.AssertExpectations(t) }</span>)
+        t.Cleanup(func() </span><span class="cov10" title="27">{ mock.AssertExpectations(t) }</span>)
 
-        <span class="cov10" title="14">return mock</span>
+        <span class="cov10" title="27">return mock</span>
 }
 </pre>
 		
@@ -2798,7 +2971,7 @@ type Mockk8sClient_Expecter struct {
         mock *mock.Mock
 }
 
-func (_m *Mockk8sClient) EXPECT() *Mockk8sClient_Expecter <span class="cov9" title="51">{
+func (_m *Mockk8sClient) EXPECT() *Mockk8sClient_Expecter <span class="cov9" title="55">{
         return &amp;Mockk8sClient_Expecter{mock: &amp;_m.Mock}
 }</span>
 
@@ -2818,9 +2991,9 @@ func (_m *Mockk8sClient) Get(ctx context.Context, key types.NamespacedName, obj 
         }
 
         <span class="cov8" title="36">var r0 error
-        if rf, ok := ret.Get(0).(func(context.Context, types.NamespacedName, client.Object, ...client.GetOption) error); ok </span><span class="cov8" title="29">{
+        if rf, ok := ret.Get(0).(func(context.Context, types.NamespacedName, client.Object, ...client.GetOption) error); ok </span><span class="cov7" title="29">{
                 r0 = rf(ctx, key, obj, opts...)
-        }</span> else<span class="cov5" title="7"> {
+        }</span> else<span class="cov4" title="7"> {
                 r0 = ret.Error(0)
         }</span>
 
@@ -2855,23 +3028,23 @@ func (_c *Mockk8sClient_Get_Call) Run(run func(ctx context.Context, key types.Na
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *Mockk8sClient_Get_Call) Return(_a0 error) *Mockk8sClient_Get_Call <span class="cov5" title="7">{
+func (_c *Mockk8sClient_Get_Call) Return(_a0 error) *Mockk8sClient_Get_Call <span class="cov4" title="7">{
         _c.Call.Return(_a0)
         return _c
 }</span>
 
-func (_c *Mockk8sClient_Get_Call) RunAndReturn(run func(context.Context, types.NamespacedName, client.Object, ...client.GetOption) error) *Mockk8sClient_Get_Call <span class="cov8" title="29">{
+func (_c *Mockk8sClient_Get_Call) RunAndReturn(run func(context.Context, types.NamespacedName, client.Object, ...client.GetOption) error) *Mockk8sClient_Get_Call <span class="cov7" title="29">{
         _c.Call.Return(run)
         return _c
 }</span>
 
 // List provides a mock function with given fields: ctx, list, opts
-func (_m *Mockk8sClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error <span class="cov4" title="6">{
+func (_m *Mockk8sClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error <span class="cov5" title="10">{
         _va := make([]interface{}, len(opts))
-        for _i := range opts </span><span class="cov4" title="6">{
+        for _i := range opts </span><span class="cov5" title="10">{
                 _va[_i] = opts[_i]
         }</span>
-        <span class="cov4" title="6">var _ca []interface{}
+        <span class="cov5" title="10">var _ca []interface{}
         _ca = append(_ca, ctx, list)
         _ca = append(_ca, _va...)
         ret := _m.Called(_ca...)
@@ -2880,14 +3053,14 @@ func (_m *Mockk8sClient) List(ctx context.Context, list client.ObjectList, opts 
                 panic("no return value specified for List")</span>
         }
 
-        <span class="cov4" title="6">var r0 error
-        if rf, ok := ret.Get(0).(func(context.Context, client.ObjectList, ...client.ListOption) error); ok </span><span class="cov4" title="5">{
+        <span class="cov5" title="10">var r0 error
+        if rf, ok := ret.Get(0).(func(context.Context, client.ObjectList, ...client.ListOption) error); ok </span><span class="cov5" title="8">{
                 r0 = rf(ctx, list, opts...)
-        }</span> else<span class="cov1" title="1"> {
+        }</span> else<span class="cov2" title="2"> {
                 r0 = ret.Error(0)
         }</span>
 
-        <span class="cov4" title="6">return r0</span>
+        <span class="cov5" title="10">return r0</span>
 }
 
 // Mockk8sClient_List_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'List'
@@ -2899,7 +3072,7 @@ type Mockk8sClient_List_Call struct {
 //   - ctx context.Context
 //   - list client.ObjectList
 //   - opts ...client.ListOption
-func (_e *Mockk8sClient_Expecter) List(ctx interface{}, list interface{}, opts ...interface{}) *Mockk8sClient_List_Call <span class="cov4" title="6">{
+func (_e *Mockk8sClient_Expecter) List(ctx interface{}, list interface{}, opts ...interface{}) *Mockk8sClient_List_Call <span class="cov5" title="10">{
         return &amp;Mockk8sClient_List_Call{Call: _e.mock.On("List",
                 append([]interface{}{ctx, list}, opts...)...)}
 }</span>
@@ -2917,12 +3090,12 @@ func (_c *Mockk8sClient_List_Call) Run(run func(ctx context.Context, list client
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *Mockk8sClient_List_Call) Return(_a0 error) *Mockk8sClient_List_Call <span class="cov1" title="1">{
+func (_c *Mockk8sClient_List_Call) Return(_a0 error) *Mockk8sClient_List_Call <span class="cov2" title="2">{
         _c.Call.Return(_a0)
         return _c
 }</span>
 
-func (_c *Mockk8sClient_List_Call) RunAndReturn(run func(context.Context, client.ObjectList, ...client.ListOption) error) *Mockk8sClient_List_Call <span class="cov4" title="5">{
+func (_c *Mockk8sClient_List_Call) RunAndReturn(run func(context.Context, client.ObjectList, ...client.ListOption) error) *Mockk8sClient_List_Call <span class="cov5" title="8">{
         _c.Call.Return(run)
         return _c
 }</span>
@@ -3041,13 +3214,13 @@ func (_c *Mockk8sClient_Update_Call) RunAndReturn(run func(context.Context, clie
 func NewMockk8sClient(t interface {
         mock.TestingT
         Cleanup(func())
-}) *Mockk8sClient <span class="cov10" title="73">{
+}) *Mockk8sClient <span class="cov10" title="86">{
         mock := &amp;Mockk8sClient{}
         mock.Mock.Test(t)
 
-        t.Cleanup(func() </span><span class="cov10" title="73">{ mock.AssertExpectations(t) }</span>)
+        t.Cleanup(func() </span><span class="cov10" title="86">{ mock.AssertExpectations(t) }</span>)
 
-        <span class="cov10" title="73">return mock</span>
+        <span class="cov10" title="86">return mock</span>
 }
 </pre>
 		
@@ -3073,7 +3246,7 @@ type MockociLoadBalancerClient_Expecter struct {
         mock *mock.Mock
 }
 
-func (_m *MockociLoadBalancerClient) EXPECT() *MockociLoadBalancerClient_Expecter <span class="cov9" title="29">{
+func (_m *MockociLoadBalancerClient) EXPECT() *MockociLoadBalancerClient_Expecter <span class="cov9" title="36">{
         return &amp;MockociLoadBalancerClient_Expecter{mock: &amp;_m.Mock}
 }</span>
 
@@ -3135,31 +3308,31 @@ func (_c *MockociLoadBalancerClient_CreateBackend_Call) RunAndReturn(run func(co
 }</span>
 
 // CreateBackendSet provides a mock function with given fields: ctx, request
-func (_m *MockociLoadBalancerClient) CreateBackendSet(ctx context.Context, request loadbalancer.CreateBackendSetRequest) (loadbalancer.CreateBackendSetResponse, error) <span class="cov6" title="8">{
+func (_m *MockociLoadBalancerClient) CreateBackendSet(ctx context.Context, request loadbalancer.CreateBackendSetRequest) (loadbalancer.CreateBackendSetResponse, error) <span class="cov5" title="8">{
         ret := _m.Called(ctx, request)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for CreateBackendSet")</span>
         }
 
-        <span class="cov6" title="8">var r0 loadbalancer.CreateBackendSetResponse
+        <span class="cov5" title="8">var r0 loadbalancer.CreateBackendSetResponse
         var r1 error
         if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.CreateBackendSetRequest) (loadbalancer.CreateBackendSetResponse, error)); ok </span><span class="cov0" title="0">{
                 return rf(ctx, request)
         }</span>
-        <span class="cov6" title="8">if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.CreateBackendSetRequest) loadbalancer.CreateBackendSetResponse); ok </span><span class="cov0" title="0">{
+        <span class="cov5" title="8">if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.CreateBackendSetRequest) loadbalancer.CreateBackendSetResponse); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, request)
-        }</span> else<span class="cov6" title="8"> {
+        }</span> else<span class="cov5" title="8"> {
                 r0 = ret.Get(0).(loadbalancer.CreateBackendSetResponse)
         }</span>
 
-        <span class="cov6" title="8">if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.CreateBackendSetRequest) error); ok </span><span class="cov0" title="0">{
+        <span class="cov5" title="8">if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.CreateBackendSetRequest) error); ok </span><span class="cov0" title="0">{
                 r1 = rf(ctx, request)
-        }</span> else<span class="cov6" title="8"> {
+        }</span> else<span class="cov5" title="8"> {
                 r1 = ret.Error(1)
         }</span>
 
-        <span class="cov6" title="8">return r0, r1</span>
+        <span class="cov5" title="8">return r0, r1</span>
 }
 
 // MockociLoadBalancerClient_CreateBackendSet_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateBackendSet'
@@ -3170,7 +3343,7 @@ type MockociLoadBalancerClient_CreateBackendSet_Call struct {
 // CreateBackendSet is a helper method to define mock.On call
 //   - ctx context.Context
 //   - request loadbalancer.CreateBackendSetRequest
-func (_e *MockociLoadBalancerClient_Expecter) CreateBackendSet(ctx interface{}, request interface{}) *MockociLoadBalancerClient_CreateBackendSet_Call <span class="cov6" title="8">{
+func (_e *MockociLoadBalancerClient_Expecter) CreateBackendSet(ctx interface{}, request interface{}) *MockociLoadBalancerClient_CreateBackendSet_Call <span class="cov5" title="8">{
         return &amp;MockociLoadBalancerClient_CreateBackendSet_Call{Call: _e.mock.On("CreateBackendSet", ctx, request)}
 }</span>
 
@@ -3181,7 +3354,7 @@ func (_c *MockociLoadBalancerClient_CreateBackendSet_Call) Run(run func(ctx cont
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockociLoadBalancerClient_CreateBackendSet_Call) Return(response loadbalancer.CreateBackendSetResponse, err error) *MockociLoadBalancerClient_CreateBackendSet_Call <span class="cov6" title="8">{
+func (_c *MockociLoadBalancerClient_CreateBackendSet_Call) Return(response loadbalancer.CreateBackendSetResponse, err error) *MockociLoadBalancerClient_CreateBackendSet_Call <span class="cov5" title="8">{
         _c.Call.Return(response, err)
         return _c
 }</span>
@@ -3306,31 +3479,31 @@ func (_c *MockociLoadBalancerClient_CreateListener_Call) RunAndReturn(run func(c
 }</span>
 
 // GetBackendSet provides a mock function with given fields: ctx, request
-func (_m *MockociLoadBalancerClient) GetBackendSet(ctx context.Context, request loadbalancer.GetBackendSetRequest) (loadbalancer.GetBackendSetResponse, error) <span class="cov6" title="9">{
+func (_m *MockociLoadBalancerClient) GetBackendSet(ctx context.Context, request loadbalancer.GetBackendSetRequest) (loadbalancer.GetBackendSetResponse, error) <span class="cov7" title="15">{
         ret := _m.Called(ctx, request)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for GetBackendSet")</span>
         }
 
-        <span class="cov6" title="9">var r0 loadbalancer.GetBackendSetResponse
+        <span class="cov7" title="15">var r0 loadbalancer.GetBackendSetResponse
         var r1 error
         if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.GetBackendSetRequest) (loadbalancer.GetBackendSetResponse, error)); ok </span><span class="cov0" title="0">{
                 return rf(ctx, request)
         }</span>
-        <span class="cov6" title="9">if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.GetBackendSetRequest) loadbalancer.GetBackendSetResponse); ok </span><span class="cov0" title="0">{
+        <span class="cov7" title="15">if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.GetBackendSetRequest) loadbalancer.GetBackendSetResponse); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, request)
-        }</span> else<span class="cov6" title="9"> {
+        }</span> else<span class="cov7" title="15"> {
                 r0 = ret.Get(0).(loadbalancer.GetBackendSetResponse)
         }</span>
 
-        <span class="cov6" title="9">if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.GetBackendSetRequest) error); ok </span><span class="cov0" title="0">{
+        <span class="cov7" title="15">if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.GetBackendSetRequest) error); ok </span><span class="cov0" title="0">{
                 r1 = rf(ctx, request)
-        }</span> else<span class="cov6" title="9"> {
+        }</span> else<span class="cov7" title="15"> {
                 r1 = ret.Error(1)
         }</span>
 
-        <span class="cov6" title="9">return r0, r1</span>
+        <span class="cov7" title="15">return r0, r1</span>
 }
 
 // MockociLoadBalancerClient_GetBackendSet_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetBackendSet'
@@ -3341,7 +3514,7 @@ type MockociLoadBalancerClient_GetBackendSet_Call struct {
 // GetBackendSet is a helper method to define mock.On call
 //   - ctx context.Context
 //   - request loadbalancer.GetBackendSetRequest
-func (_e *MockociLoadBalancerClient_Expecter) GetBackendSet(ctx interface{}, request interface{}) *MockociLoadBalancerClient_GetBackendSet_Call <span class="cov6" title="9">{
+func (_e *MockociLoadBalancerClient_Expecter) GetBackendSet(ctx interface{}, request interface{}) *MockociLoadBalancerClient_GetBackendSet_Call <span class="cov7" title="15">{
         return &amp;MockociLoadBalancerClient_GetBackendSet_Call{Call: _e.mock.On("GetBackendSet", ctx, request)}
 }</span>
 
@@ -3352,7 +3525,7 @@ func (_c *MockociLoadBalancerClient_GetBackendSet_Call) Run(run func(ctx context
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockociLoadBalancerClient_GetBackendSet_Call) Return(response loadbalancer.GetBackendSetResponse, err error) *MockociLoadBalancerClient_GetBackendSet_Call <span class="cov6" title="9">{
+func (_c *MockociLoadBalancerClient_GetBackendSet_Call) Return(response loadbalancer.GetBackendSetResponse, err error) *MockociLoadBalancerClient_GetBackendSet_Call <span class="cov7" title="15">{
         _c.Call.Return(response, err)
         return _c
 }</span>
@@ -3477,31 +3650,31 @@ func (_c *MockociLoadBalancerClient_GetLoadBalancer_Call) RunAndReturn(run func(
 }</span>
 
 // UpdateBackendSet provides a mock function with given fields: ctx, request
-func (_m *MockociLoadBalancerClient) UpdateBackendSet(ctx context.Context, request loadbalancer.UpdateBackendSetRequest) (loadbalancer.UpdateBackendSetResponse, error) <span class="cov2" title="2">{
+func (_m *MockociLoadBalancerClient) UpdateBackendSet(ctx context.Context, request loadbalancer.UpdateBackendSetRequest) (loadbalancer.UpdateBackendSetResponse, error) <span class="cov3" title="3">{
         ret := _m.Called(ctx, request)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for UpdateBackendSet")</span>
         }
 
-        <span class="cov2" title="2">var r0 loadbalancer.UpdateBackendSetResponse
+        <span class="cov3" title="3">var r0 loadbalancer.UpdateBackendSetResponse
         var r1 error
         if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.UpdateBackendSetRequest) (loadbalancer.UpdateBackendSetResponse, error)); ok </span><span class="cov0" title="0">{
                 return rf(ctx, request)
         }</span>
-        <span class="cov2" title="2">if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.UpdateBackendSetRequest) loadbalancer.UpdateBackendSetResponse); ok </span><span class="cov0" title="0">{
+        <span class="cov3" title="3">if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.UpdateBackendSetRequest) loadbalancer.UpdateBackendSetResponse); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, request)
-        }</span> else<span class="cov2" title="2"> {
+        }</span> else<span class="cov3" title="3"> {
                 r0 = ret.Get(0).(loadbalancer.UpdateBackendSetResponse)
         }</span>
 
-        <span class="cov2" title="2">if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.UpdateBackendSetRequest) error); ok </span><span class="cov0" title="0">{
+        <span class="cov3" title="3">if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.UpdateBackendSetRequest) error); ok </span><span class="cov0" title="0">{
                 r1 = rf(ctx, request)
-        }</span> else<span class="cov2" title="2"> {
+        }</span> else<span class="cov3" title="3"> {
                 r1 = ret.Error(1)
         }</span>
 
-        <span class="cov2" title="2">return r0, r1</span>
+        <span class="cov3" title="3">return r0, r1</span>
 }
 
 // MockociLoadBalancerClient_UpdateBackendSet_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateBackendSet'
@@ -3512,7 +3685,7 @@ type MockociLoadBalancerClient_UpdateBackendSet_Call struct {
 // UpdateBackendSet is a helper method to define mock.On call
 //   - ctx context.Context
 //   - request loadbalancer.UpdateBackendSetRequest
-func (_e *MockociLoadBalancerClient_Expecter) UpdateBackendSet(ctx interface{}, request interface{}) *MockociLoadBalancerClient_UpdateBackendSet_Call <span class="cov2" title="2">{
+func (_e *MockociLoadBalancerClient_Expecter) UpdateBackendSet(ctx interface{}, request interface{}) *MockociLoadBalancerClient_UpdateBackendSet_Call <span class="cov3" title="3">{
         return &amp;MockociLoadBalancerClient_UpdateBackendSet_Call{Call: _e.mock.On("UpdateBackendSet", ctx, request)}
 }</span>
 
@@ -3523,7 +3696,7 @@ func (_c *MockociLoadBalancerClient_UpdateBackendSet_Call) Run(run func(ctx cont
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockociLoadBalancerClient_UpdateBackendSet_Call) Return(response loadbalancer.UpdateBackendSetResponse, err error) *MockociLoadBalancerClient_UpdateBackendSet_Call <span class="cov2" title="2">{
+func (_c *MockociLoadBalancerClient_UpdateBackendSet_Call) Return(response loadbalancer.UpdateBackendSetResponse, err error) *MockociLoadBalancerClient_UpdateBackendSet_Call <span class="cov3" title="3">{
         _c.Call.Return(response, err)
         return _c
 }</span>
@@ -3538,13 +3711,13 @@ func (_c *MockociLoadBalancerClient_UpdateBackendSet_Call) RunAndReturn(run func
 func NewMockociLoadBalancerClient(t interface {
         mock.TestingT
         Cleanup(func())
-}) *MockociLoadBalancerClient <span class="cov10" title="32">{
+}) *MockociLoadBalancerClient <span class="cov10" title="45">{
         mock := &amp;MockociLoadBalancerClient{}
         mock.Mock.Test(t)
 
-        t.Cleanup(func() </span><span class="cov10" title="32">{ mock.AssertExpectations(t) }</span>)
+        t.Cleanup(func() </span><span class="cov10" title="45">{ mock.AssertExpectations(t) }</span>)
 
-        <span class="cov10" title="32">return mock</span>
+        <span class="cov10" title="45">return mock</span>
 }
 </pre>
 		
@@ -3570,7 +3743,7 @@ type MockociLoadBalancerModel_Expecter struct {
         mock *mock.Mock
 }
 
-func (_m *MockociLoadBalancerModel) EXPECT() *MockociLoadBalancerModel_Expecter <span class="cov6" title="9">{
+func (_m *MockociLoadBalancerModel) EXPECT() *MockociLoadBalancerModel_Expecter <span class="cov6" title="11">{
         return &amp;MockociLoadBalancerModel_Expecter{mock: &amp;_m.Mock}
 }</span>
 
@@ -3689,31 +3862,31 @@ func (_c *MockociLoadBalancerModel_reconcileDefaultBackendSet_Call) RunAndReturn
 }</span>
 
 // reconcileHTTPListener provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) reconcileHTTPListener(ctx context.Context, params reconcileHTTPListenerParams) (loadbalancer.Listener, error) <span class="cov3" title="3">{
+func (_m *MockociLoadBalancerModel) reconcileHTTPListener(ctx context.Context, params reconcileHTTPListenerParams) (loadbalancer.Listener, error) <span class="cov4" title="5">{
         ret := _m.Called(ctx, params)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for reconcileHTTPListener")</span>
         }
 
-        <span class="cov3" title="3">var r0 loadbalancer.Listener
+        <span class="cov4" title="5">var r0 loadbalancer.Listener
         var r1 error
         if rf, ok := ret.Get(0).(func(context.Context, reconcileHTTPListenerParams) (loadbalancer.Listener, error)); ok </span><span class="cov0" title="0">{
                 return rf(ctx, params)
         }</span>
-        <span class="cov3" title="3">if rf, ok := ret.Get(0).(func(context.Context, reconcileHTTPListenerParams) loadbalancer.Listener); ok </span><span class="cov0" title="0">{
+        <span class="cov4" title="5">if rf, ok := ret.Get(0).(func(context.Context, reconcileHTTPListenerParams) loadbalancer.Listener); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, params)
-        }</span> else<span class="cov3" title="3"> {
+        }</span> else<span class="cov4" title="5"> {
                 r0 = ret.Get(0).(loadbalancer.Listener)
         }</span>
 
-        <span class="cov3" title="3">if rf, ok := ret.Get(1).(func(context.Context, reconcileHTTPListenerParams) error); ok </span><span class="cov0" title="0">{
+        <span class="cov4" title="5">if rf, ok := ret.Get(1).(func(context.Context, reconcileHTTPListenerParams) error); ok </span><span class="cov0" title="0">{
                 r1 = rf(ctx, params)
-        }</span> else<span class="cov3" title="3"> {
+        }</span> else<span class="cov4" title="5"> {
                 r1 = ret.Error(1)
         }</span>
 
-        <span class="cov3" title="3">return r0, r1</span>
+        <span class="cov4" title="5">return r0, r1</span>
 }
 
 // MockociLoadBalancerModel_reconcileHTTPListener_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'reconcileHTTPListener'
@@ -3724,7 +3897,7 @@ type MockociLoadBalancerModel_reconcileHTTPListener_Call struct {
 // reconcileHTTPListener is a helper method to define mock.On call
 //   - ctx context.Context
 //   - params reconcileHTTPListenerParams
-func (_e *MockociLoadBalancerModel_Expecter) reconcileHTTPListener(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov3" title="3">{
+func (_e *MockociLoadBalancerModel_Expecter) reconcileHTTPListener(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov4" title="5">{
         return &amp;MockociLoadBalancerModel_reconcileHTTPListener_Call{Call: _e.mock.On("reconcileHTTPListener", ctx, params)}
 }</span>
 
@@ -3735,7 +3908,7 @@ func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Run(run func(ctx 
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Return(_a0 loadbalancer.Listener, _a1 error) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov3" title="3">{
+func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Return(_a0 loadbalancer.Listener, _a1 error) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov4" title="5">{
         _c.Call.Return(_a0, _a1)
         return _c
 }</span>
@@ -3920,26 +4093,26 @@ type MockworkRequestsWatcher_Expecter struct {
         mock *mock.Mock
 }
 
-func (_m *MockworkRequestsWatcher) EXPECT() *MockworkRequestsWatcher_Expecter <span class="cov8" title="11">{
+func (_m *MockworkRequestsWatcher) EXPECT() *MockworkRequestsWatcher_Expecter <span class="cov7" title="11">{
         return &amp;MockworkRequestsWatcher_Expecter{mock: &amp;_m.Mock}
 }</span>
 
 // WaitFor provides a mock function with given fields: ctx, workRequestID
-func (_m *MockworkRequestsWatcher) WaitFor(ctx context.Context, workRequestID string) error <span class="cov8" title="11">{
+func (_m *MockworkRequestsWatcher) WaitFor(ctx context.Context, workRequestID string) error <span class="cov7" title="11">{
         ret := _m.Called(ctx, workRequestID)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for WaitFor")</span>
         }
 
-        <span class="cov8" title="11">var r0 error
+        <span class="cov7" title="11">var r0 error
         if rf, ok := ret.Get(0).(func(context.Context, string) error); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, workRequestID)
-        }</span> else<span class="cov8" title="11"> {
+        }</span> else<span class="cov7" title="11"> {
                 r0 = ret.Error(0)
         }</span>
 
-        <span class="cov8" title="11">return r0</span>
+        <span class="cov7" title="11">return r0</span>
 }
 
 // MockworkRequestsWatcher_WaitFor_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WaitFor'
@@ -3950,7 +4123,7 @@ type MockworkRequestsWatcher_WaitFor_Call struct {
 // WaitFor is a helper method to define mock.On call
 //   - ctx context.Context
 //   - workRequestID string
-func (_e *MockworkRequestsWatcher_Expecter) WaitFor(ctx interface{}, workRequestID interface{}) *MockworkRequestsWatcher_WaitFor_Call <span class="cov8" title="11">{
+func (_e *MockworkRequestsWatcher_Expecter) WaitFor(ctx interface{}, workRequestID interface{}) *MockworkRequestsWatcher_WaitFor_Call <span class="cov7" title="11">{
         return &amp;MockworkRequestsWatcher_WaitFor_Call{Call: _e.mock.On("WaitFor", ctx, workRequestID)}
 }</span>
 
@@ -3961,7 +4134,7 @@ func (_c *MockworkRequestsWatcher_WaitFor_Call) Run(run func(ctx context.Context
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockworkRequestsWatcher_WaitFor_Call) Return(_a0 error) *MockworkRequestsWatcher_WaitFor_Call <span class="cov8" title="11">{
+func (_c *MockworkRequestsWatcher_WaitFor_Call) Return(_a0 error) *MockworkRequestsWatcher_WaitFor_Call <span class="cov7" title="11">{
         _c.Call.Return(_a0)
         return _c
 }</span>
@@ -3976,13 +4149,13 @@ func (_c *MockworkRequestsWatcher_WaitFor_Call) RunAndReturn(run func(context.Co
 func NewMockworkRequestsWatcher(t interface {
         mock.TestingT
         Cleanup(func())
-}) *MockworkRequestsWatcher <span class="cov10" title="19">{
+}) *MockworkRequestsWatcher <span class="cov10" title="32">{
         mock := &amp;MockworkRequestsWatcher{}
         mock.Mock.Test(t)
 
-        t.Cleanup(func() </span><span class="cov10" title="19">{ mock.AssertExpectations(t) }</span>)
+        t.Cleanup(func() </span><span class="cov10" title="32">{ mock.AssertExpectations(t) }</span>)
 
-        <span class="cov10" title="19">return mock</span>
+        <span class="cov10" title="32">return mock</span>
 }
 </pre>
 		
@@ -5003,25 +5176,25 @@ type diagLogHandler struct {
         target slog.Handler
 }
 
-func (h *diagLogHandler) Enabled(ctx context.Context, lvl slog.Level) bool <span class="cov10" title="147">{
+func (h *diagLogHandler) Enabled(ctx context.Context, lvl slog.Level) bool <span class="cov10" title="148">{
         return h.target.Enabled(ctx, lvl)
 }</span>
 
-func (h *diagLogHandler) Handle(ctx context.Context, rec slog.Record) error <span class="cov9" title="92">{
+func (h *diagLogHandler) Handle(ctx context.Context, rec slog.Record) error <span class="cov9" title="95">{
         if diagAttributes, ok := ctx.Value(contextDiagAttrs).(LogAttributes); ok </span><span class="cov2" title="2">{
                 rec.AddAttrs(
                         slog.Attr{Key: "correlationId", Value: diagAttributes.CorrelationID},
                 )
         }</span>
 
-        <span class="cov9" title="92">return h.target.Handle(ctx, rec)</span>
+        <span class="cov9" title="95">return h.target.Handle(ctx, rec)</span>
 }
 
-func (h *diagLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler <span class="cov9" title="127">{
+func (h *diagLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler <span class="cov9" title="140">{
         return &amp;diagLogHandler{target: h.target.WithAttrs(attrs)}
 }</span>
 
-func (h *diagLogHandler) WithGroup(name string) slog.Handler <span class="cov9" title="126">{
+func (h *diagLogHandler) WithGroup(name string) slog.Handler <span class="cov9" title="139">{
         // Using WithAttrs here since group will nest all the attributes
         // inside of it (including correlationId), which makes it harder to
         // filter logs by the correlationId.
@@ -5050,7 +5223,7 @@ func (opts *RootLoggerOpts) WithLogLevel(logLevel slog.Level) *RootLoggerOpts <s
         return opts
 }</span>
 
-func (opts *RootLoggerOpts) WithOutput(output io.Writer) *RootLoggerOpts <span class="cov9" title="120">{
+func (opts *RootLoggerOpts) WithOutput(output io.Writer) *RootLoggerOpts <span class="cov9" title="133">{
         opts.output = output
         return opts
 }</span>
@@ -5067,21 +5240,21 @@ func (opts *RootLoggerOpts) WithOptionalOutputFile(outputFile string) *RootLogge
         return opts</span>
 }
 
-func NewRootLoggerOpts() *RootLoggerOpts <span class="cov9" title="124">{
+func NewRootLoggerOpts() *RootLoggerOpts <span class="cov9" title="137">{
         return &amp;RootLoggerOpts{
                 output: os.Stdout,
         }
 }</span>
 
-func SetupRootLogger(opts *RootLoggerOpts) *slog.Logger <span class="cov9" title="124">{
+func SetupRootLogger(opts *RootLoggerOpts) *slog.Logger <span class="cov9" title="137">{
         logHandlerOpts := &amp;slog.HandlerOptions{Level: opts.logLevel}
         var logHandler slog.Handler
         if opts.jsonLogs </span><span class="cov1" title="1">{
                 logHandler = slog.NewJSONHandler(opts.output, logHandlerOpts)
-        }</span> else<span class="cov9" title="123"> {
+        }</span> else<span class="cov9" title="136"> {
                 logHandler = slog.NewTextHandler(opts.output, logHandlerOpts)
         }</span>
-        <span class="cov9" title="124">return slog.New(&amp;diagLogHandler{target: logHandler})</span>
+        <span class="cov9" title="137">return slog.New(&amp;diagLogHandler{target: logHandler})</span>
 }
 </pre>
 		
@@ -5114,7 +5287,7 @@ func openTestLogFile() *os.File <span class="cov5" title="10">{
 
 var testOutput = openTestLogFile() //nolint:gochecknoglobals //it's ok for tests
 
-func RootTestLogger() *slog.Logger <span class="cov10" title="119">{
+func RootTestLogger() *slog.Logger <span class="cov10" title="132">{
         return SetupRootLogger(
                 NewRootLoggerOpts().WithOutput(testOutput),
         )
