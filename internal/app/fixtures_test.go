@@ -119,8 +119,31 @@ type randomOCIBackendSetOpt func(*loadbalancer.BackendSet)
 func makeRandomOCIBackendSet(
 	opts ...randomOCIBackendSetOpt,
 ) loadbalancer.BackendSet {
+	var knownPolicies = []string{
+		"ROUND_ROBIN",
+		"LEAST_CONNECTIONS",
+		"IP_HASH",
+		"STICKY_SESSION",
+	}
 	bs := loadbalancer.BackendSet{
 		Name: lo.ToPtr(faker.DomainName()),
+		HealthChecker: &loadbalancer.HealthChecker{
+			Protocol:   lo.ToPtr("HTTP"),
+			Port:       lo.ToPtr(rand.IntN(65535)),
+			UrlPath:    lo.ToPtr("/" + faker.Word()),
+			ReturnCode: lo.ToPtr(200),
+		},
+		Policy:                lo.ToPtr(knownPolicies[rand.IntN(len(knownPolicies))]),
+		BackendMaxConnections: lo.ToPtr(rand.IntN(1000)),
+		SslConfiguration: &loadbalancer.SslConfiguration{
+			CertificateName: lo.ToPtr(faker.DomainName()),
+		},
+		SessionPersistenceConfiguration: &loadbalancer.SessionPersistenceConfigurationDetails{
+			CookieName: lo.ToPtr(faker.DomainName()),
+		},
+		LbCookieSessionPersistenceConfiguration: &loadbalancer.LbCookieSessionPersistenceConfigurationDetails{
+			CookieName: lo.ToPtr(faker.DomainName()),
+		},
 	}
 
 	for _, opt := range opts {
