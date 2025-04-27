@@ -187,6 +187,15 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 		return fmt.Errorf("failed to identify backends to update: %w", err)
 	}
 
+	if !backendsToUpdate.updateRequired {
+		m.logger.InfoContext(ctx, "Backend set already up-to-date, skipping update",
+			slog.String("backendSetName", backendSetName),
+			slog.String("httpRoute", params.httpRoute.Name),
+			slog.Int("ruleIndex", params.ruleIndex),
+		)
+		return nil
+	}
+
 	m.logger.InfoContext(ctx, "Syncing backend endpoints for rule",
 		slog.Int("ruleIndex", params.ruleIndex),
 		slog.String("httpRoute", params.httpRoute.Name),
