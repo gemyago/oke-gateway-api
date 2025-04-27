@@ -114,9 +114,25 @@ func makeRandomAcceptedGatewayDetails() *resolvedGatewayDetails {
 	}
 }
 
-func makeRandomOCIBackendSet() loadbalancer.BackendSet {
-	return loadbalancer.BackendSet{
+type randomOCIBackendSetOpt func(*loadbalancer.BackendSet)
+
+func makeRandomOCIBackendSet(
+	opts ...randomOCIBackendSetOpt,
+) loadbalancer.BackendSet {
+	bs := loadbalancer.BackendSet{
 		Name: lo.ToPtr(faker.DomainName()),
+	}
+
+	for _, opt := range opts {
+		opt(&bs)
+	}
+
+	return bs
+}
+
+func randomOCIBackendSetWithNameOpt(name string) randomOCIBackendSetOpt {
+	return func(bs *loadbalancer.BackendSet) {
+		bs.Name = lo.ToPtr(name)
 	}
 }
 
@@ -329,28 +345,6 @@ func makeRandomRouteParentStatus(
 	}
 
 	return status
-}
-
-type randomBackendSetOpt func(*loadbalancer.BackendSet)
-
-func makeRandomBackendSet(
-	opts ...randomBackendSetOpt,
-) loadbalancer.BackendSet {
-	bs := loadbalancer.BackendSet{
-		Name: lo.ToPtr(faker.DomainName()),
-	}
-
-	for _, opt := range opts {
-		opt(&bs)
-	}
-
-	return bs
-}
-
-func randomBackendSetWithNameOpt(name string) randomBackendSetOpt {
-	return func(bs *loadbalancer.BackendSet) {
-		bs.Name = lo.ToPtr(name)
-	}
 }
 
 type randomEndpointSliceOpt func(*discoveryv1.EndpointSlice)

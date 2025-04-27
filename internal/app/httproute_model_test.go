@@ -697,7 +697,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				return fmt.Sprintf("%s-%s", httpRoute.Name, *rule.Name)
 			})
 			wantBss := lo.Map(wantBsNames, func(name string, _ int) loadbalancer.BackendSet {
-				return makeRandomBackendSet(randomBackendSetWithNameOpt(name))
+				return makeRandomOCIBackendSet(randomOCIBackendSetWithNameOpt(name))
 			})
 
 			allBackendRefs := make([]gatewayv1.HTTPBackendRef, 0, len(backendRefs1)+len(backendRefs2))
