@@ -181,8 +181,23 @@ func TestHTTPBackendModel(t *testing.T) {
 
 			backendSetName := backendSetName(httpRoute, rule2, 1)
 
-			wantOperationID := faker.UUIDHyphenated()
+			// Create a sample existing BackendSet using the fixture
+			sampleBackendSet := makeRandomOCIBackendSet(
+				randomOCIBackendSetWithNameOpt(backendSetName),
+			)
+
 			mockOciLoadBalancerClient, _ := deps.OciLoadBalancerClient.(*MockociLoadBalancerClient)
+
+			// Expect GetBackendSet call
+			mockOciLoadBalancerClient.EXPECT().GetBackendSet(
+				t.Context(),
+				loadbalancer.GetBackendSetRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+					BackendSetName: &backendSetName,
+				},
+			).Return(loadbalancer.GetBackendSetResponse{BackendSet: sampleBackendSet}, nil).Once()
+
+			wantOperationID := faker.UUIDHyphenated()
 			mockOciLoadBalancerClient.EXPECT().UpdateBackendSet(
 				t.Context(),
 				mock.MatchedBy(func(req loadbalancer.UpdateBackendSetRequest) bool {
@@ -190,7 +205,22 @@ func TestHTTPBackendModel(t *testing.T) {
 						[]bool{
 							assert.Equal(t, *req.LoadBalancerId, config.Spec.LoadBalancerID),
 							assert.Equal(t, *req.BackendSetName, backendSetName),
-							assert.Equal(t, wantBackends, req.Backends),
+							assert.ElementsMatch(t, wantBackends, req.Backends),
+							assert.Equal(t, sampleBackendSet.Policy, req.Policy),
+							assert.Equal(t, sampleBackendSet.HealthChecker.Protocol, req.HealthChecker.Protocol),
+							assert.Equal(t, sampleBackendSet.HealthChecker.Port, req.HealthChecker.Port),
+							assert.Equal(t, sampleBackendSet.HealthChecker.UrlPath, req.HealthChecker.UrlPath),
+							assert.Equal(t, sampleBackendSet.HealthChecker.ReturnCode, req.HealthChecker.ReturnCode),
+							assert.Equal(t, sampleBackendSet.SessionPersistenceConfiguration, req.SessionPersistenceConfiguration),
+							assert.Equal(t,
+								sampleBackendSet.LbCookieSessionPersistenceConfiguration,
+								req.LbCookieSessionPersistenceConfiguration,
+							),
+							assert.Equal(t, sampleBackendSet.SslConfiguration.CertificateName, req.SslConfiguration.CertificateName),
+							assert.Equal(t,
+								sampleBackendSet.SslConfiguration.TrustedCertificateAuthorityIds,
+								req.SslConfiguration.TrustedCertificateAuthorityIds,
+							),
 						},
 						func(b bool) bool { return !b },
 					)
@@ -309,12 +339,51 @@ func TestHTTPBackendModel(t *testing.T) {
 				},
 			}
 
-			wantOperationID := faker.UUIDHyphenated()
+			backendSetName := backendSetName(httpRoute, rule, 0) // Assuming ruleIndex is 0
+
+			// Create a sample existing BackendSet using the fixture
+			sampleBackendSet := makeRandomOCIBackendSet(
+				randomOCIBackendSetWithNameOpt(backendSetName),
+			)
+
 			mockOciLoadBalancerClient, _ := deps.OciLoadBalancerClient.(*MockociLoadBalancerClient)
+
+			// Expect GetBackendSet call
+			mockOciLoadBalancerClient.EXPECT().GetBackendSet(
+				t.Context(),
+				loadbalancer.GetBackendSetRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+					BackendSetName: &backendSetName,
+				},
+			).Return(loadbalancer.GetBackendSetResponse{BackendSet: sampleBackendSet}, nil).Once()
+
+			wantOperationID := faker.UUIDHyphenated()
 			mockOciLoadBalancerClient.EXPECT().UpdateBackendSet(
 				t.Context(),
 				mock.MatchedBy(func(req loadbalancer.UpdateBackendSetRequest) bool {
-					return assert.ElementsMatch(t, wantBackends, req.Backends)
+					return lo.NoneBy(
+						[]bool{
+							assert.Equal(t, *req.LoadBalancerId, config.Spec.LoadBalancerID),
+							assert.Equal(t, *req.BackendSetName, backendSetName),
+							assert.ElementsMatch(t, wantBackends, req.Backends),
+							assert.Equal(t, sampleBackendSet.Policy, req.Policy),
+							assert.Equal(t, sampleBackendSet.HealthChecker.Protocol, req.HealthChecker.Protocol),
+							assert.Equal(t, sampleBackendSet.HealthChecker.Port, req.HealthChecker.Port),
+							assert.Equal(t, sampleBackendSet.HealthChecker.UrlPath, req.HealthChecker.UrlPath),
+							assert.Equal(t, sampleBackendSet.HealthChecker.ReturnCode, req.HealthChecker.ReturnCode),
+							assert.Equal(t, sampleBackendSet.SessionPersistenceConfiguration, req.SessionPersistenceConfiguration),
+							assert.Equal(t,
+								sampleBackendSet.LbCookieSessionPersistenceConfiguration,
+								req.LbCookieSessionPersistenceConfiguration,
+							),
+							assert.Equal(t, sampleBackendSet.SslConfiguration.CertificateName, req.SslConfiguration.CertificateName),
+							assert.Equal(t,
+								sampleBackendSet.SslConfiguration.TrustedCertificateAuthorityIds,
+								req.SslConfiguration.TrustedCertificateAuthorityIds,
+							),
+						},
+						func(b bool) bool { return !b },
+					)
 				}),
 			).Return(loadbalancer.UpdateBackendSetResponse{
 				OpcWorkRequestId: &wantOperationID,

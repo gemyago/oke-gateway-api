@@ -8,7 +8,8 @@ alwaysApply: false
 Please also apply [general.mdc](mdc:.cursor/rules/general.mdc) rules
 
 ## common rules
-- Build plan, ALWAYS confirm before proceeding
+- Build plan, ALWAYS confirm before proceeding unless explicitly allowed
+- Honor max line length, it should be 120
 - TDD must be followed if adding new stuff, which means:
   1. Add stub declarations (for struct function panic not implemented)
   2. Add or extend tests that are testing desired logic

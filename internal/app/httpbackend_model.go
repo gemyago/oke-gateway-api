@@ -152,14 +152,21 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 
 	backendSetName := backendSetName(params.httpRoute, rule, params.ruleIndex)
 	var ruleBackends []loadbalancer.BackendDetails
-	firstRefPort := int32(*rule.BackendRefs[0].BackendObjectReference.Port)
+
+	getResp, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
+		LoadBalancerId: &params.config.Spec.LoadBalancerID,
+		BackendSetName: &backendSetName,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get backend set %s: %w", backendSetName, err)
+	}
+	existingBackendSet := getResp.BackendSet
 
 	drainingCount := 0
 	for _, backendRef := range rule.BackendRefs {
 		var endpointSlices discoveryv1.EndpointSliceList
 
-		// TODO: Paginate?
-		if err := m.k8sClient.List(ctx, &endpointSlices, client.MatchingLabels{
+		if err = m.k8sClient.List(ctx, &endpointSlices, client.MatchingLabels{
 			discoveryv1.LabelServiceName: string(backendRef.BackendObjectReference.Name),
 		}); err != nil {
 			return fmt.Errorf("failed to list endpoint slices for backend %s: %w", backendRef.BackendObjectReference.Name, err)
@@ -170,12 +177,10 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 		refBackends := make([]loadbalancer.BackendDetails, 0, len(endpointSlices.Items))
 		for _, endpointSlice := range endpointSlices.Items {
 			for _, endpoint := range endpointSlice.Endpoints {
-				// Skip endpoint if it's explicitly marked as not ready
 				if endpoint.Conditions.Ready != nil && !*endpoint.Conditions.Ready {
 					continue
 				}
 
-				// Determine if the backend should be marked for draining
 				isDraining := endpoint.Conditions.Terminating != nil && *endpoint.Conditions.Terminating
 
 				if isDraining {
@@ -204,30 +209,67 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 		slog.Int("drainingBackends", drainingCount),
 	)
 
-	ociBackendSet, err := m.ociClient.UpdateBackendSet(ctx, loadbalancer.UpdateBackendSetRequest{
-		LoadBalancerId: &params.config.Spec.LoadBalancerID,
-		BackendSetName: &backendSetName,
-		UpdateBackendSetDetails: loadbalancer.UpdateBackendSetDetails{
-			Backends: ruleBackends,
+	updateDetails := makeUpdateOciBackendSetDetails(existingBackendSet, ruleBackends)
 
-			// TODO: Better fetch the HC from existing backend set
-			// route reconciliation is managing it
-			Policy: lo.ToPtr("ROUND_ROBIN"),
-			HealthChecker: &loadbalancer.HealthCheckerDetails{
-				Protocol: lo.ToPtr("TCP"),
-				Port:     lo.ToPtr(int(firstRefPort)),
-			},
-		},
+	ociUpdateResp, err := m.ociClient.UpdateBackendSet(ctx, loadbalancer.UpdateBackendSetRequest{
+		LoadBalancerId:          &params.config.Spec.LoadBalancerID,
+		BackendSetName:          &backendSetName,
+		UpdateBackendSetDetails: updateDetails,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to update backend set %s: %w", backendSetName, err)
 	}
 
-	err = m.workRequestsWatcher.WaitFor(ctx, *ociBackendSet.OpcWorkRequestId)
+	err = m.workRequestsWatcher.WaitFor(ctx, *ociUpdateResp.OpcWorkRequestId)
 	if err != nil {
 		return fmt.Errorf("failed to wait for backend set %s to be updated: %w", backendSetName, err)
 	}
 	return nil
+}
+
+func makeUpdateOciBackendSetDetails(
+	existingBackendSet loadbalancer.BackendSet,
+	newBackends []loadbalancer.BackendDetails,
+) loadbalancer.UpdateBackendSetDetails {
+	updateDetails := loadbalancer.UpdateBackendSetDetails{
+		Backends: newBackends,
+
+		Policy:                                  existingBackendSet.Policy,
+		SessionPersistenceConfiguration:         existingBackendSet.SessionPersistenceConfiguration,
+		LbCookieSessionPersistenceConfiguration: existingBackendSet.LbCookieSessionPersistenceConfiguration,
+	}
+
+	if existingBackendSet.HealthChecker != nil {
+		updateDetails.HealthChecker = &loadbalancer.HealthCheckerDetails{
+			Protocol:          existingBackendSet.HealthChecker.Protocol,
+			UrlPath:           existingBackendSet.HealthChecker.UrlPath,
+			Port:              existingBackendSet.HealthChecker.Port,
+			ReturnCode:        existingBackendSet.HealthChecker.ReturnCode,
+			Retries:           existingBackendSet.HealthChecker.Retries,
+			TimeoutInMillis:   existingBackendSet.HealthChecker.TimeoutInMillis,
+			IntervalInMillis:  existingBackendSet.HealthChecker.IntervalInMillis,
+			ResponseBodyRegex: existingBackendSet.HealthChecker.ResponseBodyRegex,
+			IsForcePlainText:  existingBackendSet.HealthChecker.IsForcePlainText,
+		}
+	}
+
+	if existingBackendSet.SslConfiguration != nil {
+		updateDetails.SslConfiguration = &loadbalancer.SslConfigurationDetails{
+			CertificateName:                existingBackendSet.SslConfiguration.CertificateName,
+			TrustedCertificateAuthorityIds: existingBackendSet.SslConfiguration.TrustedCertificateAuthorityIds,
+			VerifyDepth:                    existingBackendSet.SslConfiguration.VerifyDepth,
+			VerifyPeerCertificate:          existingBackendSet.SslConfiguration.VerifyPeerCertificate,
+			CertificateIds:                 existingBackendSet.SslConfiguration.CertificateIds,
+			CipherSuiteName:                existingBackendSet.SslConfiguration.CipherSuiteName,
+			ServerOrderPreference: loadbalancer.SslConfigurationDetailsServerOrderPreferenceEnum(
+				existingBackendSet.SslConfiguration.ServerOrderPreference,
+			),
+			Protocols:            existingBackendSet.SslConfiguration.Protocols,
+			HasSessionResumption: existingBackendSet.SslConfiguration.HasSessionResumption,
+		}
+	}
+
+	return updateDetails
 }
 
 // httpBackendModelDeps contains the dependencies for the HTTPBackendModel.
