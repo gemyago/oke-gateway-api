@@ -23,6 +23,63 @@ func (_m *MockhttpBackendModel) EXPECT() *MockhttpBackendModel_Expecter {
 	return &MockhttpBackendModel_Expecter{mock: &_m.Mock}
 }
 
+// identifyBackendsToUpdate provides a mock function with given fields: ctx, params
+func (_m *MockhttpBackendModel) identifyBackendsToUpdate(ctx context.Context, params identifyBackendsToUpdateParams) (identifyBackendsToUpdateResult, error) {
+	ret := _m.Called(ctx, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for identifyBackendsToUpdate")
+	}
+
+	var r0 identifyBackendsToUpdateResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, identifyBackendsToUpdateParams) (identifyBackendsToUpdateResult, error)); ok {
+		return rf(ctx, params)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, identifyBackendsToUpdateParams) identifyBackendsToUpdateResult); ok {
+		r0 = rf(ctx, params)
+	} else {
+		r0 = ret.Get(0).(identifyBackendsToUpdateResult)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, identifyBackendsToUpdateParams) error); ok {
+		r1 = rf(ctx, params)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockhttpBackendModel_identifyBackendsToUpdate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'identifyBackendsToUpdate'
+type MockhttpBackendModel_identifyBackendsToUpdate_Call struct {
+	*mock.Call
+}
+
+// identifyBackendsToUpdate is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params identifyBackendsToUpdateParams
+func (_e *MockhttpBackendModel_Expecter) identifyBackendsToUpdate(ctx interface{}, params interface{}) *MockhttpBackendModel_identifyBackendsToUpdate_Call {
+	return &MockhttpBackendModel_identifyBackendsToUpdate_Call{Call: _e.mock.On("identifyBackendsToUpdate", ctx, params)}
+}
+
+func (_c *MockhttpBackendModel_identifyBackendsToUpdate_Call) Run(run func(ctx context.Context, params identifyBackendsToUpdateParams)) *MockhttpBackendModel_identifyBackendsToUpdate_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(identifyBackendsToUpdateParams))
+	})
+	return _c
+}
+
+func (_c *MockhttpBackendModel_identifyBackendsToUpdate_Call) Return(_a0 identifyBackendsToUpdateResult, _a1 error) *MockhttpBackendModel_identifyBackendsToUpdate_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockhttpBackendModel_identifyBackendsToUpdate_Call) RunAndReturn(run func(context.Context, identifyBackendsToUpdateParams) (identifyBackendsToUpdateResult, error)) *MockhttpBackendModel_identifyBackendsToUpdate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // syncRouteBackendEndpoints provides a mock function with given fields: ctx, params
 func (_m *MockhttpBackendModel) syncRouteBackendEndpoints(ctx context.Context, params syncRouteBackendEndpointsParams) error {
 	ret := _m.Called(ctx, params)

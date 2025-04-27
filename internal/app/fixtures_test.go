@@ -114,10 +114,88 @@ func makeRandomAcceptedGatewayDetails() *resolvedGatewayDetails {
 	}
 }
 
-func makeRandomOCIBackendSet() loadbalancer.BackendSet {
-	return loadbalancer.BackendSet{
-		Name: lo.ToPtr(faker.DomainName()),
+type randomOCIBackendSetOpt func(*loadbalancer.BackendSet)
+
+func makeRandomOCIBackendSet(
+	opts ...randomOCIBackendSetOpt,
+) loadbalancer.BackendSet {
+	var knownPolicies = []string{
+		"ROUND_ROBIN",
+		"LEAST_CONNECTIONS",
+		"IP_HASH",
+		"STICKY_SESSION",
 	}
+	bs := loadbalancer.BackendSet{
+		Name: lo.ToPtr(faker.DomainName()),
+		HealthChecker: &loadbalancer.HealthChecker{
+			Protocol:   lo.ToPtr("HTTP"),
+			Port:       lo.ToPtr(rand.IntN(65535)),
+			UrlPath:    lo.ToPtr("/" + faker.Word()),
+			ReturnCode: lo.ToPtr(200),
+		},
+		Policy:                lo.ToPtr(knownPolicies[rand.IntN(len(knownPolicies))]),
+		BackendMaxConnections: lo.ToPtr(rand.IntN(1000)),
+		SslConfiguration: &loadbalancer.SslConfiguration{
+			CertificateName: lo.ToPtr(faker.DomainName()),
+		},
+		SessionPersistenceConfiguration: &loadbalancer.SessionPersistenceConfigurationDetails{
+			CookieName: lo.ToPtr(faker.DomainName()),
+		},
+		LbCookieSessionPersistenceConfiguration: &loadbalancer.LbCookieSessionPersistenceConfigurationDetails{
+			CookieName: lo.ToPtr(faker.DomainName()),
+		},
+	}
+
+	for _, opt := range opts {
+		opt(&bs)
+	}
+
+	return bs
+}
+
+func randomOCIBackendSetWithNameOpt(name string) randomOCIBackendSetOpt {
+	return func(bs *loadbalancer.BackendSet) {
+		bs.Name = lo.ToPtr(name)
+	}
+}
+
+func randomOCIBackendSetWithBackendsOpt(backends []loadbalancer.Backend) randomOCIBackendSetOpt {
+	return func(bs *loadbalancer.BackendSet) {
+		bs.Backends = backends
+	}
+}
+
+func makeRandomOCIBackend() loadbalancer.Backend {
+	return loadbalancer.Backend{
+		Name:      lo.ToPtr(faker.DomainName()),
+		Port:      lo.ToPtr(rand.IntN(65535)),
+		IpAddress: lo.ToPtr(faker.IPv4()),
+	}
+}
+
+func makeFewRandomOCIBackends() []loadbalancer.Backend {
+	count := 2 + rand.IntN(3)
+	backends := make([]loadbalancer.Backend, count)
+	for i := range backends {
+		backends[i] = makeRandomOCIBackend()
+	}
+	return backends
+}
+
+func makeRandomOCIBackendDetails() loadbalancer.BackendDetails {
+	return loadbalancer.BackendDetails{
+		Port:      lo.ToPtr(rand.IntN(65535)),
+		IpAddress: lo.ToPtr(faker.IPv4()),
+	}
+}
+
+func makeFewRandomOCIBackendDetails() []loadbalancer.BackendDetails {
+	count := 2 + rand.IntN(3)
+	backends := make([]loadbalancer.BackendDetails, count)
+	for i := range backends {
+		backends[i] = makeRandomOCIBackendDetails()
+	}
+	return backends
 }
 
 type randomOCIListenerOpt func(*loadbalancer.Listener)
@@ -331,28 +409,6 @@ func makeRandomRouteParentStatus(
 	return status
 }
 
-type randomBackendSetOpt func(*loadbalancer.BackendSet)
-
-func makeRandomBackendSet(
-	opts ...randomBackendSetOpt,
-) loadbalancer.BackendSet {
-	bs := loadbalancer.BackendSet{
-		Name: lo.ToPtr(faker.DomainName()),
-	}
-
-	for _, opt := range opts {
-		opt(&bs)
-	}
-
-	return bs
-}
-
-func randomBackendSetWithNameOpt(name string) randomBackendSetOpt {
-	return func(bs *loadbalancer.BackendSet) {
-		bs.Name = lo.ToPtr(name)
-	}
-}
-
 type randomEndpointSliceOpt func(*discoveryv1.EndpointSlice)
 
 func makeRandomEndpointSlice(
@@ -401,8 +457,34 @@ func randomEndpointSliceWithEndpointsOpt() randomEndpointSliceOpt {
 	}
 }
 
-func makeRandomEndpoint() discoveryv1.Endpoint {
-	return discoveryv1.Endpoint{
-		Addresses: []string{faker.IPv4()},
+type randomEndpointOpt func(*discoveryv1.Endpoint)
+
+// makeFewRandomEndpoints generates a slice of random endpoints.
+func makeFewRandomEndpoints(count int, opts ...randomEndpointOpt) []discoveryv1.Endpoint {
+	endpoints := make([]discoveryv1.Endpoint, count)
+	for i := range endpoints {
+		endpoints[i] = makeRandomEndpoint(opts...)
 	}
+	return endpoints
+}
+
+// randomEndpointWithConditionsOpt sets the Ready and Terminating conditions.
+func randomEndpointWithConditionsOpt(ready *bool, terminating *bool) randomEndpointOpt {
+	return func(ep *discoveryv1.Endpoint) {
+		ep.Conditions.Ready = ready
+		ep.Conditions.Terminating = terminating
+	}
+}
+
+func makeRandomEndpoint(opts ...randomEndpointOpt) discoveryv1.Endpoint {
+	ep := discoveryv1.Endpoint{
+		Addresses: []string{faker.IPv4()},
+		// Conditions are left nil by default, specific tests should set them.
+	}
+
+	for _, opt := range opts {
+		opt(&ep)
+	}
+
+	return ep
 }
