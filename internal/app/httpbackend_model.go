@@ -178,7 +178,7 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 		allEndpointSlices = append(allEndpointSlices, endpointSlices.Items...)
 	}
 
-	backendsToUpdate, err := m.identifyBackendsToUpdate(ctx, identifyBackendsToUpdateParams{
+	backendsToUpdate, err := m.self.identifyBackendsToUpdate(ctx, identifyBackendsToUpdateParams{
 		endpointPort:    firstRefPort,
 		currentBackends: existingBackendSet.Backends,
 		endpointSlices:  allEndpointSlices,

@@ -167,24 +167,28 @@ func TestHTTPBackendModel(t *testing.T) {
 			}
 
 			firstRefPort := int32(*rule2.BackendRefs[0].BackendObjectReference.Port)
-			var wantBackends []loadbalancer.BackendDetails
-			for _, backendRef := range rule2.BackendRefs {
-				refSlice := endpointSlicesByRef[string(backendRef.BackendObjectReference.Name)]
-				for _, endpoint := range refSlice.Endpoints {
-					wantBackends = append(wantBackends, loadbalancer.BackendDetails{
-						Port:      lo.ToPtr(int(firstRefPort)),
-						IpAddress: &endpoint.Addresses[0],
-						Drain:     lo.ToPtr(false),
-					})
-				}
-			}
-
+			wantUpdatedBackends := makeFewRandomOCIBackendDetails()
 			backendSetName := backendSetName(httpRoute, rule2, 1)
 
 			// Create a sample existing BackendSet using the fixture
+			currentBackends := makeFewRandomOCIBackends()
 			sampleBackendSet := makeRandomOCIBackendSet(
 				randomOCIBackendSetWithNameOpt(backendSetName),
+				randomOCIBackendSetWithBackendsOpt(currentBackends),
 			)
+
+			mockSelf, _ := deps.self.(*MockhttpBackendModel)
+			mockSelf.EXPECT().identifyBackendsToUpdate(
+				t.Context(),
+				identifyBackendsToUpdateParams{
+					endpointPort:    firstRefPort,
+					currentBackends: currentBackends,
+					endpointSlices:  lo.Values(endpointSlicesByRef),
+				},
+			).Return(identifyBackendsToUpdateResult{
+				updateRequired:  true,
+				updatedBackends: wantUpdatedBackends,
+			}, nil).Once()
 
 			mockOciLoadBalancerClient, _ := deps.OciLoadBalancerClient.(*MockociLoadBalancerClient)
 
@@ -205,7 +209,7 @@ func TestHTTPBackendModel(t *testing.T) {
 						[]bool{
 							assert.Equal(t, *req.LoadBalancerId, config.Spec.LoadBalancerID),
 							assert.Equal(t, *req.BackendSetName, backendSetName),
-							assert.ElementsMatch(t, wantBackends, req.Backends),
+							assert.ElementsMatch(t, wantUpdatedBackends, req.Backends),
 							assert.Equal(t, sampleBackendSet.Policy, req.Policy),
 							assert.Equal(t, sampleBackendSet.HealthChecker.Protocol, req.HealthChecker.Protocol),
 							assert.Equal(t, sampleBackendSet.HealthChecker.Port, req.HealthChecker.Port),
@@ -236,166 +240,6 @@ func TestHTTPBackendModel(t *testing.T) {
 				httpRoute: httpRoute,
 				config:    config,
 				ruleIndex: 1,
-			})
-
-			require.NoError(t, err)
-		})
-
-		t.Run("handle endpoint conditions", func(t *testing.T) {
-			deps := newMockDeps(t)
-			model := newHTTPBackendModel(deps)
-
-			ref := makeRandomBackendRef()
-			rule := makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(ref))
-			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRandomRulesOpt(rule))
-			config := makeRandomGatewayConfig()
-			refPort := int32(*ref.BackendObjectReference.Port)
-
-			// Define endpoints using makeRandomEndpoint with randomEndpointWithConditionsOpt
-			// Include if Ready != false.
-			// Drain if Terminating == true.
-
-			// Case 1: Ready=true, Terminating=false -> Include, Drain=false
-			readyNotTerminating := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
-			// Case 2: Ready=true, Terminating=nil -> Include, Drain=false
-			readyNilTerminating := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), nil))
-			// Case 3: Ready=false -> Exclude
-			notReadyEndpoint := makeRandomEndpoint(
-				randomEndpointWithConditionsOpt(lo.ToPtr(false), nil),
-			) // Terminating doesn't matter here
-
-			// Case 4: Ready=true, Terminating=true -> Include, Drain=true
-			terminatingReadyEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(true)))
-			// Case 5: Ready=false, Terminating=true -> Exclude (Ready=false takes priority)
-			terminatingNotReadyEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(false), lo.ToPtr(true)))
-			// Case 6: Ready=nil, Terminating=true -> Include, Drain=true
-			terminatingNilReadyEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(nil, lo.ToPtr(true)))
-			// Case 7: Ready=nil, Terminating=false -> Include, Drain=false
-			nilReadyNotTerminatingEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(nil, lo.ToPtr(false)))
-			// Case 8: Ready=nil, Terminating=nil -> Include, Drain=false
-			nilReadyNilTerminatingEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(nil, nil))
-
-			endpointSlice := makeRandomEndpointSlice(
-				randomEndpointSliceWithServiceNameOpt(string(ref.BackendObjectReference.Name)),
-			)
-			endpointSlice.Endpoints = []discoveryv1.Endpoint{
-				readyNotTerminating,            // Case 1
-				readyNilTerminating,            // Case 2
-				notReadyEndpoint,               // Case 3 (Exclude)
-				terminatingReadyEndpoint,       // Case 4
-				terminatingNotReadyEndpoint,    // Case 5 (Exclude)
-				terminatingNilReadyEndpoint,    // Case 6
-				nilReadyNotTerminatingEndpoint, // Case 7
-				nilReadyNilTerminatingEndpoint, // Case 8
-			}
-
-			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			mockK8sClient.EXPECT().List(
-				t.Context(),
-				mock.Anything,
-				client.MatchingLabels{
-					discoveryv1.LabelServiceName: string(ref.BackendObjectReference.Name),
-				},
-			).RunAndReturn(func(_ context.Context, ol client.ObjectList, _ ...client.ListOption) error {
-				epSliceList, ok := ol.(*discoveryv1.EndpointSliceList)
-				require.True(t, ok, "expected an EndpointSliceList")
-				epSliceList.Items = append(epSliceList.Items, endpointSlice)
-				return nil
-			}).Once()
-
-			// Expected backends (Include if Ready != false; Drain if Terminating == true)
-			wantBackends := []loadbalancer.BackendDetails{
-				{ // Case 1: readyNotTerminating
-					Port:      lo.ToPtr(int(refPort)),
-					IpAddress: &readyNotTerminating.Addresses[0],
-					Drain:     lo.ToPtr(false),
-				},
-				{ // Case 2: readyNilTerminating
-					Port:      lo.ToPtr(int(refPort)),
-					IpAddress: &readyNilTerminating.Addresses[0],
-					Drain:     lo.ToPtr(false),
-				},
-				// Case 3: notReadyEndpoint (Excluded)
-				{ // Case 4: terminatingReadyEndpoint
-					Port:      lo.ToPtr(int(refPort)),
-					IpAddress: &terminatingReadyEndpoint.Addresses[0],
-					Drain:     lo.ToPtr(true),
-				},
-				// Case 5: terminatingNotReadyEndpoint (Excluded)
-				{ // Case 6: terminatingNilReadyEndpoint
-					Port:      lo.ToPtr(int(refPort)),
-					IpAddress: &terminatingNilReadyEndpoint.Addresses[0],
-					Drain:     lo.ToPtr(true),
-				},
-				{ // Case 7: nilReadyNotTerminatingEndpoint
-					Port:      lo.ToPtr(int(refPort)),
-					IpAddress: &nilReadyNotTerminatingEndpoint.Addresses[0],
-					Drain:     lo.ToPtr(false),
-				},
-				{ // Case 8: nilReadyNilTerminatingEndpoint
-					Port:      lo.ToPtr(int(refPort)),
-					IpAddress: &nilReadyNilTerminatingEndpoint.Addresses[0],
-					Drain:     lo.ToPtr(false),
-				},
-			}
-
-			backendSetName := backendSetName(httpRoute, rule, 0) // Assuming ruleIndex is 0
-
-			// Create a sample existing BackendSet using the fixture
-			sampleBackendSet := makeRandomOCIBackendSet(
-				randomOCIBackendSetWithNameOpt(backendSetName),
-			)
-
-			mockOciLoadBalancerClient, _ := deps.OciLoadBalancerClient.(*MockociLoadBalancerClient)
-
-			// Expect GetBackendSet call
-			mockOciLoadBalancerClient.EXPECT().GetBackendSet(
-				t.Context(),
-				loadbalancer.GetBackendSetRequest{
-					LoadBalancerId: &config.Spec.LoadBalancerID,
-					BackendSetName: &backendSetName,
-				},
-			).Return(loadbalancer.GetBackendSetResponse{BackendSet: sampleBackendSet}, nil).Once()
-
-			wantOperationID := faker.UUIDHyphenated()
-			mockOciLoadBalancerClient.EXPECT().UpdateBackendSet(
-				t.Context(),
-				mock.MatchedBy(func(req loadbalancer.UpdateBackendSetRequest) bool {
-					return lo.NoneBy(
-						[]bool{
-							assert.Equal(t, *req.LoadBalancerId, config.Spec.LoadBalancerID),
-							assert.Equal(t, *req.BackendSetName, backendSetName),
-							assert.ElementsMatch(t, wantBackends, req.Backends),
-							assert.Equal(t, sampleBackendSet.Policy, req.Policy),
-							assert.Equal(t, sampleBackendSet.HealthChecker.Protocol, req.HealthChecker.Protocol),
-							assert.Equal(t, sampleBackendSet.HealthChecker.Port, req.HealthChecker.Port),
-							assert.Equal(t, sampleBackendSet.HealthChecker.UrlPath, req.HealthChecker.UrlPath),
-							assert.Equal(t, sampleBackendSet.HealthChecker.ReturnCode, req.HealthChecker.ReturnCode),
-							assert.Equal(t, sampleBackendSet.SessionPersistenceConfiguration, req.SessionPersistenceConfiguration),
-							assert.Equal(t,
-								sampleBackendSet.LbCookieSessionPersistenceConfiguration,
-								req.LbCookieSessionPersistenceConfiguration,
-							),
-							assert.Equal(t, sampleBackendSet.SslConfiguration.CertificateName, req.SslConfiguration.CertificateName),
-							assert.Equal(t,
-								sampleBackendSet.SslConfiguration.TrustedCertificateAuthorityIds,
-								req.SslConfiguration.TrustedCertificateAuthorityIds,
-							),
-						},
-						func(b bool) bool { return !b },
-					)
-				}),
-			).Return(loadbalancer.UpdateBackendSetResponse{
-				OpcWorkRequestId: &wantOperationID,
-			}, nil).Once()
-
-			mockWorkRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
-			mockWorkRequestsWatcher.EXPECT().WaitFor(t.Context(), wantOperationID).Return(nil).Once()
-
-			err := model.syncRouteBackendRuleEndpoints(t.Context(), syncRouteBackendRuleEndpointsParams{
-				httpRoute: httpRoute,
-				config:    config,
-				ruleIndex: 0, // We only have one rule in this test
 			})
 
 			require.NoError(t, err)

@@ -159,6 +159,45 @@ func randomOCIBackendSetWithNameOpt(name string) randomOCIBackendSetOpt {
 	}
 }
 
+func randomOCIBackendSetWithBackendsOpt(backends []loadbalancer.Backend) randomOCIBackendSetOpt {
+	return func(bs *loadbalancer.BackendSet) {
+		bs.Backends = backends
+	}
+}
+
+func makeRandomOCIBackend() loadbalancer.Backend {
+	return loadbalancer.Backend{
+		Name:      lo.ToPtr(faker.DomainName()),
+		Port:      lo.ToPtr(rand.IntN(65535)),
+		IpAddress: lo.ToPtr(faker.IPv4()),
+	}
+}
+
+func makeFewRandomOCIBackends() []loadbalancer.Backend {
+	count := 2 + rand.IntN(3)
+	backends := make([]loadbalancer.Backend, count)
+	for i := range backends {
+		backends[i] = makeRandomOCIBackend()
+	}
+	return backends
+}
+
+func makeRandomOCIBackendDetails() loadbalancer.BackendDetails {
+	return loadbalancer.BackendDetails{
+		Port:      lo.ToPtr(rand.IntN(65535)),
+		IpAddress: lo.ToPtr(faker.IPv4()),
+	}
+}
+
+func makeFewRandomOCIBackendDetails() []loadbalancer.BackendDetails {
+	count := 2 + rand.IntN(3)
+	backends := make([]loadbalancer.BackendDetails, count)
+	for i := range backends {
+		backends[i] = makeRandomOCIBackendDetails()
+	}
+	return backends
+}
+
 type randomOCIListenerOpt func(*loadbalancer.Listener)
 
 func makeRandomOCIListener(
