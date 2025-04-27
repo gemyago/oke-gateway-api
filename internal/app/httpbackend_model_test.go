@@ -418,13 +418,15 @@ func TestHTTPBackendModel(t *testing.T) {
 				endpointSlices:  endpointSlices,
 			}
 
-			expectedUpdatedBackends := lo.Map(remainingEndpoints, func(ep discoveryv1.Endpoint, _ int) loadbalancer.BackendDetails {
-				return loadbalancer.BackendDetails{
-					IpAddress: &ep.Addresses[0],
-					Port:      lo.ToPtr(int(refPort)),
-					Drain:     lo.ToPtr(false),
-				}
-			})
+			expectedUpdatedBackends := lo.Map(
+				remainingEndpoints,
+				func(ep discoveryv1.Endpoint, _ int) loadbalancer.BackendDetails {
+					return loadbalancer.BackendDetails{
+						IpAddress: &ep.Addresses[0],
+						Port:      lo.ToPtr(int(refPort)),
+						Drain:     lo.ToPtr(false),
+					}
+				})
 			expectedResult := identifyBackendsToUpdateResult{
 				updateRequired:  true,
 				updatedBackends: expectedUpdatedBackends,
