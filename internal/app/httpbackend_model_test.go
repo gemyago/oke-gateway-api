@@ -359,6 +359,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			expectedResult := identifyBackendsToUpdateResult{
 				updateRequired:  true,
 				updatedBackends: expectedUpdatedBackends,
+				drainingCount:   0, // All are non-draining
 			}
 
 			// Act
@@ -366,9 +367,9 @@ func TestHTTPBackendModel(t *testing.T) {
 
 			// Assert
 			require.NoError(t, err)
-			// This assertion is expected to fail initially
 			assert.ElementsMatch(t, expectedResult.updatedBackends, result.updatedBackends)
 			assert.Equal(t, expectedResult.updateRequired, result.updateRequired)
+			assert.Equal(t, expectedResult.drainingCount, result.drainingCount)
 		})
 
 		t.Run("backend removal", func(t *testing.T) {
@@ -410,12 +411,14 @@ func TestHTTPBackendModel(t *testing.T) {
 			expectedResult := identifyBackendsToUpdateResult{
 				updateRequired:  true,
 				updatedBackends: expectedUpdatedBackends,
+				drainingCount:   0, // Remaining are non-draining
 			}
 
 			result, err := model.identifyBackendsToUpdate(t.Context(), params)
 			require.NoError(t, err)
 			assert.ElementsMatch(t, expectedResult.updatedBackends, result.updatedBackends)
 			assert.Equal(t, expectedResult.updateRequired, result.updateRequired)
+			assert.Equal(t, expectedResult.drainingCount, result.drainingCount)
 		})
 
 		t.Run("drain status update - start draining", func(t *testing.T) {
@@ -454,12 +457,14 @@ func TestHTTPBackendModel(t *testing.T) {
 			expectedResult := identifyBackendsToUpdateResult{
 				updateRequired:  true,
 				updatedBackends: expectedUpdatedBackends,
+				drainingCount:   1, // The single backend is now draining
 			}
 
 			result, err := model.identifyBackendsToUpdate(t.Context(), params)
 			require.NoError(t, err)
 			assert.ElementsMatch(t, expectedResult.updatedBackends, result.updatedBackends)
 			assert.Equal(t, expectedResult.updateRequired, result.updateRequired)
+			assert.Equal(t, expectedResult.drainingCount, result.drainingCount)
 		})
 
 		t.Run("drain status update - stop draining", func(t *testing.T) {
@@ -498,12 +503,14 @@ func TestHTTPBackendModel(t *testing.T) {
 			expectedResult := identifyBackendsToUpdateResult{
 				updateRequired:  true,
 				updatedBackends: expectedUpdatedBackends,
+				drainingCount:   0, // The single backend is no longer draining
 			}
 
 			result, err := model.identifyBackendsToUpdate(t.Context(), params)
 			require.NoError(t, err)
 			assert.ElementsMatch(t, expectedResult.updatedBackends, result.updatedBackends)
 			assert.Equal(t, expectedResult.updateRequired, result.updateRequired)
+			assert.Equal(t, expectedResult.drainingCount, result.drainingCount)
 		})
 
 		t.Run("no changes needed", func(t *testing.T) {
@@ -541,12 +548,14 @@ func TestHTTPBackendModel(t *testing.T) {
 						Drain:     b.Drain,
 					}
 				}),
+				drainingCount: 1, // ep2 was draining
 			}
 
 			result, err := model.identifyBackendsToUpdate(t.Context(), params)
 			require.NoError(t, err)
 			assert.ElementsMatch(t, expectedResult.updatedBackends, result.updatedBackends)
 			assert.Equal(t, expectedResult.updateRequired, result.updateRequired)
+			assert.Equal(t, expectedResult.drainingCount, result.drainingCount)
 		})
 
 		t.Run("all backends removed (empty slices)", func(t *testing.T) {
@@ -574,12 +583,14 @@ func TestHTTPBackendModel(t *testing.T) {
 			expectedResult := identifyBackendsToUpdateResult{
 				updateRequired:  true,
 				updatedBackends: []loadbalancer.BackendDetails{},
+				drainingCount:   0,
 			}
 
 			result, err := model.identifyBackendsToUpdate(t.Context(), params)
 			require.NoError(t, err)
 			assert.ElementsMatch(t, expectedResult.updatedBackends, result.updatedBackends)
 			assert.Equal(t, expectedResult.updateRequired, result.updateRequired)
+			assert.Equal(t, expectedResult.drainingCount, result.drainingCount)
 		})
 
 		t.Run("all backends removed (non-ready slices)", func(t *testing.T) {
@@ -610,12 +621,14 @@ func TestHTTPBackendModel(t *testing.T) {
 			expectedResult := identifyBackendsToUpdateResult{
 				updateRequired:  true,
 				updatedBackends: []loadbalancer.BackendDetails{},
+				drainingCount:   0,
 			}
 
 			result, err := model.identifyBackendsToUpdate(t.Context(), params)
 			require.NoError(t, err)
 			assert.ElementsMatch(t, expectedResult.updatedBackends, result.updatedBackends)
 			assert.Equal(t, expectedResult.updateRequired, result.updateRequired)
+			assert.Equal(t, expectedResult.drainingCount, result.drainingCount)
 		})
 
 		t.Run("empty input (no change)", func(t *testing.T) {
@@ -634,12 +647,14 @@ func TestHTTPBackendModel(t *testing.T) {
 			expectedResult := identifyBackendsToUpdateResult{
 				updateRequired:  false,
 				updatedBackends: []loadbalancer.BackendDetails{},
+				drainingCount:   0,
 			}
 
 			result, err := model.identifyBackendsToUpdate(t.Context(), params)
 			require.NoError(t, err)
 			assert.ElementsMatch(t, expectedResult.updatedBackends, result.updatedBackends)
 			assert.Equal(t, expectedResult.updateRequired, result.updateRequired)
+			assert.Equal(t, expectedResult.drainingCount, result.drainingCount)
 		})
 	})
 }

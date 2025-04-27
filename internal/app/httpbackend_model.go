@@ -34,6 +34,7 @@ type identifyBackendsToUpdateParams struct {
 type identifyBackendsToUpdateResult struct {
 	updateRequired  bool
 	updatedBackends []loadbalancer.BackendDetails
+	drainingCount   int
 }
 
 // httpBackendModel defines the interface for managing OCI backend sets based on HTTPRoute definitions.
@@ -92,6 +93,7 @@ func (m *httpBackendModelImpl) identifyBackendsToUpdate(
 	params identifyBackendsToUpdateParams,
 ) (identifyBackendsToUpdateResult, error) {
 	desiredBackendsMap := make(map[string]loadbalancer.BackendDetails)
+	var drainingCount int
 
 	for _, slice := range params.endpointSlices {
 		for _, endpoint := range slice.Endpoints {
@@ -104,6 +106,10 @@ func (m *httpBackendModelImpl) identifyBackendsToUpdate(
 			}
 			ipAddress := endpoint.Addresses[0]
 			isDraining := endpoint.Conditions.Terminating != nil && *endpoint.Conditions.Terminating
+
+			if isDraining {
+				drainingCount++
+			}
 
 			desiredBackendsMap[ipAddress] = loadbalancer.BackendDetails{
 				Port:      lo.ToPtr(int(params.endpointPort)),
@@ -141,6 +147,7 @@ func (m *httpBackendModelImpl) identifyBackendsToUpdate(
 	return identifyBackendsToUpdateResult{
 		updateRequired:  updateRequired,
 		updatedBackends: updatedBackends,
+		drainingCount:   drainingCount,
 	}, nil
 }
 
@@ -200,6 +207,7 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 		slog.String("backendSetName", backendSetName),
 		slog.Int("currentBackends", len(existingBackendSet.Backends)),
 		slog.Int("updatedBackends", len(backendsToUpdate.updatedBackends)),
+		slog.Int("drainingCount", backendsToUpdate.drainingCount),
 	)
 
 	ociUpdateResp, err := m.ociClient.UpdateBackendSet(ctx, loadbalancer.UpdateBackendSetRequest{
