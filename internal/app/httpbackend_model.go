@@ -151,7 +151,6 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 	rule := params.httpRoute.Spec.Rules[params.ruleIndex]
 
 	backendSetName := backendSetName(params.httpRoute, rule, params.ruleIndex)
-	var ruleBackends []loadbalancer.BackendDetails
 
 	getResp, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
 		LoadBalancerId: &params.config.Spec.LoadBalancerID,
@@ -165,7 +164,6 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 	// All backends should have the same port
 	firstRefPort := int32(*rule.BackendRefs[0].BackendObjectReference.Port)
 
-	drainingCount := 0
 	allEndpointSlices := make([]discoveryv1.EndpointSlice, 0)
 	for _, backendRef := range rule.BackendRefs {
 		var endpointSlices discoveryv1.EndpointSliceList
@@ -200,8 +198,8 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 		slog.Int("ruleIndex", params.ruleIndex),
 		slog.String("httpRoute", params.httpRoute.Name),
 		slog.String("backendSetName", backendSetName),
-		slog.Int("ruleBackends", len(ruleBackends)),
-		slog.Int("drainingBackends", drainingCount),
+		slog.Int("currentBackends", len(existingBackendSet.Backends)),
+		slog.Int("updatedBackends", len(backendsToUpdate.updatedBackends)),
 	)
 
 	ociUpdateResp, err := m.ociClient.UpdateBackendSet(ctx, loadbalancer.UpdateBackendSetRequest{
