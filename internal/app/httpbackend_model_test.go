@@ -166,13 +166,13 @@ func TestHTTPBackendModel(t *testing.T) {
 				}).Once()
 			}
 
+			firstRefPort := int32(*rule2.BackendRefs[0].BackendObjectReference.Port)
 			var wantBackends []loadbalancer.BackendDetails
 			for _, backendRef := range rule2.BackendRefs {
 				refSlice := endpointSlicesByRef[string(backendRef.BackendObjectReference.Name)]
 				for _, endpoint := range refSlice.Endpoints {
-					port := int32(*backendRef.BackendObjectReference.Port)
 					wantBackends = append(wantBackends, loadbalancer.BackendDetails{
-						Port:      lo.ToPtr(int(port)),
+						Port:      lo.ToPtr(int(firstRefPort)),
 						IpAddress: &endpoint.Addresses[0],
 						Drain:     lo.ToPtr(false),
 					})

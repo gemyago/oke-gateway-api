@@ -162,7 +162,11 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 	}
 	existingBackendSet := getResp.BackendSet
 
+	// All backends should have the same port
+	firstRefPort := int32(*rule.BackendRefs[0].BackendObjectReference.Port)
+
 	drainingCount := 0
+	allEndpointSlices := make([]discoveryv1.EndpointSlice, 0)
 	for _, backendRef := range rule.BackendRefs {
 		var endpointSlices discoveryv1.EndpointSliceList
 
@@ -171,34 +175,16 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 		}); err != nil {
 			return fmt.Errorf("failed to list endpoint slices for backend %s: %w", backendRef.BackendObjectReference.Name, err)
 		}
+		allEndpointSlices = append(allEndpointSlices, endpointSlices.Items...)
+	}
 
-		refPort := int32(*backendRef.BackendObjectReference.Port)
-
-		refBackends := make([]loadbalancer.BackendDetails, 0, len(endpointSlices.Items))
-		for _, endpointSlice := range endpointSlices.Items {
-			for _, endpoint := range endpointSlice.Endpoints {
-				if endpoint.Conditions.Ready != nil && !*endpoint.Conditions.Ready {
-					continue
-				}
-
-				isDraining := endpoint.Conditions.Terminating != nil && *endpoint.Conditions.Terminating
-
-				if isDraining {
-					m.logger.DebugContext(ctx, "Draining endpoint",
-						slog.String("endpoint", endpoint.Addresses[0]),
-					)
-					drainingCount++
-				}
-
-				refBackends = append(refBackends, loadbalancer.BackendDetails{
-					Port:      lo.ToPtr(int(refPort)),
-					IpAddress: &endpoint.Addresses[0],
-					Drain:     lo.ToPtr(isDraining),
-				})
-			}
-		}
-
-		ruleBackends = append(ruleBackends, refBackends...)
+	backendsToUpdate, err := m.identifyBackendsToUpdate(ctx, identifyBackendsToUpdateParams{
+		endpointPort:    firstRefPort,
+		currentBackends: existingBackendSet.Backends,
+		endpointSlices:  allEndpointSlices,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to identify backends to update: %w", err)
 	}
 
 	m.logger.InfoContext(ctx, "Syncing backend endpoints for rule",
@@ -209,12 +195,10 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 		slog.Int("drainingBackends", drainingCount),
 	)
 
-	updateDetails := makeUpdateOciBackendSetDetails(existingBackendSet, ruleBackends)
-
 	ociUpdateResp, err := m.ociClient.UpdateBackendSet(ctx, loadbalancer.UpdateBackendSetRequest{
 		LoadBalancerId:          &params.config.Spec.LoadBalancerID,
 		BackendSetName:          &backendSetName,
-		UpdateBackendSetDetails: updateDetails,
+		UpdateBackendSetDetails: makeUpdateOciBackendSetDetails(existingBackendSet, backendsToUpdate.updatedBackends),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to update backend set %s: %w", backendSetName, err)
