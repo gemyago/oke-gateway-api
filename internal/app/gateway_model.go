@@ -141,8 +141,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 			listenerSpec:          &listener,
 		}
 
-		err := m.ociLoadBalancerModel.reconcileHTTPListener(ctx, params)
-		if err != nil {
+		if err = m.ociLoadBalancerModel.reconcileHTTPListener(ctx, params); err != nil {
 			return fmt.Errorf("failed to reconcile listener %s: %w", listener.Name, err)
 		}
 	}
