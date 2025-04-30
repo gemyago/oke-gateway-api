@@ -1,5 +1,7 @@
 .build-artifacts
+.docker-artifacts
 build-artifacts.tar.*
+docker-artifacts.tar.*
 /dist/
 .git-meta/*
 /docker/.labels
