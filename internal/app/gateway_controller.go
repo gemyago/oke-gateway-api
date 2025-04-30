@@ -82,11 +82,11 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 		return reconcile.Result{}, nil
 	}
 
-	if !r.resourcesModel.isConditionSet(
-		&data.gateway,
-		data.gateway.Status.Conditions,
-		string(gatewayv1.GatewayConditionAccepted),
-	) {
+	if !r.resourcesModel.isConditionSet(isConditionSetParams{
+		resource:      &data.gateway,
+		conditions:    data.gateway.Status.Conditions,
+		conditionType: string(gatewayv1.GatewayConditionAccepted),
+	}) {
 		if err = r.resourcesModel.setCondition(ctx, setConditionParams{
 			resource:      &data.gateway,
 			conditions:    &data.gateway.Status.Conditions,
@@ -99,11 +99,11 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 		}
 	}
 
-	if !r.resourcesModel.isConditionSet(
-		&data.gateway,
-		data.gateway.Status.Conditions,
-		string(gatewayv1.GatewayConditionProgrammed),
-	) {
+	if !r.resourcesModel.isConditionSet(isConditionSetParams{
+		resource:      &data.gateway,
+		conditions:    data.gateway.Status.Conditions,
+		conditionType: string(gatewayv1.GatewayConditionProgrammed),
+	}) {
 		r.logger.DebugContext(ctx, "Programming gateway",
 			slog.Any("req", req),
 			slog.Any("gateway", data.gateway),

@@ -56,7 +56,11 @@ func TestGatewayClassController(t *testing.T) {
 			})
 
 		mockResourcesModel.EXPECT().
-			isConditionSet(gatewayClass, gatewayClass.Status.Conditions, string(gatewayv1.GatewayClassConditionStatusAccepted)).
+			isConditionSet(isConditionSetParams{
+				resource:      gatewayClass,
+				conditions:    gatewayClass.Status.Conditions,
+				conditionType: string(gatewayv1.GatewayClassConditionStatusAccepted),
+			}).
 			Return(false)
 
 		mockResourcesModel.EXPECT().
@@ -154,11 +158,11 @@ func TestGatewayClassController(t *testing.T) {
 			})
 
 		mockResourcesModel.EXPECT().
-			isConditionSet(
-				gatewayClass,
-				gatewayClass.Status.Conditions,
-				string(gatewayv1.GatewayClassConditionStatusAccepted),
-			).
+			isConditionSet(isConditionSetParams{
+				resource:      gatewayClass,
+				conditions:    gatewayClass.Status.Conditions,
+				conditionType: string(gatewayv1.GatewayClassConditionStatusAccepted),
+			}).
 			Return(false)
 
 		// Simulate Status Update error
@@ -235,7 +239,11 @@ func TestGatewayClassController(t *testing.T) {
 
 		// We expect the new isConditionSet method to be called and return true
 		mockResourcesModel.EXPECT().
-			isConditionSet(gatewayClass, gatewayClass.Status.Conditions, string(gatewayv1.GatewayClassConditionStatusAccepted)).
+			isConditionSet(isConditionSetParams{
+				resource:      gatewayClass,
+				conditions:    gatewayClass.Status.Conditions,
+				conditionType: string(gatewayv1.GatewayClassConditionStatusAccepted),
+			}).
 			Return(true)
 
 		result, err := controller.Reconcile(t.Context(), req)

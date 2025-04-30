@@ -52,7 +52,11 @@ func TestGatewayController(t *testing.T) {
 				Return(true, nil).Once()
 
 			mockResourcesModel.EXPECT().
-				isConditionSet(gateway, gateway.Status.Conditions, string(gatewayv1.GatewayConditionAccepted)).
+				isConditionSet(isConditionSetParams{
+					resource:      gateway,
+					conditions:    gateway.Status.Conditions,
+					conditionType: string(gatewayv1.GatewayConditionAccepted),
+				}).
 				Return(false).Once()
 
 			mockResourcesModel.EXPECT().
@@ -67,7 +71,11 @@ func TestGatewayController(t *testing.T) {
 				Return(nil).Once()
 
 			mockResourcesModel.EXPECT().
-				isConditionSet(gateway, gateway.Status.Conditions, string(gatewayv1.GatewayConditionProgrammed)).
+				isConditionSet(isConditionSetParams{
+					resource:      gateway,
+					conditions:    gateway.Status.Conditions,
+					conditionType: string(gatewayv1.GatewayConditionProgrammed),
+				}).
 				Return(false).Once()
 
 			mockGatewayModel.EXPECT().
@@ -233,11 +241,19 @@ func TestGatewayController(t *testing.T) {
 				Return(true, nil).Once()
 
 			mockResourcesModel.EXPECT().
-				isConditionSet(gateway, gateway.Status.Conditions, string(gatewayv1.GatewayConditionAccepted)).
+				isConditionSet(isConditionSetParams{
+					resource:      gateway,
+					conditions:    gateway.Status.Conditions,
+					conditionType: string(gatewayv1.GatewayConditionAccepted),
+				}).
 				Return(true).Once()
 
 			mockResourcesModel.EXPECT().
-				isConditionSet(gateway, gateway.Status.Conditions, string(gatewayv1.GatewayConditionProgrammed)).
+				isConditionSet(isConditionSetParams{
+					resource:      gateway,
+					conditions:    gateway.Status.Conditions,
+					conditionType: string(gatewayv1.GatewayConditionProgrammed),
+				}).
 				Return(false).Once()
 
 			wantErr := errors.New(faker.Sentence())
@@ -278,11 +294,19 @@ func TestGatewayController(t *testing.T) {
 				Return(true, nil).Once()
 
 			mockResourcesModel.EXPECT().
-				isConditionSet(gateway, gateway.Status.Conditions, string(gatewayv1.GatewayConditionAccepted)).
+				isConditionSet(isConditionSetParams{
+					resource:      gateway,
+					conditions:    gateway.Status.Conditions,
+					conditionType: string(gatewayv1.GatewayConditionAccepted),
+				}).
 				Return(true).Once()
 
 			mockResourcesModel.EXPECT().
-				isConditionSet(gateway, gateway.Status.Conditions, string(gatewayv1.GatewayConditionProgrammed)).
+				isConditionSet(isConditionSetParams{
+					resource:      gateway,
+					conditions:    gateway.Status.Conditions,
+					conditionType: string(gatewayv1.GatewayConditionProgrammed),
+				}).
 				Return(false).Once()
 
 			wantErr := &resourceStatusError{
@@ -336,11 +360,19 @@ func TestGatewayController(t *testing.T) {
 				Return(true, nil).Once()
 
 			mockResourcesModel.EXPECT().
-				isConditionSet(gateway, gateway.Status.Conditions, string(gatewayv1.GatewayConditionAccepted)).
+				isConditionSet(isConditionSetParams{
+					resource:      gateway,
+					conditions:    gateway.Status.Conditions,
+					conditionType: string(gatewayv1.GatewayConditionAccepted),
+				}).
 				Return(true).Once()
 
 			mockResourcesModel.EXPECT().
-				isConditionSet(gateway, gateway.Status.Conditions, string(gatewayv1.GatewayConditionProgrammed)).
+				isConditionSet(isConditionSetParams{
+					resource:      gateway,
+					conditions:    gateway.Status.Conditions,
+					conditionType: string(gatewayv1.GatewayConditionProgrammed),
+				}).
 				Return(false).Once()
 
 			wantErr := errors.New(faker.Sentence())
@@ -384,11 +416,19 @@ func TestGatewayController(t *testing.T) {
 				Return(true, nil).Once()
 
 			mockResourcesModel.EXPECT().
-				isConditionSet(gateway, gateway.Status.Conditions, string(gatewayv1.GatewayConditionAccepted)).
+				isConditionSet(isConditionSetParams{
+					resource:      gateway,
+					conditions:    gateway.Status.Conditions,
+					conditionType: string(gatewayv1.GatewayConditionAccepted),
+				}).
 				Return(true).Once()
 
 			mockResourcesModel.EXPECT().
-				isConditionSet(gateway, gateway.Status.Conditions, string(gatewayv1.GatewayConditionProgrammed)).
+				isConditionSet(isConditionSetParams{
+					resource:      gateway,
+					conditions:    gateway.Status.Conditions,
+					conditionType: string(gatewayv1.GatewayConditionProgrammed),
+				}).
 				Return(true).Once()
 
 			result, err := controller.Reconcile(t.Context(), req)
