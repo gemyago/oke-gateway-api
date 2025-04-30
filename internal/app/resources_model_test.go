@@ -316,88 +316,250 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 	newMockDeps := func(t *testing.T) resourcesModelDeps {
 		return resourcesModelDeps{
-			K8sClient:  NewMockk8sClient(t), // Mock client might not be strictly needed here but kept for consistency
+			K8sClient:  NewMockk8sClient(t),
 			RootLogger: diag.RootTestLogger(),
 		}
 	}
 
-	model := newResourcesModel(newMockDeps(t))
-
-	// Shared setup for resource
-	gatewayClass := &gatewayv1.GatewayClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:       faker.DomainName(),
-			Generation: rand.Int64(), // Set a specific generation
-		},
-	}
-
-	t.Run("ConditionIsSetAndMatches", func(t *testing.T) {
-		conditionType := faker.DomainName()
-		conditions := []metav1.Condition{
-			{
-				Type:               conditionType,
-				Status:             metav1.ConditionTrue,
-				Reason:             faker.Word(),
-				ObservedGeneration: gatewayClass.Generation, // Matches resource generation
+	type randomResourceOpt func(*gatewayv1.GatewayClass)
+	newRandomResource := func(opts ...randomResourceOpt) *gatewayv1.GatewayClass {
+		resource := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       faker.DomainName(), // Use faker for name
+				Generation: rand.Int64(),
 			},
 		}
+		for _, opt := range opts {
+			opt(resource)
+		}
+		return resource
+	}
 
+	randomResourceWithGeneration := func(generation int64) randomResourceOpt {
+		return func(resource *gatewayv1.GatewayClass) {
+			resource.Generation = generation
+		}
+	}
+
+	randomResourceWithAnnotations := func(annotations map[string]string) randomResourceOpt {
+		return func(resource *gatewayv1.GatewayClass) {
+			resource.Annotations = annotations
+		}
+	}
+
+	randomResourceWithConditions := func(conditions []metav1.Condition) randomResourceOpt {
+		return func(resource *gatewayv1.GatewayClass) {
+			resource.Status.Conditions = conditions
+		}
+	}
+
+	type randomConditionsOpt func(*metav1.Condition)
+
+	newRandomConditions := func(opts ...randomConditionsOpt) []metav1.Condition {
+		condition := metav1.Condition{
+			Type:               faker.DomainName(),
+			Status:             metav1.ConditionTrue,
+			Reason:             faker.Word(),
+			ObservedGeneration: rand.Int64(),
+		}
+		for _, opt := range opts {
+			opt(&condition)
+		}
+		return []metav1.Condition{condition}
+	}
+
+	randomConditionWithType := func(conditionType string) randomConditionsOpt {
+		return func(condition *metav1.Condition) {
+			condition.Type = conditionType
+		}
+	}
+
+	randomConditionWithObservedGeneration := func(observedGeneration int64) randomConditionsOpt {
+		return func(condition *metav1.Condition) {
+			condition.ObservedGeneration = observedGeneration
+		}
+	}
+
+	t.Run("ConditionSetAndMatches", func(t *testing.T) {
+		model := newResourcesModel(newMockDeps(t))
+		conditionType := faker.DomainName()
+		generation := rand.Int64()
+		gatewayClass := newRandomResource(
+			randomResourceWithGeneration(generation),
+			randomResourceWithConditions(
+				newRandomConditions(
+					randomConditionWithType(conditionType),
+					randomConditionWithObservedGeneration(generation),
+				),
+			),
+		)
 		params := isConditionSetParams{
 			resource:      gatewayClass,
-			conditions:    conditions,
+			conditions:    gatewayClass.Status.Conditions,
 			conditionType: conditionType,
 		}
 		result := model.isConditionSet(params)
-		assert.True(t, result, "Expected isConditionSet to return true when condition matches")
+		assert.True(t, result, "Expected true when condition/generation match and no annotations requested")
 	})
 
 	t.Run("ConditionNotSet", func(t *testing.T) {
-		conditions := []metav1.Condition{} // No conditions
+		model := newResourcesModel(newMockDeps(t))
 		conditionType := faker.DomainName()
+		gatewayClass := newRandomResource()
+
 		params := isConditionSetParams{
 			resource:      gatewayClass,
-			conditions:    conditions,
+			conditions:    newRandomConditions(),
 			conditionType: conditionType,
 		}
 		result := model.isConditionSet(params)
-		assert.False(t, result, "Expected isConditionSet to return false when conditions slice is empty")
+		assert.False(t, result, "Expected false when conditions slice is empty")
 	})
 
 	t.Run("ConditionSet_WrongType", func(t *testing.T) {
+		model := newResourcesModel(newMockDeps(t))
 		conditionType := faker.DomainName()
-		conditions := []metav1.Condition{
-			{
-				Type:               "wrong-" + faker.DomainName(),
-				Status:             metav1.ConditionTrue,
-				Reason:             faker.Word(),
-				ObservedGeneration: gatewayClass.Generation,
-			},
-		}
+		gatewayClass := newRandomResource(
+			randomResourceWithConditions(
+				newRandomConditions(),
+			),
+		)
 		params := isConditionSetParams{
 			resource:      gatewayClass,
-			conditions:    conditions,
+			conditions:    gatewayClass.Status.Conditions,
 			conditionType: conditionType,
 		}
 		result := model.isConditionSet(params)
-		assert.False(t, result, "Expected isConditionSet to return false for wrong condition type")
+		assert.False(t, result, "Expected false for wrong condition type")
 	})
 
 	t.Run("ConditionSet_WrongGeneration", func(t *testing.T) {
+		model := newResourcesModel(newMockDeps(t))
 		conditionType := faker.DomainName()
-		conditions := []metav1.Condition{
-			{
-				Type:               conditionType,
-				Status:             metav1.ConditionTrue,
-				Reason:             faker.Word(),
-				ObservedGeneration: gatewayClass.Generation - 1, // Mismatched generation
-			},
-		}
+		generation := rand.Int64()
+		gatewayClass := newRandomResource(
+			randomResourceWithGeneration(generation),
+			randomResourceWithConditions(
+				newRandomConditions(
+					randomConditionWithType(conditionType),
+					randomConditionWithObservedGeneration(generation+1),
+				),
+			),
+		)
 		params := isConditionSetParams{
 			resource:      gatewayClass,
-			conditions:    conditions,
+			conditions:    gatewayClass.Status.Conditions,
 			conditionType: conditionType,
 		}
 		result := model.isConditionSet(params)
-		assert.False(t, result, "Expected isConditionSet to return false for wrong observed generation")
+		assert.False(t, result, "Expected false for wrong observed generation")
+	})
+
+	t.Run("ConditionSetAndMatches_WithMatchingAnnotations", func(t *testing.T) {
+		model := newResourcesModel(newMockDeps(t))
+		conditionType := faker.DomainName()
+		generation := rand.Int64()
+
+		key1 := "key1-" + faker.Word()
+		key2 := "key2-" + faker.Word()
+		val1 := faker.Sentence()
+		val2 := faker.Sentence()
+
+		resourceAnnotations := map[string]string{
+			key1: val1,
+			key2: val2,
+		}
+		paramsAnnotations := map[string]string{
+			key1: val1,
+			key2: val2,
+		}
+		gatewayClass := newRandomResource(
+			randomResourceWithGeneration(generation),
+			randomResourceWithAnnotations(resourceAnnotations),
+			randomResourceWithConditions(
+				newRandomConditions(
+					randomConditionWithType(conditionType),
+					randomConditionWithObservedGeneration(generation),
+				),
+			),
+		)
+		params := isConditionSetParams{
+			resource:      gatewayClass,
+			conditions:    gatewayClass.Status.Conditions,
+			conditionType: conditionType,
+			annotations:   paramsAnnotations,
+		}
+		result := model.isConditionSet(params)
+		assert.True(t, result, "Expected true when condition/gen/annotations all match")
+	})
+
+	t.Run("ConditionSetAndMatches_WithMissingAnnotation", func(t *testing.T) {
+		model := newResourcesModel(newMockDeps(t))
+		conditionType := faker.DomainName()
+		generation := rand.Int64()
+		gatewayClass := newRandomResource(
+			randomResourceWithGeneration(generation),
+			randomResourceWithAnnotations(map[string]string{}),
+		)
+		params := isConditionSetParams{
+			resource:      gatewayClass,
+			conditions:    gatewayClass.Status.Conditions,
+			conditionType: conditionType,
+			annotations: map[string]string{
+				"key1-" + faker.Word(): faker.Sentence(),
+				"key2-" + faker.Word(): faker.Sentence(),
+			},
+		}
+		result := model.isConditionSet(params)
+		assert.False(t, result, "Expected false when a requested annotation value mismatches")
+	})
+
+	t.Run("ConditionSetAndMatches_WithMismatchedAnnotationValue", func(t *testing.T) {
+		model := newResourcesModel(newMockDeps(t))
+		conditionType := faker.DomainName()
+		generation := rand.Int64()
+		key := "key-" + faker.Word()
+		gatewayClass := newRandomResource(
+			randomResourceWithGeneration(generation),
+			randomResourceWithAnnotations(map[string]string{key: faker.Sentence()}),
+		)
+		params := isConditionSetParams{
+			resource:      gatewayClass,
+			conditions:    gatewayClass.Status.Conditions,
+			conditionType: conditionType,
+			annotations:   map[string]string{key: "other-" + faker.Sentence()},
+		}
+		result := model.isConditionSet(params)
+		assert.False(t, result, "Expected false when a requested annotation value mismatches")
+	})
+
+	t.Run("ConditionSetAndMatches_WithExtraResourceAnnotation", func(t *testing.T) {
+		model := newResourcesModel(newMockDeps(t))
+		conditionType := faker.DomainName()
+		generation := rand.Int64()
+		key := "key-" + faker.Word()
+		val := faker.Sentence()
+		gatewayClass := newRandomResource(
+			randomResourceWithGeneration(generation),
+			randomResourceWithAnnotations(map[string]string{
+				key:      val,
+				"extra1": faker.Sentence(),
+				"extra2": faker.Sentence(),
+			}),
+			randomResourceWithConditions(
+				newRandomConditions(
+					randomConditionWithType(conditionType),
+					randomConditionWithObservedGeneration(generation),
+				),
+			),
+		)
+		params := isConditionSetParams{
+			resource:      gatewayClass,
+			conditions:    gatewayClass.Status.Conditions,
+			conditionType: conditionType,
+			annotations:   map[string]string{key: val},
+		}
+		result := model.isConditionSet(params)
+		assert.True(t, result, "Expected true when annotations param is nil")
 	})
 }

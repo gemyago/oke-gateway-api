@@ -18,13 +18,14 @@ type setConditionParams struct {
 	status        metav1.ConditionStatus
 	reason        string
 	message       string
-	annotations   map[string]string // Optional: Annotations to set/update on the resource before status update
+	annotations   map[string]string
 }
 
 type isConditionSetParams struct {
 	resource      client.Object
 	conditions    []metav1.Condition
 	conditionType string
+	annotations   map[string]string
 }
 
 type resourcesModel interface {
@@ -87,6 +88,19 @@ func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditi
 }
 
 func (m *resourcesModelImpl) isConditionSet(params isConditionSetParams) bool {
+	if len(params.annotations) > 0 {
+		resourceAnnotations := params.resource.GetAnnotations()
+		if resourceAnnotations == nil {
+			return false
+		}
+		for key, expectedValue := range params.annotations {
+			actualValue, found := resourceAnnotations[key]
+			if !found || actualValue != expectedValue {
+				return false
+			}
+		}
+	}
+
 	existingCondition := meta.FindStatusCondition(params.conditions, params.conditionType)
 	if existingCondition != nil &&
 		existingCondition.ObservedGeneration == params.resource.GetGeneration() {
