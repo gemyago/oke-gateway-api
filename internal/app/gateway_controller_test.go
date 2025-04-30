@@ -75,6 +75,9 @@ func TestGatewayController(t *testing.T) {
 					resource:      gateway,
 					conditions:    gateway.Status.Conditions,
 					conditionType: string(gatewayv1.GatewayConditionProgrammed),
+					annotations: map[string]string{
+						GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+					},
 				}).
 				Return(false).Once()
 
@@ -92,6 +95,9 @@ func TestGatewayController(t *testing.T) {
 					status:        metav1.ConditionTrue,
 					reason:        string(gatewayv1.GatewayConditionProgrammed),
 					message:       fmt.Sprintf("Gateway %s programmed by %s", gateway.Name, ControllerClassName),
+					annotations: map[string]string{
+						GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+					},
 				}).
 				Return(nil).Once()
 
@@ -253,6 +259,9 @@ func TestGatewayController(t *testing.T) {
 					resource:      gateway,
 					conditions:    gateway.Status.Conditions,
 					conditionType: string(gatewayv1.GatewayConditionProgrammed),
+					annotations: map[string]string{
+						GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+					},
 				}).
 				Return(false).Once()
 
@@ -306,6 +315,9 @@ func TestGatewayController(t *testing.T) {
 					resource:      gateway,
 					conditions:    gateway.Status.Conditions,
 					conditionType: string(gatewayv1.GatewayConditionProgrammed),
+					annotations: map[string]string{
+						GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+					},
 				}).
 				Return(false).Once()
 
@@ -372,6 +384,9 @@ func TestGatewayController(t *testing.T) {
 					resource:      gateway,
 					conditions:    gateway.Status.Conditions,
 					conditionType: string(gatewayv1.GatewayConditionProgrammed),
+					annotations: map[string]string{
+						GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+					},
 				}).
 				Return(false).Once()
 
@@ -428,6 +443,9 @@ func TestGatewayController(t *testing.T) {
 					resource:      gateway,
 					conditions:    gateway.Status.Conditions,
 					conditionType: string(gatewayv1.GatewayConditionProgrammed),
+					annotations: map[string]string{
+						GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+					},
 				}).
 				Return(true).Once()
 

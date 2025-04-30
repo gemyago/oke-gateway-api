@@ -103,6 +103,9 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 		resource:      &data.gateway,
 		conditions:    data.gateway.Status.Conditions,
 		conditionType: string(gatewayv1.GatewayConditionProgrammed),
+		annotations: map[string]string{
+			GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+		},
 	}) {
 		r.logger.DebugContext(ctx, "Programming gateway",
 			slog.Any("req", req),
@@ -122,6 +125,9 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 			status:        v1.ConditionTrue,
 			reason:        string(gatewayv1.GatewayConditionProgrammed),
 			message:       fmt.Sprintf("Gateway %s programmed by %s", data.gateway.Name, ControllerClassName),
+			annotations: map[string]string{
+				GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+			},
 		}); err != nil {
 			return reconcile.Result{}, fmt.Errorf("failed to set accepted condition for Gateway %s: %w", req.NamespacedName, err)
 		}
