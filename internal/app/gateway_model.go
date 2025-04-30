@@ -131,17 +131,19 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 		return fmt.Errorf("failed to program default backend set: %w", err)
 	}
 
-	for _, listenerSpec := range data.gateway.Spec.Listeners {
+	for _, listener := range data.gateway.Spec.Listeners {
 		// TODO: Support listener with hostname
 
-		_, err = m.ociLoadBalancerModel.reconcileHTTPListener(ctx, reconcileHTTPListenerParams{
+		params := reconcileHTTPListenerParams{
 			loadBalancerID:        loadBalancerID,
-			defaultBackendSetName: *defaultBackendSet.Name,
 			knownListeners:        response.LoadBalancer.Listeners,
-			listenerSpec:          &listenerSpec,
-		})
+			defaultBackendSetName: *defaultBackendSet.Name,
+			listenerSpec:          &listener,
+		}
+
+		err := m.ociLoadBalancerModel.reconcileHTTPListener(ctx, params)
 		if err != nil {
-			return fmt.Errorf("failed to program listener %s: %w", listenerSpec.Name, err)
+			return fmt.Errorf("failed to reconcile listener %s: %w", listener.Name, err)
 		}
 	}
 

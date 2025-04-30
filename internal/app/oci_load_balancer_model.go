@@ -49,7 +49,7 @@ type ociLoadBalancerModel interface {
 	reconcileHTTPListener(
 		ctx context.Context,
 		params reconcileHTTPListenerParams,
-	) (loadbalancer.Listener, error)
+	) error
 
 	// TODO: It may not need to return the backend set
 	// review and update
@@ -127,14 +127,14 @@ func (m *ociLoadBalancerModelImpl) reconcileDefaultBackendSet(
 func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 	ctx context.Context,
 	params reconcileHTTPListenerParams,
-) (loadbalancer.Listener, error) {
+) error {
 	listenerName := string(params.listenerSpec.Name)
 	if _, ok := params.knownListeners[listenerName]; ok {
 		m.logger.DebugContext(ctx, "Listener already exists",
 			slog.String("loadBalancerId", params.loadBalancerID),
 			slog.String("listenerName", listenerName),
 		)
-		return params.knownListeners[listenerName], nil
+		return nil
 	}
 
 	m.logger.InfoContext(ctx, "Listener not found, creating",
@@ -152,26 +152,17 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 		},
 	})
 	if err != nil {
-		return loadbalancer.Listener{}, fmt.Errorf("failed to create listener %s: %w", listenerName, err)
+		return fmt.Errorf("failed to create listener %s: %w", listenerName, err)
 	}
 
 	if err = m.workRequestsWatcher.WaitFor(
 		ctx,
 		*createRes.OpcWorkRequestId,
 	); err != nil {
-		return loadbalancer.Listener{}, fmt.Errorf("failed to wait for listener %s: %w", listenerName, err)
+		return fmt.Errorf("failed to wait for listener %s: %w", listenerName, err)
 	}
 
-	res, err := m.ociClient.GetLoadBalancer(ctx, loadbalancer.GetLoadBalancerRequest{
-		LoadBalancerId: lo.ToPtr(params.loadBalancerID),
-	})
-	if err != nil {
-		return loadbalancer.Listener{}, fmt.Errorf("failed to get listener %s: %w", listenerName, err)
-	}
-
-	// TODO: fail if listener is still not there
-
-	return res.LoadBalancer.Listeners[listenerName], nil
+	return nil
 }
 
 func (m *ociLoadBalancerModelImpl) reconcileBackendSet(

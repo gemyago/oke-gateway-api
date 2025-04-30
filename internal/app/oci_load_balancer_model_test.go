@@ -231,16 +231,14 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				listenerSpec:          &gwListener,
 			}
 
-			actualListener, err := model.reconcileHTTPListener(t.Context(), params)
+			err := model.reconcileHTTPListener(t.Context(), params)
 			require.NoError(t, err)
-			assert.Equal(t, lbListener, actualListener)
 		})
 
 		t.Run("when listener does not exist", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 			gwListener := makeRandomHTTPListener()
-			wantListener := makeRandomOCIListener()
 
 			params := reconcileHTTPListenerParams{
 				loadBalancerID: faker.UUIDHyphenated(),
@@ -272,22 +270,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
 
-			updatedLb := makeRandomOCILoadBalancer(
-				randomOCILoadBalancerWithRandomListenersOpt(),
-				func(lb *loadbalancer.LoadBalancer) {
-					lb.Listeners[string(gwListener.Name)] = wantListener
-				},
-			)
-
-			ociLoadBalancerClient.EXPECT().GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
-				LoadBalancerId: &params.loadBalancerID,
-			}).Return(loadbalancer.GetLoadBalancerResponse{
-				LoadBalancer: updatedLb,
-			}, nil)
-
-			actualListener, err := model.reconcileHTTPListener(t.Context(), params)
+			err := model.reconcileHTTPListener(t.Context(), params)
 			require.NoError(t, err)
-			assert.Equal(t, wantListener, actualListener)
 		})
 
 		t.Run("when create listener fails", func(t *testing.T) {
@@ -318,7 +302,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				},
 			}).Return(loadbalancer.CreateListenerResponse{}, wantErr)
 
-			_, err := model.reconcileHTTPListener(t.Context(), params)
+			err := model.reconcileHTTPListener(t.Context(), params)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, wantErr)
 		})
@@ -357,50 +341,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(wantErr)
 
-			_, err := model.reconcileHTTPListener(t.Context(), params)
-			require.Error(t, err)
-			assert.ErrorIs(t, err, wantErr)
-		})
-
-		t.Run("when final get load balancer fails", func(t *testing.T) {
-			deps := makeMockDeps(t)
-			model := newOciLoadBalancerModel(deps)
-			gwListener := makeRandomHTTPListener()
-
-			params := reconcileHTTPListenerParams{
-				loadBalancerID: faker.UUIDHyphenated(),
-				knownListeners: map[string]loadbalancer.Listener{
-					faker.UUIDHyphenated(): makeRandomOCIListener(),
-					faker.UUIDHyphenated(): makeRandomOCIListener(),
-				},
-				defaultBackendSetName: faker.UUIDHyphenated(),
-				listenerSpec:          &gwListener,
-			}
-
-			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
-			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
-			workRequestID := faker.UUIDHyphenated()
-			wantErr := errors.New(faker.Sentence())
-
-			ociLoadBalancerClient.EXPECT().CreateListener(t.Context(), loadbalancer.CreateListenerRequest{
-				LoadBalancerId: &params.loadBalancerID,
-				CreateListenerDetails: loadbalancer.CreateListenerDetails{
-					Name:                  lo.ToPtr(string(gwListener.Name)),
-					Port:                  lo.ToPtr(int(gwListener.Port)),
-					Protocol:              lo.ToPtr(string(gwListener.Protocol)),
-					DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
-				},
-			}).Return(loadbalancer.CreateListenerResponse{
-				OpcWorkRequestId: &workRequestID,
-			}, nil)
-
-			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
-
-			ociLoadBalancerClient.EXPECT().GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
-				LoadBalancerId: &params.loadBalancerID,
-			}).Return(loadbalancer.GetLoadBalancerResponse{}, wantErr)
-
-			_, err := model.reconcileHTTPListener(t.Context(), params)
+			err := model.reconcileHTTPListener(t.Context(), params)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, wantErr)
 		})

@@ -573,12 +573,7 @@ func TestGatewayModelImpl(t *testing.T) {
 				}).
 				Return(defaultBackendSet, nil)
 
-			ociListeners := make([]loadbalancer.Listener, len(gateway.Spec.Listeners))
-			for i := range gateway.Spec.Listeners {
-				ociListeners[i] = makeRandomOCIListener()
-			}
-
-			for i, listener := range gateway.Spec.Listeners {
+			for _, listener := range gateway.Spec.Listeners {
 				loadBalancerModel.EXPECT().
 					reconcileHTTPListener(t.Context(), reconcileHTTPListenerParams{
 						loadBalancerID:        config.Spec.LoadBalancerID,
@@ -586,7 +581,7 @@ func TestGatewayModelImpl(t *testing.T) {
 						knownListeners:        loadBalancer.Listeners,
 						listenerSpec:          &listener,
 					}).
-					Return(ociListeners[i], nil)
+					Return(nil)
 			}
 			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
 				gateway: *gateway,
@@ -699,7 +694,7 @@ func TestGatewayModelImpl(t *testing.T) {
 			wantErr := errors.New(faker.Sentence())
 			loadBalancerModel.EXPECT().
 				reconcileHTTPListener(t.Context(), mock.Anything).
-				Return(loadbalancer.Listener{}, wantErr)
+				Return(wantErr)
 
 			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
 				gateway: *gateway,

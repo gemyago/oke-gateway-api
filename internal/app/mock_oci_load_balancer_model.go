@@ -139,31 +139,21 @@ func (_c *MockociLoadBalancerModel_reconcileDefaultBackendSet_Call) RunAndReturn
 }
 
 // reconcileHTTPListener provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) reconcileHTTPListener(ctx context.Context, params reconcileHTTPListenerParams) (loadbalancer.Listener, error) {
+func (_m *MockociLoadBalancerModel) reconcileHTTPListener(ctx context.Context, params reconcileHTTPListenerParams) error {
 	ret := _m.Called(ctx, params)
 
 	if len(ret) == 0 {
 		panic("no return value specified for reconcileHTTPListener")
 	}
 
-	var r0 loadbalancer.Listener
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, reconcileHTTPListenerParams) (loadbalancer.Listener, error)); ok {
-		return rf(ctx, params)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, reconcileHTTPListenerParams) loadbalancer.Listener); ok {
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, reconcileHTTPListenerParams) error); ok {
 		r0 = rf(ctx, params)
 	} else {
-		r0 = ret.Get(0).(loadbalancer.Listener)
+		r0 = ret.Error(0)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, reconcileHTTPListenerParams) error); ok {
-		r1 = rf(ctx, params)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
+	return r0
 }
 
 // MockociLoadBalancerModel_reconcileHTTPListener_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'reconcileHTTPListener'
@@ -185,12 +175,12 @@ func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Run(run func(ctx 
 	return _c
 }
 
-func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Return(_a0 loadbalancer.Listener, _a1 error) *MockociLoadBalancerModel_reconcileHTTPListener_Call {
-	_c.Call.Return(_a0, _a1)
+func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Return(_a0 error) *MockociLoadBalancerModel_reconcileHTTPListener_Call {
+	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) RunAndReturn(run func(context.Context, reconcileHTTPListenerParams) (loadbalancer.Listener, error)) *MockociLoadBalancerModel_reconcileHTTPListener_Call {
+func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) RunAndReturn(run func(context.Context, reconcileHTTPListenerParams) error) *MockociLoadBalancerModel_reconcileHTTPListener_Call {
 	_c.Call.Return(run)
 	return _c
 }
