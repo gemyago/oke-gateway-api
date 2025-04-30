@@ -1252,7 +1252,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
                 return fmt.Errorf("failed to program default backend set: %w", err)
         }</span>
 
-        <span class="cov3" title="2">for _, listenerSpec := range data.gateway.Spec.Listeners </span><span class="cov6" title="5">{
+        <span class="cov3" title="2">for _, listenerSpec := range data.gateway.Spec.Listeners </span><span class="cov4" title="3">{
                 // TODO: Support listener with hostname
 
                 _, err = m.ociLoadBalancerModel.reconcileHTTPListener(ctx, reconcileHTTPListenerParams{
@@ -1488,22 +1488,22 @@ func (m *httpBackendModelImpl) identifyBackendsToUpdate(
         var drainingCount int
 
         for _, slice := range params.endpointSlices </span><span class="cov7" title="8">{
-                for _, endpoint := range slice.Endpoints </span><span class="cov9" title="15">{
+                for _, endpoint := range slice.Endpoints </span><span class="cov9" title="14">{
                         if endpoint.Conditions.Ready != nil &amp;&amp; !*endpoint.Conditions.Ready </span><span class="cov3" title="2">{
                                 continue</span>
                         }
-                        <span class="cov8" title="13">if len(endpoint.Addresses) == 0 </span><span class="cov1" title="1">{
+                        <span class="cov8" title="12">if len(endpoint.Addresses) == 0 </span><span class="cov1" title="1">{
                                 m.logger.WarnContext(ctx, "Endpoint has no addresses", slog.Any("endpoint", endpoint))
                                 continue</span>
                         }
-                        <span class="cov8" title="12">ipAddress := endpoint.Addresses[0]
+                        <span class="cov8" title="11">ipAddress := endpoint.Addresses[0]
                         isDraining := endpoint.Conditions.Terminating != nil &amp;&amp; *endpoint.Conditions.Terminating
 
                         if isDraining </span><span class="cov3" title="2">{
                                 drainingCount++
                         }</span>
 
-                        <span class="cov8" title="12">desiredBackendsMap[ipAddress] = loadbalancer.BackendDetails{
+                        <span class="cov8" title="11">desiredBackendsMap[ipAddress] = loadbalancer.BackendDetails{
                                 Port:      lo.ToPtr(int(params.endpointPort)),
                                 IpAddress: &amp;ipAddress,
                                 Drain:     lo.ToPtr(isDraining),
@@ -1908,7 +1908,7 @@ type httpRouteModel interface {
         ) error
 }
 
-func parentRefEqual(a, b gatewayv1.ParentReference) bool <span class="cov7" title="13">{
+func parentRefEqual(a, b gatewayv1.ParentReference) bool <span class="cov7" title="11">{
         return a.Name == b.Name &amp;&amp;
                 lo.FromPtr(a.Namespace) == lo.FromPtr(b.Namespace) &amp;&amp;
                 lo.FromPtr(a.Kind) == lo.FromPtr(b.Kind) &amp;&amp;
@@ -2180,7 +2180,7 @@ func (m *httpRouteModelImpl) setProgrammed(
 
         parentStatus, parentStatusIndex, found := lo.FindIndexOf(
                 httpRoute.Status.Parents,
-                func(s gatewayv1.RouteParentStatus) bool </span><span class="cov5" title="6">{
+                func(s gatewayv1.RouteParentStatus) bool </span><span class="cov4" title="4">{
                         return s.ControllerName == params.gatewayClass.Spec.ControllerName &amp;&amp;
                                 parentRefEqual(s.ParentRef, params.matchedRef)
                 }</span>,
@@ -3743,7 +3743,7 @@ type MockociLoadBalancerModel_Expecter struct {
         mock *mock.Mock
 }
 
-func (_m *MockociLoadBalancerModel) EXPECT() *MockociLoadBalancerModel_Expecter <span class="cov6" title="11">{
+func (_m *MockociLoadBalancerModel) EXPECT() *MockociLoadBalancerModel_Expecter <span class="cov6" title="9">{
         return &amp;MockociLoadBalancerModel_Expecter{mock: &amp;_m.Mock}
 }</span>
 
@@ -3862,31 +3862,31 @@ func (_c *MockociLoadBalancerModel_reconcileDefaultBackendSet_Call) RunAndReturn
 }</span>
 
 // reconcileHTTPListener provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) reconcileHTTPListener(ctx context.Context, params reconcileHTTPListenerParams) (loadbalancer.Listener, error) <span class="cov4" title="5">{
+func (_m *MockociLoadBalancerModel) reconcileHTTPListener(ctx context.Context, params reconcileHTTPListenerParams) (loadbalancer.Listener, error) <span class="cov3" title="3">{
         ret := _m.Called(ctx, params)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for reconcileHTTPListener")</span>
         }
 
-        <span class="cov4" title="5">var r0 loadbalancer.Listener
+        <span class="cov3" title="3">var r0 loadbalancer.Listener
         var r1 error
         if rf, ok := ret.Get(0).(func(context.Context, reconcileHTTPListenerParams) (loadbalancer.Listener, error)); ok </span><span class="cov0" title="0">{
                 return rf(ctx, params)
         }</span>
-        <span class="cov4" title="5">if rf, ok := ret.Get(0).(func(context.Context, reconcileHTTPListenerParams) loadbalancer.Listener); ok </span><span class="cov0" title="0">{
+        <span class="cov3" title="3">if rf, ok := ret.Get(0).(func(context.Context, reconcileHTTPListenerParams) loadbalancer.Listener); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, params)
-        }</span> else<span class="cov4" title="5"> {
+        }</span> else<span class="cov3" title="3"> {
                 r0 = ret.Get(0).(loadbalancer.Listener)
         }</span>
 
-        <span class="cov4" title="5">if rf, ok := ret.Get(1).(func(context.Context, reconcileHTTPListenerParams) error); ok </span><span class="cov0" title="0">{
+        <span class="cov3" title="3">if rf, ok := ret.Get(1).(func(context.Context, reconcileHTTPListenerParams) error); ok </span><span class="cov0" title="0">{
                 r1 = rf(ctx, params)
-        }</span> else<span class="cov4" title="5"> {
+        }</span> else<span class="cov3" title="3"> {
                 r1 = ret.Error(1)
         }</span>
 
-        <span class="cov4" title="5">return r0, r1</span>
+        <span class="cov3" title="3">return r0, r1</span>
 }
 
 // MockociLoadBalancerModel_reconcileHTTPListener_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'reconcileHTTPListener'
@@ -3897,7 +3897,7 @@ type MockociLoadBalancerModel_reconcileHTTPListener_Call struct {
 // reconcileHTTPListener is a helper method to define mock.On call
 //   - ctx context.Context
 //   - params reconcileHTTPListenerParams
-func (_e *MockociLoadBalancerModel_Expecter) reconcileHTTPListener(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov4" title="5">{
+func (_e *MockociLoadBalancerModel_Expecter) reconcileHTTPListener(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov3" title="3">{
         return &amp;MockociLoadBalancerModel_reconcileHTTPListener_Call{Call: _e.mock.On("reconcileHTTPListener", ctx, params)}
 }</span>
 
@@ -3908,7 +3908,7 @@ func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Run(run func(ctx 
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Return(_a0 loadbalancer.Listener, _a1 error) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov4" title="5">{
+func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Return(_a0 loadbalancer.Listener, _a1 error) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov3" title="3">{
         _c.Call.Return(_a0, _a1)
         return _c
 }</span>
