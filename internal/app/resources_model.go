@@ -20,12 +20,18 @@ type setConditionParams struct {
 	message       string
 }
 
+type isConditionSetParams struct {
+	resource      client.Object
+	conditions    []metav1.Condition
+	conditionType string
+}
+
 type resourcesModel interface {
 	// setCondition sets a condition on a given resource.
 	setCondition(ctx context.Context, params setConditionParams) error
 
 	// isConditionSet checks if a specific condition is already set, true, and observed at the correct generation.
-	isConditionSet(resource client.Object, conditions []metav1.Condition, conditionType string) bool
+	isConditionSet(params isConditionSetParams) bool
 }
 
 type resourcesModelImpl struct {
@@ -62,13 +68,10 @@ func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditi
 	return nil
 }
 
-func (m *resourcesModelImpl) isConditionSet(
-	resource client.Object,
-	conditions []metav1.Condition,
-	conditionType string) bool {
-	existingCondition := meta.FindStatusCondition(conditions, conditionType)
+func (m *resourcesModelImpl) isConditionSet(params isConditionSetParams) bool {
+	existingCondition := meta.FindStatusCondition(params.conditions, params.conditionType)
 	if existingCondition != nil &&
-		existingCondition.ObservedGeneration == resource.GetGeneration() {
+		existingCondition.ObservedGeneration == params.resource.GetGeneration() {
 		return true
 	}
 	return false

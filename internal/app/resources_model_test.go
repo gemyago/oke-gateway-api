@@ -171,14 +171,24 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 			},
 		}
 
-		result := model.isConditionSet(gatewayClass, conditions, conditionType)
+		params := isConditionSetParams{
+			resource:      gatewayClass,
+			conditions:    conditions,
+			conditionType: conditionType,
+		}
+		result := model.isConditionSet(params)
 		assert.True(t, result, "Expected isConditionSet to return true when condition matches")
 	})
 
 	t.Run("ConditionNotSet", func(t *testing.T) {
 		conditions := []metav1.Condition{} // No conditions
 		conditionType := faker.DomainName()
-		result := model.isConditionSet(gatewayClass, conditions, conditionType)
+		params := isConditionSetParams{
+			resource:      gatewayClass,
+			conditions:    conditions,
+			conditionType: conditionType,
+		}
+		result := model.isConditionSet(params)
 		assert.False(t, result, "Expected isConditionSet to return false when conditions slice is empty")
 	})
 
@@ -192,7 +202,12 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 				ObservedGeneration: gatewayClass.Generation,
 			},
 		}
-		result := model.isConditionSet(gatewayClass, conditions, conditionType)
+		params := isConditionSetParams{
+			resource:      gatewayClass,
+			conditions:    conditions,
+			conditionType: conditionType,
+		}
+		result := model.isConditionSet(params)
 		assert.False(t, result, "Expected isConditionSet to return false for wrong condition type")
 	})
 
@@ -206,7 +221,12 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 				ObservedGeneration: gatewayClass.Generation - 1, // Mismatched generation
 			},
 		}
-		result := model.isConditionSet(gatewayClass, conditions, conditionType)
+		params := isConditionSetParams{
+			resource:      gatewayClass,
+			conditions:    conditions,
+			conditionType: conditionType,
+		}
+		result := model.isConditionSet(params)
 		assert.False(t, result, "Expected isConditionSet to return false for wrong observed generation")
 	})
 }
