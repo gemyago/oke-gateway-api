@@ -37,10 +37,17 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Build local image
+    - name: Prepare docker artifacts
       working-directory: build
-      run: make docker/local-images
+      run: make docker-artifacts.tar.bz2
+      env:
+        GIT_COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+        GIT_REF: ${{ github.event.pull_request.head.ref }}
 
-    - name: Push images
-      working-directory: build
-      run: make docker/remote-images
+    - name: Upload docker artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: docker-artifacts-pr-${{ github.event.pull_request.node_id }}
+        path: build/docker-artifacts.tar.bz2
+        retention-days: 7
+        overwrite: true
