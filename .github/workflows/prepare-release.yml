@@ -1,0 +1,32 @@
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_name:
+        description: 'The tag for the draft release (e.g., v1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  prepare-draft-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Needed to create releases/tags
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetches all history for release notes generation
+
+      - name: Create Draft Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_NAME: ${{ github.event.inputs.release_name }}
+        run: |
+          echo "Creating draft release for tag $RELEASE_NAME"
+          gh release create "$RELEASE_NAME" \
+            --draft \
+            --title "$RELEASE_NAME" \
+            --generate-notes
+          echo "Draft release created: https://github.com/${{ github.repository }}/releases/tag/$RELEASE_NAME"

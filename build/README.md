@@ -29,11 +29,11 @@ Use commands below to build docker images locally:
 # Build artifacts first
 make dist
 
-# Build local images
-make docker/local-images
+# Build local images (for local testing)
+make docker/.local-images
 
-# Optionally push images to a registry
-make docker/remote-images
+# Build and push images to a remote registry
+make docker/.remote-images
 ```
 
 ## Build Scripts
