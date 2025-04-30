@@ -140,6 +140,91 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 		require.Error(t, err, "Expected an error from setAcceptedCondition")
 		require.ErrorIs(t, err, expectedError, "Returned error should wrap the original update error")
 	})
+
+	t.Run("HappyPath_AddsAnnotations", func(t *testing.T) {
+		deps := newMockDeps(t)
+		model := newResourcesModel(deps)
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+
+		// Use faker for annotations with prefixes for simplicity
+		key1 := "key1-" + faker.Word()
+		keyShared := "shared-" + faker.Word()
+		key2 := "key2-" + faker.Word()
+		val1 := faker.Sentence()
+		valInitialShared := faker.Sentence()
+		val2 := faker.Sentence()
+		valNewShared := faker.Sentence()
+
+		initialAnnotations := map[string]string{
+			key1:      val1,
+			keyShared: valInitialShared,
+		}
+		newAnnotations := map[string]string{
+			key2:      val2,
+			keyShared: valNewShared, // This should overwrite the initial shared value
+		}
+		expectedMergedAnnotations := map[string]string{
+			key1:      val1,
+			key2:      val2,
+			keyShared: valNewShared,
+		}
+
+		gatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        faker.DomainName(),
+				Generation:  rand.Int64(),
+				Annotations: initialAnnotations,
+			},
+			Spec: gatewayv1.GatewayClassSpec{
+				ControllerName: ControllerClassName,
+			},
+			Status: gatewayv1.GatewayClassStatus{
+				Conditions: []metav1.Condition{},
+			},
+		}
+
+		params := setConditionParams{
+			resource:      gatewayClass,
+			conditions:    &gatewayClass.Status.Conditions,
+			conditionType: faker.DomainName(),
+			status:        metav1.ConditionTrue,
+			reason:        faker.Word(),
+			message:       faker.Sentence(),
+			annotations:   newAnnotations,
+		}
+
+		updateCall := mockClient.EXPECT().
+			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				gc, ok := obj.(*gatewayv1.GatewayClass)
+				require.True(t, ok, "Object should be GatewayClass")
+				assert.Equal(t, expectedMergedAnnotations, gc.GetAnnotations(), "Annotations should be merged")
+				return true
+			}), mock.Anything).Return(nil).Once()
+
+		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
+
+		mockStatusWriter.EXPECT().
+			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				gc, ok := obj.(*gatewayv1.GatewayClass)
+				require.True(t, ok, "Object should be GatewayClass for status update")
+				assert.Equal(t, expectedMergedAnnotations, gc.GetAnnotations(), "Annotations should persist for Status Update")
+				require.Len(t, gc.Status.Conditions, 1, "Expected one condition in status")
+				cond := meta.FindStatusCondition(gc.Status.Conditions, params.conditionType)
+				require.NotNil(t, cond)
+				assert.Equal(t, params.status, cond.Status)
+				assert.Equal(t, params.reason, cond.Reason)
+				assert.Equal(t, params.message, cond.Message)
+				assert.Equal(t, gatewayClass.Generation, cond.ObservedGeneration)
+				return true
+			}), mock.Anything).
+			Return(nil).
+			NotBefore(updateCall).
+			Once()
+
+		err := model.setCondition(t.Context(), params)
+		require.NoError(t, err)
+	})
 }
 
 func TestResourcesModelImpl_isConditionSet(t *testing.T) {

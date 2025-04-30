@@ -18,6 +18,7 @@ type setConditionParams struct {
 	status        metav1.ConditionStatus
 	reason        string
 	message       string
+	annotations   map[string]string // Optional: Annotations to set/update on the resource before status update
 }
 
 type isConditionSetParams struct {
@@ -40,6 +41,23 @@ type resourcesModelImpl struct {
 }
 
 func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditionParams) error {
+	if len(params.annotations) > 0 {
+		m.logger.DebugContext(ctx, "Updating resource annotations before setting condition",
+			slog.String("resource", params.resource.GetName()),
+			slog.Any("annotations", params.annotations))
+		currentAnnotations := params.resource.GetAnnotations()
+		if currentAnnotations == nil {
+			currentAnnotations = make(map[string]string)
+		}
+		for k, v := range params.annotations {
+			currentAnnotations[k] = v
+		}
+		params.resource.SetAnnotations(currentAnnotations)
+		if err := m.client.Update(ctx, params.resource); err != nil {
+			return fmt.Errorf("failed to update resource %s with annotations: %w", params.resource.GetName(), err)
+		}
+	}
+
 	m.logger.DebugContext(ctx,
 		fmt.Sprintf("Setting %s condition", params.conditionType),
 		slog.String("resource", params.resource.GetName()),
