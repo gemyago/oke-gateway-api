@@ -34,6 +34,13 @@ type reconcileHTTPListenerParams struct {
 	listenerSpec          *gatewayv1.Listener
 }
 
+type reconcileRuleSetParams struct {
+	loadBalancerID string
+	listenerName   string              // The name of the listener to associate the RuleSet with
+	ruleSetName    string              // A unique name for the RuleSet (e.g., derived from listener name)
+	rules          []loadbalancer.Rule // The desired list of rules
+}
+
 type ociLoadBalancerModel interface {
 	reconcileDefaultBackendSet(
 		ctx context.Context,
@@ -50,6 +57,13 @@ type ociLoadBalancerModel interface {
 		ctx context.Context,
 		params reconcileBackendSetParams,
 	) (loadbalancer.BackendSet, error)
+
+	// reconcileRuleSet ensures a RuleSet with the given rules exists and is associated
+	// with the specified listener. It creates or updates the RuleSet as needed.
+	reconcileRuleSet(
+		ctx context.Context,
+		params reconcileRuleSetParams,
+	) error
 }
 
 type ociLoadBalancerModelImpl struct {
@@ -227,6 +241,22 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 	}
 
 	return res.BackendSet, nil
+}
+
+// TODO: Implement actual logic for reconciling RuleSet
+func (m *ociLoadBalancerModelImpl) reconcileRuleSet(
+	ctx context.Context,
+	params reconcileRuleSetParams,
+) error {
+	m.logger.InfoContext(ctx, "Reconciling RuleSet (STUB)",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("listenerName", params.listenerName),
+		slog.String("ruleSetName", params.ruleSetName),
+		slog.Int("ruleCount", len(params.rules)),
+	)
+
+	// Placeholder: Return nil, nil for now
+	return nil
 }
 
 type ociLoadBalancerModelDeps struct {
