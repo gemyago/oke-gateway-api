@@ -154,8 +154,7 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 	)
 
 	// Create a routing policy first
-	// TODO: Sanitize the name, investigate docs for allowed characters
-	routingPolicyName := listenerName + "_policy"
+	routingPolicyName := listenerPolicyName(listenerName)
 	m.logger.InfoContext(ctx, "Creating routing policy for listener",
 		slog.String("loadBalancerId", params.loadBalancerID),
 		slog.String("routingPolicyName", routingPolicyName),
@@ -349,6 +348,11 @@ func (m *ociLoadBalancerModelImpl) removeMissingListeners(
 	}
 
 	return errors.Join(errs...)
+}
+
+func listenerPolicyName(listenerName string) string {
+	// TODO: Sanitize the name, investigate docs for allowed characters
+	return listenerName + "_policy"
 }
 
 type ociLoadBalancerModelDeps struct {
