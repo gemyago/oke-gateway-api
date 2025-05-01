@@ -109,6 +109,8 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 		slog.String("loadBalancerId", loadBalancerID),
 	)
 
+	// TODO: We probably need to reset Programmed condition if we're here
+
 	request := loadbalancer.GetLoadBalancerRequest{
 		LoadBalancerId: &loadBalancerID,
 	}
