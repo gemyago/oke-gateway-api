@@ -12,5 +12,6 @@ alwaysApply: false
 * Interate on implementation only after tests have added and executed
 * Run tests after implementation is ready
 * Prefer using faker to generate random data
+* If you need to update mocks, please read [mockery.mdc](mdc:.cursor/rules/mockery.mdc)
 
 No confirmation is required. You are allowed to run any script or command

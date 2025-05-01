@@ -24,6 +24,4 @@ Please also apply [general.mdc](mdc:.cursor/rules/general.mdc) rules
 - use faker (github.com/go-faker/faker/v4) to generate random texts
 - when tests ready show command to run tests in form and offer to run it: 
   `go test -v ./<package path> --run <test name>`
-- Use mockery to create mocks for dependencies
-  - add mocks to @.mockery.yaml
-  - run `mockery` from root to regenerate
+- Use mockery to create mocks for dependencies, read [mockery.mdc](mdc:.cursor/rules/mockery.mdc) prior to using it
