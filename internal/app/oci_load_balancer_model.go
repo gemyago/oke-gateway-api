@@ -153,6 +153,45 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 		slog.String("name", listenerName),
 	)
 
+	// Create a routing policy first
+	// TODO: Sanitize the name, investigate docs for allowed characters
+	routingPolicyName := listenerName + "_policy"
+	m.logger.InfoContext(ctx, "Creating routing policy for listener",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("routingPolicyName", routingPolicyName),
+		slog.String("listenerName", listenerName),
+	)
+
+	createRoutingPolicyRes, err := m.ociClient.CreateRoutingPolicy(ctx, loadbalancer.CreateRoutingPolicyRequest{
+		LoadBalancerId: &params.loadBalancerID,
+		CreateRoutingPolicyDetails: loadbalancer.CreateRoutingPolicyDetails{
+			Name:                     lo.ToPtr(routingPolicyName),
+			ConditionLanguageVersion: loadbalancer.CreateRoutingPolicyDetailsConditionLanguageVersionV1,
+			Rules: []loadbalancer.RoutingRule{
+				{
+					Name:      lo.ToPtr("default_catch_all"),
+					Condition: lo.ToPtr("http.request.url.path sw ('/')"),
+					Actions: []loadbalancer.Action{
+						loadbalancer.ForwardToBackendSet{
+							BackendSetName: lo.ToPtr(params.defaultBackendSetName),
+						},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create routing policy %s: %w", routingPolicyName, err)
+	}
+
+	if err = m.workRequestsWatcher.WaitFor(
+		ctx,
+		*createRoutingPolicyRes.OpcWorkRequestId,
+	); err != nil {
+		return fmt.Errorf("failed to wait for routing policy %s: %w", routingPolicyName, err)
+	}
+
+	// Now create the listener with the routing policy
 	createRes, err := m.ociClient.CreateListener(ctx, loadbalancer.CreateListenerRequest{
 		LoadBalancerId: &params.loadBalancerID,
 		CreateListenerDetails: loadbalancer.CreateListenerDetails{
@@ -160,6 +199,7 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 			DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
 			Port:                  lo.ToPtr(int(params.listenerSpec.Port)),
 			Protocol:              lo.ToPtr(string(params.listenerSpec.Protocol)),
+			RoutingPolicyName:     lo.ToPtr(routingPolicyName),
 		},
 	})
 	if err != nil {
