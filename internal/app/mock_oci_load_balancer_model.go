@@ -232,6 +232,53 @@ func (_c *MockociLoadBalancerModel_reconcileRuleSet_Call) RunAndReturn(run func(
 	return _c
 }
 
+// removeMissingListeners provides a mock function with given fields: ctx, params
+func (_m *MockociLoadBalancerModel) removeMissingListeners(ctx context.Context, params removeMissingListenersParams) error {
+	ret := _m.Called(ctx, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for removeMissingListeners")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, removeMissingListenersParams) error); ok {
+		r0 = rf(ctx, params)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockociLoadBalancerModel_removeMissingListeners_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'removeMissingListeners'
+type MockociLoadBalancerModel_removeMissingListeners_Call struct {
+	*mock.Call
+}
+
+// removeMissingListeners is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params removeMissingListenersParams
+func (_e *MockociLoadBalancerModel_Expecter) removeMissingListeners(ctx interface{}, params interface{}) *MockociLoadBalancerModel_removeMissingListeners_Call {
+	return &MockociLoadBalancerModel_removeMissingListeners_Call{Call: _e.mock.On("removeMissingListeners", ctx, params)}
+}
+
+func (_c *MockociLoadBalancerModel_removeMissingListeners_Call) Run(run func(ctx context.Context, params removeMissingListenersParams)) *MockociLoadBalancerModel_removeMissingListeners_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(removeMissingListenersParams))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_removeMissingListeners_Call) Return(_a0 error) *MockociLoadBalancerModel_removeMissingListeners_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_removeMissingListeners_Call) RunAndReturn(run func(context.Context, removeMissingListenersParams) error) *MockociLoadBalancerModel_removeMissingListeners_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockociLoadBalancerModel creates a new instance of MockociLoadBalancerModel. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockociLoadBalancerModel(t interface {

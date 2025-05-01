@@ -252,6 +252,63 @@ func (_c *MockociLoadBalancerClient_CreateListener_Call) RunAndReturn(run func(c
 	return _c
 }
 
+// DeleteListener provides a mock function with given fields: ctx, request
+func (_m *MockociLoadBalancerClient) DeleteListener(ctx context.Context, request loadbalancer.DeleteListenerRequest) (loadbalancer.DeleteListenerResponse, error) {
+	ret := _m.Called(ctx, request)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteListener")
+	}
+
+	var r0 loadbalancer.DeleteListenerResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.DeleteListenerRequest) (loadbalancer.DeleteListenerResponse, error)); ok {
+		return rf(ctx, request)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.DeleteListenerRequest) loadbalancer.DeleteListenerResponse); ok {
+		r0 = rf(ctx, request)
+	} else {
+		r0 = ret.Get(0).(loadbalancer.DeleteListenerResponse)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.DeleteListenerRequest) error); ok {
+		r1 = rf(ctx, request)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockociLoadBalancerClient_DeleteListener_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteListener'
+type MockociLoadBalancerClient_DeleteListener_Call struct {
+	*mock.Call
+}
+
+// DeleteListener is a helper method to define mock.On call
+//   - ctx context.Context
+//   - request loadbalancer.DeleteListenerRequest
+func (_e *MockociLoadBalancerClient_Expecter) DeleteListener(ctx interface{}, request interface{}) *MockociLoadBalancerClient_DeleteListener_Call {
+	return &MockociLoadBalancerClient_DeleteListener_Call{Call: _e.mock.On("DeleteListener", ctx, request)}
+}
+
+func (_c *MockociLoadBalancerClient_DeleteListener_Call) Run(run func(ctx context.Context, request loadbalancer.DeleteListenerRequest)) *MockociLoadBalancerClient_DeleteListener_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(loadbalancer.DeleteListenerRequest))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_DeleteListener_Call) Return(response loadbalancer.DeleteListenerResponse, err error) *MockociLoadBalancerClient_DeleteListener_Call {
+	_c.Call.Return(response, err)
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_DeleteListener_Call) RunAndReturn(run func(context.Context, loadbalancer.DeleteListenerRequest) (loadbalancer.DeleteListenerResponse, error)) *MockociLoadBalancerClient_DeleteListener_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetBackendSet provides a mock function with given fields: ctx, request
 func (_m *MockociLoadBalancerClient) GetBackendSet(ctx context.Context, request loadbalancer.GetBackendSetRequest) (loadbalancer.GetBackendSetResponse, error) {
 	ret := _m.Called(ctx, request)
@@ -423,6 +480,63 @@ func (_c *MockociLoadBalancerClient_GetLoadBalancer_Call) RunAndReturn(run func(
 	return _c
 }
 
+// GetRuleSet provides a mock function with given fields: ctx, request
+func (_m *MockociLoadBalancerClient) GetRuleSet(ctx context.Context, request loadbalancer.GetRuleSetRequest) (loadbalancer.GetRuleSetResponse, error) {
+	ret := _m.Called(ctx, request)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRuleSet")
+	}
+
+	var r0 loadbalancer.GetRuleSetResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.GetRuleSetRequest) (loadbalancer.GetRuleSetResponse, error)); ok {
+		return rf(ctx, request)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.GetRuleSetRequest) loadbalancer.GetRuleSetResponse); ok {
+		r0 = rf(ctx, request)
+	} else {
+		r0 = ret.Get(0).(loadbalancer.GetRuleSetResponse)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.GetRuleSetRequest) error); ok {
+		r1 = rf(ctx, request)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockociLoadBalancerClient_GetRuleSet_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetRuleSet'
+type MockociLoadBalancerClient_GetRuleSet_Call struct {
+	*mock.Call
+}
+
+// GetRuleSet is a helper method to define mock.On call
+//   - ctx context.Context
+//   - request loadbalancer.GetRuleSetRequest
+func (_e *MockociLoadBalancerClient_Expecter) GetRuleSet(ctx interface{}, request interface{}) *MockociLoadBalancerClient_GetRuleSet_Call {
+	return &MockociLoadBalancerClient_GetRuleSet_Call{Call: _e.mock.On("GetRuleSet", ctx, request)}
+}
+
+func (_c *MockociLoadBalancerClient_GetRuleSet_Call) Run(run func(ctx context.Context, request loadbalancer.GetRuleSetRequest)) *MockociLoadBalancerClient_GetRuleSet_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(loadbalancer.GetRuleSetRequest))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_GetRuleSet_Call) Return(response loadbalancer.GetRuleSetResponse, err error) *MockociLoadBalancerClient_GetRuleSet_Call {
+	_c.Call.Return(response, err)
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_GetRuleSet_Call) RunAndReturn(run func(context.Context, loadbalancer.GetRuleSetRequest) (loadbalancer.GetRuleSetResponse, error)) *MockociLoadBalancerClient_GetRuleSet_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateBackendSet provides a mock function with given fields: ctx, request
 func (_m *MockociLoadBalancerClient) UpdateBackendSet(ctx context.Context, request loadbalancer.UpdateBackendSetRequest) (loadbalancer.UpdateBackendSetResponse, error) {
 	ret := _m.Called(ctx, request)
@@ -476,6 +590,63 @@ func (_c *MockociLoadBalancerClient_UpdateBackendSet_Call) Return(response loadb
 }
 
 func (_c *MockociLoadBalancerClient_UpdateBackendSet_Call) RunAndReturn(run func(context.Context, loadbalancer.UpdateBackendSetRequest) (loadbalancer.UpdateBackendSetResponse, error)) *MockociLoadBalancerClient_UpdateBackendSet_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateRuleSet provides a mock function with given fields: ctx, request
+func (_m *MockociLoadBalancerClient) UpdateRuleSet(ctx context.Context, request loadbalancer.UpdateRuleSetRequest) (loadbalancer.UpdateRuleSetResponse, error) {
+	ret := _m.Called(ctx, request)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateRuleSet")
+	}
+
+	var r0 loadbalancer.UpdateRuleSetResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.UpdateRuleSetRequest) (loadbalancer.UpdateRuleSetResponse, error)); ok {
+		return rf(ctx, request)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.UpdateRuleSetRequest) loadbalancer.UpdateRuleSetResponse); ok {
+		r0 = rf(ctx, request)
+	} else {
+		r0 = ret.Get(0).(loadbalancer.UpdateRuleSetResponse)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.UpdateRuleSetRequest) error); ok {
+		r1 = rf(ctx, request)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockociLoadBalancerClient_UpdateRuleSet_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateRuleSet'
+type MockociLoadBalancerClient_UpdateRuleSet_Call struct {
+	*mock.Call
+}
+
+// UpdateRuleSet is a helper method to define mock.On call
+//   - ctx context.Context
+//   - request loadbalancer.UpdateRuleSetRequest
+func (_e *MockociLoadBalancerClient_Expecter) UpdateRuleSet(ctx interface{}, request interface{}) *MockociLoadBalancerClient_UpdateRuleSet_Call {
+	return &MockociLoadBalancerClient_UpdateRuleSet_Call{Call: _e.mock.On("UpdateRuleSet", ctx, request)}
+}
+
+func (_c *MockociLoadBalancerClient_UpdateRuleSet_Call) Run(run func(ctx context.Context, request loadbalancer.UpdateRuleSetRequest)) *MockociLoadBalancerClient_UpdateRuleSet_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(loadbalancer.UpdateRuleSetRequest))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_UpdateRuleSet_Call) Return(response loadbalancer.UpdateRuleSetResponse, err error) *MockociLoadBalancerClient_UpdateRuleSet_Call {
+	_c.Call.Return(response, err)
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_UpdateRuleSet_Call) RunAndReturn(run func(context.Context, loadbalancer.UpdateRuleSetRequest) (loadbalancer.UpdateRuleSetResponse, error)) *MockociLoadBalancerClient_UpdateRuleSet_Call {
 	_c.Call.Return(run)
 	return _c
 }

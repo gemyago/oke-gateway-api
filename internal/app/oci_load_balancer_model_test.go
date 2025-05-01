@@ -12,6 +12,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 func TestOciLoadBalancerModelImpl(t *testing.T) {
@@ -559,6 +560,196 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			actualBackendSet, err := model.reconcileBackendSet(t.Context(), params)
 			require.NoError(t, err)
 			assert.Equal(t, wantBs, actualBackendSet)
+		})
+	})
+
+	t.Run("removeMissingListeners", func(t *testing.T) {
+		t.Run("no listeners to remove", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+
+			gwListener1 := makeRandomHTTPListener()
+			gwListener2 := makeRandomHTTPListener()
+
+			lbListener1 := makeRandomOCIListener(func(l *loadbalancer.Listener) {
+				l.Name = lo.ToPtr(string(gwListener1.Name))
+			})
+			lbListener2 := makeRandomOCIListener(func(l *loadbalancer.Listener) {
+				l.Name = lo.ToPtr(string(gwListener2.Name))
+			})
+
+			params := removeMissingListenersParams{
+				loadBalancerID: faker.UUIDHyphenated(),
+				knownListeners: map[string]loadbalancer.Listener{
+					*lbListener1.Name: lbListener1,
+					*lbListener2.Name: lbListener2,
+				},
+				gatewayListeners: []gatewayv1.Listener{
+					gwListener1,
+					gwListener2,
+				},
+			}
+
+			err := model.removeMissingListeners(t.Context(), params)
+			require.NoError(t, err)
+		})
+
+		t.Run("multiple listeners to remove", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			gwListener1 := makeRandomHTTPListener()
+			gwListener2 := makeRandomHTTPListener()
+			lbListener1 := makeRandomOCIListener(func(l *loadbalancer.Listener) {
+				l.Name = lo.ToPtr(string(gwListener1.Name))
+			})
+			lbListener2 := makeRandomOCIListener(func(l *loadbalancer.Listener) {
+				l.Name = lo.ToPtr(string(gwListener2.Name))
+			})
+			lbListenerToRemove1 := makeRandomOCIListener()
+			lbListenerToRemove2 := makeRandomOCIListener()
+
+			params := removeMissingListenersParams{
+				loadBalancerID: faker.UUIDHyphenated(),
+				knownListeners: map[string]loadbalancer.Listener{
+					*lbListener1.Name:         lbListener1,
+					*lbListener2.Name:         lbListener2,
+					*lbListenerToRemove1.Name: lbListenerToRemove1,
+					*lbListenerToRemove2.Name: lbListenerToRemove2,
+				},
+				gatewayListeners: []gatewayv1.Listener{
+					gwListener1,
+					gwListener2,
+				},
+			}
+
+			// Expect deletion for both missing listeners
+			workRequestID1 := faker.UUIDHyphenated()
+			ociLoadBalancerClient.EXPECT().DeleteListener(t.Context(), loadbalancer.DeleteListenerRequest{
+				LoadBalancerId: &params.loadBalancerID,
+				ListenerName:   lbListenerToRemove1.Name,
+			}).Return(loadbalancer.DeleteListenerResponse{OpcWorkRequestId: &workRequestID1}, nil).Once()
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID1).Return(nil).Once()
+
+			workRequestID2 := faker.UUIDHyphenated()
+			ociLoadBalancerClient.EXPECT().DeleteListener(t.Context(), loadbalancer.DeleteListenerRequest{
+				LoadBalancerId: &params.loadBalancerID,
+				ListenerName:   lbListenerToRemove2.Name,
+			}).Return(loadbalancer.DeleteListenerResponse{OpcWorkRequestId: &workRequestID2}, nil).Once()
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID2).Return(nil).Once()
+
+			err := model.removeMissingListeners(t.Context(), params)
+			require.NoError(t, err)
+		})
+
+		t.Run("fail when delete listener fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			lbListenerToRemove := makeRandomOCIListener()
+			wantErr := errors.New(faker.Sentence())
+
+			params := removeMissingListenersParams{
+				loadBalancerID: faker.UUIDHyphenated(),
+				knownListeners: map[string]loadbalancer.Listener{
+					*lbListenerToRemove.Name: lbListenerToRemove,
+				},
+				gatewayListeners: []gatewayv1.Listener{},
+			}
+
+			ociLoadBalancerClient.EXPECT().DeleteListener(t.Context(), loadbalancer.DeleteListenerRequest{
+				LoadBalancerId: &params.loadBalancerID,
+				ListenerName:   lbListenerToRemove.Name,
+			}).Return(loadbalancer.DeleteListenerResponse{}, wantErr).Once()
+
+			err := model.removeMissingListeners(t.Context(), params)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("fail when wait for listener fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			lbListenerToRemove := makeRandomOCIListener()
+			wantErr := errors.New(faker.Sentence())
+
+			params := removeMissingListenersParams{
+				loadBalancerID: faker.UUIDHyphenated(),
+				knownListeners: map[string]loadbalancer.Listener{
+					*lbListenerToRemove.Name: lbListenerToRemove,
+				},
+				gatewayListeners: []gatewayv1.Listener{},
+			}
+
+			workRequestID := faker.UUIDHyphenated()
+			ociLoadBalancerClient.EXPECT().DeleteListener(t.Context(), loadbalancer.DeleteListenerRequest{
+				LoadBalancerId: &params.loadBalancerID,
+				ListenerName:   lbListenerToRemove.Name,
+			}).Return(loadbalancer.DeleteListenerResponse{OpcWorkRequestId: &workRequestID}, nil).Once()
+
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(wantErr).Once()
+
+			err := model.removeMissingListeners(t.Context(), params)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("continues deleting even if one fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			lbListenerToRemove1 := makeRandomOCIListener()
+			lbListenerToRemove2 := makeRandomOCIListener() // This one succeeds
+			lbListenerToRemove3 := makeRandomOCIListener() // This one fails during wait
+
+			wantErr1 := errors.New(faker.Sentence())
+			wantErr3 := errors.New(faker.Sentence())
+
+			params := removeMissingListenersParams{
+				loadBalancerID: faker.UUIDHyphenated(),
+				knownListeners: map[string]loadbalancer.Listener{
+					*lbListenerToRemove1.Name: lbListenerToRemove1,
+					*lbListenerToRemove2.Name: lbListenerToRemove2,
+					*lbListenerToRemove3.Name: lbListenerToRemove3,
+				},
+				gatewayListeners: []gatewayv1.Listener{},
+			}
+
+			// Expect deletion attempt for all three
+			// 1. Fails on delete call
+			ociLoadBalancerClient.EXPECT().DeleteListener(t.Context(), loadbalancer.DeleteListenerRequest{
+				LoadBalancerId: &params.loadBalancerID,
+				ListenerName:   lbListenerToRemove1.Name,
+			}).Return(loadbalancer.DeleteListenerResponse{}, wantErr1).Once()
+
+			// 2. Succeeds fully
+			workRequestID2 := faker.UUIDHyphenated()
+			ociLoadBalancerClient.EXPECT().DeleteListener(t.Context(), loadbalancer.DeleteListenerRequest{
+				LoadBalancerId: &params.loadBalancerID,
+				ListenerName:   lbListenerToRemove2.Name,
+			}).Return(loadbalancer.DeleteListenerResponse{OpcWorkRequestId: &workRequestID2}, nil).Once()
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID2).Return(nil).Once()
+
+			// 3. Fails on wait
+			workRequestID3 := faker.UUIDHyphenated()
+			ociLoadBalancerClient.EXPECT().DeleteListener(t.Context(), loadbalancer.DeleteListenerRequest{
+				LoadBalancerId: &params.loadBalancerID,
+				ListenerName:   lbListenerToRemove3.Name,
+			}).Return(loadbalancer.DeleteListenerResponse{OpcWorkRequestId: &workRequestID3}, nil).Once()
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID3).Return(wantErr3).Once()
+
+			err := model.removeMissingListeners(t.Context(), params)
+			require.Error(t, err) // Should return combined error
+			require.ErrorIs(t, err, wantErr1)
+			require.ErrorIs(t, err, wantErr3)
 		})
 	})
 }

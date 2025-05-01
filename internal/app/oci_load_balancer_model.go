@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 
+	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
@@ -41,6 +43,12 @@ type reconcileRuleSetParams struct {
 	rules          []loadbalancer.Rule // The desired list of rules
 }
 
+type removeMissingListenersParams struct {
+	loadBalancerID   string
+	knownListeners   map[string]loadbalancer.Listener
+	gatewayListeners []gatewayv1.Listener
+}
+
 type ociLoadBalancerModel interface {
 	reconcileDefaultBackendSet(
 		ctx context.Context,
@@ -64,6 +72,9 @@ type ociLoadBalancerModel interface {
 		ctx context.Context,
 		params reconcileRuleSetParams,
 	) error
+
+	// removeMissingListeners removes listeners from the load balancer that are not present in the gateway spec.
+	removeMissingListeners(ctx context.Context, params removeMissingListenersParams) error
 }
 
 type ociLoadBalancerModelImpl struct {
@@ -248,6 +259,56 @@ func (m *ociLoadBalancerModelImpl) reconcileRuleSet(
 
 	// Placeholder: Return nil, nil for now
 	return nil
+}
+
+func (m *ociLoadBalancerModelImpl) removeMissingListeners(
+	ctx context.Context,
+	params removeMissingListenersParams,
+) error {
+	// TODO: Investigate desired behavior when attempting to delete listeners
+	// that have rules associated with them.
+
+	gatewayListenerNames := lo.SliceToMap(params.gatewayListeners, func(l gatewayv1.Listener) (string, struct{}) {
+		return string(l.Name), struct{}{}
+	})
+
+	var errs []error
+	for listenerName, listener := range params.knownListeners {
+		if _, existsInGateway := gatewayListenerNames[listenerName]; !existsInGateway {
+			m.logger.InfoContext(ctx, "Removing listener not found in gateway spec",
+				slog.String("listenerName", listenerName),
+				slog.String("loadBalancerId", params.loadBalancerID),
+			)
+			resp, err := m.ociClient.DeleteListener(ctx, loadbalancer.DeleteListenerRequest{
+				LoadBalancerId: &params.loadBalancerID,
+				ListenerName:   listener.Name,
+			})
+			if err != nil {
+				m.logger.WarnContext(ctx,
+					"Listener deletion failed, will try with others",
+					diag.ErrAttr(err),
+					slog.String("listenerName", listenerName),
+					slog.String("loadBalancerId", params.loadBalancerID),
+				)
+				errs = append(errs, fmt.Errorf("failed to delete listener %s: %w", listenerName, err))
+				continue
+			}
+
+			if err = m.workRequestsWatcher.WaitFor(ctx, *resp.OpcWorkRequestId); err != nil {
+				m.logger.WarnContext(ctx,
+					"Wait for listener deletion failed, will try with others",
+					diag.ErrAttr(err),
+					slog.String("listenerName", listenerName),
+					slog.String("loadBalancerId", params.loadBalancerID),
+				)
+				errs = append(errs, fmt.Errorf("failed to wait for listener %s deletion: %w", listenerName, err))
+				continue
+			}
+			m.logger.DebugContext(ctx, "Completed listener removal", slog.String("listenerName", listenerName))
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 type ociLoadBalancerModelDeps struct {
