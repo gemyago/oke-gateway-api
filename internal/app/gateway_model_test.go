@@ -583,6 +583,15 @@ func TestGatewayModelImpl(t *testing.T) {
 					}).
 					Return(nil)
 			}
+
+			loadBalancerModel.EXPECT().
+				removeMissingListeners(t.Context(), removeMissingListenersParams{
+					loadBalancerID:   config.Spec.LoadBalancerID,
+					knownListeners:   loadBalancer.Listeners,
+					gatewayListeners: gateway.Spec.Listeners,
+				}).
+				Return(nil)
+
 			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
 				gateway: *gateway,
 				config:  config,
