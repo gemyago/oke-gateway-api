@@ -50,6 +50,9 @@ type ociLoadBalancerClient interface {
 
 	GetRuleSet(ctx context.Context, request loadbalancer.GetRuleSetRequest) (
 		response loadbalancer.GetRuleSetResponse, err error)
+
+	CreateRoutingPolicy(ctx context.Context, request loadbalancer.CreateRoutingPolicyRequest) (
+		response loadbalancer.CreateRoutingPolicyResponse, err error)
 }
 
 type workRequestsWatcher interface {
