@@ -8,10 +8,10 @@ alwaysApply: false
 * Write tests first for changes requested
 * If logic is complex, split on chunks and do this whole flow for each chunk
 * When writting tests, prefer adding new test cases
-* Run tests, make sure they are failing with a valid reason
+* Run tests, analyse results and make adjustments if needed
 * Interate on implementation only after tests have added and executed
-* Run tests after implementation is ready
-* Prefer using faker to generate random data
+* Always run tests after implementation is ready, analyse results
+* Use faker to generate random variables of fields
 * If you need to update mocks, please read [mockery.mdc](mdc:.cursor/rules/mockery.mdc)
 
 No confirmation is required. You are allowed to run any script or command
