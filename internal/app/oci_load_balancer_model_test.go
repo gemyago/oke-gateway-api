@@ -268,7 +268,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					Rules: []loadbalancer.RoutingRule{
 						{
 							Name:      lo.ToPtr("default_catch_all"),
-							Condition: lo.ToPtr("http.request.url.path sw ('/')"),
+							Condition: lo.ToPtr("any(http.request.url.path sw '/')"),
 							Actions: []loadbalancer.Action{
 								loadbalancer.ForwardToBackendSet{
 									BackendSetName: lo.ToPtr(params.defaultBackendSetName),
@@ -691,7 +691,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
-		t.Run("multiple listeners to remove", func(t *testing.T) {
+		t.Run("some listeners to remove", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
@@ -729,6 +729,80 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				ListenerName:   lbListenerToRemove1.Name,
 			}).Return(loadbalancer.DeleteListenerResponse{OpcWorkRequestId: &workRequestID1}, nil).Once()
 			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID1).Return(nil).Once()
+
+			workRequestID2 := faker.UUIDHyphenated()
+			ociLoadBalancerClient.EXPECT().DeleteListener(t.Context(), loadbalancer.DeleteListenerRequest{
+				LoadBalancerId: &params.loadBalancerID,
+				ListenerName:   lbListenerToRemove2.Name,
+			}).Return(loadbalancer.DeleteListenerResponse{OpcWorkRequestId: &workRequestID2}, nil).Once()
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID2).Return(nil).Once()
+
+			err := model.removeMissingListeners(t.Context(), params)
+			require.NoError(t, err)
+		})
+
+		t.Run("some listeners to remove with routing policy", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			gwListener1 := makeRandomHTTPListener()
+			gwListener2 := makeRandomHTTPListener()
+			lbListener1 := makeRandomOCIListener(func(l *loadbalancer.Listener) {
+				l.Name = lo.ToPtr(string(gwListener1.Name))
+			})
+			lbListener2 := makeRandomOCIListener(func(l *loadbalancer.Listener) {
+				l.Name = lo.ToPtr(string(gwListener2.Name))
+			})
+			lbListenerToRemove1 := makeRandomOCIListener(
+				func(l *loadbalancer.Listener) {
+					l.RoutingPolicyName = lo.ToPtr("policy1" + faker.DomainName())
+				},
+			)
+			lbListenerToRemove2 := makeRandomOCIListener(
+				func(l *loadbalancer.Listener) {
+					l.RoutingPolicyName = lo.ToPtr("policy2" + faker.DomainName())
+				},
+			)
+
+			params := removeMissingListenersParams{
+				loadBalancerID: faker.UUIDHyphenated(),
+				knownListeners: map[string]loadbalancer.Listener{
+					*lbListener1.Name:         lbListener1,
+					*lbListener2.Name:         lbListener2,
+					*lbListenerToRemove1.Name: lbListenerToRemove1,
+					*lbListenerToRemove2.Name: lbListenerToRemove2,
+				},
+				gatewayListeners: []gatewayv1.Listener{
+					gwListener1,
+					gwListener2,
+				},
+			}
+
+			deletePolicyRequestID1 := faker.UUIDHyphenated()
+			ociLoadBalancerClient.EXPECT().DeleteRoutingPolicy(t.Context(), loadbalancer.DeleteRoutingPolicyRequest{
+				LoadBalancerId:    &params.loadBalancerID,
+				RoutingPolicyName: lbListenerToRemove1.RoutingPolicyName,
+			}).Return(loadbalancer.DeleteRoutingPolicyResponse{OpcWorkRequestId: &deletePolicyRequestID1}, nil).Once()
+
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), deletePolicyRequestID1).Return(nil).Once()
+
+			deletePolicyRequestID2 := faker.UUIDHyphenated()
+			ociLoadBalancerClient.EXPECT().DeleteRoutingPolicy(t.Context(), loadbalancer.DeleteRoutingPolicyRequest{
+				LoadBalancerId:    &params.loadBalancerID,
+				RoutingPolicyName: lbListenerToRemove2.RoutingPolicyName,
+			}).Return(loadbalancer.DeleteRoutingPolicyResponse{OpcWorkRequestId: &deletePolicyRequestID2}, nil).Once()
+
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), deletePolicyRequestID2).Return(nil).Once()
+
+			// Expect deletion for both missing listeners
+			deleteListenerRequestID := faker.UUIDHyphenated()
+			ociLoadBalancerClient.EXPECT().DeleteListener(t.Context(), loadbalancer.DeleteListenerRequest{
+				LoadBalancerId: &params.loadBalancerID,
+				ListenerName:   lbListenerToRemove1.Name,
+			}).Return(loadbalancer.DeleteListenerResponse{OpcWorkRequestId: &deleteListenerRequestID}, nil).Once()
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), deleteListenerRequestID).Return(nil).Once()
 
 			workRequestID2 := faker.UUIDHyphenated()
 			ociLoadBalancerClient.EXPECT().DeleteListener(t.Context(), loadbalancer.DeleteListenerRequest{

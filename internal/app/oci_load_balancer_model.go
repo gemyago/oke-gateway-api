@@ -169,7 +169,7 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 			Rules: []loadbalancer.RoutingRule{
 				{
 					Name:      lo.ToPtr("default_catch_all"),
-					Condition: lo.ToPtr("http.request.url.path sw ('/')"),
+					Condition: lo.ToPtr("any(http.request.url.path sw '/')"),
 					Actions: []loadbalancer.Action{
 						loadbalancer.ForwardToBackendSet{
 							BackendSetName: lo.ToPtr(params.defaultBackendSetName),
@@ -317,6 +317,7 @@ func (m *ociLoadBalancerModelImpl) removeMissingListeners(
 			m.logger.InfoContext(ctx, "Removing listener not found in gateway spec",
 				slog.String("listenerName", listenerName),
 				slog.String("loadBalancerId", params.loadBalancerID),
+				slog.String("routingPolicyName", lo.FromPtr(listener.RoutingPolicyName)),
 			)
 			resp, err := m.ociClient.DeleteListener(ctx, loadbalancer.DeleteListenerRequest{
 				LoadBalancerId: &params.loadBalancerID,
@@ -343,6 +344,32 @@ func (m *ociLoadBalancerModelImpl) removeMissingListeners(
 				errs = append(errs, fmt.Errorf("failed to wait for listener %s deletion: %w", listenerName, err))
 				continue
 			}
+
+			if listener.RoutingPolicyName != nil {
+				m.logger.DebugContext(ctx, "Deleting routing policy",
+					slog.String("routingPolicyName", *listener.RoutingPolicyName),
+					slog.String("loadBalancerId", params.loadBalancerID),
+				)
+				var deletePolicyRes loadbalancer.DeleteRoutingPolicyResponse
+				deletePolicyRes, err = m.ociClient.DeleteRoutingPolicy(ctx, loadbalancer.DeleteRoutingPolicyRequest{
+					LoadBalancerId:    &params.loadBalancerID,
+					RoutingPolicyName: listener.RoutingPolicyName,
+				})
+				if err != nil {
+					m.logger.WarnContext(ctx, "Failed to delete routing policy", diag.ErrAttr(err))
+					errs = append(errs, fmt.Errorf("failed to delete routing policy %s: %w", *listener.RoutingPolicyName, err))
+					continue
+				}
+
+				if err = m.workRequestsWatcher.WaitFor(ctx, *deletePolicyRes.OpcWorkRequestId); err != nil {
+					errs = append(
+						errs,
+						fmt.Errorf("failed to wait for routing policy %s deletion: %w", *listener.RoutingPolicyName, err),
+					)
+					continue
+				}
+			}
+
 			m.logger.DebugContext(ctx, "Completed listener removal", slog.String("listenerName", listenerName))
 		}
 	}

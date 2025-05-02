@@ -53,6 +53,9 @@ type ociLoadBalancerClient interface {
 
 	CreateRoutingPolicy(ctx context.Context, request loadbalancer.CreateRoutingPolicyRequest) (
 		response loadbalancer.CreateRoutingPolicyResponse, err error)
+
+	DeleteRoutingPolicy(ctx context.Context, request loadbalancer.DeleteRoutingPolicyRequest) (
+		response loadbalancer.DeleteRoutingPolicyResponse, err error)
 }
 
 type workRequestsWatcher interface {

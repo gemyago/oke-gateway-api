@@ -366,6 +366,63 @@ func (_c *MockociLoadBalancerClient_DeleteListener_Call) RunAndReturn(run func(c
 	return _c
 }
 
+// DeleteRoutingPolicy provides a mock function with given fields: ctx, request
+func (_m *MockociLoadBalancerClient) DeleteRoutingPolicy(ctx context.Context, request loadbalancer.DeleteRoutingPolicyRequest) (loadbalancer.DeleteRoutingPolicyResponse, error) {
+	ret := _m.Called(ctx, request)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteRoutingPolicy")
+	}
+
+	var r0 loadbalancer.DeleteRoutingPolicyResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.DeleteRoutingPolicyRequest) (loadbalancer.DeleteRoutingPolicyResponse, error)); ok {
+		return rf(ctx, request)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.DeleteRoutingPolicyRequest) loadbalancer.DeleteRoutingPolicyResponse); ok {
+		r0 = rf(ctx, request)
+	} else {
+		r0 = ret.Get(0).(loadbalancer.DeleteRoutingPolicyResponse)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.DeleteRoutingPolicyRequest) error); ok {
+		r1 = rf(ctx, request)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockociLoadBalancerClient_DeleteRoutingPolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteRoutingPolicy'
+type MockociLoadBalancerClient_DeleteRoutingPolicy_Call struct {
+	*mock.Call
+}
+
+// DeleteRoutingPolicy is a helper method to define mock.On call
+//   - ctx context.Context
+//   - request loadbalancer.DeleteRoutingPolicyRequest
+func (_e *MockociLoadBalancerClient_Expecter) DeleteRoutingPolicy(ctx interface{}, request interface{}) *MockociLoadBalancerClient_DeleteRoutingPolicy_Call {
+	return &MockociLoadBalancerClient_DeleteRoutingPolicy_Call{Call: _e.mock.On("DeleteRoutingPolicy", ctx, request)}
+}
+
+func (_c *MockociLoadBalancerClient_DeleteRoutingPolicy_Call) Run(run func(ctx context.Context, request loadbalancer.DeleteRoutingPolicyRequest)) *MockociLoadBalancerClient_DeleteRoutingPolicy_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(loadbalancer.DeleteRoutingPolicyRequest))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_DeleteRoutingPolicy_Call) Return(response loadbalancer.DeleteRoutingPolicyResponse, err error) *MockociLoadBalancerClient_DeleteRoutingPolicy_Call {
+	_c.Call.Return(response, err)
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_DeleteRoutingPolicy_Call) RunAndReturn(run func(context.Context, loadbalancer.DeleteRoutingPolicyRequest) (loadbalancer.DeleteRoutingPolicyResponse, error)) *MockociLoadBalancerClient_DeleteRoutingPolicy_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetBackendSet provides a mock function with given fields: ctx, request
 func (_m *MockociLoadBalancerClient) GetBackendSet(ctx context.Context, request loadbalancer.GetBackendSetRequest) (loadbalancer.GetBackendSetResponse, error) {
 	ret := _m.Called(ctx, request)
