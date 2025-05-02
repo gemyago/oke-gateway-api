@@ -300,6 +300,64 @@ func (m *ociLoadBalancerModelImpl) reconcileRuleSet(
 	return nil
 }
 
+func (m *ociLoadBalancerModelImpl) deleteMissingListener(
+	ctx context.Context,
+	loadBalancerID string,
+	listener loadbalancer.Listener,
+) error {
+	m.logger.InfoContext(ctx, "Removing listener not found in gateway spec",
+		slog.String("listenerName", lo.FromPtr(listener.Name)),
+		slog.String("loadBalancerId", loadBalancerID),
+		slog.String("routingPolicyName", lo.FromPtr(listener.RoutingPolicyName)),
+	)
+	resp, err := m.ociClient.DeleteListener(ctx, loadbalancer.DeleteListenerRequest{
+		LoadBalancerId: &loadBalancerID,
+		ListenerName:   listener.Name,
+	})
+	if err != nil {
+		m.logger.WarnContext(ctx,
+			"Listener deletion failed, will try with others",
+			diag.ErrAttr(err),
+			slog.String("listenerName", lo.FromPtr(listener.Name)),
+			slog.String("loadBalancerId", loadBalancerID),
+		)
+		return fmt.Errorf("failed to delete listener %s: %w", lo.FromPtr(listener.Name), err)
+	}
+
+	if err = m.workRequestsWatcher.WaitFor(ctx, *resp.OpcWorkRequestId); err != nil {
+		return fmt.Errorf("failed to wait for listener %s deletion: %w", lo.FromPtr(listener.Name), err)
+	}
+
+	return nil
+}
+
+func (m *ociLoadBalancerModelImpl) deleteMissingRoutingPolicy(
+	ctx context.Context,
+	loadBalancerID string,
+	listener loadbalancer.Listener,
+) error {
+	if listener.RoutingPolicyName != nil {
+		m.logger.DebugContext(ctx, "Deleting routing policy",
+			slog.String("routingPolicyName", *listener.RoutingPolicyName),
+			slog.String("loadBalancerId", loadBalancerID),
+		)
+		var deletePolicyRes loadbalancer.DeleteRoutingPolicyResponse
+		deletePolicyRes, err := m.ociClient.DeleteRoutingPolicy(ctx, loadbalancer.DeleteRoutingPolicyRequest{
+			LoadBalancerId:    &loadBalancerID,
+			RoutingPolicyName: listener.RoutingPolicyName,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to delete routing policy %s: %w", *listener.RoutingPolicyName, err)
+		}
+
+		if err = m.workRequestsWatcher.WaitFor(ctx, *deletePolicyRes.OpcWorkRequestId); err != nil {
+			return fmt.Errorf("failed to wait for routing policy %s deletion: %w", *listener.RoutingPolicyName, err)
+		}
+	}
+
+	return nil
+}
+
 func (m *ociLoadBalancerModelImpl) removeMissingListeners(
 	ctx context.Context,
 	params removeMissingListenersParams,
@@ -314,60 +372,24 @@ func (m *ociLoadBalancerModelImpl) removeMissingListeners(
 	var errs []error
 	for listenerName, listener := range params.knownListeners {
 		if _, existsInGateway := gatewayListenerNames[listenerName]; !existsInGateway {
-			m.logger.InfoContext(ctx, "Removing listener not found in gateway spec",
-				slog.String("listenerName", listenerName),
-				slog.String("loadBalancerId", params.loadBalancerID),
-				slog.String("routingPolicyName", lo.FromPtr(listener.RoutingPolicyName)),
-			)
-			resp, err := m.ociClient.DeleteListener(ctx, loadbalancer.DeleteListenerRequest{
-				LoadBalancerId: &params.loadBalancerID,
-				ListenerName:   listener.Name,
-			})
-			if err != nil {
-				m.logger.WarnContext(ctx,
-					"Listener deletion failed, will try with others",
+			if err := m.deleteMissingListener(ctx, params.loadBalancerID, listener); err != nil {
+				m.logger.WarnContext(ctx, "Failed to delete listener, will try with others",
 					diag.ErrAttr(err),
 					slog.String("listenerName", listenerName),
 					slog.String("loadBalancerId", params.loadBalancerID),
 				)
-				errs = append(errs, fmt.Errorf("failed to delete listener %s: %w", listenerName, err))
+				errs = append(errs, err)
 				continue
 			}
 
-			if err = m.workRequestsWatcher.WaitFor(ctx, *resp.OpcWorkRequestId); err != nil {
-				m.logger.WarnContext(ctx,
-					"Wait for listener deletion failed, will try with others",
+			if err := m.deleteMissingRoutingPolicy(ctx, params.loadBalancerID, listener); err != nil {
+				m.logger.WarnContext(ctx, "Failed to delete routing policy, will try with others",
 					diag.ErrAttr(err),
 					slog.String("listenerName", listenerName),
 					slog.String("loadBalancerId", params.loadBalancerID),
 				)
-				errs = append(errs, fmt.Errorf("failed to wait for listener %s deletion: %w", listenerName, err))
+				errs = append(errs, err)
 				continue
-			}
-
-			if listener.RoutingPolicyName != nil {
-				m.logger.DebugContext(ctx, "Deleting routing policy",
-					slog.String("routingPolicyName", *listener.RoutingPolicyName),
-					slog.String("loadBalancerId", params.loadBalancerID),
-				)
-				var deletePolicyRes loadbalancer.DeleteRoutingPolicyResponse
-				deletePolicyRes, err = m.ociClient.DeleteRoutingPolicy(ctx, loadbalancer.DeleteRoutingPolicyRequest{
-					LoadBalancerId:    &params.loadBalancerID,
-					RoutingPolicyName: listener.RoutingPolicyName,
-				})
-				if err != nil {
-					m.logger.WarnContext(ctx, "Failed to delete routing policy", diag.ErrAttr(err))
-					errs = append(errs, fmt.Errorf("failed to delete routing policy %s: %w", *listener.RoutingPolicyName, err))
-					continue
-				}
-
-				if err = m.workRequestsWatcher.WaitFor(ctx, *deletePolicyRes.OpcWorkRequestId); err != nil {
-					errs = append(
-						errs,
-						fmt.Errorf("failed to wait for routing policy %s deletion: %w", *listener.RoutingPolicyName, err),
-					)
-					continue
-				}
 			}
 
 			m.logger.DebugContext(ctx, "Completed listener removal", slog.String("listenerName", listenerName))
