@@ -74,11 +74,18 @@ func (r *ociLoadBalancerRuleSetsImpl) mapHTTPRouteMatchToCondition(match gateway
 			// TODO: Handle escaping single quotes in headerMatch.Value if necessary
 			// Header names are case-insensitive in HTTP, but OCI conditions might be case-sensitive.
 			// Assuming case-sensitive match for now based on Gateway API spec.
-			conditions = append(conditions, fmt.Sprintf(`http.request.headers['%s'] eq '%s'`, headerMatch.Name, headerMatch.Value))
+			conditions = append(
+				conditions,
+				fmt.Sprintf(`http.request.headers['%s'] eq '%s'`, headerMatch.Name, headerMatch.Value),
+			)
 		case gatewayv1.HeaderMatchRegularExpression:
 			return "", fmt.Errorf("%w: regex header matching for header '%s'", errUnsupportedMatch, headerMatch.Name)
 		default:
-			return "", fmt.Errorf("%w: unknown header match type '%s' for header '%s'", errUnsupportedMatch, headerType, headerMatch.Name)
+			return "", fmt.Errorf("%w: unknown header match type '%s' for header '%s'",
+				errUnsupportedMatch,
+				headerType,
+				headerMatch.Name,
+			)
 		}
 	}
 

@@ -112,7 +112,10 @@ func TestOciLoadBalancerRuleSetsImpl(t *testing.T) {
 					},
 				},
 				// Note: OCI condition generation logic should handle quoting inner single quotes if necessary
-				want: fmt.Sprintf(`http.request.url.path sw '/api/v1' and http.request.headers['Authorization'] eq '%s' and http.request.headers['X-Request-ID'] eq '%s'`,
+				want: fmt.Sprintf(
+					`http.request.url.path sw '/api/v1' and `+
+						`http.request.headers['Authorization'] eq '%s' and `+
+						`http.request.headers['X-Request-ID'] eq '%s'`,
 					"Bearer "+faker.Jwt(), // Re-generate to match expectation, order matters
 					faker.UUIDHyphenated(),
 				),
@@ -161,7 +164,7 @@ func TestOciLoadBalancerRuleSetsImpl(t *testing.T) {
 				wantErrIs: errUnsupportedMatch,
 			},
 			{
-				name:  "no matches defined", // Should arguably map to a default "match all" or similar, but for now let's expect an empty string
+				name:  "no matches defined",
 				match: gatewayv1.HTTPRouteMatch{},
 				want:  "",
 			},
@@ -186,7 +189,6 @@ func TestOciLoadBalancerRuleSetsImpl(t *testing.T) {
 				// The implementation defaults the type to PathMatchPathPrefix if nil,
 				// so this test case should now expect a valid condition or be removed/updated.
 				// Let's update it to expect the default prefix match.
-				// wantErrIs: errUnsupportedMatch, // Default type might be prefix/exact, but explicit types are safer. Treat nil as unsupported.
 				want: `http.request.url.path sw '/test'`,
 			},
 			{
@@ -233,16 +235,23 @@ func TestOciLoadBalancerRuleSetsImpl(t *testing.T) {
 							},
 						},
 					}
-					tc.want = fmt.Sprintf(`http.request.url.path sw '/api/v1' and http.request.headers['Authorization'] eq '%s' and http.request.headers['X-Request-ID'] eq '%s'`, authValue, requestID)
+					tc.want = fmt.Sprintf(
+						"http.request.url.path sw '/api/v1' and "+
+							"http.request.headers['Authorization'] eq '%s' and "+
+							"http.request.headers['X-Request-ID'] eq '%s'",
+						authValue,
+						requestID,
+					)
 				}
 
 				actual, err := r.mapHTTPRouteMatchToCondition(tc.match)
 
-				if tc.wantErrIs != nil {
+				switch {
+				case tc.wantErrIs != nil:
 					require.ErrorIs(t, err, tc.wantErrIs)
-				} else if tc.wantErrText != "" {
+				case tc.wantErrText != "":
 					require.ErrorContains(t, err, tc.wantErrText)
-				} else {
+				default:
 					require.NoError(t, err)
 					// Normalize whitespace for comparison as OCI might be flexible
 					assert.Equal(t, strings.Join(strings.Fields(tc.want), " "), strings.Join(strings.Fields(actual), " "))
