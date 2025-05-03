@@ -31,8 +31,9 @@ func TestGatewayClassController(t *testing.T) {
 	}
 
 	t.Run("Reconcile", func(t *testing.T) {
-		// Create a test GatewayClass using the helper
-		gatewayClass := newRandomGatewayClass()
+		gatewayClass := newRandomGatewayClass(
+			randomGatewayClassWithControllerNameOpt(ControllerClassName),
+		)
 
 		req := reconcile.Request{
 			NamespacedName: client.ObjectKey{
@@ -136,7 +137,9 @@ func TestGatewayClassController(t *testing.T) {
 
 	t.Run("StatusUpdateError", func(t *testing.T) {
 		// Create a test GatewayClass
-		gatewayClass := newRandomGatewayClass()
+		gatewayClass := newRandomGatewayClass(
+			randomGatewayClassWithControllerNameOpt(ControllerClassName),
+		)
 		req := reconcile.Request{
 			NamespacedName: client.ObjectKey{
 				Name: gatewayClass.Name,
@@ -181,8 +184,9 @@ func TestGatewayClassController(t *testing.T) {
 
 	t.Run("WrongControllerName", func(t *testing.T) {
 		// Create a GatewayClass with a controller name this controller shouldn't manage
-		gatewayClass := newRandomGatewayClass()
-		gatewayClass.Spec.ControllerName = gatewayv1.GatewayController(faker.DomainName()) // Different controller name
+		gatewayClass := newRandomGatewayClass(
+			randomGatewayClassWithControllerNameOpt(gatewayv1.GatewayController(faker.DomainName())),
+		)
 
 		req := reconcile.Request{
 			NamespacedName: client.ObjectKey{
@@ -215,7 +219,9 @@ func TestGatewayClassController(t *testing.T) {
 
 	t.Run("AlreadyAccepted", func(t *testing.T) {
 		// Create a GatewayClass that is already accepted
-		gatewayClass := newRandomGatewayClass()
+		gatewayClass := newRandomGatewayClass(
+			randomGatewayClassWithControllerNameOpt(ControllerClassName),
+		)
 
 		req := reconcile.Request{
 			NamespacedName: client.ObjectKey{
