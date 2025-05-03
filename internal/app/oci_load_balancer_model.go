@@ -36,7 +36,7 @@ type reconcileHTTPListenerParams struct {
 	listenerSpec          *gatewayv1.Listener
 }
 
-type reconcileRuleSetParams struct {
+type reconcileRoutingRulesParams struct {
 	loadBalancerID string
 	listenerName   string              // The name of the listener to associate the RuleSet with
 	ruleSetName    string              // A unique name for the RuleSet (e.g., derived from listener name)
@@ -66,11 +66,11 @@ type ociLoadBalancerModel interface {
 		params reconcileBackendSetParams,
 	) error
 
-	// reconcileRuleSet ensures a RuleSet with the given rules exists and is associated
+	// reconcileRoutingRules ensures a RuleSet with the given rules exists and is associated
 	// with the specified listener. It creates or updates the RuleSet as needed.
-	reconcileRuleSet(
+	reconcileRoutingRules(
 		ctx context.Context,
-		params reconcileRuleSetParams,
+		params reconcileRoutingRulesParams,
 	) error
 
 	// removeMissingListeners removes listeners from the load balancer that are not present in the gateway spec.
@@ -277,9 +277,9 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 }
 
 // TODO: Implement actual logic for reconciling RuleSet
-func (m *ociLoadBalancerModelImpl) reconcileRuleSet(
+func (m *ociLoadBalancerModelImpl) reconcileRoutingRules(
 	ctx context.Context,
-	params reconcileRuleSetParams,
+	params reconcileRoutingRulesParams,
 ) error {
 	m.logger.InfoContext(ctx, "Reconciling RuleSet (STUB)",
 		slog.String("loadBalancerId", params.loadBalancerID),

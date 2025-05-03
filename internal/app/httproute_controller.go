@@ -6,7 +6,6 @@ import (
 	"log/slog"
 
 	"go.uber.org/dig"
-	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
@@ -46,8 +45,9 @@ func (r *HTTPRouteController) performProgramming(
 		return fmt.Errorf("failed to accept route: %w", err)
 	}
 
-	var backendRefs map[string]v1.Service
-	backendRefs, err = r.httpRouteModel.resolveBackendRefs(ctx, resolveBackendRefsParams{
+	// TODO: This may need to go to the acceptRoute stage
+	// We only need it to make sure backend refs are valid
+	_, err = r.httpRouteModel.resolveBackendRefs(ctx, resolveBackendRefsParams{
 		httpRoute: *acceptedRoute,
 	})
 	if err != nil {
@@ -55,10 +55,9 @@ func (r *HTTPRouteController) performProgramming(
 	}
 
 	err = r.httpRouteModel.programRoute(ctx, programRouteParams{
-		gateway:             resolvedData.gatewayDetails.gateway,
-		config:              resolvedData.gatewayDetails.config,
-		httpRoute:           *acceptedRoute,
-		resolvedBackendRefs: backendRefs,
+		gateway:   resolvedData.gatewayDetails.gateway,
+		config:    resolvedData.gatewayDetails.config,
+		httpRoute: *acceptedRoute,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to program route: %w", err)

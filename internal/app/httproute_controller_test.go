@@ -87,10 +87,9 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().programRoute(
 			t.Context(),
 			programRouteParams{
-				gateway:             wantResolvedData.gatewayDetails.gateway,
-				config:              wantResolvedData.gatewayDetails.config,
-				httpRoute:           wantAcceptedRoute,
-				resolvedBackendRefs: wantBackendRefs,
+				gateway:   wantResolvedData.gatewayDetails.gateway,
+				config:    wantResolvedData.gatewayDetails.config,
+				httpRoute: wantAcceptedRoute,
 			},
 		).Return(nil)
 
@@ -332,10 +331,9 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().programRoute(
 			t.Context(),
 			programRouteParams{
-				gateway:             wantResolvedData.gatewayDetails.gateway,
-				config:              wantResolvedData.gatewayDetails.config,
-				httpRoute:           wantAcceptedRoute,
-				resolvedBackendRefs: wantBackendRefs,
+				gateway:   wantResolvedData.gatewayDetails.gateway,
+				config:    wantResolvedData.gatewayDetails.config,
+				httpRoute: wantAcceptedRoute,
 			},
 		).Return(wantErr)
 
@@ -461,10 +459,9 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().programRoute(
 			t.Context(),
 			programRouteParams{
-				gateway:             wantResolvedData.gatewayDetails.gateway,
-				config:              wantResolvedData.gatewayDetails.config,
-				httpRoute:           wantAcceptedRoute,
-				resolvedBackendRefs: wantBackendRefs,
+				gateway:   wantResolvedData.gatewayDetails.gateway,
+				config:    wantResolvedData.gatewayDetails.config,
+				httpRoute: wantAcceptedRoute,
 			},
 		).Return(nil)
 

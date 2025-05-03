@@ -175,16 +175,16 @@ func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) RunAndReturn(run 
 	return _c
 }
 
-// reconcileRuleSet provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) reconcileRuleSet(ctx context.Context, params reconcileRuleSetParams) error {
+// reconcileRoutingRules provides a mock function with given fields: ctx, params
+func (_m *MockociLoadBalancerModel) reconcileRoutingRules(ctx context.Context, params reconcileRoutingRulesParams) error {
 	ret := _m.Called(ctx, params)
 
 	if len(ret) == 0 {
-		panic("no return value specified for reconcileRuleSet")
+		panic("no return value specified for reconcileRoutingRules")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, reconcileRuleSetParams) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, reconcileRoutingRulesParams) error); ok {
 		r0 = rf(ctx, params)
 	} else {
 		r0 = ret.Error(0)
@@ -193,31 +193,31 @@ func (_m *MockociLoadBalancerModel) reconcileRuleSet(ctx context.Context, params
 	return r0
 }
 
-// MockociLoadBalancerModel_reconcileRuleSet_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'reconcileRuleSet'
-type MockociLoadBalancerModel_reconcileRuleSet_Call struct {
+// MockociLoadBalancerModel_reconcileRoutingRules_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'reconcileRoutingRules'
+type MockociLoadBalancerModel_reconcileRoutingRules_Call struct {
 	*mock.Call
 }
 
-// reconcileRuleSet is a helper method to define mock.On call
+// reconcileRoutingRules is a helper method to define mock.On call
 //   - ctx context.Context
-//   - params reconcileRuleSetParams
-func (_e *MockociLoadBalancerModel_Expecter) reconcileRuleSet(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileRuleSet_Call {
-	return &MockociLoadBalancerModel_reconcileRuleSet_Call{Call: _e.mock.On("reconcileRuleSet", ctx, params)}
+//   - params reconcileRoutingRulesParams
+func (_e *MockociLoadBalancerModel_Expecter) reconcileRoutingRules(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileRoutingRules_Call {
+	return &MockociLoadBalancerModel_reconcileRoutingRules_Call{Call: _e.mock.On("reconcileRoutingRules", ctx, params)}
 }
 
-func (_c *MockociLoadBalancerModel_reconcileRuleSet_Call) Run(run func(ctx context.Context, params reconcileRuleSetParams)) *MockociLoadBalancerModel_reconcileRuleSet_Call {
+func (_c *MockociLoadBalancerModel_reconcileRoutingRules_Call) Run(run func(ctx context.Context, params reconcileRoutingRulesParams)) *MockociLoadBalancerModel_reconcileRoutingRules_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(reconcileRuleSetParams))
+		run(args[0].(context.Context), args[1].(reconcileRoutingRulesParams))
 	})
 	return _c
 }
 
-func (_c *MockociLoadBalancerModel_reconcileRuleSet_Call) Return(_a0 error) *MockociLoadBalancerModel_reconcileRuleSet_Call {
+func (_c *MockociLoadBalancerModel_reconcileRoutingRules_Call) Return(_a0 error) *MockociLoadBalancerModel_reconcileRoutingRules_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockociLoadBalancerModel_reconcileRuleSet_Call) RunAndReturn(run func(context.Context, reconcileRuleSetParams) error) *MockociLoadBalancerModel_reconcileRuleSet_Call {
+func (_c *MockociLoadBalancerModel_reconcileRoutingRules_Call) RunAndReturn(run func(context.Context, reconcileRoutingRulesParams) error) *MockociLoadBalancerModel_reconcileRoutingRules_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -700,24 +700,10 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				return makeRandomOCIBackendSet(randomOCIBackendSetWithNameOpt(name))
 			})
 
-			allBackendRefs := make([]gatewayv1.HTTPBackendRef, 0, len(backendRefs1)+len(backendRefs2))
-			allBackendRefs = append(allBackendRefs, backendRefs1...)
-			allBackendRefs = append(allBackendRefs, backendRefs2...)
-			services := lo.Map(allBackendRefs, func(ref gatewayv1.HTTPBackendRef, _ int) corev1.Service {
-				return makeRandomService(randomServiceFromBackendRef(ref, &httpRoute))
-			})
-			resolvedBackendRefs := lo.SliceToMap(services, func(svc corev1.Service) (string, corev1.Service) {
-				return types.NamespacedName{
-					Namespace: svc.Namespace,
-					Name:      svc.Name,
-				}.String(), svc
-			})
-
 			params := programRouteParams{
-				gateway:             *newRandomGateway(),
-				config:              makeRandomGatewayConfig(),
-				httpRoute:           httpRoute,
-				resolvedBackendRefs: resolvedBackendRefs,
+				gateway:   *newRandomGateway(),
+				config:    makeRandomGatewayConfig(),
+				httpRoute: httpRoute,
 			}
 
 			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
@@ -754,16 +740,11 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			)
 
 			wantBsName := fmt.Sprintf("%s-%s", httpRoute.Name, *rule1.Name)
-			service := makeRandomService(randomServiceFromBackendRef(backendRef, &httpRoute))
-			resolvedBackendRefs := map[string]corev1.Service{
-				types.NamespacedName{Namespace: service.Namespace, Name: service.Name}.String(): service,
-			}
 
 			params := programRouteParams{
-				gateway:             *newRandomGateway(),
-				config:              makeRandomGatewayConfig(),
-				httpRoute:           httpRoute,
-				resolvedBackendRefs: resolvedBackendRefs,
+				gateway:   *newRandomGateway(),
+				config:    makeRandomGatewayConfig(),
+				httpRoute: httpRoute,
 			}
 
 			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
