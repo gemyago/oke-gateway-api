@@ -64,7 +64,7 @@ type ociLoadBalancerModel interface {
 	reconcileBackendSet(
 		ctx context.Context,
 		params reconcileBackendSetParams,
-	) (loadbalancer.BackendSet, error)
+	) error
 
 	// reconcileRuleSet ensures a RuleSet with the given rules exists and is associated
 	// with the specified listener. It creates or updates the RuleSet as needed.
@@ -218,21 +218,21 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 	ctx context.Context,
 	params reconcileBackendSetParams,
-) (loadbalancer.BackendSet, error) {
+) error {
 	m.logger.InfoContext(ctx, "Reconciling backend set",
 		slog.String("loadBalancerId", params.loadBalancerID),
 		slog.String("backendSetName", params.name),
 	)
 
 	existingBsFound := true
-	existingBs, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
+	_, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
 		BackendSetName: &params.name,
 		LoadBalancerId: &params.loadBalancerID,
 	})
 	if err != nil {
 		serviceErr, ok := common.IsServiceError(err)
 		if !ok || serviceErr.GetHTTPStatusCode() != http.StatusNotFound {
-			return loadbalancer.BackendSet{}, fmt.Errorf("failed to get backend set %s: %w", params.name, err)
+			return fmt.Errorf("failed to get backend set %s: %w", params.name, err)
 		}
 		existingBsFound = false
 	}
@@ -245,7 +245,7 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 
 		// TODO: Logic to update backend set
 
-		return existingBs.BackendSet, nil
+		return nil
 	}
 
 	m.logger.DebugContext(ctx, "Backend set not found, creating",
@@ -263,25 +263,17 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 	})
 
 	if err != nil {
-		return loadbalancer.BackendSet{}, fmt.Errorf("failed to create backend set %s: %w", params.name, err)
+		return fmt.Errorf("failed to create backend set %s: %w", params.name, err)
 	}
 
 	if err = m.workRequestsWatcher.WaitFor(
 		ctx,
 		*createRes.OpcWorkRequestId,
 	); err != nil {
-		return loadbalancer.BackendSet{}, fmt.Errorf("failed to wait for backend set %s: %w", params.name, err)
+		return fmt.Errorf("failed to wait for backend set %s: %w", params.name, err)
 	}
 
-	res, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
-		BackendSetName: &params.name,
-		LoadBalancerId: lo.ToPtr(params.loadBalancerID),
-	})
-	if err != nil {
-		return loadbalancer.BackendSet{}, fmt.Errorf("failed to get backend set %s: %w", params.name, err)
-	}
-
-	return res.BackendSet, nil
+	return nil
 }
 
 // TODO: Implement actual logic for reconciling RuleSet

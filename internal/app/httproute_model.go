@@ -303,7 +303,7 @@ func (m *httpRouteModelImpl) programRoute(
 		firstBackendRef := rule.BackendRefs[0]
 		port := int32(*firstBackendRef.BackendRef.Port)
 
-		_, err := m.ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
+		err := m.ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
 			loadBalancerID: params.config.Spec.LoadBalancerID,
 			name:           bsName,
 

@@ -494,9 +494,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				BackendSet: wantBs,
 			}, nil)
 
-			actualBackendSet, err := model.reconcileBackendSet(t.Context(), params)
+			err := model.reconcileBackendSet(t.Context(), params)
 			require.NoError(t, err)
-			assert.Equal(t, wantBs, actualBackendSet)
 		})
 
 		t.Run("fail when create backend set fails", func(t *testing.T) {
@@ -533,7 +532,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				},
 			}).Return(loadbalancer.CreateBackendSetResponse{}, wantErr)
 
-			_, err := model.reconcileBackendSet(t.Context(), params)
+			err := model.reconcileBackendSet(t.Context(), params)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, wantErr)
 		})
@@ -577,56 +576,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(wantErr)
 
-			_, err := model.reconcileBackendSet(t.Context(), params)
-			require.Error(t, err)
-			assert.ErrorIs(t, err, wantErr)
-		})
-
-		t.Run("fail when final get backend set fails", func(t *testing.T) {
-			deps := makeMockDeps(t)
-			model := newOciLoadBalancerModel(deps)
-
-			params := reconcileBackendSetParams{
-				loadBalancerID: faker.UUIDHyphenated(),
-				name:           faker.UUIDHyphenated(),
-				healthChecker: &loadbalancer.HealthCheckerDetails{
-					Protocol: lo.ToPtr("HTTP"),
-					Port:     lo.ToPtr(rand.IntN(65535)),
-				},
-			}
-
-			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
-			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
-			workRequestID := faker.UUIDHyphenated()
-			wantErr := errors.New(faker.Sentence())
-
-			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
-				BackendSetName: &params.name,
-				LoadBalancerId: &params.loadBalancerID,
-			}).Return(
-				loadbalancer.GetBackendSetResponse{},
-				ociapi.NewRandomServiceError(ociapi.RandomServiceErrorWithStatusCode(404)),
-			).Once()
-
-			ociLoadBalancerClient.EXPECT().CreateBackendSet(t.Context(), loadbalancer.CreateBackendSetRequest{
-				LoadBalancerId: &params.loadBalancerID,
-				CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
-					Name:          &params.name,
-					HealthChecker: params.healthChecker,
-					Policy:        lo.ToPtr("ROUND_ROBIN"),
-				},
-			}).Return(loadbalancer.CreateBackendSetResponse{
-				OpcWorkRequestId: &workRequestID,
-			}, nil)
-
-			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
-
-			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
-				BackendSetName: &params.name,
-				LoadBalancerId: &params.loadBalancerID,
-			}).Return(loadbalancer.GetBackendSetResponse{}, wantErr)
-
-			_, err := model.reconcileBackendSet(t.Context(), params)
+			err := model.reconcileBackendSet(t.Context(), params)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, wantErr)
 		})
@@ -654,9 +604,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				BackendSet: wantBs,
 			}, nil)
 
-			actualBackendSet, err := model.reconcileBackendSet(t.Context(), params)
+			err := model.reconcileBackendSet(t.Context(), params)
 			require.NoError(t, err)
-			assert.Equal(t, wantBs, actualBackendSet)
 		})
 	})
 

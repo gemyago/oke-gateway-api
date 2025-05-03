@@ -722,9 +722,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
 
-			var nextBs loadbalancer.BackendSet
 			for i, wantBs := range wantBss {
-				nextBs = wantBs
 				rule := httpRoute.Spec.Rules[i]
 				firstBackendRef := rule.BackendRefs[0]
 				port := int32(*firstBackendRef.BackendRef.Port)
@@ -735,7 +733,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 						Protocol: lo.ToPtr("TCP"),
 						Port:     lo.ToPtr(int(port)),
 					},
-				}).Return(nextBs, nil)
+				}).Return(nil)
 			}
 
 			err := model.programRoute(t.Context(), params)
@@ -778,7 +776,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 					Protocol: lo.ToPtr("TCP"),
 					Port:     lo.ToPtr(int(port)),
 				},
-			}).Return(loadbalancer.BackendSet{}, expectedErr)
+			}).Return(expectedErr)
 
 			err := model.programRoute(t.Context(), params)
 			require.Error(t, err)
