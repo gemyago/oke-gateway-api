@@ -167,6 +167,10 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 			Name:                     lo.ToPtr(routingPolicyName),
 			ConditionLanguageVersion: loadbalancer.CreateRoutingPolicyDetailsConditionLanguageVersionV1,
 			Rules: []loadbalancer.RoutingRule{
+				// We're creating routing policy to have it available when reconciling routes
+				// It's not possible to create an empty routing policy, so we're adding a default rule.
+				// Alternative could be to create and attach routing policy when reconciling routes, but
+				// it may be a bit more complex on the route reconciler side.
 				{
 					Name:      lo.ToPtr("default_catch_all"),
 					Condition: lo.ToPtr("any(http.request.url.path sw '/')"),
