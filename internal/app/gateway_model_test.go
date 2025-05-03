@@ -36,7 +36,11 @@ func TestGatewayModelImpl(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)
 
-			gatewayClass := newRandomGatewayClass()
+			gatewayClass := newRandomGatewayClass(
+				randomGatewayClassWithControllerNameOpt(
+					ControllerClassName,
+				),
+			)
 
 			gateway := newRandomGateway()
 			gateway.Spec.Infrastructure = &gatewayv1.GatewayInfrastructure{
@@ -378,7 +382,11 @@ func TestGatewayModelImpl(t *testing.T) {
 					receiver client.Object,
 					_ ...client.GetOption,
 				) error {
-					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*newRandomGatewayClass()))
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*newRandomGatewayClass(
+						randomGatewayClassWithControllerNameOpt(
+							ControllerClassName,
+						),
+					)))
 					return nil
 				})
 
@@ -441,7 +449,11 @@ func TestGatewayModelImpl(t *testing.T) {
 					receiver client.Object,
 					_ ...client.GetOption,
 				) error {
-					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*newRandomGatewayClass()))
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*newRandomGatewayClass(
+						randomGatewayClassWithControllerNameOpt(
+							ControllerClassName,
+						),
+					)))
 					return nil
 				})
 
@@ -514,7 +526,11 @@ func TestGatewayModelImpl(t *testing.T) {
 					receiver client.Object,
 					_ ...client.GetOption,
 				) error {
-					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*newRandomGatewayClass()))
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*newRandomGatewayClass(
+						randomGatewayClassWithControllerNameOpt(
+							ControllerClassName,
+						),
+					)))
 					return nil
 				})
 

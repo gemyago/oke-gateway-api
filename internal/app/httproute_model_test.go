@@ -333,6 +333,10 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			model := newHTTPRouteModel(deps)
 
 			routeData := resolvedRouteDetails{
+				matchedRef: makeRandomParentRef(
+					randomParentRefWithRandomSectionNameOpt(),
+					randomParentRefWithRandomPortOpt(),
+				),
 				gatewayDetails: resolvedGatewayDetails{
 					gateway: *newRandomGateway(),
 					gatewayClass: *newRandomGatewayClass(
@@ -364,7 +368,10 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			assert.Len(t, updatedRoute.Status.Parents, 1)
 
 			acceptedParent := updatedRoute.Status.Parents[0]
-			assert.Equal(t, routeData.matchedRef, acceptedParent.ParentRef)
+			assert.Equal(t, gatewayv1.ParentReference{
+				Name:      routeData.matchedRef.Name,
+				Namespace: routeData.matchedRef.Namespace,
+			}, acceptedParent.ParentRef)
 			assert.Equal(t,
 				routeData.gatewayDetails.gatewayClass.Spec.ControllerName,
 				acceptedParent.ControllerName,
@@ -390,10 +397,15 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			gatewayClass := newRandomGatewayClass()
 			existingParentStatus := makeRandomRouteParentStatus(
 				func(s *gatewayv1.RouteParentStatus) {
+					s.ParentRef = makeRandomParentRef(
+						randomParentRefWithRandomSectionNameOpt(),
+						randomParentRefWithRandomPortOpt(),
+					)
 					s.ControllerName = gatewayClass.Spec.ControllerName
 				},
 			)
 			routeData := resolvedRouteDetails{
+				matchedRef: existingParentStatus.ParentRef,
 				gatewayDetails: resolvedGatewayDetails{
 					gateway:      *newRandomGateway(),
 					gatewayClass: *gatewayClass,
@@ -401,7 +413,10 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				httpRoute: makeRandomHTTPRoute(
 					func(h *gatewayv1.HTTPRoute) {
 						h.Status.Parents = []gatewayv1.RouteParentStatus{
-							makeRandomRouteParentStatus(),
+							// Matching controller but not parent ref should be ignored
+							makeRandomRouteParentStatus(func(rps *gatewayv1.RouteParentStatus) {
+								rps.ControllerName = gatewayClass.Spec.ControllerName
+							}),
 							makeRandomRouteParentStatus(),
 							existingParentStatus,
 							makeRandomRouteParentStatus(),
@@ -431,7 +446,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			assert.Len(t, updatedRoute.Status.Parents, 4)
 
 			acceptedParent, found := lo.Find(updatedRoute.Status.Parents, func(s gatewayv1.RouteParentStatus) bool {
-				return s.ControllerName == gatewayClass.Spec.ControllerName
+				return s.ControllerName == gatewayClass.Spec.ControllerName &&
+					parentRefSameTarget(s.ParentRef, routeData.matchedRef)
 			})
 			require.True(t, found)
 
@@ -465,6 +481,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				},
 			)
 			routeData := resolvedRouteDetails{
+				matchedRef: existingParentStatus.ParentRef,
 				gatewayDetails: resolvedGatewayDetails{
 					gateway:      *newRandomGateway(),
 					gatewayClass: *gatewayClass,
@@ -504,6 +521,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				},
 			)
 			routeData := resolvedRouteDetails{
+				matchedRef: existingParentStatus.ParentRef,
 				gatewayDetails: resolvedGatewayDetails{
 					gateway:      *newRandomGateway(),
 					gatewayClass: *gatewayClass,

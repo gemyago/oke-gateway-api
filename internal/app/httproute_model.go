@@ -86,7 +86,9 @@ type httpRouteModel interface {
 	) error
 }
 
-func parentRefEqual(a, b gatewayv1.ParentReference) bool {
+// parentRefSameTarget checks if two parent references target the same resource.
+// It ignores the section name and port.
+func parentRefSameTarget(a, b gatewayv1.ParentReference) bool {
 	return a.Name == b.Name &&
 		lo.FromPtr(a.Namespace) == lo.FromPtr(b.Namespace) &&
 		lo.FromPtr(a.Kind) == lo.FromPtr(b.Kind) &&
@@ -197,7 +199,8 @@ func (m *httpRouteModelImpl) acceptRoute(
 	parentStatus, parentStatusIndex, found := lo.FindIndexOf(
 		routeDetails.httpRoute.Status.Parents,
 		func(s gatewayv1.RouteParentStatus) bool {
-			return s.ControllerName == routeDetails.gatewayDetails.gatewayClass.Spec.ControllerName
+			return s.ControllerName == routeDetails.gatewayDetails.gatewayClass.Spec.ControllerName &&
+				parentRefSameTarget(s.ParentRef, routeDetails.matchedRef)
 		})
 	if found {
 		existingCondition := meta.FindStatusCondition(
@@ -216,7 +219,12 @@ func (m *httpRouteModelImpl) acceptRoute(
 		}
 	} else {
 		parentStatus = gatewayv1.RouteParentStatus{
-			ParentRef:      routeDetails.matchedRef,
+			// We collapse the parent ref into a single object
+			// so using just name and namespace
+			ParentRef: gatewayv1.ParentReference{
+				Name:      routeDetails.matchedRef.Name,
+				Namespace: routeDetails.matchedRef.Namespace,
+			},
 			ControllerName: routeDetails.gatewayDetails.gatewayClass.Spec.ControllerName,
 		}
 	}
@@ -327,7 +335,7 @@ func (m *httpRouteModelImpl) isProgrammingRequired(
 ) (bool, error) {
 	parentStatus, found := lo.Find(details.httpRoute.Status.Parents, func(s gatewayv1.RouteParentStatus) bool {
 		return s.ControllerName == details.gatewayDetails.gatewayClass.Spec.ControllerName &&
-			parentRefEqual(s.ParentRef, details.matchedRef)
+			parentRefSameTarget(s.ParentRef, details.matchedRef)
 	})
 
 	if !found {
@@ -360,7 +368,7 @@ func (m *httpRouteModelImpl) setProgrammed(
 		httpRoute.Status.Parents,
 		func(s gatewayv1.RouteParentStatus) bool {
 			return s.ControllerName == params.gatewayClass.Spec.ControllerName &&
-				parentRefEqual(s.ParentRef, params.matchedRef)
+				parentRefSameTarget(s.ParentRef, params.matchedRef)
 		},
 	)
 

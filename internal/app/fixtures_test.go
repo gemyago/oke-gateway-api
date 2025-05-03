@@ -29,7 +29,7 @@ func newRandomGatewayClass(
 			ResourceVersion: faker.Word(),                         // Add RV for potential future use
 		},
 		Spec: gatewayv1.GatewayClassSpec{
-			ControllerName: ControllerClassName,
+			ControllerName: gatewayv1.GatewayController(faker.UUIDHyphenated() + "." + faker.DomainName()),
 		},
 	}
 
@@ -385,10 +385,32 @@ func randomServiceFromBackendRef(ref gatewayv1.HTTPBackendRef, parent client.Obj
 	}
 }
 
-func makeRandomParentRef() gatewayv1.ParentReference {
-	return gatewayv1.ParentReference{
+type randomParentRefOpt func(*gatewayv1.ParentReference)
+
+func makeRandomParentRef(
+	opts ...randomParentRefOpt,
+) gatewayv1.ParentReference {
+	ref := gatewayv1.ParentReference{
 		Name:      gatewayv1.ObjectName(faker.DomainName()),
 		Namespace: lo.ToPtr(gatewayv1.Namespace(faker.DomainName())),
+	}
+
+	for _, opt := range opts {
+		opt(&ref)
+	}
+
+	return ref
+}
+
+func randomParentRefWithRandomSectionNameOpt() randomParentRefOpt {
+	return func(ref *gatewayv1.ParentReference) {
+		ref.SectionName = lo.ToPtr(gatewayv1.SectionName(faker.DomainName()))
+	}
+}
+
+func randomParentRefWithRandomPortOpt() randomParentRefOpt {
+	return func(ref *gatewayv1.ParentReference) {
+		ref.Port = lo.ToPtr(gatewayv1.PortNumber(rand.Int32N(65535)))
 	}
 }
 
