@@ -180,11 +180,11 @@ func TestHTTPBackendModel(t *testing.T) {
 			mockSelf, _ := deps.self.(*MockhttpBackendModel)
 			mockSelf.EXPECT().identifyBackendsToUpdate(
 				t.Context(),
-				identifyBackendsToUpdateParams{
-					endpointPort:    firstRefPort,
-					currentBackends: currentBackends,
-					endpointSlices:  lo.Values(endpointSlicesByRef),
-				},
+				mock.MatchedBy(func(params identifyBackendsToUpdateParams) bool {
+					return assert.Equal(t, firstRefPort, params.endpointPort) &&
+						assert.ElementsMatch(t, currentBackends, params.currentBackends) &&
+						assert.ElementsMatch(t, lo.Values(endpointSlicesByRef), params.endpointSlices)
+				}),
 			).Return(identifyBackendsToUpdateResult{
 				updateRequired:  true,
 				updatedBackends: wantUpdatedBackends,
