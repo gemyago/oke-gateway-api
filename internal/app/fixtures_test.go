@@ -104,6 +104,15 @@ func randomGatewayWithListenersOpt(
 	}
 }
 
+func randomGatewayWithNameFromParentRefOpt(ref gatewayv1.ParentReference) randomGatewayOpt {
+	return func(gw *gatewayv1.Gateway) {
+		gw.Name = string(ref.Name)
+		if ref.Namespace != nil {
+			gw.Namespace = string(lo.FromPtr(ref.Namespace))
+		}
+	}
+}
+
 type randomHTTPListenerOpt func(*gatewayv1.Listener)
 
 func makeRandomHTTPListener(

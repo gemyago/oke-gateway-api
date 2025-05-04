@@ -210,12 +210,16 @@ func (m *httpRouteModelImpl) resolveRouteParentRefData(
 func (m *httpRouteModelImpl) aggregateRouteParentRefData(
 	ctx context.Context,
 	results map[apitypes.NamespacedName]resolvedRouteDetails,
-	parentName apitypes.NamespacedName,
 	httpRoute gatewayv1.HTTPRoute,
 	gatewayDetails resolvedGatewayDetails,
 	matchedRef gatewayv1.ParentReference, // Should be target-only ref
 	matchedListeners []gatewayv1.Listener,
 ) {
+	parentName := apitypes.NamespacedName{
+		Namespace: gatewayDetails.gateway.Namespace,
+		Name:      gatewayDetails.gateway.Name,
+	}
+
 	if existingResult, found := results[parentName]; found {
 		newListeners := lo.UniqBy(
 			append(existingResult.matchedListeners, matchedListeners...),
@@ -272,17 +276,8 @@ func (m *httpRouteModelImpl) resolveRequest(
 		}
 
 		if resolvedGatewayData != nil {
-			gatewayNamespace := req.NamespacedName.Namespace
-			if parentRef.Namespace != nil {
-				gatewayNamespace = string(lo.FromPtr(parentRef.Namespace))
-			}
-			parentName := apitypes.NamespacedName{
-				Namespace: gatewayNamespace,
-				Name:      string(parentRef.Name),
-			}
 			m.aggregateRouteParentRefData(ctx,
 				results,
-				parentName,
 				httpRoute,
 				*resolvedGatewayData,
 				makeTargetOnlyParentRef(parentRef),

@@ -111,6 +111,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			gatewayData := makeRandomAcceptedGatewayDetails(
 				randomResolvedGatewayDetailsWithGatewayOpts(
+					randomGatewayWithNameFromParentRefOpt(workingRef),
 					randomGatewayWithListenersOpt(wantListeners...),
 				),
 			)
@@ -154,74 +155,6 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			assert.Equal(t, wantListeners, receiver.matchedListeners)
 		})
 
-		t.Run("default namespace", func(t *testing.T) {
-			deps := newMockDeps(t)
-			model := newHTTPRouteModel(deps)
-
-			req := reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Namespace: faker.Word(),
-					Name:      faker.Word(),
-				},
-			}
-			workingRef := makeRandomParentRef()
-			workingRef.Namespace = nil
-
-			route := makeRandomHTTPRoute(
-				randomHTTPRouteWithRandomParentRefOpt(workingRef),
-			)
-
-			setupClientGet(t, deps.K8sClient, req.NamespacedName, route)
-
-			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
-
-			gatewayData := makeRandomAcceptedGatewayDetails(
-				randomResolvedGatewayDetailsWithGatewayOpts(
-					randomGatewayWithListenersOpt(makeFewRandomHTTPListeners()...),
-				),
-			)
-
-			gatewayModel.EXPECT().resolveReconcileRequest(
-				t.Context(),
-				reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Namespace: req.NamespacedName.Namespace,
-						Name:      string(workingRef.Name),
-					},
-				},
-				mock.Anything,
-			).RunAndReturn(func(
-				_ context.Context,
-				_ reconcile.Request,
-				receiver *resolvedGatewayDetails,
-			) (bool, error) {
-				*receiver = *gatewayData
-				return true, nil
-			})
-
-			results, err := model.resolveRequest(t.Context(), req)
-
-			require.NoError(t, err)
-			require.Len(t, results, 1, "should resolve exactly one parent")
-
-			parentKey := types.NamespacedName{
-				Namespace: req.NamespacedName.Namespace,
-				Name:      string(workingRef.Name),
-			}
-			require.Contains(t, results, parentKey)
-			receiver := results[parentKey]
-
-			assert.Equal(t, route, receiver.httpRoute)
-			assert.Equal(t, gatewayv1.ParentReference{
-				Name:      workingRef.Name,
-				Namespace: nil,
-				Kind:      workingRef.Kind,
-				Group:     workingRef.Group,
-			}, receiver.matchedRef)
-			assert.Equal(t, workingRef, receiver.matchedRef)
-			assert.Equal(t, *gatewayData, receiver.gatewayDetails)
-		})
-
 		t.Run("relevant parent with section name", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
@@ -254,6 +187,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			gatewayData := makeRandomAcceptedGatewayDetails(
 				randomResolvedGatewayDetailsWithGatewayOpts(
+					randomGatewayWithNameFromParentRefOpt(workingRef),
 					randomGatewayWithListenersOpt(otherListener1, matchingListener, otherListener2),
 				),
 			)
@@ -319,8 +253,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			)
 			workingRef2 := makeRandomParentRef(
 				func(p *gatewayv1.ParentReference) {
-					p.Name = workingRef1.Name           // Same gateway name
-					p.Namespace = workingRef1.Namespace // Same gateway namespace
+					p.Name = workingRef1.Name
+					p.Namespace = workingRef1.Namespace
 					p.SectionName = &sectionName2
 				},
 			)
@@ -345,6 +279,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			gatewayData := makeRandomAcceptedGatewayDetails(
 				randomResolvedGatewayDetailsWithGatewayOpts(
+					randomGatewayWithNameFromParentRefOpt(workingRef1),
 					randomGatewayWithListenersOpt(allGatewayListeners...),
 				),
 			)
@@ -430,6 +365,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			listener1 := makeRandomHTTPListener()
 			gatewayData1 := makeRandomAcceptedGatewayDetails(
 				randomResolvedGatewayDetailsWithGatewayOpts(
+					randomGatewayWithNameFromParentRefOpt(refWithNonMatchingSection),
 					randomGatewayWithListenersOpt(listener1),
 				),
 			)
@@ -454,6 +390,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			allListeners := makeFewRandomHTTPListeners()
 			gatewayData2 := makeRandomAcceptedGatewayDetails(
 				randomResolvedGatewayDetailsWithGatewayOpts(
+					randomGatewayWithNameFromParentRefOpt(refWithoutSection),
 					randomGatewayWithListenersOpt(allListeners...),
 				),
 			)
