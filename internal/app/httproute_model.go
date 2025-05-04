@@ -20,9 +20,10 @@ import (
 )
 
 type resolvedRouteDetails struct {
-	gatewayDetails resolvedGatewayDetails
-	matchedRef     gatewayv1.ParentReference
-	httpRoute      gatewayv1.HTTPRoute
+	gatewayDetails   resolvedGatewayDetails
+	httpRoute        gatewayv1.HTTPRoute
+	matchedRef       gatewayv1.ParentReference
+	matchedListeners []gatewayv1.Listener
 }
 
 type resolveBackendRefsParams struct {
@@ -95,6 +96,17 @@ func parentRefSameTarget(a, b gatewayv1.ParentReference) bool {
 		lo.FromPtr(a.Group) == lo.FromPtr(b.Group)
 }
 
+// makeTargetOnlyParentRef makes a parent reference that only targets the resource
+// by name and namespace. It ignores the section name and port.
+func makeTargetOnlyParentRef(parentRef gatewayv1.ParentReference) gatewayv1.ParentReference {
+	return gatewayv1.ParentReference{
+		Name:      parentRef.Name,
+		Namespace: parentRef.Namespace,
+		Kind:      parentRef.Kind,
+		Group:     parentRef.Group,
+	}
+}
+
 func backendRefName(
 	backendRef gatewayv1.HTTPBackendRef,
 	defaultNamespace string,
@@ -142,6 +154,7 @@ func (m *httpRouteModelImpl) resolveRequest(
 
 	var resolvedGatewayData resolvedGatewayDetails
 	var matchedRef gatewayv1.ParentReference
+	var matchedListeners []gatewayv1.Listener
 	gatewayAccepted := false
 	for _, parentRef := range httpRoute.Spec.ParentRefs {
 		gatewayNamespace := req.NamespacedName.Namespace
@@ -164,7 +177,8 @@ func (m *httpRouteModelImpl) resolveRequest(
 		}
 		if accepted {
 			gatewayAccepted = true
-			matchedRef = parentRef
+			matchedRef = makeTargetOnlyParentRef(parentRef)
+			matchedListeners = resolvedGatewayData.gateway.Spec.Listeners
 			break
 		}
 	}
@@ -183,9 +197,9 @@ func (m *httpRouteModelImpl) resolveRequest(
 	)
 
 	receiver.httpRoute = httpRoute
-	receiver.matchedRef = matchedRef
 	receiver.gatewayDetails = resolvedGatewayData
-
+	receiver.matchedRef = matchedRef
+	receiver.matchedListeners = matchedListeners
 	return true, nil
 }
 
@@ -221,10 +235,7 @@ func (m *httpRouteModelImpl) acceptRoute(
 		parentStatus = gatewayv1.RouteParentStatus{
 			// We collapse the parent ref into a single object
 			// so using just name and namespace
-			ParentRef: gatewayv1.ParentReference{
-				Name:      routeDetails.matchedRef.Name,
-				Namespace: routeDetails.matchedRef.Namespace,
-			},
+			ParentRef:      makeTargetOnlyParentRef(routeDetails.matchedRef),
 			ControllerName: routeDetails.gatewayDetails.gatewayClass.Spec.ControllerName,
 		}
 	}

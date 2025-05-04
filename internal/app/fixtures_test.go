@@ -96,6 +96,14 @@ func randomGatewayWithRandomListenersOpt() randomGatewayOpt {
 	}
 }
 
+func randomGatewayWithListenersOpt(
+	listeners ...gatewayv1.Listener,
+) randomGatewayOpt {
+	return func(gw *gatewayv1.Gateway) {
+		gw.Spec.Listeners = listeners
+	}
+}
+
 func makeRandomHTTPListener() gatewayv1.Listener {
 	listener := gatewayv1.Listener{
 		Name:     gatewayv1.SectionName("listener-" + faker.UUIDHyphenated()),
@@ -106,11 +114,38 @@ func makeRandomHTTPListener() gatewayv1.Listener {
 	return listener
 }
 
-func makeRandomAcceptedGatewayDetails() *resolvedGatewayDetails {
-	return &resolvedGatewayDetails{
+func makeFewRandomHTTPListeners() []gatewayv1.Listener {
+	count := 2 + rand.IntN(3)
+	listeners := make([]gatewayv1.Listener, count)
+	for i := range listeners {
+		listeners[i] = makeRandomHTTPListener()
+	}
+	return listeners
+}
+
+type randomResolvedGatewayDetailsOpt func(*resolvedGatewayDetails)
+
+func makeRandomAcceptedGatewayDetails(
+	opts ...randomResolvedGatewayDetailsOpt,
+) *resolvedGatewayDetails {
+	details := &resolvedGatewayDetails{
 		gateway:      *newRandomGateway(),
 		gatewayClass: *newRandomGatewayClass(),
 		config:       makeRandomGatewayConfig(),
+	}
+
+	for _, opt := range opts {
+		opt(details)
+	}
+
+	return details
+}
+
+func randomResolvedGatewayDetailsWithGatewayOpts(
+	opts ...randomGatewayOpt,
+) randomResolvedGatewayDetailsOpt {
+	return func(details *resolvedGatewayDetails) {
+		details.gateway = *newRandomGateway(opts...)
 	}
 }
 
@@ -273,6 +308,12 @@ func makeRandomHTTPRoute(
 func randomHTTPRouteWithRandomParentRefOpt(ref gatewayv1.ParentReference) randomHTTPRouteOpt {
 	return func(route *gatewayv1.HTTPRoute) {
 		route.Spec.ParentRefs = append(route.Spec.ParentRefs, ref)
+	}
+}
+
+func randomHTTPRouteWithRandomParentRefsOpt(refs ...gatewayv1.ParentReference) randomHTTPRouteOpt {
+	return func(route *gatewayv1.HTTPRoute) {
+		route.Spec.ParentRefs = append(route.Spec.ParentRefs, refs...)
 	}
 }
 
