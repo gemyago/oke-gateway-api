@@ -299,6 +299,110 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			assert.Equal(t, wantListeners, receiver.matchedListeners)
 		})
 
+		t.Run("relevant parent with multiple sections", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: faker.Word(),
+					Name:      faker.Word(),
+				},
+			}
+			sectionName1 := gatewayv1.SectionName(faker.Word())
+			sectionName2 := gatewayv1.SectionName(faker.Word())
+			require.NotEqual(t, sectionName1, sectionName2) // Ensure different sections
+
+			// Two refs pointing to the same gateway, but different sections
+			workingRef1 := makeRandomParentRef(
+				func(p *gatewayv1.ParentReference) { p.SectionName = &sectionName1 },
+			)
+			workingRef2 := makeRandomParentRef(
+				func(p *gatewayv1.ParentReference) {
+					p.Name = workingRef1.Name           // Same gateway name
+					p.Namespace = workingRef1.Namespace // Same gateway namespace
+					p.SectionName = &sectionName2
+				},
+			)
+
+			// A third ref pointing to a different gateway
+			otherRef := makeRandomParentRef()
+
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithRandomParentRefsOpt(workingRef1, workingRef2, otherRef),
+			)
+
+			setupClientGet(t, deps.K8sClient, req.NamespacedName, route)
+
+			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+
+			// Define listeners for the gateway
+			listener1 := makeRandomHTTPListener(randomHTTPListenerWithNameOpt(sectionName1))
+			listener2 := makeRandomHTTPListener(randomHTTPListenerWithNameOpt(sectionName2))
+			otherListener := makeRandomHTTPListener() // This one shouldn't be matched
+			allGatewayListeners := []gatewayv1.Listener{otherListener, listener1, listener2}
+			wantListeners := []gatewayv1.Listener{listener1, listener2} // Only these should be in the final result
+
+			gatewayData := makeRandomAcceptedGatewayDetails(
+				randomResolvedGatewayDetailsWithGatewayOpts(
+					randomGatewayWithListenersOpt(allGatewayListeners...),
+				),
+			)
+
+			// Mock the gateway model response for the targeted gateway
+			gatewayModel.EXPECT().resolveReconcileRequest(
+				t.Context(),
+				reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Namespace: string(lo.FromPtr(workingRef1.Namespace)),
+						Name:      string(workingRef1.Name),
+					},
+				},
+				mock.Anything,
+			).RunAndReturn(func(
+				_ context.Context,
+				_ reconcile.Request,
+				receiver *resolvedGatewayDetails,
+			) (bool, error) {
+				*receiver = *gatewayData
+				return true, nil
+			}).Times(2) // Expect it to be called twice for the two refs
+
+			// Mock the gateway model response for the other gateway (should resolve false)
+			gatewayModel.EXPECT().resolveReconcileRequest(
+				t.Context(),
+				reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Namespace: string(lo.FromPtr(otherRef.Namespace)),
+						Name:      string(otherRef.Name),
+					},
+				},
+				mock.Anything,
+			).Return(false, nil)
+
+			results, err := model.resolveRequest(t.Context(), req)
+
+			require.NoError(t, err)
+			require.Len(t, results, 1, "should resolve exactly one parent gateway")
+
+			parentKey := types.NamespacedName{
+				Namespace: string(lo.FromPtr(workingRef1.Namespace)),
+				Name:      string(workingRef1.Name),
+			}
+			require.Contains(t, results, parentKey)
+			receiver := results[parentKey]
+
+			assert.Equal(t, route, receiver.httpRoute)
+			assert.Equal(t, *gatewayData, receiver.gatewayDetails)
+			assert.Equal(t, gatewayv1.ParentReference{
+				Name:      workingRef1.Name,
+				Namespace: workingRef1.Namespace,
+				Group:     workingRef1.Group,
+				Kind:      workingRef1.Kind,
+			}, receiver.matchedRef)
+			assert.ElementsMatch(t, wantListeners, receiver.matchedListeners)
+		})
+
 		t.Run("relevant parent with non-matching section name", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)

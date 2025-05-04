@@ -195,11 +195,26 @@ func (m *httpRouteModelImpl) resolveRequest(
 				slog.String("sectionName", string(sectionName)),
 				slog.Int("matchedListenersCount", len(matchingListeners)),
 			)
-			results[parentName] = resolvedRouteDetails{
-				httpRoute:        httpRoute,
-				gatewayDetails:   resolvedGatewayData,
-				matchedRef:       makeTargetOnlyParentRef(parentRef),
-				matchedListeners: matchingListeners,
+			if existingResult, found := results[parentName]; found {
+				newListeners := lo.UniqBy(
+					append(existingResult.matchedListeners, matchingListeners...),
+					func(l gatewayv1.Listener) gatewayv1.SectionName {
+						return l.Name
+					},
+				)
+				existingResult.matchedListeners = newListeners
+				results[parentName] = existingResult
+				m.logger.DebugContext(ctx, "Appended listeners to existing gateway result",
+					slog.String("parentName", parentName.String()),
+					slog.Int("totalListeners", len(newListeners)),
+				)
+			} else {
+				results[parentName] = resolvedRouteDetails{
+					httpRoute:        httpRoute,
+					gatewayDetails:   resolvedGatewayData,
+					matchedRef:       makeTargetOnlyParentRef(parentRef),
+					matchedListeners: matchingListeners,
+				}
 			}
 		} else {
 			m.logger.DebugContext(ctx, "Gateway resolved without section name",
