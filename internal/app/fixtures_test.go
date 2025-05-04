@@ -104,14 +104,28 @@ func randomGatewayWithListenersOpt(
 	}
 }
 
-func makeRandomHTTPListener() gatewayv1.Listener {
+type randomHTTPListenerOpt func(*gatewayv1.Listener)
+
+func makeRandomHTTPListener(
+	opts ...randomHTTPListenerOpt,
+) gatewayv1.Listener {
 	listener := gatewayv1.Listener{
 		Name:     gatewayv1.SectionName("listener-" + faker.UUIDHyphenated()),
 		Port:     gatewayv1.PortNumber(rand.Int32N(4000)),
 		Protocol: gatewayv1.HTTPProtocolType,
 	}
 
+	for _, opt := range opts {
+		opt(&listener)
+	}
+
 	return listener
+}
+
+func randomHTTPListenerWithNameOpt(name gatewayv1.SectionName) randomHTTPListenerOpt {
+	return func(listener *gatewayv1.Listener) {
+		listener.Name = name
+	}
 }
 
 func makeFewRandomHTTPListeners() []gatewayv1.Listener {

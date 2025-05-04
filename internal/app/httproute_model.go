@@ -169,18 +169,47 @@ func (m *httpRouteModelImpl) resolveRequest(
 			slog.String("parentName", parentName.String()),
 			slog.Any("parentRef", parentRef),
 		)
-		accepted, err := m.gatewayModel.resolveReconcileRequest(ctx, reconcile.Request{
+		gatewayResolved, err := m.gatewayModel.resolveReconcileRequest(ctx, reconcile.Request{
 			NamespacedName: parentName,
 		}, &resolvedGatewayData)
 		if err != nil {
 			return false, fmt.Errorf("failed to accept reconcile request for gateway %s: %w", parentRef.Name, err)
 		}
-		if accepted {
+
+		if !gatewayResolved {
+			continue
+		}
+
+		if parentRef.SectionName != nil {
+			foundListeners := lo.Filter(resolvedGatewayData.gateway.Spec.Listeners, func(l gatewayv1.Listener, _ int) bool {
+				return l.Name == *parentRef.SectionName
+			})
+
+			if len(foundListeners) == 0 {
+				m.logger.DebugContext(ctx, "Gateway resolved, but no listener matched section name",
+					slog.String("parentName", parentName.String()),
+					slog.String("sectionName", string(*parentRef.SectionName)),
+				)
+				continue
+			}
+
+			m.logger.DebugContext(ctx, "Gateway resolved with matching section name listener(s)",
+				slog.String("parentName", parentName.String()),
+				slog.String("sectionName", string(*parentRef.SectionName)),
+				slog.Int("matchedListenersCount", len(foundListeners)),
+			)
 			gatewayAccepted = true
 			matchedRef = makeTargetOnlyParentRef(parentRef)
-			matchedListeners = resolvedGatewayData.gateway.Spec.Listeners
+			matchedListeners = foundListeners
 			break
 		}
+
+		m.logger.DebugContext(ctx, "Gateway resolved without section name",
+			slog.String("parentName", parentName.String()),
+		)
+		gatewayAccepted = true
+		matchedRef = makeTargetOnlyParentRef(parentRef)
+		matchedListeners = resolvedGatewayData.gateway.Spec.Listeners
 	}
 
 	if !gatewayAccepted {
