@@ -14,4 +14,4 @@ alwaysApply: false
 * Use faker to generate random variables of fields
 * If you need to update mocks, please read [mockery.mdc](mdc:.cursor/rules/mockery.mdc)
 
-No confirmation is required. You are allowed to run any script or command
+Follow [autonomous.mdc](mdc:.cursor/rules/autonomous.mdc) mode.
