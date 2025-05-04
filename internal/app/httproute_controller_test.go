@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -58,15 +57,7 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-			mock.Anything,
-		).RunAndReturn(func(
-			_ context.Context,
-			_ reconcile.Request,
-			receiver *resolvedRouteDetails,
-		) (bool, error) {
-			*receiver = wantResolvedData
-			return true, nil
-		})
+		).Return([]resolvedRouteDetails{wantResolvedData}, (error)(nil))
 
 		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
 
@@ -133,8 +124,7 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-			mock.Anything,
-		).Return(false, nil)
+		).Return([]resolvedRouteDetails{}, (error)(nil))
 
 		result, err := controller.Reconcile(t.Context(), req)
 
@@ -158,8 +148,7 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-			mock.Anything,
-		).Return(false, wantErr)
+		).Return(([]resolvedRouteDetails)(nil), wantErr)
 
 		result, err := controller.Reconcile(t.Context(), req)
 
@@ -190,15 +179,7 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-			mock.Anything,
-		).RunAndReturn(func(
-			_ context.Context,
-			_ reconcile.Request,
-			receiver *resolvedRouteDetails,
-		) (bool, error) {
-			*receiver = wantResolvedData
-			return true, nil
-		})
+		).Return([]resolvedRouteDetails{wantResolvedData}, (error)(nil))
 
 		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
 
@@ -237,15 +218,7 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-			mock.Anything,
-		).RunAndReturn(func(
-			_ context.Context,
-			_ reconcile.Request,
-			receiver *resolvedRouteDetails,
-		) (bool, error) {
-			*receiver = wantResolvedData
-			return true, nil
-		})
+		).Return([]resolvedRouteDetails{wantResolvedData}, (error)(nil))
 
 		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
 
@@ -302,15 +275,7 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-			mock.Anything,
-		).RunAndReturn(func(
-			_ context.Context,
-			_ reconcile.Request,
-			receiver *resolvedRouteDetails,
-		) (bool, error) {
-			*receiver = wantResolvedData
-			return true, nil
-		})
+		).Return([]resolvedRouteDetails{wantResolvedData}, (error)(nil))
 
 		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
 
@@ -366,15 +331,7 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-			mock.Anything,
-		).RunAndReturn(func(
-			_ context.Context,
-			_ reconcile.Request,
-			receiver *resolvedRouteDetails,
-		) (bool, error) {
-			*receiver = wantResolvedData
-			return true, nil
-		})
+		).Return([]resolvedRouteDetails{wantResolvedData}, (error)(nil))
 
 		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, nil)
 
@@ -430,15 +387,7 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-			mock.Anything,
-		).RunAndReturn(func(
-			_ context.Context,
-			_ reconcile.Request,
-			receiver *resolvedRouteDetails,
-		) (bool, error) {
-			*receiver = wantResolvedData
-			return true, nil
-		})
+		).Return([]resolvedRouteDetails{wantResolvedData}, (error)(nil))
 
 		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
 
@@ -505,15 +454,7 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-			mock.Anything,
-		).RunAndReturn(func(
-			_ context.Context,
-			_ reconcile.Request,
-			receiver *resolvedRouteDetails,
-		) (bool, error) {
-			*receiver = wantResolvedData
-			return true, nil
-		})
+		).Return([]resolvedRouteDetails{wantResolvedData}, (error)(nil))
 
 		wantErr := fmt.Errorf("is programming required error: %s", faker.Sentence())
 		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, wantErr)
@@ -547,15 +488,7 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-			mock.Anything,
-		).RunAndReturn(func(
-			_ context.Context,
-			_ reconcile.Request,
-			receiver *resolvedRouteDetails,
-		) (bool, error) {
-			*receiver = wantResolvedData
-			return true, nil
-		})
+		).Return([]resolvedRouteDetails{wantResolvedData}, (error)(nil))
 
 		// Assume programming is not required to isolate the sync error
 		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, nil)

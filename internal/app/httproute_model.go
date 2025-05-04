@@ -51,8 +51,7 @@ type httpRouteModel interface {
 	resolveRequest(
 		ctx context.Context,
 		req reconcile.Request,
-		receiver *resolvedRouteDetails,
-	) (bool, error)
+	) ([]resolvedRouteDetails, error)
 
 	// acceptRoute accepts a reconcile request for a given HTTPRoute.
 	// It returns updated HTTPRoute with status parents updated.
@@ -139,24 +138,22 @@ type httpRouteModelImpl struct {
 func (m *httpRouteModelImpl) resolveRequest(
 	ctx context.Context,
 	req reconcile.Request,
-	receiver *resolvedRouteDetails,
-) (bool, error) {
+) ([]resolvedRouteDetails, error) {
 	var httpRoute gatewayv1.HTTPRoute
 	if err := m.client.Get(ctx, req.NamespacedName, &httpRoute); err != nil {
 		if apierrors.IsNotFound(err) {
 			m.logger.DebugContext(ctx, "HTTProute not found",
 				slog.String("route", req.NamespacedName.String()),
 			)
-			return false, nil
+			return nil, nil // No route, no details
 		}
-		return false, err
+		return nil, err
 	}
 
-	var resolvedGatewayData resolvedGatewayDetails
-	var matchedRef gatewayv1.ParentReference
-	var matchedListeners []gatewayv1.Listener
-	gatewayAccepted := false
+	results := make([]resolvedRouteDetails, 0)
+
 	for _, parentRef := range httpRoute.Spec.ParentRefs {
+		var resolvedGatewayData resolvedGatewayDetails
 		gatewayNamespace := req.NamespacedName.Namespace
 		if parentRef.Namespace != nil {
 			gatewayNamespace = string(lo.FromPtr(parentRef.Namespace))
@@ -173,7 +170,7 @@ func (m *httpRouteModelImpl) resolveRequest(
 			NamespacedName: parentName,
 		}, &resolvedGatewayData)
 		if err != nil {
-			return false, fmt.Errorf("failed to accept reconcile request for gateway %s: %w", parentRef.Name, err)
+			return nil, fmt.Errorf("failed to resolve reconcile request for gateway %s: %w", parentRef.Name, err)
 		}
 
 		if !gatewayResolved {
@@ -181,55 +178,52 @@ func (m *httpRouteModelImpl) resolveRequest(
 		}
 
 		if parentRef.SectionName != nil {
-			foundListeners := lo.Filter(resolvedGatewayData.gateway.Spec.Listeners, func(l gatewayv1.Listener, _ int) bool {
+			sectionName := *parentRef.SectionName
+			matchingListeners := lo.Filter(resolvedGatewayData.gateway.Spec.Listeners, func(l gatewayv1.Listener, _ int) bool {
 				return l.Name == *parentRef.SectionName
 			})
 
-			if len(foundListeners) == 0 {
+			if len(matchingListeners) == 0 {
 				m.logger.DebugContext(ctx, "Gateway resolved, but no listener matched section name",
 					slog.String("parentName", parentName.String()),
-					slog.String("sectionName", string(*parentRef.SectionName)),
+					slog.String("sectionName", string(sectionName)),
 				)
 				continue
 			}
 
 			m.logger.DebugContext(ctx, "Gateway resolved with matching section name listener(s)",
 				slog.String("parentName", parentName.String()),
-				slog.String("sectionName", string(*parentRef.SectionName)),
-				slog.Int("matchedListenersCount", len(foundListeners)),
+				slog.String("sectionName", string(sectionName)),
+				slog.Int("matchedListenersCount", len(matchingListeners)),
 			)
-			gatewayAccepted = true
-			matchedRef = makeTargetOnlyParentRef(parentRef)
-			matchedListeners = foundListeners
-			break
+			results = append(results, resolvedRouteDetails{
+				httpRoute:        httpRoute,
+				gatewayDetails:   resolvedGatewayData,
+				matchedRef:       makeTargetOnlyParentRef(parentRef),
+				matchedListeners: matchingListeners,
+			})
+		} else {
+			m.logger.DebugContext(ctx, "Gateway resolved without section name",
+				slog.String("parentName", parentName.String()),
+			)
+			results = append(results, resolvedRouteDetails{
+				httpRoute:        httpRoute,
+				gatewayDetails:   resolvedGatewayData,
+				matchedRef:       makeTargetOnlyParentRef(parentRef),
+				matchedListeners: resolvedGatewayData.gateway.Spec.Listeners,
+			})
 		}
-
-		m.logger.DebugContext(ctx, "Gateway resolved without section name",
-			slog.String("parentName", parentName.String()),
-		)
-		gatewayAccepted = true
-		matchedRef = makeTargetOnlyParentRef(parentRef)
-		matchedListeners = resolvedGatewayData.gateway.Spec.Listeners
 	}
 
-	if !gatewayAccepted {
+	if len(results) == 0 {
 		m.logger.InfoContext(ctx, "No relevant gateway found for HTTProute",
 			slog.String("route", req.NamespacedName.String()),
 			slog.Int("triedParentRefs", len(httpRoute.Spec.ParentRefs)),
 		)
-		return false, nil
+		return nil, nil // No matching parents found
 	}
 
-	m.logger.InfoContext(ctx, "Resolved relevant HTTProute parent",
-		slog.String("route", req.NamespacedName.String()),
-		slog.String("gateway", resolvedGatewayData.gateway.Name),
-	)
-
-	receiver.httpRoute = httpRoute
-	receiver.gatewayDetails = resolvedGatewayData
-	receiver.matchedRef = matchedRef
-	receiver.matchedListeners = matchedListeners
-	return true, nil
+	return results, nil
 }
 
 // TODO: Some mechanism to check if all parents are accepted

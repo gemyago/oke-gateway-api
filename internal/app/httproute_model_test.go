@@ -133,11 +133,11 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				return true, nil
 			})
 
-			var receiver resolvedRouteDetails
-			accepted, err := model.resolveRequest(t.Context(), req, &receiver)
+			results, err := model.resolveRequest(t.Context(), req)
 
 			require.NoError(t, err)
-			assert.True(t, accepted, "parent should be resolved")
+			require.Len(t, results, 1, "should resolve exactly one parent")
+			receiver := results[0]
 
 			assert.Equal(t, route, receiver.httpRoute)
 			assert.Equal(t, *gatewayData, receiver.gatewayDetails)
@@ -193,11 +193,11 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				return true, nil
 			})
 
-			var receiver resolvedRouteDetails
-			accepted, err := model.resolveRequest(t.Context(), req, &receiver)
+			results, err := model.resolveRequest(t.Context(), req)
 
 			require.NoError(t, err)
-			assert.True(t, accepted, "parent should be resolved")
+			require.Len(t, results, 1, "should resolve exactly one parent")
+			receiver := results[0]
 
 			assert.Equal(t, route, receiver.httpRoute)
 			assert.Equal(t, gatewayv1.ParentReference{
@@ -264,11 +264,11 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				return true, nil
 			})
 
-			var receiver resolvedRouteDetails
-			accepted, err := model.resolveRequest(t.Context(), req, &receiver)
+			results, err := model.resolveRequest(t.Context(), req)
 
 			require.NoError(t, err)
-			assert.True(t, accepted, "parent should be resolved with matching section name")
+			require.Len(t, results, 1, "should resolve exactly one parent")
+			receiver := results[0]
 
 			assert.Equal(t, route, receiver.httpRoute)
 			assert.Equal(t, *gatewayData, receiver.gatewayDetails)
@@ -358,21 +358,21 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				return true, nil          // Second gateway resolves
 			})
 
-			var receiver resolvedRouteDetails
-			accepted, err := model.resolveRequest(t.Context(), req, &receiver)
+			results, err := model.resolveRequest(t.Context(), req)
 
 			require.NoError(t, err)
-			// Should be accepted because the second parentRef matches
-			assert.True(t, accepted, "parent should be resolved via the second ref")
-			// Ensure the details match the *second* gateway/ref
-			assert.Equal(t, *gatewayData2, receiver.gatewayDetails)
-			assert.Equal(t, gatewayv1.ParentReference{
-				Name:      refWithoutSection.Name,
-				Namespace: refWithoutSection.Namespace,
-				Group:     refWithoutSection.Group,
-				Kind:      refWithoutSection.Kind,
-			}, receiver.matchedRef)
-			assert.Equal(t, allListeners, receiver.matchedListeners)
+			require.Len(t, results, 1, "at least one parent should resolve")
+
+			for _, res := range results {
+				assert.Equal(t, *gatewayData2, res.gatewayDetails)
+				assert.Equal(t, gatewayv1.ParentReference{
+					Name:      refWithoutSection.Name,
+					Namespace: refWithoutSection.Namespace,
+					Group:     refWithoutSection.Group,
+					Kind:      refWithoutSection.Kind,
+				}, res.matchedRef)
+				assert.Equal(t, allListeners, res.matchedListeners)
+			}
 		})
 
 		t.Run("no relevant parent when section name does not match", func(t *testing.T) {
@@ -423,11 +423,10 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				return true, nil
 			})
 
-			var receiver resolvedRouteDetails
-			accepted, err := model.resolveRequest(t.Context(), req, &receiver)
+			results, err := model.resolveRequest(t.Context(), req)
 
 			require.NoError(t, err)
-			assert.False(t, accepted, "parent should not resolve when section name does not match any listener")
+			assert.Empty(t, results, "parent should not resolve when section name does not match any listener")
 		})
 
 		t.Run("no relevant parent", func(t *testing.T) {
@@ -474,11 +473,10 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				mock.Anything,
 			).Return(false, nil)
 
-			var receiver resolvedRouteDetails
-			accepted, err := model.resolveRequest(t.Context(), req, &receiver)
+			results, err := model.resolveRequest(t.Context(), req)
 
 			require.NoError(t, err)
-			assert.False(t, accepted, "parent should not be resolved")
+			assert.Empty(t, results, "parent should not be resolved")
 		})
 
 		t.Run("no such route", func(t *testing.T) {
@@ -499,11 +497,10 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				),
 			)
 
-			var receiver resolvedRouteDetails
-			accepted, err := model.resolveRequest(t.Context(), req, &receiver)
+			results, err := model.resolveRequest(t.Context(), req)
 
 			require.NoError(t, err)
-			assert.False(t, accepted, "parent should not be resolved")
+			assert.Empty(t, results, "parent should not be resolved")
 		})
 
 		t.Run("client get error", func(t *testing.T) {
@@ -520,12 +517,11 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			expectedErr := errors.New(faker.Sentence())
 			mockK8sClient.EXPECT().Get(t.Context(), req.NamespacedName, mock.Anything).Return(expectedErr)
 
-			var receiver resolvedRouteDetails
-			accepted, err := model.resolveRequest(t.Context(), req, &receiver)
+			results, err := model.resolveRequest(t.Context(), req)
 
 			require.Error(t, err)
 			require.ErrorIs(t, err, expectedErr)
-			assert.False(t, accepted, "should not be accepted on error")
+			assert.Nil(t, results, "should return nil results on error")
 		})
 
 		t.Run("gateway resolve error", func(t *testing.T) {
@@ -558,12 +554,11 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				mock.Anything,
 			).Return(false, expectedErr)
 
-			var receiver resolvedRouteDetails
-			accepted, err := model.resolveRequest(t.Context(), req, &receiver)
+			results, err := model.resolveRequest(t.Context(), req)
 
 			require.Error(t, err)
 			require.ErrorIs(t, err, expectedErr)
-			assert.False(t, accepted, "should not be accepted on error")
+			assert.Nil(t, results, "should return nil results on error")
 		})
 	})
 

@@ -81,43 +81,46 @@ func (r *HTTPRouteController) performProgramming(
 func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	r.logger.InfoContext(ctx, fmt.Sprintf("Processing reconciliation for HTTProute %s", req.NamespacedName))
 
-	var resolvedData resolvedRouteDetails
-	resolved, err := r.httpRouteModel.resolveRequest(ctx, req, &resolvedData)
+	resolvedDetailsList, err := r.httpRouteModel.resolveRequest(ctx, req)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("failed to resolve request parent: %w", err)
 	}
-	if !resolved {
+	if len(resolvedDetailsList) == 0 {
 		r.logger.InfoContext(ctx, "Ignoring irrelevant HTTPRoute route",
 			slog.String("httpRoute", req.NamespacedName.String()),
 		)
 		return reconcile.Result{}, nil
 	}
 
-	// Check if programming is required based on status
-	programmingRequired, err := r.httpRouteModel.isProgrammingRequired(resolvedData)
-	if err != nil {
-		r.logger.ErrorContext(ctx, "Failed to check if programming is required",
-			slog.String("httpRoute", req.NamespacedName.String()),
-		)
-		return reconcile.Result{}, err
-	}
-	if programmingRequired {
-		err = r.performProgramming(ctx, resolvedData)
+	for _, resolvedData := range resolvedDetailsList {
+		var programmingRequired bool
+		programmingRequired, err = r.httpRouteModel.isProgrammingRequired(resolvedData)
 		if err != nil {
-			return reconcile.Result{}, fmt.Errorf("failed to perform programming: %w", err)
+			return reconcile.Result{}, fmt.Errorf("failed to check programming requirement for gateway %s: %w",
+				resolvedData.gatewayDetails.gateway.Name, err)
 		}
-	} else {
-		r.logger.DebugContext(ctx, "HTTPRoute programming not required",
-			slog.String("httpRoute", req.NamespacedName.String()),
-		)
-	}
 
-	err = r.httpBackendModel.syncRouteBackendEndpoints(ctx, syncRouteBackendEndpointsParams{
-		httpRoute: resolvedData.httpRoute,
-		config:    resolvedData.gatewayDetails.config,
-	})
-	if err != nil {
-		return reconcile.Result{}, fmt.Errorf("failed to sync backend endpoints: %w", err)
+		if programmingRequired {
+			err = r.performProgramming(ctx, resolvedData)
+			if err != nil {
+				return reconcile.Result{}, fmt.Errorf("failed to perform programming for gateway %s: %w",
+					resolvedData.gatewayDetails.gateway.Name, err)
+			}
+		} else {
+			r.logger.DebugContext(ctx, "HTTPRoute programming not required for parent",
+				slog.String("httpRoute", req.NamespacedName.String()),
+				slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
+			)
+		}
+
+		err = r.httpBackendModel.syncRouteBackendEndpoints(ctx, syncRouteBackendEndpointsParams{
+			httpRoute: resolvedData.httpRoute, // Assuming httpRoute is the same across list items
+			config:    resolvedData.gatewayDetails.config,
+		})
+		if err != nil {
+			return reconcile.Result{}, fmt.Errorf("failed to sync backend endpoints for gateway %s: %w",
+				resolvedData.gatewayDetails.gateway.Name, err)
+		}
 	}
 
 	r.logger.InfoContext(ctx, fmt.Sprintf("Reconciled HTTProute %s", req.NamespacedName))

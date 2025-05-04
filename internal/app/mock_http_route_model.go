@@ -250,27 +250,29 @@ func (_c *MockhttpRouteModel_resolveBackendRefs_Call) RunAndReturn(run func(cont
 	return _c
 }
 
-// resolveRequest provides a mock function with given fields: ctx, req, receiver
-func (_m *MockhttpRouteModel) resolveRequest(ctx context.Context, req reconcile.Request, receiver *resolvedRouteDetails) (bool, error) {
-	ret := _m.Called(ctx, req, receiver)
+// resolveRequest provides a mock function with given fields: ctx, req
+func (_m *MockhttpRouteModel) resolveRequest(ctx context.Context, req reconcile.Request) ([]resolvedRouteDetails, error) {
+	ret := _m.Called(ctx, req)
 
 	if len(ret) == 0 {
 		panic("no return value specified for resolveRequest")
 	}
 
-	var r0 bool
+	var r0 []resolvedRouteDetails
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, reconcile.Request, *resolvedRouteDetails) (bool, error)); ok {
-		return rf(ctx, req, receiver)
+	if rf, ok := ret.Get(0).(func(context.Context, reconcile.Request) ([]resolvedRouteDetails, error)); ok {
+		return rf(ctx, req)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, reconcile.Request, *resolvedRouteDetails) bool); ok {
-		r0 = rf(ctx, req, receiver)
+	if rf, ok := ret.Get(0).(func(context.Context, reconcile.Request) []resolvedRouteDetails); ok {
+		r0 = rf(ctx, req)
 	} else {
-		r0 = ret.Get(0).(bool)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]resolvedRouteDetails)
+		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, reconcile.Request, *resolvedRouteDetails) error); ok {
-		r1 = rf(ctx, req, receiver)
+	if rf, ok := ret.Get(1).(func(context.Context, reconcile.Request) error); ok {
+		r1 = rf(ctx, req)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -286,24 +288,23 @@ type MockhttpRouteModel_resolveRequest_Call struct {
 // resolveRequest is a helper method to define mock.On call
 //   - ctx context.Context
 //   - req reconcile.Request
-//   - receiver *resolvedRouteDetails
-func (_e *MockhttpRouteModel_Expecter) resolveRequest(ctx interface{}, req interface{}, receiver interface{}) *MockhttpRouteModel_resolveRequest_Call {
-	return &MockhttpRouteModel_resolveRequest_Call{Call: _e.mock.On("resolveRequest", ctx, req, receiver)}
+func (_e *MockhttpRouteModel_Expecter) resolveRequest(ctx interface{}, req interface{}) *MockhttpRouteModel_resolveRequest_Call {
+	return &MockhttpRouteModel_resolveRequest_Call{Call: _e.mock.On("resolveRequest", ctx, req)}
 }
 
-func (_c *MockhttpRouteModel_resolveRequest_Call) Run(run func(ctx context.Context, req reconcile.Request, receiver *resolvedRouteDetails)) *MockhttpRouteModel_resolveRequest_Call {
+func (_c *MockhttpRouteModel_resolveRequest_Call) Run(run func(ctx context.Context, req reconcile.Request)) *MockhttpRouteModel_resolveRequest_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(reconcile.Request), args[2].(*resolvedRouteDetails))
+		run(args[0].(context.Context), args[1].(reconcile.Request))
 	})
 	return _c
 }
 
-func (_c *MockhttpRouteModel_resolveRequest_Call) Return(_a0 bool, _a1 error) *MockhttpRouteModel_resolveRequest_Call {
+func (_c *MockhttpRouteModel_resolveRequest_Call) Return(_a0 []resolvedRouteDetails, _a1 error) *MockhttpRouteModel_resolveRequest_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockhttpRouteModel_resolveRequest_Call) RunAndReturn(run func(context.Context, reconcile.Request, *resolvedRouteDetails) (bool, error)) *MockhttpRouteModel_resolveRequest_Call {
+func (_c *MockhttpRouteModel_resolveRequest_Call) RunAndReturn(run func(context.Context, reconcile.Request) ([]resolvedRouteDetails, error)) *MockhttpRouteModel_resolveRequest_Call {
 	_c.Call.Return(run)
 	return _c
 }
