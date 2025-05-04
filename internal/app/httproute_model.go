@@ -134,6 +134,115 @@ type httpRouteModelImpl struct {
 	ociLoadBalancerModel
 }
 
+// resolveRouteParentRefData attempts to resolve a single parent reference for an HTTPRoute.
+// It returns the resolved gateway details, the matched listeners based on SectionName (if any),
+// and an error if resolution fails. If the gateway is not found or no listeners match the
+// SectionName, it returns nil details/listeners without an error.
+func (m *httpRouteModelImpl) resolveRouteParentRefData(
+	ctx context.Context,
+	httpRoute gatewayv1.HTTPRoute,
+	parentRef gatewayv1.ParentReference,
+	defaultNamespace string,
+) (*resolvedGatewayDetails, []gatewayv1.Listener, error) {
+	var resolvedGatewayData resolvedGatewayDetails
+	gatewayNamespace := defaultNamespace
+	if parentRef.Namespace != nil {
+		gatewayNamespace = string(lo.FromPtr(parentRef.Namespace))
+	}
+	parentName := apitypes.NamespacedName{
+		Namespace: gatewayNamespace,
+		Name:      string(parentRef.Name),
+	}
+	m.logger.DebugContext(ctx, "Resolving parent for HTTProute",
+		slog.String("parentName", parentName.String()),
+		slog.Any("parentRef", parentRef),
+		slog.String("route", apitypes.NamespacedName{
+			Namespace: httpRoute.Namespace,
+			Name:      httpRoute.Name,
+		}.String()),
+	)
+
+	gatewayResolved, err := m.gatewayModel.resolveReconcileRequest(ctx, reconcile.Request{
+		NamespacedName: parentName,
+	}, &resolvedGatewayData)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to resolve gateway %s for route %s/%s: %w",
+			parentName.String(), httpRoute.Namespace, httpRoute.Name, err)
+	}
+	if !gatewayResolved {
+		m.logger.DebugContext(ctx, "Gateway not resolved or not relevant",
+			slog.String("parentName", parentName.String()),
+		)
+		return nil, nil, nil
+	}
+
+	if parentRef.SectionName != nil {
+		sectionName := *parentRef.SectionName
+		matchingListeners := lo.Filter(resolvedGatewayData.gateway.Spec.Listeners, func(l gatewayv1.Listener, _ int) bool {
+			return l.Name == sectionName
+		})
+
+		if len(matchingListeners) == 0 {
+			m.logger.DebugContext(ctx, "Gateway resolved, but no listener matched section name",
+				slog.String("parentName", parentName.String()),
+				slog.String("sectionName", string(sectionName)),
+			)
+			return nil, nil, nil
+		}
+
+		m.logger.DebugContext(ctx, "Gateway resolved with matching section name listener(s)",
+			slog.String("parentName", parentName.String()),
+			slog.String("sectionName", string(sectionName)),
+			slog.Int("matchedListenersCount", len(matchingListeners)),
+		)
+		return &resolvedGatewayData, matchingListeners, nil
+	}
+
+	// If no SectionName, all listeners are considered matched
+	m.logger.DebugContext(ctx, "Gateway resolved without section name, all listeners match",
+		slog.String("parentName", parentName.String()),
+	)
+	return &resolvedGatewayData, resolvedGatewayData.gateway.Spec.Listeners, nil
+}
+
+// aggregateRouteParentRefData adds or updates the results map with the resolved parent details.
+// It handles merging listeners if the same gateway is referenced multiple times (e.g., by different sections).
+func (m *httpRouteModelImpl) aggregateRouteParentRefData(
+	ctx context.Context,
+	results map[apitypes.NamespacedName]resolvedRouteDetails,
+	parentName apitypes.NamespacedName,
+	httpRoute gatewayv1.HTTPRoute,
+	gatewayDetails resolvedGatewayDetails,
+	matchedRef gatewayv1.ParentReference, // Should be target-only ref
+	matchedListeners []gatewayv1.Listener,
+) {
+	if existingResult, found := results[parentName]; found {
+		newListeners := lo.UniqBy(
+			append(existingResult.matchedListeners, matchedListeners...),
+			func(l gatewayv1.Listener) gatewayv1.SectionName {
+				return l.Name
+			},
+		)
+		existingResult.matchedListeners = newListeners
+		results[parentName] = existingResult
+		m.logger.DebugContext(ctx, "Appended/merged listeners for existing gateway result",
+			slog.String("parentName", parentName.String()),
+			slog.Int("totalListeners", len(newListeners)),
+		)
+	} else {
+		results[parentName] = resolvedRouteDetails{
+			httpRoute:        httpRoute,
+			gatewayDetails:   gatewayDetails,
+			matchedRef:       matchedRef, // Use the target-only ref
+			matchedListeners: matchedListeners,
+		}
+		m.logger.DebugContext(ctx, "Added new gateway result",
+			slog.String("parentName", parentName.String()),
+			slog.Int("initialListeners", len(matchedListeners)),
+		)
+	}
+}
+
 func (m *httpRouteModelImpl) resolveRequest(
 	ctx context.Context,
 	req reconcile.Request,
@@ -141,96 +250,49 @@ func (m *httpRouteModelImpl) resolveRequest(
 	var httpRoute gatewayv1.HTTPRoute
 	if err := m.client.Get(ctx, req.NamespacedName, &httpRoute); err != nil {
 		if apierrors.IsNotFound(err) {
-			m.logger.DebugContext(ctx, "HTTProute not found",
+			m.logger.DebugContext(ctx, "HTTProute not found during resolution",
 				slog.String("route", req.NamespacedName.String()),
 			)
 			return map[apitypes.NamespacedName]resolvedRouteDetails{}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("failed to get HTTPRoute %s: %w", req.NamespacedName.String(), err)
 	}
 
 	results := make(map[apitypes.NamespacedName]resolvedRouteDetails)
 
 	for _, parentRef := range httpRoute.Spec.ParentRefs {
-		var resolvedGatewayData resolvedGatewayDetails
-		gatewayNamespace := req.NamespacedName.Namespace
-		if parentRef.Namespace != nil {
-			gatewayNamespace = string(lo.FromPtr(parentRef.Namespace))
-		}
-		parentName := apitypes.NamespacedName{
-			Namespace: gatewayNamespace,
-			Name:      string(parentRef.Name),
-		}
-		m.logger.DebugContext(ctx, "Resolving parent for HTTProute",
-			slog.String("parentName", parentName.String()),
-			slog.Any("parentRef", parentRef),
+		resolvedGatewayData, matchedListeners, err := m.resolveRouteParentRefData(
+			ctx,
+			httpRoute,
+			parentRef,
+			req.NamespacedName.Namespace,
 		)
-		gatewayResolved, err := m.gatewayModel.resolveReconcileRequest(ctx, reconcile.Request{
-			NamespacedName: parentName,
-		}, &resolvedGatewayData)
 		if err != nil {
-			return nil, fmt.Errorf("failed to resolve reconcile request for gateway %s: %w", parentRef.Name, err)
+			return nil, err
 		}
 
-		if !gatewayResolved {
-			continue
-		}
-
-		if parentRef.SectionName != nil {
-			sectionName := *parentRef.SectionName
-			matchingListeners := lo.Filter(resolvedGatewayData.gateway.Spec.Listeners, func(l gatewayv1.Listener, _ int) bool {
-				return l.Name == *parentRef.SectionName
-			})
-
-			if len(matchingListeners) == 0 {
-				m.logger.DebugContext(ctx, "Gateway resolved, but no listener matched section name",
-					slog.String("parentName", parentName.String()),
-					slog.String("sectionName", string(sectionName)),
-				)
-				continue
+		if resolvedGatewayData != nil {
+			gatewayNamespace := req.NamespacedName.Namespace
+			if parentRef.Namespace != nil {
+				gatewayNamespace = string(lo.FromPtr(parentRef.Namespace))
 			}
-
-			m.logger.DebugContext(ctx, "Gateway resolved with matching section name listener(s)",
-				slog.String("parentName", parentName.String()),
-				slog.String("sectionName", string(sectionName)),
-				slog.Int("matchedListenersCount", len(matchingListeners)),
+			parentName := apitypes.NamespacedName{
+				Namespace: gatewayNamespace,
+				Name:      string(parentRef.Name),
+			}
+			m.aggregateRouteParentRefData(ctx,
+				results,
+				parentName,
+				httpRoute,
+				*resolvedGatewayData,
+				makeTargetOnlyParentRef(parentRef),
+				matchedListeners,
 			)
-			if existingResult, found := results[parentName]; found {
-				newListeners := lo.UniqBy(
-					append(existingResult.matchedListeners, matchingListeners...),
-					func(l gatewayv1.Listener) gatewayv1.SectionName {
-						return l.Name
-					},
-				)
-				existingResult.matchedListeners = newListeners
-				results[parentName] = existingResult
-				m.logger.DebugContext(ctx, "Appended listeners to existing gateway result",
-					slog.String("parentName", parentName.String()),
-					slog.Int("totalListeners", len(newListeners)),
-				)
-			} else {
-				results[parentName] = resolvedRouteDetails{
-					httpRoute:        httpRoute,
-					gatewayDetails:   resolvedGatewayData,
-					matchedRef:       makeTargetOnlyParentRef(parentRef),
-					matchedListeners: matchingListeners,
-				}
-			}
-		} else {
-			m.logger.DebugContext(ctx, "Gateway resolved without section name",
-				slog.String("parentName", parentName.String()),
-			)
-			results[parentName] = resolvedRouteDetails{
-				httpRoute:        httpRoute,
-				gatewayDetails:   resolvedGatewayData,
-				matchedRef:       makeTargetOnlyParentRef(parentRef),
-				matchedListeners: resolvedGatewayData.gateway.Spec.Listeners,
-			}
 		}
 	}
 
 	if len(results) == 0 {
-		m.logger.InfoContext(ctx, "No relevant gateway found for HTTProute",
+		m.logger.InfoContext(ctx, "No relevant gateway found for HTTProute after checking all parents",
 			slog.String("route", req.NamespacedName.String()),
 			slog.Int("triedParentRefs", len(httpRoute.Spec.ParentRefs)),
 		)
