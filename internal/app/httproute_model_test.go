@@ -137,7 +137,13 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Len(t, results, 1, "should resolve exactly one parent")
-			receiver := results[0]
+
+			parentKey := types.NamespacedName{
+				Namespace: string(lo.FromPtr(workingRef.Namespace)),
+				Name:      string(workingRef.Name),
+			}
+			require.Contains(t, results, parentKey)
+			receiver := results[parentKey]
 
 			assert.Equal(t, route, receiver.httpRoute)
 			assert.Equal(t, *gatewayData, receiver.gatewayDetails)
@@ -197,12 +203,18 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Len(t, results, 1, "should resolve exactly one parent")
-			receiver := results[0]
+
+			parentKey := types.NamespacedName{
+				Namespace: req.NamespacedName.Namespace,
+				Name:      string(workingRef.Name),
+			}
+			require.Contains(t, results, parentKey)
+			receiver := results[parentKey]
 
 			assert.Equal(t, route, receiver.httpRoute)
 			assert.Equal(t, gatewayv1.ParentReference{
 				Name:      workingRef.Name,
-				Namespace: nil, // Explicitly check for nil
+				Namespace: nil,
 				Kind:      workingRef.Kind,
 				Group:     workingRef.Group,
 			}, receiver.matchedRef)
@@ -238,7 +250,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			)
 			otherListener1 := makeRandomHTTPListener()
 			otherListener2 := makeRandomHTTPListener()
-			wantListeners := []gatewayv1.Listener{matchingListener} // Only the matching one
+			wantListeners := []gatewayv1.Listener{matchingListener}
 
 			gatewayData := makeRandomAcceptedGatewayDetails(
 				randomResolvedGatewayDetailsWithGatewayOpts(
@@ -268,18 +280,22 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Len(t, results, 1, "should resolve exactly one parent")
-			receiver := results[0]
+
+			parentKey := types.NamespacedName{
+				Namespace: string(lo.FromPtr(workingRef.Namespace)),
+				Name:      string(workingRef.Name),
+			}
+			require.Contains(t, results, parentKey)
+			receiver := results[parentKey]
 
 			assert.Equal(t, route, receiver.httpRoute)
 			assert.Equal(t, *gatewayData, receiver.gatewayDetails)
-			// matchedRef should still ignore sectionName
 			assert.Equal(t, gatewayv1.ParentReference{
 				Name:      workingRef.Name,
 				Namespace: workingRef.Namespace,
 				Group:     workingRef.Group,
 				Kind:      workingRef.Kind,
 			}, receiver.matchedRef)
-			// Only the listener matching the section name should be returned
 			assert.Equal(t, wantListeners, receiver.matchedListeners)
 		})
 
@@ -297,7 +313,6 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			refWithNonMatchingSection := makeRandomParentRef(
 				func(p *gatewayv1.ParentReference) { p.SectionName = &nonMatchingSectionName },
 			)
-			// Add another ref without section name that *should* match if the first one fails
 			refWithoutSection := makeRandomParentRef()
 
 			route := makeRandomHTTPRoute(
@@ -308,7 +323,6 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
-			// Gateway details for the *first* ref (non-matching section)
 			listener1 := makeRandomHTTPListener()
 			gatewayData1 := makeRandomAcceptedGatewayDetails(
 				randomResolvedGatewayDetailsWithGatewayOpts(
@@ -329,11 +343,10 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				_ reconcile.Request,
 				receiver *resolvedGatewayDetails,
 			) (bool, error) {
-				*receiver = *gatewayData1 // Set the gateway data
-				return true, nil          // Gateway itself resolves
+				*receiver = *gatewayData1
+				return true, nil
 			})
 
-			// Gateway details for the *second* ref (no section name, should match)
 			allListeners := makeFewRandomHTTPListeners()
 			gatewayData2 := makeRandomAcceptedGatewayDetails(
 				randomResolvedGatewayDetailsWithGatewayOpts(
@@ -354,8 +367,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				_ reconcile.Request,
 				receiver *resolvedGatewayDetails,
 			) (bool, error) {
-				*receiver = *gatewayData2 // Set the second gateway data
-				return true, nil          // Second gateway resolves
+				*receiver = *gatewayData2
+				return true, nil
 			})
 
 			results, err := model.resolveRequest(t.Context(), req)
@@ -363,16 +376,21 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, results, 1, "at least one parent should resolve")
 
-			for _, res := range results {
-				assert.Equal(t, *gatewayData2, res.gatewayDetails)
-				assert.Equal(t, gatewayv1.ParentReference{
-					Name:      refWithoutSection.Name,
-					Namespace: refWithoutSection.Namespace,
-					Group:     refWithoutSection.Group,
-					Kind:      refWithoutSection.Kind,
-				}, res.matchedRef)
-				assert.Equal(t, allListeners, res.matchedListeners)
+			parentKey := types.NamespacedName{
+				Namespace: string(lo.FromPtr(refWithoutSection.Namespace)),
+				Name:      string(refWithoutSection.Name),
 			}
+			require.Contains(t, results, parentKey)
+			res := results[parentKey]
+
+			assert.Equal(t, *gatewayData2, res.gatewayDetails)
+			assert.Equal(t, gatewayv1.ParentReference{
+				Name:      refWithoutSection.Name,
+				Namespace: refWithoutSection.Namespace,
+				Group:     refWithoutSection.Group,
+				Kind:      refWithoutSection.Kind,
+			}, res.matchedRef)
+			assert.Equal(t, allListeners, res.matchedListeners)
 		})
 
 		t.Run("no relevant parent when section name does not match", func(t *testing.T) {
@@ -398,7 +416,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
-			listener1 := makeRandomHTTPListener() // Listener has different name
+			listener1 := makeRandomHTTPListener()
 			gatewayData := makeRandomAcceptedGatewayDetails(
 				randomResolvedGatewayDetailsWithGatewayOpts(
 					randomGatewayWithListenersOpt(listener1),
@@ -419,7 +437,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				_ reconcile.Request,
 				receiver *resolvedGatewayDetails,
 			) (bool, error) {
-				*receiver = *gatewayData // Gateway resolved, but listener won't match
+				*receiver = *gatewayData
 				return true, nil
 			})
 
@@ -648,7 +666,6 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				httpRoute: makeRandomHTTPRoute(
 					func(h *gatewayv1.HTTPRoute) {
 						h.Status.Parents = []gatewayv1.RouteParentStatus{
-							// Matching controller but not parent ref should be ignored
 							makeRandomRouteParentStatus(func(rps *gatewayv1.RouteParentStatus) {
 								rps.ControllerName = gatewayClass.Spec.ControllerName
 							}),

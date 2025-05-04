@@ -46,12 +46,11 @@ type setProgrammedParams struct {
 // httpRouteModel defines the interface for managing HTTPRoute resources.
 type httpRouteModel interface {
 	// resolveRequest resolves the parent details for a given HTTPRoute.
-	// It returns true if the request is relevant for this controller and
-	// the parent has been resolved.
+	// It returns a map of parent names (gateway names) to resolved route details.
 	resolveRequest(
 		ctx context.Context,
 		req reconcile.Request,
-	) ([]resolvedRouteDetails, error)
+	) (map[apitypes.NamespacedName]resolvedRouteDetails, error)
 
 	// acceptRoute accepts a reconcile request for a given HTTPRoute.
 	// It returns updated HTTPRoute with status parents updated.
@@ -138,19 +137,19 @@ type httpRouteModelImpl struct {
 func (m *httpRouteModelImpl) resolveRequest(
 	ctx context.Context,
 	req reconcile.Request,
-) ([]resolvedRouteDetails, error) {
+) (map[apitypes.NamespacedName]resolvedRouteDetails, error) {
 	var httpRoute gatewayv1.HTTPRoute
 	if err := m.client.Get(ctx, req.NamespacedName, &httpRoute); err != nil {
 		if apierrors.IsNotFound(err) {
 			m.logger.DebugContext(ctx, "HTTProute not found",
 				slog.String("route", req.NamespacedName.String()),
 			)
-			return nil, nil // No route, no details
+			return map[apitypes.NamespacedName]resolvedRouteDetails{}, nil
 		}
 		return nil, err
 	}
 
-	results := make([]resolvedRouteDetails, 0)
+	results := make(map[apitypes.NamespacedName]resolvedRouteDetails)
 
 	for _, parentRef := range httpRoute.Spec.ParentRefs {
 		var resolvedGatewayData resolvedGatewayDetails
@@ -196,22 +195,22 @@ func (m *httpRouteModelImpl) resolveRequest(
 				slog.String("sectionName", string(sectionName)),
 				slog.Int("matchedListenersCount", len(matchingListeners)),
 			)
-			results = append(results, resolvedRouteDetails{
+			results[parentName] = resolvedRouteDetails{
 				httpRoute:        httpRoute,
 				gatewayDetails:   resolvedGatewayData,
 				matchedRef:       makeTargetOnlyParentRef(parentRef),
 				matchedListeners: matchingListeners,
-			})
+			}
 		} else {
 			m.logger.DebugContext(ctx, "Gateway resolved without section name",
 				slog.String("parentName", parentName.String()),
 			)
-			results = append(results, resolvedRouteDetails{
+			results[parentName] = resolvedRouteDetails{
 				httpRoute:        httpRoute,
 				gatewayDetails:   resolvedGatewayData,
 				matchedRef:       makeTargetOnlyParentRef(parentRef),
 				matchedListeners: resolvedGatewayData.gateway.Spec.Listeners,
-			})
+			}
 		}
 	}
 
@@ -220,7 +219,6 @@ func (m *httpRouteModelImpl) resolveRequest(
 			slog.String("route", req.NamespacedName.String()),
 			slog.Int("triedParentRefs", len(httpRoute.Spec.ParentRefs)),
 		)
-		return nil, nil // No matching parents found
 	}
 
 	return results, nil

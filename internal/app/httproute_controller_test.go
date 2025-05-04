@@ -57,7 +57,9 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-		).Return([]resolvedRouteDetails{wantResolvedData}, (error)(nil))
+		).Return(map[types.NamespacedName]resolvedRouteDetails{
+			req.NamespacedName: wantResolvedData,
+		}, (error)(nil))
 
 		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
 
@@ -124,7 +126,7 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-		).Return([]resolvedRouteDetails{}, (error)(nil))
+		).Return(map[types.NamespacedName]resolvedRouteDetails{}, (error)(nil))
 
 		result, err := controller.Reconcile(t.Context(), req)
 
@@ -148,7 +150,7 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-		).Return(([]resolvedRouteDetails)(nil), wantErr)
+		).Return((map[types.NamespacedName]resolvedRouteDetails)(nil), wantErr)
 
 		result, err := controller.Reconcile(t.Context(), req)
 
@@ -179,7 +181,9 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-		).Return([]resolvedRouteDetails{wantResolvedData}, (error)(nil))
+		).Return(map[types.NamespacedName]resolvedRouteDetails{
+			req.NamespacedName: wantResolvedData,
+		}, (error)(nil))
 
 		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
 
@@ -218,7 +222,9 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-		).Return([]resolvedRouteDetails{wantResolvedData}, (error)(nil))
+		).Return(map[types.NamespacedName]resolvedRouteDetails{
+			req.NamespacedName: wantResolvedData,
+		}, (error)(nil))
 
 		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
 
@@ -275,7 +281,9 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-		).Return([]resolvedRouteDetails{wantResolvedData}, (error)(nil))
+		).Return(map[types.NamespacedName]resolvedRouteDetails{
+			req.NamespacedName: wantResolvedData,
+		}, (error)(nil))
 
 		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
 
@@ -331,7 +339,9 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-		).Return([]resolvedRouteDetails{wantResolvedData}, (error)(nil))
+		).Return(map[types.NamespacedName]resolvedRouteDetails{
+			req.NamespacedName: wantResolvedData,
+		}, (error)(nil))
 
 		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, nil)
 
@@ -387,7 +397,9 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-		).Return([]resolvedRouteDetails{wantResolvedData}, (error)(nil))
+		).Return(map[types.NamespacedName]resolvedRouteDetails{
+			req.NamespacedName: wantResolvedData,
+		}, (error)(nil))
 
 		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
 
@@ -454,7 +466,9 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-		).Return([]resolvedRouteDetails{wantResolvedData}, (error)(nil))
+		).Return(map[types.NamespacedName]resolvedRouteDetails{
+			req.NamespacedName: wantResolvedData,
+		}, (error)(nil))
 
 		wantErr := fmt.Errorf("is programming required error: %s", faker.Sentence())
 		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, wantErr)
@@ -488,7 +502,9 @@ func TestHTTPRouteController(t *testing.T) {
 		mockModel.EXPECT().resolveRequest(
 			t.Context(),
 			req,
-		).Return([]resolvedRouteDetails{wantResolvedData}, (error)(nil))
+		).Return(map[types.NamespacedName]resolvedRouteDetails{
+			req.NamespacedName: wantResolvedData,
+		}, (error)(nil))
 
 		// Assume programming is not required to isolate the sync error
 		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, nil)
