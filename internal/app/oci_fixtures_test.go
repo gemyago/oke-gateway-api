@@ -142,3 +142,15 @@ func randomOCILoadBalancerWithRandomListenersOpt() randomOCILoadBalancerOpt {
 		}
 	}
 }
+
+func makeRandomOCIRoutingPolicy() loadbalancer.RoutingPolicy {
+	return loadbalancer.RoutingPolicy{
+		Name: lo.ToPtr(faker.DomainName()),
+	}
+}
+
+func makeRandomOCIRoutingRule() loadbalancer.RoutingRule {
+	return loadbalancer.RoutingRule{
+		Name: lo.ToPtr(faker.DomainName()),
+	}
+}

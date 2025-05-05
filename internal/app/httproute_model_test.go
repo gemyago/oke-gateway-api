@@ -973,7 +973,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 	})
 
 	t.Run("programRoute", func(t *testing.T) {
-		t.Run("reconcile backend set with backends", func(t *testing.T) {
+		t.Run("reconcile backend set and routing rules", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
@@ -1011,17 +1011,27 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				return makeRandomOCIBackendSet(randomOCIBackendSetWithNameOpt(name))
 			})
 
+			wantListeners := makeFewRandomHTTPListeners()
+			wantListenerPolicies := lo.Map(wantListeners, func(_ gatewayv1.Listener, _ int) loadbalancer.RoutingPolicy {
+				return makeRandomOCIRoutingPolicy()
+			})
+
 			params := programRouteParams{
-				gateway:   *newRandomGateway(),
-				config:    makeRandomGatewayConfig(),
-				httpRoute: httpRoute,
-				matchedListeners: []gatewayv1.Listener{
-					makeRandomHTTPListener(),
-					makeRandomHTTPListener(),
-				},
+				gateway:          *newRandomGateway(),
+				config:           makeRandomGatewayConfig(),
+				httpRoute:        httpRoute,
+				matchedListeners: wantListeners,
 			}
 
 			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+
+			for i, wantListener := range wantListeners {
+				ociLBModel.EXPECT().resolveAndTidyRoutingPolicy(t.Context(), resolveAndTidyRoutingPolicyParams{
+					loadBalancerID: params.config.Spec.LoadBalancerID,
+					policyName:     listenerPolicyName(string(wantListener.Name)),
+					knownRules:     httpRoute.Spec.Rules,
+				}).Return(wantListenerPolicies[i], nil)
+			}
 
 			for i, wantBs := range wantBss {
 				rule := httpRoute.Spec.Rules[i]
@@ -1036,16 +1046,19 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 					},
 				}).Return(nil)
 
-				for _, matchedListener := range params.matchedListeners {
-					ociLBModel.EXPECT().reconcileRoutingRule(t.Context(), upsertRoutingRuleParams{
-						loadBalancerID:       params.config.Spec.LoadBalancerID,
-						matchedListener:      matchedListener,
-						rule:                 rule,
-						ruleIndex:            i,
-						targetBackendSetName: *wantBs.Name,
-					}).Return(nil)
+				for _, wantListenerPolicy := range wantListenerPolicies {
+					ociLBModel.EXPECT().upsertRoutingRule(t.Context(), upsertRoutingRuleParams{
+						actualRules: wantListenerPolicy.Rules,
+						rule:        rule,
+						ruleIndex:   i,
+					}).Return(wantListenerPolicy.Rules, nil)
 				}
 			}
+
+			ociLBModel.EXPECT().commitRoutingPolicies(t.Context(), commitRoutingPoliciesParams{
+				loadBalancerID: params.config.Spec.LoadBalancerID,
+				policies:       wantListenerPolicies,
+			}).Return(nil)
 
 			err := model.programRoute(t.Context(), params)
 			require.NoError(t, err)

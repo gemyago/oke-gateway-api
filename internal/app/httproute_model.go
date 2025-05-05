@@ -446,7 +446,8 @@ func (m *httpRouteModelImpl) programRoute(
 		}
 
 		for _, matchingPolicy := range routingPolicies {
-			updatedRules, err := m.ociLoadBalancerModel.upsertRoutingRule(ctx, upsertRoutingRuleParams{
+			var updatedRules []loadbalancer.RoutingRule
+			updatedRules, err = m.ociLoadBalancerModel.upsertRoutingRule(ctx, upsertRoutingRuleParams{
 				actualRules: matchingPolicy.Rules,
 				rule:        rule,
 				ruleIndex:   i,
