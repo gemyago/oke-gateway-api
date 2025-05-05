@@ -143,13 +143,29 @@ func randomOCILoadBalancerWithRandomListenersOpt() randomOCILoadBalancerOpt {
 	}
 }
 
-func makeRandomOCIRoutingPolicy() loadbalancer.RoutingPolicy {
-	return loadbalancer.RoutingPolicy{
+type randomOCIRoutingPolicyOpt func(*loadbalancer.RoutingPolicy)
+
+func makeRandomOCIRoutingPolicy(
+	opts ...randomOCIRoutingPolicyOpt,
+) loadbalancer.RoutingPolicy {
+	policy := loadbalancer.RoutingPolicy{
 		Name: lo.ToPtr(faker.DomainName()),
 		Rules: []loadbalancer.RoutingRule{
 			makeRandomOCIRoutingRule(),
 			makeRandomOCIRoutingRule(),
 		},
+	}
+
+	for _, opt := range opts {
+		opt(&policy)
+	}
+
+	return policy
+}
+
+func randomOCIRoutingPolicyWithRulesOpt(rules []loadbalancer.RoutingRule) randomOCIRoutingPolicyOpt {
+	return func(policy *loadbalancer.RoutingPolicy) {
+		policy.Rules = rules
 	}
 }
 

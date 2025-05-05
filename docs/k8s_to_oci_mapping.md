@@ -16,7 +16,7 @@ This document summarizes how the `oke-gateway-api` controller maps Kubernetes Ga
     *   Attaches to a `Gateway` via `spec.parentRefs`.
     *   **`spec.rules[]`**: Each rule maps to:
         *   **OCI Backend Set (`oci.loadbalancer.BackendSet`)**: A *distinct* backend set is created per rule, named after the route/rule.
-        *   **OCI Routing Rules (`oci.loadbalancer.RoutingRule`)**: HTTPRouteRule `matches` (path, headers) become OCI Routing Rule `conditions` within the Listener's Routing Policy/RuleSet. The action forwards to the rule's dedicated Backend Set. Rule order is preserved.
+        *   **OCI Routing Rule (`oci.loadbalancer.RoutingRule`)**: HTTPRouteRule `matches` (path, headers) become OCI Routing Rule `conditions` within the Listener's Routing Policy/RuleSet. The action forwards to the rule's dedicated Backend Set. Rule order is preserved.
     *   **`rule.backendRefs[]` (pointing to `Service`) -> OCI Backends (`oci.BackendDetails`)**:
         *   The controller watches `EndpointSlice`s for the referenced `Service`.
         *   **Ready** Pod IPs/ports from `EndpointSlice`s dynamically populate the `backends` list in the corresponding rule-specific OCI Backend Set.

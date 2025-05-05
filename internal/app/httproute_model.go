@@ -411,7 +411,7 @@ func (m *httpRouteModelImpl) programRoute(
 		routingPolicy, err := m.ociLoadBalancerModel.resolveAndTidyRoutingPolicy(ctx, resolveAndTidyRoutingPolicyParams{
 			loadBalancerID: params.config.Spec.LoadBalancerID,
 			policyName:     listenerPolicyName(string(listener.Name)),
-			knownRules:     params.httpRoute.Spec.Rules,
+			httpRoute:      params.httpRoute,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to resolve and tidy routing policy for listener %s: %w", listener.Name, err)

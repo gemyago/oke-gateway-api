@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -39,7 +40,7 @@ type reconcileHTTPListenerParams struct {
 type resolveAndTidyRoutingPolicyParams struct {
 	loadBalancerID string
 	policyName     string
-	knownRules     []gatewayv1.HTTPRouteRule
+	httpRoute      gatewayv1.HTTPRoute
 }
 
 type upsertRoutingRuleParams struct {
@@ -304,7 +305,15 @@ func (m *ociLoadBalancerModelImpl) resolveAndTidyRoutingPolicy(
 	ctx context.Context,
 	params resolveAndTidyRoutingPolicyParams,
 ) (loadbalancer.RoutingPolicy, error) {
-	return loadbalancer.RoutingPolicy{}, nil
+	policyResponse, err := m.ociClient.GetRoutingPolicy(ctx, loadbalancer.GetRoutingPolicyRequest{
+		RoutingPolicyName: &params.policyName,
+		LoadBalancerId:    &params.loadBalancerID,
+	})
+	if err != nil {
+		return loadbalancer.RoutingPolicy{}, fmt.Errorf("failed to get routing policy %s: %w", params.policyName, err)
+	}
+
+	return policyResponse.RoutingPolicy, nil
 }
 
 // TODO: Implement actual logic for reconciling RuleSet
@@ -429,6 +438,16 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicies(
 func listenerPolicyName(listenerName string) string {
 	// TODO: Sanitize the name, investigate docs for allowed characters
 	return listenerName + "_policy"
+}
+
+func listerPolicyRuleName(route gatewayv1.HTTPRoute, rule gatewayv1.HTTPRouteRule, ruleIndex int) string {
+	// TODO: This may probably need to have namespace
+	// Also check if namespace is populated in the route if it's not in the spec
+	if rule.Name != nil {
+		return route.Name + "_" + string(*rule.Name)
+	}
+
+	return route.Name + "_" + strconv.Itoa(ruleIndex)
 }
 
 type ociLoadBalancerModelDeps struct {

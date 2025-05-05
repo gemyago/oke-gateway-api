@@ -1029,7 +1029,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				ociLBModel.EXPECT().resolveAndTidyRoutingPolicy(t.Context(), resolveAndTidyRoutingPolicyParams{
 					loadBalancerID: params.config.Spec.LoadBalancerID,
 					policyName:     listenerPolicyName(string(wantListener.Name)),
-					knownRules:     httpRoute.Spec.Rules,
+					httpRoute:      httpRoute,
 				}).Return(wantListenerPolicies[i], nil)
 			}
 

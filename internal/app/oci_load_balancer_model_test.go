@@ -212,6 +212,60 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		})
 	})
 
+	t.Run("resolveAndTidyRoutingPolicy", func(t *testing.T) {
+		t.Run("when routing policy exists", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+
+			knownUnnamedRules := []gatewayv1.HTTPRouteRule{
+				makeRandomHTTPRouteRule(),
+				makeRandomHTTPRouteRule(),
+			}
+
+			knownNamedRules := []gatewayv1.HTTPRouteRule{
+				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomNameOpt()),
+				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomNameOpt()),
+			}
+
+			var allKnownRules []gatewayv1.HTTPRouteRule
+			allKnownRules = append(allKnownRules, knownUnnamedRules...)
+			allKnownRules = append(allKnownRules, knownNamedRules...)
+
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithRandomRulesOpt(allKnownRules...),
+			)
+
+			defaultPolicyRule := makeRandomOCIRoutingRule()
+			wantPolicyRules := lo.Map(allKnownRules, func(rule gatewayv1.HTTPRouteRule, i int) loadbalancer.RoutingRule {
+				return loadbalancer.RoutingRule{
+					Name: lo.ToPtr(listerPolicyRuleName(route, rule, i)),
+				}
+			})
+			wantPolicyRules = append(wantPolicyRules, defaultPolicyRule) // last rule is default catch all
+			wantPolicy := makeRandomOCIRoutingPolicy(
+				randomOCIRoutingPolicyWithRulesOpt(wantPolicyRules),
+			)
+
+			params := resolveAndTidyRoutingPolicyParams{
+				loadBalancerID: faker.UUIDHyphenated(),
+				policyName:     *wantPolicy.Name,
+				httpRoute:      route,
+			}
+
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			ociLoadBalancerClient.EXPECT().GetRoutingPolicy(t.Context(), loadbalancer.GetRoutingPolicyRequest{
+				RoutingPolicyName: wantPolicy.Name,
+				LoadBalancerId:    &params.loadBalancerID,
+			}).Return(loadbalancer.GetRoutingPolicyResponse{
+				RoutingPolicy: wantPolicy,
+			}, nil)
+
+			actualPolicy, err := model.resolveAndTidyRoutingPolicy(t.Context(), params)
+			require.NoError(t, err)
+			assert.Equal(t, wantPolicy, actualPolicy)
+		})
+	})
+
 	t.Run("reconcileHTTPListener", func(t *testing.T) {
 		t.Run("when listener exists", func(t *testing.T) {
 			deps := makeMockDeps(t)
