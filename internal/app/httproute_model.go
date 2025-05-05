@@ -31,9 +31,10 @@ type resolveBackendRefsParams struct {
 }
 
 type programRouteParams struct {
-	gateway   gatewayv1.Gateway
-	config    types.GatewayConfig
-	httpRoute gatewayv1.HTTPRoute
+	gateway          gatewayv1.Gateway
+	config           types.GatewayConfig
+	httpRoute        gatewayv1.HTTPRoute
+	matchedListeners []gatewayv1.Listener
 }
 
 type setProgrammedParams struct {

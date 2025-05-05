@@ -55,9 +55,10 @@ func (r *HTTPRouteController) performProgramming(
 	}
 
 	err = r.httpRouteModel.programRoute(ctx, programRouteParams{
-		gateway:   resolvedData.gatewayDetails.gateway,
-		config:    resolvedData.gatewayDetails.config,
-		httpRoute: *acceptedRoute,
+		gateway:          resolvedData.gatewayDetails.gateway,
+		config:           resolvedData.gatewayDetails.config,
+		httpRoute:        *acceptedRoute,
+		matchedListeners: resolvedData.matchedListeners,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to program route: %w", err)

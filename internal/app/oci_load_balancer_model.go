@@ -36,11 +36,12 @@ type reconcileHTTPListenerParams struct {
 	listenerSpec          *gatewayv1.Listener
 }
 
-type reconcileRoutingRulesParams struct {
-	loadBalancerID string
-	listenerName   string              // The name of the listener to associate the RuleSet with
-	ruleSetName    string              // A unique name for the RuleSet (e.g., derived from listener name)
-	rules          []loadbalancer.Rule // The desired list of rules
+type reconcileRoutingRuleParams struct {
+	loadBalancerID       string
+	targetBackendSetName string
+	matchedListener      gatewayv1.Listener
+	rule                 gatewayv1.HTTPRouteRule
+	ruleIndex            int
 }
 
 type removeMissingListenersParams struct {
@@ -68,9 +69,9 @@ type ociLoadBalancerModel interface {
 
 	// reconcileRoutingRules ensures a RuleSet with the given rules exists and is associated
 	// with the specified listener. It creates or updates the RuleSet as needed.
-	reconcileRoutingRules(
+	reconcileRoutingRule(
 		ctx context.Context,
-		params reconcileRoutingRulesParams,
+		params reconcileRoutingRuleParams,
 	) error
 
 	// removeMissingListeners removes listeners from the load balancer that are not present in the gateway spec.
@@ -281,15 +282,15 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 }
 
 // TODO: Implement actual logic for reconciling RuleSet
-func (m *ociLoadBalancerModelImpl) reconcileRoutingRules(
+func (m *ociLoadBalancerModelImpl) reconcileRoutingRule(
 	ctx context.Context,
-	params reconcileRoutingRulesParams,
+	params reconcileRoutingRuleParams,
 ) error {
 	m.logger.InfoContext(ctx, "Reconciling RuleSet (STUB)",
 		slog.String("loadBalancerId", params.loadBalancerID),
-		slog.String("listenerName", params.listenerName),
-		slog.String("ruleSetName", params.ruleSetName),
-		slog.Int("ruleCount", len(params.rules)),
+		slog.String("listenerName", string(params.matchedListener.Name)),
+		slog.String("rule", fmt.Sprintf("%d: %v", params.ruleIndex, params.rule.Name)),
+		slog.String("targetBackendSetName", params.targetBackendSetName),
 	)
 
 	// Placeholder: Return nil, nil for now
