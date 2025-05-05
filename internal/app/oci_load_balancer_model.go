@@ -36,12 +36,21 @@ type reconcileHTTPListenerParams struct {
 	listenerSpec          *gatewayv1.Listener
 }
 
-type reconcileRoutingRuleParams struct {
-	loadBalancerID       string
-	targetBackendSetName string
-	matchedListener      gatewayv1.Listener
-	rule                 gatewayv1.HTTPRouteRule
-	ruleIndex            int
+type resolveAndTidyRoutingPolicyParams struct {
+	loadBalancerID string
+	policyName     string
+	knownRules     []gatewayv1.HTTPRouteRule
+}
+
+type upsertRoutingRuleParams struct {
+	actualRules []loadbalancer.RoutingRule
+	rule        gatewayv1.HTTPRouteRule
+	ruleIndex   int
+}
+
+type commitRoutingPoliciesParams struct {
+	loadBalancerID string
+	policies       []loadbalancer.RoutingPolicy
 }
 
 type removeMissingListenersParams struct {
@@ -67,11 +76,21 @@ type ociLoadBalancerModel interface {
 		params reconcileBackendSetParams,
 	) error
 
+	resolveAndTidyRoutingPolicy(
+		ctx context.Context,
+		params resolveAndTidyRoutingPolicyParams,
+	) (loadbalancer.RoutingPolicy, error)
+
 	// reconcileRoutingRules ensures a RuleSet with the given rules exists and is associated
 	// with the specified listener. It creates or updates the RuleSet as needed.
-	reconcileRoutingRule(
+	upsertRoutingRule(
 		ctx context.Context,
-		params reconcileRoutingRuleParams,
+		params upsertRoutingRuleParams,
+	) ([]loadbalancer.RoutingRule, error)
+
+	commitRoutingPolicies(
+		ctx context.Context,
+		params commitRoutingPoliciesParams,
 	) error
 
 	// removeMissingListeners removes listeners from the load balancer that are not present in the gateway spec.
@@ -281,20 +300,24 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 	return nil
 }
 
-// TODO: Implement actual logic for reconciling RuleSet
-func (m *ociLoadBalancerModelImpl) reconcileRoutingRule(
+func (m *ociLoadBalancerModelImpl) resolveAndTidyRoutingPolicy(
 	ctx context.Context,
-	params reconcileRoutingRuleParams,
-) error {
+	params resolveAndTidyRoutingPolicyParams,
+) (loadbalancer.RoutingPolicy, error) {
+	return loadbalancer.RoutingPolicy{}, nil
+}
+
+// TODO: Implement actual logic for reconciling RuleSet
+func (m *ociLoadBalancerModelImpl) upsertRoutingRule(
+	ctx context.Context,
+	params upsertRoutingRuleParams,
+) ([]loadbalancer.RoutingRule, error) {
 	m.logger.InfoContext(ctx, "Reconciling RuleSet (STUB)",
-		slog.String("loadBalancerId", params.loadBalancerID),
-		slog.String("listenerName", string(params.matchedListener.Name)),
 		slog.String("rule", fmt.Sprintf("%d: %v", params.ruleIndex, params.rule.Name)),
-		slog.String("targetBackendSetName", params.targetBackendSetName),
 	)
 
 	// Placeholder: Return nil, nil for now
-	return nil
+	return nil, nil
 }
 
 func (m *ociLoadBalancerModelImpl) deleteMissingListener(
@@ -394,6 +417,13 @@ func (m *ociLoadBalancerModelImpl) removeMissingListeners(
 	}
 
 	return errors.Join(errs...)
+}
+
+func (m *ociLoadBalancerModelImpl) commitRoutingPolicies(
+	ctx context.Context,
+	params commitRoutingPoliciesParams,
+) error {
+	return nil
 }
 
 func listenerPolicyName(listenerName string) string {

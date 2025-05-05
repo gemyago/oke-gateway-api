@@ -51,8 +51,14 @@ type ociLoadBalancerClient interface {
 	GetRuleSet(ctx context.Context, request loadbalancer.GetRuleSetRequest) (
 		response loadbalancer.GetRuleSetResponse, err error)
 
+	GetRoutingPolicy(ctx context.Context, request loadbalancer.GetRoutingPolicyRequest) (
+		response loadbalancer.GetRoutingPolicyResponse, err error)
+
 	CreateRoutingPolicy(ctx context.Context, request loadbalancer.CreateRoutingPolicyRequest) (
 		response loadbalancer.CreateRoutingPolicyResponse, err error)
+
+	UpdateRoutingPolicy(ctx context.Context, request loadbalancer.UpdateRoutingPolicyRequest) (
+		response loadbalancer.UpdateRoutingPolicyResponse, err error)
 
 	DeleteRoutingPolicy(ctx context.Context, request loadbalancer.DeleteRoutingPolicyRequest) (
 		response loadbalancer.DeleteRoutingPolicyResponse, err error)

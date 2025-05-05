@@ -594,6 +594,63 @@ func (_c *MockociLoadBalancerClient_GetLoadBalancer_Call) RunAndReturn(run func(
 	return _c
 }
 
+// GetRoutingPolicy provides a mock function with given fields: ctx, request
+func (_m *MockociLoadBalancerClient) GetRoutingPolicy(ctx context.Context, request loadbalancer.GetRoutingPolicyRequest) (loadbalancer.GetRoutingPolicyResponse, error) {
+	ret := _m.Called(ctx, request)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRoutingPolicy")
+	}
+
+	var r0 loadbalancer.GetRoutingPolicyResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.GetRoutingPolicyRequest) (loadbalancer.GetRoutingPolicyResponse, error)); ok {
+		return rf(ctx, request)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.GetRoutingPolicyRequest) loadbalancer.GetRoutingPolicyResponse); ok {
+		r0 = rf(ctx, request)
+	} else {
+		r0 = ret.Get(0).(loadbalancer.GetRoutingPolicyResponse)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.GetRoutingPolicyRequest) error); ok {
+		r1 = rf(ctx, request)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockociLoadBalancerClient_GetRoutingPolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetRoutingPolicy'
+type MockociLoadBalancerClient_GetRoutingPolicy_Call struct {
+	*mock.Call
+}
+
+// GetRoutingPolicy is a helper method to define mock.On call
+//   - ctx context.Context
+//   - request loadbalancer.GetRoutingPolicyRequest
+func (_e *MockociLoadBalancerClient_Expecter) GetRoutingPolicy(ctx interface{}, request interface{}) *MockociLoadBalancerClient_GetRoutingPolicy_Call {
+	return &MockociLoadBalancerClient_GetRoutingPolicy_Call{Call: _e.mock.On("GetRoutingPolicy", ctx, request)}
+}
+
+func (_c *MockociLoadBalancerClient_GetRoutingPolicy_Call) Run(run func(ctx context.Context, request loadbalancer.GetRoutingPolicyRequest)) *MockociLoadBalancerClient_GetRoutingPolicy_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(loadbalancer.GetRoutingPolicyRequest))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_GetRoutingPolicy_Call) Return(response loadbalancer.GetRoutingPolicyResponse, err error) *MockociLoadBalancerClient_GetRoutingPolicy_Call {
+	_c.Call.Return(response, err)
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_GetRoutingPolicy_Call) RunAndReturn(run func(context.Context, loadbalancer.GetRoutingPolicyRequest) (loadbalancer.GetRoutingPolicyResponse, error)) *MockociLoadBalancerClient_GetRoutingPolicy_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetRuleSet provides a mock function with given fields: ctx, request
 func (_m *MockociLoadBalancerClient) GetRuleSet(ctx context.Context, request loadbalancer.GetRuleSetRequest) (loadbalancer.GetRuleSetResponse, error) {
 	ret := _m.Called(ctx, request)
@@ -704,6 +761,63 @@ func (_c *MockociLoadBalancerClient_UpdateBackendSet_Call) Return(response loadb
 }
 
 func (_c *MockociLoadBalancerClient_UpdateBackendSet_Call) RunAndReturn(run func(context.Context, loadbalancer.UpdateBackendSetRequest) (loadbalancer.UpdateBackendSetResponse, error)) *MockociLoadBalancerClient_UpdateBackendSet_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateRoutingPolicy provides a mock function with given fields: ctx, request
+func (_m *MockociLoadBalancerClient) UpdateRoutingPolicy(ctx context.Context, request loadbalancer.UpdateRoutingPolicyRequest) (loadbalancer.UpdateRoutingPolicyResponse, error) {
+	ret := _m.Called(ctx, request)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateRoutingPolicy")
+	}
+
+	var r0 loadbalancer.UpdateRoutingPolicyResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.UpdateRoutingPolicyRequest) (loadbalancer.UpdateRoutingPolicyResponse, error)); ok {
+		return rf(ctx, request)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.UpdateRoutingPolicyRequest) loadbalancer.UpdateRoutingPolicyResponse); ok {
+		r0 = rf(ctx, request)
+	} else {
+		r0 = ret.Get(0).(loadbalancer.UpdateRoutingPolicyResponse)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.UpdateRoutingPolicyRequest) error); ok {
+		r1 = rf(ctx, request)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockociLoadBalancerClient_UpdateRoutingPolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateRoutingPolicy'
+type MockociLoadBalancerClient_UpdateRoutingPolicy_Call struct {
+	*mock.Call
+}
+
+// UpdateRoutingPolicy is a helper method to define mock.On call
+//   - ctx context.Context
+//   - request loadbalancer.UpdateRoutingPolicyRequest
+func (_e *MockociLoadBalancerClient_Expecter) UpdateRoutingPolicy(ctx interface{}, request interface{}) *MockociLoadBalancerClient_UpdateRoutingPolicy_Call {
+	return &MockociLoadBalancerClient_UpdateRoutingPolicy_Call{Call: _e.mock.On("UpdateRoutingPolicy", ctx, request)}
+}
+
+func (_c *MockociLoadBalancerClient_UpdateRoutingPolicy_Call) Run(run func(ctx context.Context, request loadbalancer.UpdateRoutingPolicyRequest)) *MockociLoadBalancerClient_UpdateRoutingPolicy_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(loadbalancer.UpdateRoutingPolicyRequest))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_UpdateRoutingPolicy_Call) Return(response loadbalancer.UpdateRoutingPolicyResponse, err error) *MockociLoadBalancerClient_UpdateRoutingPolicy_Call {
+	_c.Call.Return(response, err)
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_UpdateRoutingPolicy_Call) RunAndReturn(run func(context.Context, loadbalancer.UpdateRoutingPolicyRequest) (loadbalancer.UpdateRoutingPolicyResponse, error)) *MockociLoadBalancerClient_UpdateRoutingPolicy_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -405,6 +405,20 @@ func (m *httpRouteModelImpl) programRoute(
 	// for the future: services must have same port to make health check work
 	// backend set name must be derived from the http route name + rule name (or index if name is empty)
 
+	// Resolve and tidy matching policies
+	routingPolicies := make([]loadbalancer.RoutingPolicy, len(params.matchedListeners))
+	for i, listener := range params.matchedListeners {
+		routingPolicy, err := m.ociLoadBalancerModel.resolveAndTidyRoutingPolicy(ctx, resolveAndTidyRoutingPolicyParams{
+			loadBalancerID: params.config.Spec.LoadBalancerID,
+			policyName:     listenerPolicyName(string(listener.Name)),
+			knownRules:     params.httpRoute.Spec.Rules,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to resolve and tidy routing policy for listener %s: %w", listener.Name, err)
+		}
+		routingPolicies[i] = routingPolicy
+	}
+
 	for i, rule := range params.httpRoute.Spec.Rules {
 		bsName := backendSetName(params.httpRoute, rule, i)
 
@@ -431,18 +445,26 @@ func (m *httpRouteModelImpl) programRoute(
 			return fmt.Errorf("failed to reconcile backend set %s: %w", bsName, err)
 		}
 
-		for _, matchedListener := range params.matchedListeners {
-			err = m.ociLoadBalancerModel.reconcileRoutingRule(ctx, reconcileRoutingRuleParams{
-				loadBalancerID:       params.config.Spec.LoadBalancerID,
-				matchedListener:      matchedListener,
-				rule:                 rule,
-				ruleIndex:            i,
-				targetBackendSetName: bsName,
+		for _, matchingPolicy := range routingPolicies {
+			updatedRules, err := m.ociLoadBalancerModel.upsertRoutingRule(ctx, upsertRoutingRuleParams{
+				actualRules: matchingPolicy.Rules,
+				rule:        rule,
+				ruleIndex:   i,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to reconcile routing rule %s: %w", bsName, err)
 			}
+			matchingPolicy.Rules = updatedRules
 		}
+	}
+
+	// commit matching policies
+	err := m.ociLoadBalancerModel.commitRoutingPolicies(ctx, commitRoutingPoliciesParams{
+		loadBalancerID: params.config.Spec.LoadBalancerID,
+		policies:       routingPolicies,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to commit routing policies: %w", err)
 	}
 
 	return nil

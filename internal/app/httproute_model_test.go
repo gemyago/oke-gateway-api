@@ -1037,7 +1037,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				}).Return(nil)
 
 				for _, matchedListener := range params.matchedListeners {
-					ociLBModel.EXPECT().reconcileRoutingRule(t.Context(), reconcileRoutingRuleParams{
+					ociLBModel.EXPECT().reconcileRoutingRule(t.Context(), upsertRoutingRuleParams{
 						loadBalancerID:       params.config.Spec.LoadBalancerID,
 						matchedListener:      matchedListener,
 						rule:                 rule,
