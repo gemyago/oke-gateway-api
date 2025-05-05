@@ -146,11 +146,15 @@ func randomOCILoadBalancerWithRandomListenersOpt() randomOCILoadBalancerOpt {
 func makeRandomOCIRoutingPolicy() loadbalancer.RoutingPolicy {
 	return loadbalancer.RoutingPolicy{
 		Name: lo.ToPtr(faker.DomainName()),
+		Rules: []loadbalancer.RoutingRule{
+			makeRandomOCIRoutingRule(),
+			makeRandomOCIRoutingRule(),
+		},
 	}
 }
 
 func makeRandomOCIRoutingRule() loadbalancer.RoutingRule {
 	return loadbalancer.RoutingRule{
-		Name: lo.ToPtr(faker.DomainName()),
+		Name: lo.ToPtr(faker.UUIDHyphenated() + "-rr." + faker.DomainName()),
 	}
 }

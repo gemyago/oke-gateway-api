@@ -445,21 +445,20 @@ func (m *httpRouteModelImpl) programRoute(
 			return fmt.Errorf("failed to reconcile backend set %s: %w", bsName, err)
 		}
 
-		for _, matchingPolicy := range routingPolicies {
+		for i := range routingPolicies {
 			var updatedRules []loadbalancer.RoutingRule
 			updatedRules, err = m.ociLoadBalancerModel.upsertRoutingRule(ctx, upsertRoutingRuleParams{
-				actualRules: matchingPolicy.Rules,
+				actualRules: routingPolicies[i].Rules,
 				rule:        rule,
 				ruleIndex:   i,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to reconcile routing rule %s: %w", bsName, err)
 			}
-			matchingPolicy.Rules = updatedRules
+			routingPolicies[i].Rules = updatedRules
 		}
 	}
 
-	// commit matching policies
 	err := m.ociLoadBalancerModel.commitRoutingPolicies(ctx, commitRoutingPoliciesParams{
 		loadBalancerID: params.config.Spec.LoadBalancerID,
 		policies:       routingPolicies,

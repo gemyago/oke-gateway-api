@@ -1046,12 +1046,15 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 					},
 				}).Return(nil)
 
-				for _, wantListenerPolicy := range wantListenerPolicies {
+				for i := range wantListenerPolicies {
+					wantUpdatedRules := append([]loadbalancer.RoutingRule{}, wantListenerPolicies[i].Rules...)
+					wantUpdatedRules = append(wantUpdatedRules, makeRandomOCIRoutingRule())
 					ociLBModel.EXPECT().upsertRoutingRule(t.Context(), upsertRoutingRuleParams{
-						actualRules: wantListenerPolicy.Rules,
+						actualRules: wantListenerPolicies[i].Rules,
 						rule:        rule,
 						ruleIndex:   i,
-					}).Return(wantListenerPolicy.Rules, nil)
+					}).Return(wantUpdatedRules, nil)
+					wantListenerPolicies[i].Rules = wantUpdatedRules
 				}
 			}
 
