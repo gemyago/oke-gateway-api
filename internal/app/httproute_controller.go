@@ -113,7 +113,7 @@ func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Reque
 			)
 		}
 
-		// TODO: Only relevant backends needs to be synced
+		// TODO: Review sync and make sure only relevant backends are synced
 		err = r.httpBackendModel.syncRouteBackendEndpoints(ctx, syncRouteBackendEndpointsParams{
 			httpRoute: resolvedData.httpRoute,
 			config:    resolvedData.gatewayDetails.config,
