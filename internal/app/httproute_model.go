@@ -430,6 +430,19 @@ func (m *httpRouteModelImpl) programRoute(
 		if err != nil {
 			return fmt.Errorf("failed to reconcile backend set %s: %w", bsName, err)
 		}
+
+		for _, matchedListener := range params.matchedListeners {
+			err = m.ociLoadBalancerModel.reconcileRoutingRule(ctx, reconcileRoutingRuleParams{
+				loadBalancerID:       params.config.Spec.LoadBalancerID,
+				matchedListener:      matchedListener,
+				rule:                 rule,
+				ruleIndex:            i,
+				targetBackendSetName: bsName,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to reconcile routing rule %s: %w", bsName, err)
+			}
+		}
 	}
 
 	return nil

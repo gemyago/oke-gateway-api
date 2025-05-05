@@ -1015,6 +1015,10 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				gateway:   *newRandomGateway(),
 				config:    makeRandomGatewayConfig(),
 				httpRoute: httpRoute,
+				matchedListeners: []gatewayv1.Listener{
+					makeRandomHTTPListener(),
+					makeRandomHTTPListener(),
+				},
 			}
 
 			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
@@ -1031,6 +1035,16 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 						Port:     lo.ToPtr(int(port)),
 					},
 				}).Return(nil)
+
+				for _, matchedListener := range params.matchedListeners {
+					ociLBModel.EXPECT().reconcileRoutingRule(t.Context(), reconcileRoutingRuleParams{
+						loadBalancerID:       params.config.Spec.LoadBalancerID,
+						matchedListener:      matchedListener,
+						rule:                 rule,
+						ruleIndex:            i,
+						targetBackendSetName: *wantBs.Name,
+					}).Return(nil)
+				}
 			}
 
 			err := model.programRoute(t.Context(), params)
