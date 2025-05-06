@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -313,7 +314,30 @@ func (m *ociLoadBalancerModelImpl) resolveAndTidyRoutingPolicy(
 		return loadbalancer.RoutingPolicy{}, fmt.Errorf("failed to get routing policy %s: %w", params.policyName, err)
 	}
 
-	return policyResponse.RoutingPolicy, nil
+	// route policy rules have route prefix in the name
+	// if they are present in policy but not in the route, we should remove them
+	// if they are present in the route but not in the policy, we should add them
+
+	routeRulesByName := make(map[string]gatewayv1.HTTPRouteRule)
+	for i, rule := range params.httpRoute.Spec.Rules {
+		ruleName := listerPolicyRuleName(params.httpRoute, rule, i)
+		routeRulesByName[ruleName] = rule
+	}
+
+	rulesPrefix := params.httpRoute.Name + "_"
+	cleanedRules := lo.Filter(policyResponse.RoutingPolicy.Rules,
+		func(rule loadbalancer.RoutingRule, _ int) bool {
+			ruleName := lo.FromPtr(rule.Name)
+			if _, ok := routeRulesByName[ruleName]; !ok {
+				return !strings.HasPrefix(ruleName, rulesPrefix)
+			}
+			return true
+		})
+
+	cleanedPolicy := policyResponse.RoutingPolicy
+	cleanedPolicy.Rules = cleanedRules
+
+	return cleanedPolicy, nil
 }
 
 // TODO: Implement actual logic for reconciling RuleSet
