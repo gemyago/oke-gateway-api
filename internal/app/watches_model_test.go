@@ -89,7 +89,7 @@ func TestWatchesModel(t *testing.T) {
 			}
 
 			httpRoute := makeRandomHTTPRoute(
-				randomHTTPRouteWithRandomRulesOpt(
+				randomHTTPRouteWithRulesOpt(
 					makeRandomHTTPRouteRule(
 						randomHTTPRouteRuleWithRandomBackendRefsOpt(refs1...),
 					),
@@ -97,7 +97,7 @@ func TestWatchesModel(t *testing.T) {
 						randomHTTPRouteRuleWithRandomBackendRefsOpt(refs2...),
 					),
 				),
-				randomHTTPRouteWithRandomRulesOpt(
+				randomHTTPRouteWithRulesOpt(
 					makeRandomHTTPRouteRule(
 						randomHTTPRouteRuleWithRandomBackendRefsOpt(refs3...),
 					),
@@ -134,7 +134,7 @@ func TestWatchesModel(t *testing.T) {
 			}
 
 			route := makeRandomHTTPRoute(
-				randomHTTPRouteWithRandomRulesOpt(
+				randomHTTPRouteWithRulesOpt(
 					makeRandomHTTPRouteRule(
 						randomHTTPRouteRuleWithRandomBackendRefsOpt(refs1...),
 					),
@@ -163,12 +163,12 @@ func TestWatchesModel(t *testing.T) {
 			}
 
 			httpRoute := makeRandomHTTPRoute(
-				randomHTTPRouteWithRandomRulesOpt(
+				randomHTTPRouteWithRulesOpt(
 					makeRandomHTTPRouteRule(
 						randomHTTPRouteRuleWithRandomBackendRefsOpt(refs...),
 					),
 				),
-				randomHTTPRouteWithRandomRulesOpt(
+				randomHTTPRouteWithRulesOpt(
 					makeRandomHTTPRouteRule(
 						randomHTTPRouteRuleWithRandomBackendRefsOpt(refs...),
 					),

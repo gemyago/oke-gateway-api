@@ -42,7 +42,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			}
 
 			httpRoute := makeRandomHTTPRoute(
-				randomHTTPRouteWithRandomRulesOpt(rules...),
+				randomHTTPRouteWithRulesOpt(rules...),
 			)
 
 			config := makeRandomGatewayConfig()
@@ -79,7 +79,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			}
 
 			httpRoute := makeRandomHTTPRoute(
-				randomHTTPRouteWithRandomRulesOpt(rules...),
+				randomHTTPRouteWithRulesOpt(rules...),
 			)
 
 			config := makeRandomGatewayConfig()
@@ -137,7 +137,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			))
 
 			httpRoute := makeRandomHTTPRoute(
-				randomHTTPRouteWithRandomRulesOpt(rule1, rule2),
+				randomHTTPRouteWithRulesOpt(rule1, rule2),
 			)
 
 			config := makeRandomGatewayConfig()
@@ -253,7 +253,7 @@ func TestHTTPBackendModel(t *testing.T) {
 				makeRandomBackendRef(),
 			}
 			rule := makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(refs...))
-			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRandomRulesOpt(rule))
+			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRulesOpt(rule))
 			config := makeRandomGatewayConfig()
 			ruleIndex := 0
 			backendSetName := backendSetName(httpRoute, rule, ruleIndex)
@@ -706,7 +706,7 @@ func TestHTTPBackendModel(t *testing.T) {
 
 			ref := makeRandomBackendRef()
 			rule := makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(ref))
-			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRandomRulesOpt(rule))
+			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRulesOpt(rule))
 			config := makeRandomGatewayConfig()
 			ruleIndex := 0
 			backendSetName := backendSetName(httpRoute, rule, ruleIndex)
@@ -747,7 +747,7 @@ func TestHTTPBackendModel(t *testing.T) {
 
 			ref := makeRandomBackendRef()
 			rule := makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(ref))
-			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRandomRulesOpt(rule))
+			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRulesOpt(rule))
 			config := makeRandomGatewayConfig()
 			ruleIndex := 0
 			backendSetName := backendSetName(httpRoute, rule, ruleIndex)
@@ -809,7 +809,7 @@ func TestHTTPBackendModel(t *testing.T) {
 
 			ref := makeRandomBackendRef()
 			rule := makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(ref))
-			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRandomRulesOpt(rule))
+			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRulesOpt(rule))
 			config := makeRandomGatewayConfig()
 			ruleIndex := 0
 			backendSetName := backendSetName(httpRoute, rule, ruleIndex)
@@ -877,7 +877,7 @@ func TestHTTPBackendModel(t *testing.T) {
 
 			ref := makeRandomBackendRef()
 			rule := makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(ref))
-			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRandomRulesOpt(rule))
+			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRulesOpt(rule))
 			config := makeRandomGatewayConfig()
 			ruleIndex := 0
 			backendSetName := backendSetName(httpRoute, rule, ruleIndex)

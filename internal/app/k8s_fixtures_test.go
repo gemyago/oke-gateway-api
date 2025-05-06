@@ -169,7 +169,7 @@ func randomHTTPRouteWithRandomParentRefsOpt(refs ...gatewayv1.ParentReference) r
 	}
 }
 
-func randomHTTPRouteWithRandomRulesOpt(rules ...gatewayv1.HTTPRouteRule) randomHTTPRouteOpt {
+func randomHTTPRouteWithRulesOpt(rules ...gatewayv1.HTTPRouteRule) randomHTTPRouteOpt {
 	return func(route *gatewayv1.HTTPRoute) {
 		route.Spec.Rules = append(route.Spec.Rules, rules...)
 	}

@@ -906,7 +906,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			}
 
 			httpRoute := makeRandomHTTPRoute(
-				randomHTTPRouteWithRandomRulesOpt(
+				randomHTTPRouteWithRulesOpt(
 					makeRandomHTTPRouteRule(
 						randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRefs1...),
 					),
@@ -952,7 +952,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			backendRef := makeRandomBackendRef()
 			httpRoute := makeRandomHTTPRoute(
-				randomHTTPRouteWithRandomRulesOpt(
+				randomHTTPRouteWithRulesOpt(
 					makeRandomHTTPRouteRule(
 						randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef),
 					),
@@ -995,7 +995,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			)
 
 			httpRoute := makeRandomHTTPRoute(
-				randomHTTPRouteWithRandomRulesOpt(
+				randomHTTPRouteWithRulesOpt(
 					rule1,
 					rule2,
 				),
@@ -1077,7 +1077,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef),
 			)
 			httpRoute := makeRandomHTTPRoute(
-				randomHTTPRouteWithRandomRulesOpt(rule1),
+				randomHTTPRouteWithRulesOpt(rule1),
 			)
 
 			wantBsName := fmt.Sprintf("%s-%s", httpRoute.Name, *rule1.Name)
