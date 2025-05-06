@@ -22,6 +22,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			RootLogger:          diag.RootTestLogger(),
 			OciClient:           NewMockociLoadBalancerClient(t),
 			WorkRequestsWatcher: NewMockworkRequestsWatcher(t),
+			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
 		}
 	}
 
@@ -346,6 +347,10 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			require.NoError(t, err)
 			assert.ElementsMatch(t, wantPolicyRules, actualPolicy.Rules)
 		})
+	})
+
+	t.Run("upsertRoutingRule", func(t *testing.T) {
+
 	})
 
 	t.Run("reconcileHTTPListener", func(t *testing.T) {
