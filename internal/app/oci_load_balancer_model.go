@@ -329,7 +329,14 @@ func (m *ociLoadBalancerModelImpl) resolveAndTidyRoutingPolicy(
 		func(rule loadbalancer.RoutingRule, _ int) bool {
 			ruleName := lo.FromPtr(rule.Name)
 			if _, ok := routeRulesByName[ruleName]; !ok {
-				return !strings.HasPrefix(ruleName, rulesPrefix)
+				toBeRemoved := strings.HasPrefix(ruleName, rulesPrefix)
+				if toBeRemoved {
+					m.logger.DebugContext(ctx, "Removing rule from OCI routing policy",
+						slog.String("ruleName", ruleName),
+						slog.String("loadBalancerId", params.loadBalancerID),
+					)
+				}
+				return !toBeRemoved
 			}
 			return true
 		})
