@@ -45,9 +45,9 @@ type resolveAndTidyRoutingPolicyParams struct {
 }
 
 type upsertRoutingRuleParams struct {
-	actualRules []loadbalancer.RoutingRule
-	rule        gatewayv1.HTTPRouteRule
-	ruleIndex   int
+	actualPolicyRules  []loadbalancer.RoutingRule
+	httpRoute          gatewayv1.HTTPRoute
+	httpRouteRuleIndex int
 }
 
 type commitRoutingPoliciesParams struct {
@@ -348,13 +348,13 @@ func (m *ociLoadBalancerModelImpl) resolveAndTidyRoutingPolicy(
 	return cleanedPolicy, nil
 }
 
-// TODO: Implement actual logic for reconciling RuleSet
 func (m *ociLoadBalancerModelImpl) upsertRoutingRule(
 	ctx context.Context,
 	params upsertRoutingRuleParams,
 ) ([]loadbalancer.RoutingRule, error) {
 	m.logger.InfoContext(ctx, "Reconciling RuleSet (STUB)",
-		slog.String("rule", fmt.Sprintf("%d: %v", params.ruleIndex, params.rule.Name)),
+		slog.String("httpRoute", fmt.Sprintf("%s/%s", params.httpRoute.Namespace, params.httpRoute.Name)),
+		slog.Int("httpRouteRuleIndex", params.httpRouteRuleIndex),
 	)
 
 	// Placeholder: Return nil, nil for now

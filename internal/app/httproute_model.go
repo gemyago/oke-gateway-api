@@ -448,9 +448,9 @@ func (m *httpRouteModelImpl) programRoute(
 		for i := range routingPolicies {
 			var updatedRules []loadbalancer.RoutingRule
 			updatedRules, err = m.ociLoadBalancerModel.upsertRoutingRule(ctx, upsertRoutingRuleParams{
-				actualRules: routingPolicies[i].Rules,
-				rule:        rule,
-				ruleIndex:   i,
+				actualPolicyRules:  routingPolicies[i].Rules,
+				httpRoute:          params.httpRoute,
+				httpRouteRuleIndex: i,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to reconcile routing rule %s: %w", bsName, err)
