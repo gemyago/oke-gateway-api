@@ -103,6 +103,7 @@ type ociLoadBalancerModelImpl struct {
 	ociClient           ociLoadBalancerClient
 	logger              *slog.Logger
 	workRequestsWatcher workRequestsWatcher
+	routingRulesMapper  ociLoadBalancerRoutingRulesMapper
 }
 
 func (m *ociLoadBalancerModelImpl) reconcileDefaultBackendSet(
@@ -487,6 +488,7 @@ type ociLoadBalancerModelDeps struct {
 	RootLogger          *slog.Logger
 	OciClient           ociLoadBalancerClient
 	WorkRequestsWatcher workRequestsWatcher
+	RoutingRulesMapper  ociLoadBalancerRoutingRulesMapper
 }
 
 func newOciLoadBalancerModel(deps ociLoadBalancerModelDeps) ociLoadBalancerModel {
@@ -494,5 +496,6 @@ func newOciLoadBalancerModel(deps ociLoadBalancerModelDeps) ociLoadBalancerModel
 		logger:              deps.RootLogger.WithGroup("oci-load-balancer-model"),
 		ociClient:           deps.OciClient,
 		workRequestsWatcher: deps.WorkRequestsWatcher,
+		routingRulesMapper:  deps.RoutingRulesMapper,
 	}
 }

@@ -10,7 +10,7 @@ import (
 
 var errUnsupportedMatch = errors.New("unsupported match type")
 
-type ociLoadBalancerRoutingRules interface {
+type ociLoadBalancerRoutingRulesMapper interface {
 	// mapHTTPRouteMatchToCondition translates a Gateway API HTTPRouteMatch
 	// into an OCI Load Balancer condition string.
 	// Returns an empty string if the match is nil or empty.
@@ -19,14 +19,16 @@ type ociLoadBalancerRoutingRules interface {
 	mapHTTPRouteMatchToCondition(match gatewayv1.HTTPRouteMatch) (string, error)
 }
 
-type ociLoadBalancerRoutingRulesImpl struct{}
+type ociLoadBalancerRoutingRulesMapperImpl struct{}
 
-func newOciLoadBalancerRoutingRulesSets() ociLoadBalancerRoutingRules {
-	return &ociLoadBalancerRoutingRulesImpl{}
+func newOciLoadBalancerRoutingRulesMapper() ociLoadBalancerRoutingRulesMapper {
+	return &ociLoadBalancerRoutingRulesMapperImpl{}
 }
 
 // mapHTTPRouteMatchToCondition translates Gateway API match rules into OCI condition strings.
-func (r *ociLoadBalancerRoutingRulesImpl) mapHTTPRouteMatchToCondition(match gatewayv1.HTTPRouteMatch) (string, error) {
+func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchToCondition(
+	match gatewayv1.HTTPRouteMatch,
+) (string, error) {
 	var conditions []string
 
 	// --- Unsupported Checks First ---

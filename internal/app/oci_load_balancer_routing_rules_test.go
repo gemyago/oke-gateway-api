@@ -12,7 +12,7 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-func TestOciLoadBalancerRoutingRules(t *testing.T) {
+func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 	t.Run("mapHTTPRouteMatchToCondition", func(t *testing.T) {
 		type testCase struct {
 			name        string
@@ -255,7 +255,7 @@ func TestOciLoadBalancerRoutingRules(t *testing.T) {
 		for _, tcFunc := range tests {
 			tc := tcFunc()
 			t.Run(tc.name, func(t *testing.T) {
-				rs := newOciLoadBalancerRoutingRulesSets()
+				rs := newOciLoadBalancerRoutingRulesMapper()
 				actual, err := rs.mapHTTPRouteMatchToCondition(tc.match)
 
 				switch {
