@@ -102,5 +102,28 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchToCondition(
 func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchesToCondition(
 	matches []gatewayv1.HTTPRouteMatch,
 ) (string, error) {
-	return "", errors.New("not implemented")
+	if len(matches) == 0 {
+		return "", nil
+	}
+
+	var conditions []string
+	for _, match := range matches {
+		condition, err := r.mapHTTPRouteMatchToCondition(match)
+		if err != nil {
+			return "", err // Propagate error if any single match fails
+		}
+		if condition != "" {
+			conditions = append(conditions, condition)
+		}
+	}
+
+	if len(conditions) == 0 {
+		return "", nil
+	}
+
+	if len(conditions) > 1 {
+		return fmt.Sprintf("any(%s)", strings.Join(conditions, " or ")), nil
+	}
+
+	return strings.Join(conditions, " or "), nil
 }
