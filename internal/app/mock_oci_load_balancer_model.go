@@ -130,6 +130,53 @@ func (_c *MockociLoadBalancerModel_commitRoutingPolicies_Call) RunAndReturn(run 
 	return _c
 }
 
+// commitRoutingPolicy provides a mock function with given fields: ctx, params
+func (_m *MockociLoadBalancerModel) commitRoutingPolicy(ctx context.Context, params commitRoutingPolicyParams) error {
+	ret := _m.Called(ctx, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for commitRoutingPolicy")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, commitRoutingPolicyParams) error); ok {
+		r0 = rf(ctx, params)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockociLoadBalancerModel_commitRoutingPolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'commitRoutingPolicy'
+type MockociLoadBalancerModel_commitRoutingPolicy_Call struct {
+	*mock.Call
+}
+
+// commitRoutingPolicy is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params commitRoutingPolicyParams
+func (_e *MockociLoadBalancerModel_Expecter) commitRoutingPolicy(ctx interface{}, params interface{}) *MockociLoadBalancerModel_commitRoutingPolicy_Call {
+	return &MockociLoadBalancerModel_commitRoutingPolicy_Call{Call: _e.mock.On("commitRoutingPolicy", ctx, params)}
+}
+
+func (_c *MockociLoadBalancerModel_commitRoutingPolicy_Call) Run(run func(ctx context.Context, params commitRoutingPolicyParams)) *MockociLoadBalancerModel_commitRoutingPolicy_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(commitRoutingPolicyParams))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_commitRoutingPolicy_Call) Return(_a0 error) *MockociLoadBalancerModel_commitRoutingPolicy_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_commitRoutingPolicy_Call) RunAndReturn(run func(context.Context, commitRoutingPolicyParams) error) *MockociLoadBalancerModel_commitRoutingPolicy_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // reconcileBackendSet provides a mock function with given fields: ctx, params
 func (_m *MockociLoadBalancerModel) reconcileBackendSet(ctx context.Context, params reconcileBackendSetParams) error {
 	ret := _m.Called(ctx, params)

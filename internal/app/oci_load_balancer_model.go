@@ -17,6 +17,7 @@ import (
 )
 
 const defaultBackendSetPort = 80
+const defaultCatchAllRuleName = "default_catch_all"
 
 type reconcileDefaultBackendParams struct {
 	loadBalancerID   string
@@ -47,6 +48,11 @@ type appendRoutingRuleParams struct {
 	actualPolicyRules  []loadbalancer.RoutingRule
 	httpRoute          gatewayv1.HTTPRoute
 	httpRouteRuleIndex int
+}
+
+type commitRoutingPolicyParams struct {
+	loadBalancerID string
+	policy         loadbalancer.RoutingPolicy
 }
 
 type commitRoutingPoliciesParams struct {
@@ -90,6 +96,11 @@ type ociLoadBalancerModel interface {
 		ctx context.Context,
 		params appendRoutingRuleParams,
 	) ([]loadbalancer.RoutingRule, error)
+
+	commitRoutingPolicy(
+		ctx context.Context,
+		params commitRoutingPolicyParams,
+	) error
 
 	commitRoutingPolicies(
 		ctx context.Context,
@@ -196,7 +207,7 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 				// Alternative could be to create and attach routing policy when reconciling routes, but
 				// it may be a bit more complex on the route reconciler side.
 				{
-					Name:      lo.ToPtr("default_catch_all"),
+					Name:      lo.ToPtr(defaultCatchAllRuleName),
 					Condition: lo.ToPtr("any(http.request.url.path sw '/')"),
 					Actions: []loadbalancer.Action{
 						loadbalancer.ForwardToBackendSet{
@@ -465,6 +476,13 @@ func (m *ociLoadBalancerModelImpl) removeMissingListeners(
 func (m *ociLoadBalancerModelImpl) commitRoutingPolicies(
 	ctx context.Context,
 	params commitRoutingPoliciesParams,
+) error {
+	return nil
+}
+
+func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
+	ctx context.Context,
+	params commitRoutingPolicyParams,
 ) error {
 	return nil
 }
