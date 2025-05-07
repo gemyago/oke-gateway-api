@@ -214,11 +214,11 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 	})
 
 	t.Run("resolveAndTidyRoutingPolicy", func(t *testing.T) {
-		t.Run("when routing policy exists and has no deleted rules", func(t *testing.T) {
+		t.Run("clean rules from current route", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 
-			allKnownRules := []gatewayv1.HTTPRouteRule{
+			routeRules := []gatewayv1.HTTPRouteRule{
 				makeRandomHTTPRouteRule(),
 				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomNameOpt()),
 				makeRandomHTTPRouteRule(),
@@ -226,26 +226,28 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			}
 
 			route := makeRandomHTTPRoute(
-				randomHTTPRouteWithRulesOpt(allKnownRules...),
+				randomHTTPRouteWithRulesOpt(routeRules...),
 			)
 
-			originalPolicyRules := lo.Map(allKnownRules,
+			routePolicyRules := lo.Map(routeRules,
 				func(rule gatewayv1.HTTPRouteRule, i int) loadbalancer.RoutingRule {
 					return loadbalancer.RoutingRule{
 						Name: lo.ToPtr(listerPolicyRuleName(route, rule, i)),
 					}
 				})
-			originalPolicyRules = append(originalPolicyRules,
-				// Other policy rules should not be affected
-				makeRandomOCIRoutingRule(),
-				makeRandomOCIRoutingRule(),
-				makeRandomOCIRoutingRule(),
-			)
 
-			clonedActualPolicyRules := make([]loadbalancer.RoutingRule, len(originalPolicyRules))
-			copy(clonedActualPolicyRules, originalPolicyRules)
+			routeOtherRules := []loadbalancer.RoutingRule{
+				makeRandomOCIRoutingRule(),
+				makeRandomOCIRoutingRule(),
+				makeRandomOCIRoutingRule(),
+			}
+
+			allPolicyRules := make([]loadbalancer.RoutingRule, 0, len(routePolicyRules)+len(routeOtherRules))
+			allPolicyRules = append(allPolicyRules, routePolicyRules...)
+			allPolicyRules = append(allPolicyRules, routeOtherRules...)
+
 			originalPolicy := makeRandomOCIRoutingPolicy(
-				randomOCIRoutingPolicyWithRulesOpt(originalPolicyRules),
+				randomOCIRoutingPolicyWithRulesOpt(allPolicyRules),
 			)
 
 			params := resolveAndTidyRoutingPolicyParams{
@@ -264,88 +266,11 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			actualPolicy, err := model.resolveAndTidyRoutingPolicy(t.Context(), params)
 			require.NoError(t, err)
-			assert.Equal(t, originalPolicy, actualPolicy)
-			assert.ElementsMatch(t, clonedActualPolicyRules, actualPolicy.Rules) // just extra sanity check
-		})
 
-		t.Run("when routing policy exists and has deleted rules", func(t *testing.T) {
-			deps := makeMockDeps(t)
-			model := newOciLoadBalancerModel(deps)
+			wantPolicy := originalPolicy
+			wantPolicy.Rules = routeOtherRules
 
-			preservedRules := []gatewayv1.HTTPRouteRule{
-				makeRandomHTTPRouteRule(),
-				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomNameOpt()),
-				makeRandomHTTPRouteRule(),
-				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomNameOpt()),
-			}
-
-			deletedRules := []gatewayv1.HTTPRouteRule{
-				makeRandomHTTPRouteRule(),
-				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomNameOpt()),
-				makeRandomHTTPRouteRule(),
-				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomNameOpt()),
-			}
-
-			route := makeRandomHTTPRoute(
-				randomHTTPRouteWithRulesOpt(preservedRules...),
-			)
-
-			wantPolicyRules := lo.Map(preservedRules,
-				func(rule gatewayv1.HTTPRouteRule, i int) loadbalancer.RoutingRule {
-					return loadbalancer.RoutingRule{
-						Name: lo.ToPtr(listerPolicyRuleName(route, rule, i)),
-					}
-				})
-
-			// Other policy rules that should not be affected
-			otherOciRules := []loadbalancer.RoutingRule{
-				makeRandomOCIRoutingRule(),
-				makeRandomOCIRoutingRule(),
-				makeRandomOCIRoutingRule(),
-			}
-
-			wantPolicyRules = append(wantPolicyRules, otherOciRules...)
-
-			originalPolicyRules := lo.Map(deletedRules,
-				func(rule gatewayv1.HTTPRouteRule, i int) loadbalancer.RoutingRule {
-					deletedRuleIndex := len(preservedRules) + i // Start index after preserved rules
-					return loadbalancer.RoutingRule{
-						Name: lo.ToPtr(listerPolicyRuleName(route, rule, deletedRuleIndex)),
-					}
-				})
-
-			preservedOciRules := lo.Map(preservedRules,
-				func(rule gatewayv1.HTTPRouteRule, i int) loadbalancer.RoutingRule {
-					return loadbalancer.RoutingRule{
-						Name: lo.ToPtr(listerPolicyRuleName(route, rule, i)),
-					}
-				})
-
-			originalPolicyRules = append(originalPolicyRules, preservedOciRules...)
-			originalPolicyRules = append(originalPolicyRules, otherOciRules...)
-
-			// Set the Rules field of the policy object we expect GetRoutingPolicy to return
-			wantPolicy := makeRandomOCIRoutingPolicy(
-				randomOCIRoutingPolicyWithRulesOpt(originalPolicyRules), // Use the combined list for the initial state
-			)
-
-			params := resolveAndTidyRoutingPolicyParams{
-				loadBalancerID: faker.UUIDHyphenated(),
-				policyName:     *wantPolicy.Name,
-				httpRoute:      route,
-			}
-
-			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
-			ociLoadBalancerClient.EXPECT().GetRoutingPolicy(t.Context(), loadbalancer.GetRoutingPolicyRequest{
-				RoutingPolicyName: wantPolicy.Name,
-				LoadBalancerId:    &params.loadBalancerID,
-			}).Return(loadbalancer.GetRoutingPolicyResponse{
-				RoutingPolicy: wantPolicy,
-			}, nil)
-
-			actualPolicy, err := model.resolveAndTidyRoutingPolicy(t.Context(), params)
-			require.NoError(t, err)
-			assert.ElementsMatch(t, wantPolicyRules, actualPolicy.Rules)
+			assert.Equal(t, wantPolicy, actualPolicy)
 		})
 	})
 

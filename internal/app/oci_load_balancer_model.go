@@ -78,6 +78,9 @@ type ociLoadBalancerModel interface {
 		params reconcileBackendSetParams,
 	) error
 
+	// resolveAndTidyRoutingPolicy removes rules from the routing policy that are
+	// associated with the given httpRoute. It is expected that consumer will repopulate
+	// new rules related to the given httpRoute.
 	resolveAndTidyRoutingPolicy(
 		ctx context.Context,
 		params resolveAndTidyRoutingPolicyParams,
@@ -315,31 +318,13 @@ func (m *ociLoadBalancerModelImpl) resolveAndTidyRoutingPolicy(
 		return loadbalancer.RoutingPolicy{}, fmt.Errorf("failed to get routing policy %s: %w", params.policyName, err)
 	}
 
-	// route policy rules have route prefix in the name
-	// if they are present in policy but not in the route, we should remove them
-	// if they are present in the route but not in the policy, we should add them
+	// All rules associated with the current httpRoute will have a name starting with this prefix.
+	rulesPrefixToRemove := params.httpRoute.Name + "_"
 
-	routeRulesByName := make(map[string]gatewayv1.HTTPRouteRule)
-	for i, rule := range params.httpRoute.Spec.Rules {
-		ruleName := listerPolicyRuleName(params.httpRoute, rule, i)
-		routeRulesByName[ruleName] = rule
-	}
-
-	rulesPrefix := params.httpRoute.Name + "_"
 	cleanedRules := lo.Filter(policyResponse.RoutingPolicy.Rules,
 		func(rule loadbalancer.RoutingRule, _ int) bool {
 			ruleName := lo.FromPtr(rule.Name)
-			if _, ok := routeRulesByName[ruleName]; !ok {
-				toBeRemoved := strings.HasPrefix(ruleName, rulesPrefix)
-				if toBeRemoved {
-					m.logger.DebugContext(ctx, "Removing rule from OCI routing policy",
-						slog.String("ruleName", ruleName),
-						slog.String("loadBalancerId", params.loadBalancerID),
-					)
-				}
-				return !toBeRemoved
-			}
-			return true
+			return !strings.HasPrefix(ruleName, rulesPrefixToRemove)
 		})
 
 	cleanedPolicy := policyResponse.RoutingPolicy
