@@ -341,7 +341,29 @@ func (m *ociLoadBalancerModelImpl) appendRoutingRule(
 	)
 
 	// Placeholder: Return nil, nil for now
-	return nil, nil
+	// TODO: Implement the actual logic
+
+	ruleSpec := params.httpRoute.Spec.Rules[params.httpRouteRuleIndex]
+
+	condition, err := m.routingRulesMapper.mapHTTPRouteMatchesToCondition(ruleSpec.Matches)
+	if err != nil {
+		return nil, fmt.Errorf("failed to map http route matches to condition: %w", err)
+	}
+
+	ruleName := ociListerPolicyRuleName(params.httpRoute, params.httpRouteRuleIndex)
+	backendSetName := ociBackendSetName(params.httpRoute, params.httpRouteRuleIndex)
+
+	newRule := loadbalancer.RoutingRule{
+		Name:      lo.ToPtr(ruleName),
+		Condition: lo.ToPtr(condition),
+		Actions: []loadbalancer.Action{
+			loadbalancer.ForwardToBackendSet{
+				BackendSetName: lo.ToPtr(backendSetName),
+			},
+		},
+	}
+
+	return append(params.actualPolicyRules, newRule), nil
 }
 
 func (m *ociLoadBalancerModelImpl) deleteMissingListener(
