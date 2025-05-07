@@ -1004,10 +1004,6 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			wantBsNames := lo.Map(httpRoute.Spec.Rules, func(_ gatewayv1.HTTPRouteRule, i int) string {
 				return ociBackendSetName(httpRoute, i)
 			})
-			wantBss := lo.Map(wantBsNames, func(name string, _ int) loadbalancer.BackendSet {
-				return makeRandomOCIBackendSet(randomOCIBackendSetWithNameOpt(name))
-			})
-
 			wantListeners := makeFewRandomHTTPListeners()
 			wantListenerPolicies := lo.Map(wantListeners, func(_ gatewayv1.Listener, _ int) loadbalancer.RoutingPolicy {
 				return makeRandomOCIRoutingPolicy()
@@ -1030,35 +1026,36 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				}).Return(wantListenerPolicies[i], nil)
 			}
 
-			for i, wantBs := range wantBss {
-				rule := httpRoute.Spec.Rules[i]
+			for ruleIdx, rule := range httpRoute.Spec.Rules {
 				firstBackendRef := rule.BackendRefs[0]
 				port := int32(*firstBackendRef.BackendRef.Port)
 				ociLBModel.EXPECT().reconcileBackendSet(t.Context(), reconcileBackendSetParams{
 					loadBalancerID: params.config.Spec.LoadBalancerID,
-					name:           *wantBs.Name,
+					name:           wantBsNames[ruleIdx],
 					healthChecker: &loadbalancer.HealthCheckerDetails{
 						Protocol: lo.ToPtr("TCP"),
 						Port:     lo.ToPtr(int(port)),
 					},
 				}).Return(nil)
 
-				for i := range wantListenerPolicies {
-					wantUpdatedRules := append([]loadbalancer.RoutingRule{}, wantListenerPolicies[i].Rules...)
+				for policyIdx := range wantListenerPolicies {
+					wantUpdatedRules := append([]loadbalancer.RoutingRule{}, wantListenerPolicies[policyIdx].Rules...)
 					wantUpdatedRules = append(wantUpdatedRules, makeRandomOCIRoutingRule())
 					ociLBModel.EXPECT().appendRoutingRule(t.Context(), appendRoutingRuleParams{
-						actualPolicyRules:  wantListenerPolicies[i].Rules,
+						actualPolicyRules:  wantListenerPolicies[policyIdx].Rules,
 						httpRoute:          httpRoute,
-						httpRouteRuleIndex: i,
+						httpRouteRuleIndex: policyIdx,
 					}).Return(wantUpdatedRules, nil)
-					wantListenerPolicies[i].Rules = wantUpdatedRules
+					wantListenerPolicies[policyIdx].Rules = wantUpdatedRules
 				}
 			}
 
-			ociLBModel.EXPECT().commitRoutingPolicies(t.Context(), commitRoutingPoliciesParams{
-				loadBalancerID: params.config.Spec.LoadBalancerID,
-				policies:       wantListenerPolicies,
-			}).Return(nil)
+			for _, policy := range wantListenerPolicies {
+				ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+					loadBalancerID: params.config.Spec.LoadBalancerID,
+					policy:         policy,
+				}).Return(nil)
+			}
 
 			err := model.programRoute(t.Context(), params)
 			require.NoError(t, err)
@@ -1096,6 +1093,14 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 					Port:     lo.ToPtr(int(port)),
 				},
 			}).Return(expectedErr)
+
+			for _, listener := range params.matchedListeners {
+				ociLBModel.EXPECT().resolveAndTidyRoutingPolicy(t.Context(), resolveAndTidyRoutingPolicyParams{
+					loadBalancerID: params.config.Spec.LoadBalancerID,
+					policyName:     listenerPolicyName(string(listener.Name)),
+					httpRoute:      httpRoute,
+				}).Return(loadbalancer.RoutingPolicy{Name: lo.ToPtr(string(listener.Name))}, nil).Maybe()
+			}
 
 			err := model.programRoute(t.Context(), params)
 			require.Error(t, err)

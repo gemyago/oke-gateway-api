@@ -449,12 +449,16 @@ func (m *httpRouteModelImpl) programRoute(
 		}
 	}
 
-	err := m.ociLoadBalancerModel.commitRoutingPolicies(ctx, commitRoutingPoliciesParams{
-		loadBalancerID: params.config.Spec.LoadBalancerID,
-		policies:       routingPolicies,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to commit routing policies: %w", err)
+	// We commit in the end after all rules are added, otherwise
+	// we may be doing to many updates to the same policy
+	for _, policy := range routingPolicies {
+		err := m.ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
+			loadBalancerID: params.config.Spec.LoadBalancerID,
+			policy:         policy,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to commit routing policy %s: %w", lo.FromPtr(policy.Name), err)
+		}
 	}
 
 	return nil
