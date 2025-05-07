@@ -1001,11 +1001,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				),
 			)
 
-			wantBsNames := lo.Map(httpRoute.Spec.Rules, func(rule gatewayv1.HTTPRouteRule, i int) string {
-				if rule.Name == nil {
-					return fmt.Sprintf("%s-rt-%d", httpRoute.Name, i)
-				}
-				return fmt.Sprintf("%s-%s", httpRoute.Name, *rule.Name)
+			wantBsNames := lo.Map(httpRoute.Spec.Rules, func(_ gatewayv1.HTTPRouteRule, i int) string {
+				return ociBackendSetName(httpRoute, i)
 			})
 			wantBss := lo.Map(wantBsNames, func(name string, _ int) loadbalancer.BackendSet {
 				return makeRandomOCIBackendSet(randomOCIBackendSetWithNameOpt(name))
@@ -1080,7 +1077,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				randomHTTPRouteWithRulesOpt(rule1),
 			)
 
-			wantBsName := fmt.Sprintf("%s-%s", httpRoute.Name, *rule1.Name)
+			wantBsName := ociBackendSetName(httpRoute, 0)
 
 			params := programRouteParams{
 				gateway:   *newRandomGateway(),
