@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -14,7 +16,7 @@ import (
 )
 
 type HTTPServerDeps struct {
-	dig.In
+	dig.In `ignore-unexported:"true"`
 
 	RootLogger *slog.Logger
 
@@ -33,6 +35,10 @@ type HTTPServerDeps struct {
 
 	// services
 	*services.ShutdownHooks
+
+	// listeningSignal is an optional channel that Start will close when the server is listening.
+	// Primarily for testing.
+	listeningSignal chan<- struct{}
 }
 
 type HTTPServer struct {
@@ -42,8 +48,14 @@ type HTTPServer struct {
 }
 
 func (srv *HTTPServer) Start(ctx context.Context) error {
-	srv.logger.InfoContext(ctx, "Starting http listener",
-		slog.String("addr", srv.httpSrv.Addr),
+	listener, err := net.Listen("tcp", srv.httpSrv.Addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", srv.httpSrv.Addr, err)
+	}
+
+	actualAddr := listener.Addr().String()
+	srv.logger.InfoContext(ctx, "Started http listener",
+		slog.String("addr", actualAddr),
 		slog.String("idleTimeout", srv.deps.IdleTimeout.String()),
 		slog.String("readHeaderTimeout", srv.deps.ReadHeaderTimeout.String()),
 		slog.String("readTimeout", srv.deps.ReadTimeout.String()),
@@ -51,7 +63,20 @@ func (srv *HTTPServer) Start(ctx context.Context) error {
 		slog.String("accessLogsLevel", srv.deps.AccessLogsLevel),
 		slog.String("mode", srv.deps.Mode),
 	)
-	return srv.httpSrv.ListenAndServe()
+
+	if srv.deps.listeningSignal != nil {
+		close(srv.deps.listeningSignal)
+	}
+
+	// http.Serve always returns a non-nil error.
+	// It returns http.ErrServerClosed when Shutdown or Close is called.
+	err = srv.httpSrv.Serve(listener)
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("http server Serve error: %w", err)
+	}
+
+	srv.logger.InfoContext(ctx, "HTTP server shut down gracefully")
+	return nil
 }
 
 func buildMiddlewareChain(deps HTTPServerDeps) http.Handler {

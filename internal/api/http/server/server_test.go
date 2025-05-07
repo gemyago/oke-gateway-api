@@ -1,10 +1,15 @@
 package server
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/gemyago/oke-gateway-api/internal/services"
@@ -16,30 +21,58 @@ func TestHTTPServer(t *testing.T) {
 	t.Run("Startup/Shutdown", func(t *testing.T) {
 		t.Run("should start and stop the server", func(t *testing.T) {
 			hooks := services.NewTestShutdownHooks()
+			port := 50000 + rand.IntN(15000)
+			addr := fmt.Sprintf("localhost:%d", port)
+			listeningSignal := make(chan struct{})
+
 			srv := NewHTTPServer(HTTPServerDeps{
 				RootLogger:    diag.RootTestLogger(),
 				Host:          "localhost",
-				Port:          50000 + rand.IntN(15000),
+				Port:          port,
 				ShutdownHooks: hooks,
 				Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					w.WriteHeader(http.StatusOK)
 				}),
+				listeningSignal: listeningSignal,
 			})
 			assert.True(t, hooks.HasHook("http-server", srv.httpSrv.Shutdown))
 
-			stopCh := make(chan error)
-			startedSignal := make(chan struct{})
-			ctx := t.Context()
+			stopCh := make(chan error, 1)
+			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+			defer cancel()
+
 			go func() {
-				close(startedSignal)
 				stopCh <- srv.Start(ctx)
 			}()
-			<-startedSignal
-			res, err := http.Get("http://" + srv.httpSrv.Addr)
+
+			select {
+			case <-listeningSignal:
+			case err := <-stopCh:
+				t.Fatalf("server failed to start: %v", err)
+			case <-ctx.Done():
+				t.Fatalf("server failed to signal readiness in time: %v", ctx.Err())
+			}
+
+			res, err := http.Get("http://" + addr)
 			require.NoError(t, err)
 			require.Equal(t, http.StatusOK, res.StatusCode)
 
-			require.NoError(t, srv.httpSrv.Shutdown(ctx))
+			require.NoError(t, srv.httpSrv.Shutdown(ctx), "httpSrv.Shutdown failed")
+
+			select {
+			case err = <-stopCh:
+				require.NoError(t, err, "srv.Start returned an unexpected error on shutdown")
+			case <-ctx.Done():
+				t.Fatalf("server failed to shutdown in time: %v", ctx.Err())
+			}
+
+			_, err = http.Get("http://" + addr)
+			require.Error(t, err, "expected connection error after shutdown")
+
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				t.Errorf("expected connection refused, but got timeout error: %v", err)
+			}
 
 			_, err = http.Get("http://" + srv.httpSrv.Addr)
 			require.Error(t, err)
