@@ -83,53 +83,6 @@ func (_c *MockociLoadBalancerModel_appendRoutingRule_Call) RunAndReturn(run func
 	return _c
 }
 
-// commitRoutingPolicies provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) commitRoutingPolicies(ctx context.Context, params commitRoutingPoliciesParams) error {
-	ret := _m.Called(ctx, params)
-
-	if len(ret) == 0 {
-		panic("no return value specified for commitRoutingPolicies")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, commitRoutingPoliciesParams) error); ok {
-		r0 = rf(ctx, params)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockociLoadBalancerModel_commitRoutingPolicies_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'commitRoutingPolicies'
-type MockociLoadBalancerModel_commitRoutingPolicies_Call struct {
-	*mock.Call
-}
-
-// commitRoutingPolicies is a helper method to define mock.On call
-//   - ctx context.Context
-//   - params commitRoutingPoliciesParams
-func (_e *MockociLoadBalancerModel_Expecter) commitRoutingPolicies(ctx interface{}, params interface{}) *MockociLoadBalancerModel_commitRoutingPolicies_Call {
-	return &MockociLoadBalancerModel_commitRoutingPolicies_Call{Call: _e.mock.On("commitRoutingPolicies", ctx, params)}
-}
-
-func (_c *MockociLoadBalancerModel_commitRoutingPolicies_Call) Run(run func(ctx context.Context, params commitRoutingPoliciesParams)) *MockociLoadBalancerModel_commitRoutingPolicies_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(commitRoutingPoliciesParams))
-	})
-	return _c
-}
-
-func (_c *MockociLoadBalancerModel_commitRoutingPolicies_Call) Return(_a0 error) *MockociLoadBalancerModel_commitRoutingPolicies_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockociLoadBalancerModel_commitRoutingPolicies_Call) RunAndReturn(run func(context.Context, commitRoutingPoliciesParams) error) *MockociLoadBalancerModel_commitRoutingPolicies_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // commitRoutingPolicy provides a mock function with given fields: ctx, params
 func (_m *MockociLoadBalancerModel) commitRoutingPolicy(ctx context.Context, params commitRoutingPolicyParams) error {
 	ret := _m.Called(ctx, params)
