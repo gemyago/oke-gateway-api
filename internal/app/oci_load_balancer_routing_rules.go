@@ -17,6 +17,10 @@ type ociLoadBalancerRoutingRulesMapper interface {
 	// Returns errUnsupportedMatch if any part of the match uses features
 	// not supported by OCI Load Balancer rules (e.g., regex, query params, method).
 	mapHTTPRouteMatchToCondition(match gatewayv1.HTTPRouteMatch) (string, error)
+
+	// mapHTTPRouteMatchesToCondition translates a Gateway API HTTPRouteMatches
+	// to a list of OCI Load Balancer conditions as a string..
+	mapHTTPRouteMatchesToCondition(matches []gatewayv1.HTTPRouteMatch) (string, error)
 }
 
 type ociLoadBalancerRoutingRulesMapperImpl struct{}
@@ -93,4 +97,10 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchToCondition(
 
 	// --- Combine conditions ---
 	return strings.Join(conditions, " and "), nil
+}
+
+func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchesToCondition(
+	matches []gatewayv1.HTTPRouteMatch,
+) (string, error) {
+	return "", errors.New("not implemented")
 }

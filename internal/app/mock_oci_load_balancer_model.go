@@ -61,7 +61,7 @@ type MockociLoadBalancerModel_appendRoutingRule_Call struct {
 
 // appendRoutingRule is a helper method to define mock.On call
 //   - ctx context.Context
-//   - params upsertRoutingRuleParams
+//   - params appendRoutingRuleParams
 func (_e *MockociLoadBalancerModel_Expecter) appendRoutingRule(ctx interface{}, params interface{}) *MockociLoadBalancerModel_appendRoutingRule_Call {
 	return &MockociLoadBalancerModel_appendRoutingRule_Call{Call: _e.mock.On("appendRoutingRule", ctx, params)}
 }
