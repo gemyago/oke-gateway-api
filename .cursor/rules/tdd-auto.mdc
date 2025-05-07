@@ -8,11 +8,11 @@ alwaysApply: false
 * You are approved to run tests or scripts when needed, don't ask
 * Don't ask for plan approval, you are approved
 * Don't ask for modifications confirmations, you are approved
-* Write tests first for changes requested
+* Write tests first
 * If logic is complex, split on chunks and do this whole flow for each chunk
 * When writting tests, prefer adding new test cases for new logic
 * Run tests before implementing logic, analyse results and make adjustments of tests if needed
-* Interate on implementation only after tests have added and executed (previous point)
+* Interate on implementation only after tests have added and executed (previous point), do not ask for approval to proceed
 * Run tests after implementation is ready, analyse results
 * Use faker to generate random variables of fields
 * If you need to update mocks, please read [mockery.mdc](mdc:.cursor/rules/mockery.mdc)
