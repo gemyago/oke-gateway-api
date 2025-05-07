@@ -233,7 +233,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			routePolicyRules := lo.Map(routeRules,
 				func(rule gatewayv1.HTTPRouteRule, i int) loadbalancer.RoutingRule {
 					return loadbalancer.RoutingRule{
-						Name: lo.ToPtr(listerPolicyRuleName(route, rule, i)),
+						Name: lo.ToPtr(ociListerPolicyRuleName(route, rule, i)),
 					}
 				})
 
@@ -941,7 +941,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 	})
 }
 
-func Test_listerPolicyRuleName(t *testing.T) {
+func Test_ociListerPolicyRuleName(t *testing.T) {
 	type testCase struct {
 		name      string
 		route     gatewayv1.HTTPRoute
@@ -980,7 +980,7 @@ func Test_listerPolicyRuleName(t *testing.T) {
 	for _, tc := range tests {
 		tc := tc()
 		t.Run(tc.name, func(t *testing.T) {
-			got := listerPolicyRuleName(tc.route, tc.rule, tc.ruleIndex)
+			got := ociListerPolicyRuleName(tc.route, tc.rule, tc.ruleIndex)
 			assert.Equal(t, tc.want, got)
 		})
 	}

@@ -157,7 +157,7 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 ) error {
 	rule := params.httpRoute.Spec.Rules[params.ruleIndex]
 
-	backendSetName := backendSetName(params.httpRoute, rule, params.ruleIndex)
+	backendSetName := ociBackendSetName(params.httpRoute, rule, params.ruleIndex)
 
 	getResp, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
 		LoadBalancerId: &params.config.Spec.LoadBalancerID,

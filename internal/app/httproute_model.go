@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 
 	"github.com/gemyago/oke-gateway-api/internal/types"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -117,15 +116,6 @@ func backendRefName(
 			func() string { return string(*backendRef.BackendObjectReference.Namespace) },
 		).Else(defaultNamespace),
 	}
-}
-
-func backendSetName(httpRoute gatewayv1.HTTPRoute, rule gatewayv1.HTTPRouteRule, ruleIndex int) string {
-	ruleName := lo.TernaryF(
-		rule.Name != nil,
-		func() gatewayv1.SectionName { return *rule.Name },
-		func() gatewayv1.SectionName { return gatewayv1.SectionName("rt-" + strconv.Itoa(ruleIndex)) },
-	)
-	return httpRoute.Name + "-" + string(ruleName)
 }
 
 type httpRouteModelImpl struct {
@@ -420,7 +410,7 @@ func (m *httpRouteModelImpl) programRoute(
 	}
 
 	for i, rule := range params.httpRoute.Spec.Rules {
-		bsName := backendSetName(params.httpRoute, rule, i)
+		bsName := ociBackendSetName(params.httpRoute, rule, i)
 
 		// TODO: Some check is required (on accept level) to check that refs within the same rule have same port
 		// as well as liveliness probes. OCI load balancer does not support per backend HC
