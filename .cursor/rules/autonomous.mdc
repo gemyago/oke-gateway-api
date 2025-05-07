@@ -5,6 +5,7 @@ alwaysApply: false
 ---
 # Fully autonomous mode
 
-* Run relevant tests or scripts when implementation is completed
-* No confirmation is required to run scripts or tests
-* No confirmation is required to proceed with the plan
+* You are approved to run tests or scripts when needed, don't ask
+* Don't ask for plan approval, you are approved
+* Don't ask for modifications confirmations, you are approved
+* Iterate on given task untill fully done and tests are passing
