@@ -410,7 +410,7 @@ func (m *httpRouteModelImpl) programRoute(
 	}
 
 	for i, rule := range params.httpRoute.Spec.Rules {
-		bsName := ociBackendSetName(params.httpRoute, rule, i)
+		bsName := ociBackendSetName(params.httpRoute, i)
 
 		// TODO: Some check is required (on accept level) to check that refs within the same rule have same port
 		// as well as liveliness probes. OCI load balancer does not support per backend HC

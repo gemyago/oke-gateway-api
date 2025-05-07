@@ -458,9 +458,10 @@ func listenerPolicyName(listenerName string) string {
 // ociListerPolicyRuleName returns the name of the routing rule for the listener policy.
 // It's expected that the rule name is unique within the listener policy for every route.
 // Names should also be sortable, so we're using a 4 digit index.
-func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, rule gatewayv1.HTTPRouteRule, ruleIndex int) string {
+func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string {
 	// TODO: This may probably need to have namespace
 	// Also check if namespace is populated in the route if it's not in the spec
+	rule := route.Spec.Rules[ruleIndex]
 	if rule.Name != nil {
 		return fmt.Sprintf("%s_r%04d_%s", route.Name, ruleIndex, string(*rule.Name))
 	}
@@ -471,9 +472,10 @@ func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, rule gatewayv1.HTTPRoute
 // ociBackendSetName returns the name of the backend set for the route.
 // It's expected that the backend set name is unique within the load balancer for every route.
 // Sorting is not required, but keeping padding for consistency and readability.
-func ociBackendSetName(httpRoute gatewayv1.HTTPRoute, rule gatewayv1.HTTPRouteRule, ruleIndex int) string {
+func ociBackendSetName(httpRoute gatewayv1.HTTPRoute, ruleIndex int) string {
 	// TODO: This may probably need to have namespace
 	// Also check if namespace is populated in the route if it's not in the spec
+	rule := httpRoute.Spec.Rules[ruleIndex]
 	if rule.Name != nil {
 		return fmt.Sprintf("%s-r%04d-%s", httpRoute.Name, ruleIndex, string(*rule.Name))
 	}

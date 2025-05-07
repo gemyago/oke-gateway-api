@@ -168,7 +168,7 @@ func TestHTTPBackendModel(t *testing.T) {
 
 			firstRefPort := int32(*rule2.BackendRefs[0].BackendObjectReference.Port)
 			wantUpdatedBackends := makeFewRandomOCIBackendDetails()
-			backendSetName := ociBackendSetName(httpRoute, rule2, 1)
+			backendSetName := ociBackendSetName(httpRoute, 1)
 
 			// Create a sample existing BackendSet using the fixture
 			currentBackends := makeFewRandomOCIBackends()
@@ -256,7 +256,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRulesOpt(rule))
 			config := makeRandomGatewayConfig()
 			ruleIndex := 0
-			backendSetName := ociBackendSetName(httpRoute, rule, ruleIndex)
+			backendSetName := ociBackendSetName(httpRoute, ruleIndex)
 
 			endpointSlice := makeRandomEndpointSlice(randomEndpointSliceWithEndpointsOpt())
 			endpointSlices := []discoveryv1.EndpointSlice{endpointSlice}
@@ -709,7 +709,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRulesOpt(rule))
 			config := makeRandomGatewayConfig()
 			ruleIndex := 0
-			backendSetName := ociBackendSetName(httpRoute, rule, ruleIndex)
+			backendSetName := ociBackendSetName(httpRoute, 0)
 			expectedErr := errors.New(faker.Sentence())
 
 			sampleBackendSet := makeRandomOCIBackendSet(randomOCIBackendSetWithNameOpt(backendSetName))
@@ -750,7 +750,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRulesOpt(rule))
 			config := makeRandomGatewayConfig()
 			ruleIndex := 0
-			backendSetName := ociBackendSetName(httpRoute, rule, ruleIndex)
+			backendSetName := ociBackendSetName(httpRoute, 0)
 			expectedErr := errors.New(faker.Sentence())
 
 			endpointSlice := makeRandomEndpointSlice(randomEndpointSliceWithEndpointsOpt())
@@ -812,7 +812,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRulesOpt(rule))
 			config := makeRandomGatewayConfig()
 			ruleIndex := 0
-			backendSetName := ociBackendSetName(httpRoute, rule, ruleIndex)
+			backendSetName := ociBackendSetName(httpRoute, 0)
 			expectedErr := errors.New(faker.Sentence())
 
 			endpointSlice := makeRandomEndpointSlice(randomEndpointSliceWithEndpointsOpt())
@@ -880,7 +880,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRulesOpt(rule))
 			config := makeRandomGatewayConfig()
 			ruleIndex := 0
-			backendSetName := ociBackendSetName(httpRoute, rule, ruleIndex)
+			backendSetName := ociBackendSetName(httpRoute, 0)
 			expectedErr := errors.New(faker.Sentence())
 
 			endpointSlice := makeRandomEndpointSlice(randomEndpointSliceWithEndpointsOpt())

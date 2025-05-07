@@ -231,9 +231,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			)
 
 			routePolicyRules := lo.Map(routeRules,
-				func(rule gatewayv1.HTTPRouteRule, i int) loadbalancer.RoutingRule {
+				func(_ gatewayv1.HTTPRouteRule, i int) loadbalancer.RoutingRule {
 					return loadbalancer.RoutingRule{
-						Name: lo.ToPtr(ociListerPolicyRuleName(route, rule, i)),
+						Name: lo.ToPtr(ociListerPolicyRuleName(route, i)),
 					}
 				})
 
@@ -273,10 +273,6 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			assert.Equal(t, wantPolicy, actualPolicy)
 		})
-	})
-
-	t.Run("upsertRoutingRule", func(t *testing.T) {
-
 	})
 
 	t.Run("reconcileHTTPListener", func(t *testing.T) {
@@ -945,34 +941,47 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 	type testCase struct {
 		name      string
 		route     gatewayv1.HTTPRoute
-		rule      gatewayv1.HTTPRouteRule
 		ruleIndex int
 		want      string
 	}
 
 	tests := []func() testCase{
 		func() testCase {
-			route := makeRandomHTTPRoute()
-			rule := makeRandomHTTPRouteRule()
-			index := 50 + rand.IntN(100)
+			fewRules := []gatewayv1.HTTPRouteRule{
+				makeRandomHTTPRouteRule(),
+				makeRandomHTTPRouteRule(),
+				makeRandomHTTPRouteRule(),
+			}
+			index := rand.IntN(len(fewRules))
+
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(fewRules...),
+			)
 			return testCase{
 				name:      "unnamed rule",
 				route:     route,
-				rule:      rule,
 				ruleIndex: index,
 				want:      fmt.Sprintf("%s_r%04d", route.Name, index),
 			}
 		},
 		func() testCase {
-			route := makeRandomHTTPRoute()
-			rule := makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomNameOpt())
-			index := 50 + rand.IntN(100)
+			ruleName := faker.UUIDHyphenated()
+			fewRules := []gatewayv1.HTTPRouteRule{
+				makeRandomHTTPRouteRule(),
+				makeRandomHTTPRouteRule(),
+				makeRandomHTTPRouteRule(),
+			}
+			index := rand.IntN(len(fewRules))
+			fewRules[index].Name = lo.ToPtr(gatewayv1.SectionName(ruleName))
+
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(fewRules...),
+			)
 			return testCase{
 				name:      "named rule",
 				route:     route,
-				rule:      rule,
 				ruleIndex: index,
-				want:      fmt.Sprintf("%s_r%04d_%s", route.Name, index, *rule.Name),
+				want:      fmt.Sprintf("%s_r%04d_%s", route.Name, index, ruleName),
 			}
 		},
 	}
@@ -980,7 +989,7 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 	for _, tc := range tests {
 		tc := tc()
 		t.Run(tc.name, func(t *testing.T) {
-			got := ociListerPolicyRuleName(tc.route, tc.rule, tc.ruleIndex)
+			got := ociListerPolicyRuleName(tc.route, tc.ruleIndex)
 			assert.Equal(t, tc.want, got)
 		})
 	}
@@ -990,34 +999,48 @@ func Test_ociBackendSetName(t *testing.T) {
 	type testCase struct {
 		name      string
 		route     gatewayv1.HTTPRoute
-		rule      gatewayv1.HTTPRouteRule
 		ruleIndex int
 		want      string
 	}
 
 	tests := []func() testCase{
 		func() testCase {
-			route := makeRandomHTTPRoute()
-			rule := makeRandomHTTPRouteRule()
-			index := 50 + rand.IntN(100)
+			fewRules := []gatewayv1.HTTPRouteRule{
+				makeRandomHTTPRouteRule(),
+				makeRandomHTTPRouteRule(),
+				makeRandomHTTPRouteRule(),
+			}
+			index := rand.IntN(len(fewRules))
+
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(fewRules...),
+			)
 			return testCase{
 				name:      "unnamed rule",
 				route:     route,
-				rule:      rule,
 				ruleIndex: index,
 				want:      fmt.Sprintf("%s-r%04d", route.Name, index),
 			}
 		},
 		func() testCase {
-			route := makeRandomHTTPRoute()
-			rule := makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomNameOpt())
-			index := 50 + rand.IntN(100)
+			ruleName := faker.UUIDHyphenated()
+
+			fewRules := []gatewayv1.HTTPRouteRule{
+				makeRandomHTTPRouteRule(),
+				makeRandomHTTPRouteRule(),
+				makeRandomHTTPRouteRule(),
+			}
+			index := rand.IntN(len(fewRules))
+			fewRules[index].Name = lo.ToPtr(gatewayv1.SectionName(ruleName))
+
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(fewRules...),
+			)
 			return testCase{
 				name:      "named rule",
 				route:     route,
-				rule:      rule,
 				ruleIndex: index,
-				want:      fmt.Sprintf("%s-r%04d-%s", route.Name, index, *rule.Name),
+				want:      fmt.Sprintf("%s-r%04d-%s", route.Name, index, ruleName),
 			}
 		},
 	}
@@ -1025,7 +1048,7 @@ func Test_ociBackendSetName(t *testing.T) {
 	for _, tc := range tests {
 		tc := tc()
 		t.Run(tc.name, func(t *testing.T) {
-			got := ociBackendSetName(tc.route, tc.rule, tc.ruleIndex)
+			got := ociBackendSetName(tc.route, tc.ruleIndex)
 			assert.Equal(t, tc.want, got)
 		})
 	}
