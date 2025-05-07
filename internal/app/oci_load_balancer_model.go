@@ -43,7 +43,7 @@ type resolveAndTidyRoutingPolicyParams struct {
 	httpRoute      gatewayv1.HTTPRoute
 }
 
-type upsertRoutingRuleParams struct {
+type appendRoutingRuleParams struct {
 	actualPolicyRules  []loadbalancer.RoutingRule
 	httpRoute          gatewayv1.HTTPRoute
 	httpRouteRuleIndex int
@@ -85,11 +85,10 @@ type ociLoadBalancerModel interface {
 		params resolveAndTidyRoutingPolicyParams,
 	) (loadbalancer.RoutingPolicy, error)
 
-	// reconcileRoutingRules ensures a RuleSet with the given rules exists and is associated
-	// with the specified listener. It creates or updates the RuleSet as needed.
-	upsertRoutingRule(
+	// appendRoutingRule appends a new routing rule to the routing policy.
+	appendRoutingRule(
 		ctx context.Context,
-		params upsertRoutingRuleParams,
+		params appendRoutingRuleParams,
 	) ([]loadbalancer.RoutingRule, error)
 
 	commitRoutingPolicies(
@@ -332,9 +331,9 @@ func (m *ociLoadBalancerModelImpl) resolveAndTidyRoutingPolicy(
 	return cleanedPolicy, nil
 }
 
-func (m *ociLoadBalancerModelImpl) upsertRoutingRule(
+func (m *ociLoadBalancerModelImpl) appendRoutingRule(
 	ctx context.Context,
-	params upsertRoutingRuleParams,
+	params appendRoutingRuleParams,
 ) ([]loadbalancer.RoutingRule, error) {
 	m.logger.InfoContext(ctx, "Reconciling RuleSet (STUB)",
 		slog.String("httpRoute", fmt.Sprintf("%s/%s", params.httpRoute.Namespace, params.httpRoute.Name)),
