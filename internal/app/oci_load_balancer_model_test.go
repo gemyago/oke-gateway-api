@@ -981,6 +981,36 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, wantRules, actualRules)
 		})
+
+		t.Run("fail when mapping matches to condition fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			routingRulesMapper, _ := deps.RoutingRulesMapper.(*MockociLoadBalancerRoutingRulesMapper)
+
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(makeRandomHTTPRouteRule()),
+			)
+			ruleIndex := 0
+			existingRules := []loadbalancer.RoutingRule{
+				makeRandomOCIRoutingRule(),
+			}
+
+			params := appendRoutingRuleParams{
+				actualPolicyRules:  existingRules,
+				httpRoute:          httpRoute,
+				httpRouteRuleIndex: ruleIndex,
+			}
+
+			expectedErr := errors.New(faker.Sentence())
+			routingRulesMapper.EXPECT().mapHTTPRouteMatchesToCondition(
+				httpRoute.Spec.Rules[ruleIndex].Matches,
+			).Return("", expectedErr).Once()
+
+			actualRules, err := model.appendRoutingRule(t.Context(), params)
+			require.Error(t, err)
+			require.ErrorIs(t, err, expectedErr)
+			assert.Nil(t, actualRules)
+		})
 	})
 }
 

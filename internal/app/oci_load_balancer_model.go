@@ -340,9 +340,6 @@ func (m *ociLoadBalancerModelImpl) appendRoutingRule(
 		slog.Int("httpRouteRuleIndex", params.httpRouteRuleIndex),
 	)
 
-	// Placeholder: Return nil, nil for now
-	// TODO: Implement the actual logic
-
 	ruleSpec := params.httpRoute.Spec.Rules[params.httpRouteRuleIndex]
 
 	condition, err := m.routingRulesMapper.mapHTTPRouteMatchesToCondition(ruleSpec.Matches)
