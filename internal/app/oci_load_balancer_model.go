@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -461,10 +460,10 @@ func listerPolicyRuleName(route gatewayv1.HTTPRoute, rule gatewayv1.HTTPRouteRul
 	// TODO: This may probably need to have namespace
 	// Also check if namespace is populated in the route if it's not in the spec
 	if rule.Name != nil {
-		return route.Name + "_" + string(*rule.Name)
+		return fmt.Sprintf("%s_r%04d_%s", route.Name, ruleIndex, string(*rule.Name))
 	}
 
-	return route.Name + "_" + strconv.Itoa(ruleIndex)
+	return fmt.Sprintf("%s_r%04d", route.Name, ruleIndex)
 }
 
 type ociLoadBalancerModelDeps struct {

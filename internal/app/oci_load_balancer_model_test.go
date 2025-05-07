@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"math/rand/v2"
 	"testing"
 
@@ -938,4 +939,49 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			require.ErrorIs(t, err, wantErr3)
 		})
 	})
+}
+
+func Test_listerPolicyRuleName(t *testing.T) {
+	type testCase struct {
+		name      string
+		route     gatewayv1.HTTPRoute
+		rule      gatewayv1.HTTPRouteRule
+		ruleIndex int
+		want      string
+	}
+
+	tests := []func() testCase{
+		func() testCase {
+			route := makeRandomHTTPRoute()
+			rule := makeRandomHTTPRouteRule()
+			index := 50 + rand.IntN(100)
+			return testCase{
+				name:      "unnamed rule",
+				route:     route,
+				rule:      rule,
+				ruleIndex: index,
+				want:      fmt.Sprintf("%s_r%04d", route.Name, index),
+			}
+		},
+		func() testCase {
+			route := makeRandomHTTPRoute()
+			rule := makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomNameOpt())
+			index := 50 + rand.IntN(100)
+			return testCase{
+				name:      "named rule",
+				route:     route,
+				rule:      rule,
+				ruleIndex: index,
+				want:      fmt.Sprintf("%s_r%04d_%s", route.Name, index, *rule.Name),
+			}
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc()
+		t.Run(tc.name, func(t *testing.T) {
+			got := listerPolicyRuleName(tc.route, tc.rule, tc.ruleIndex)
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }
