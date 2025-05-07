@@ -149,7 +149,8 @@ func makeRandomOCIRoutingPolicy(
 	opts ...randomOCIRoutingPolicyOpt,
 ) loadbalancer.RoutingPolicy {
 	policy := loadbalancer.RoutingPolicy{
-		Name: lo.ToPtr(faker.DomainName()),
+		Name:                     lo.ToPtr(faker.DomainName()),
+		ConditionLanguageVersion: loadbalancer.RoutingPolicyConditionLanguageVersionV1,
 		Rules: []loadbalancer.RoutingRule{
 			makeRandomOCIRoutingRule(),
 			makeRandomOCIRoutingRule(),

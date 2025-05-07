@@ -467,6 +467,31 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 	ctx context.Context,
 	params commitRoutingPolicyParams,
 ) error {
+	updateRes, err := m.ociClient.UpdateRoutingPolicy(ctx, loadbalancer.UpdateRoutingPolicyRequest{
+		LoadBalancerId:    &params.loadBalancerID,
+		RoutingPolicyName: params.policy.Name,
+		UpdateRoutingPolicyDetails: loadbalancer.UpdateRoutingPolicyDetails{
+			ConditionLanguageVersion: loadbalancer.UpdateRoutingPolicyDetailsConditionLanguageVersionEnum(
+				params.policy.ConditionLanguageVersion,
+			),
+			Rules: params.policy.Rules,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update routing policy %s: %w", *params.policy.Name, err)
+	}
+
+	if err = m.workRequestsWatcher.WaitFor(
+		ctx,
+		*updateRes.OpcWorkRequestId,
+	); err != nil {
+		return fmt.Errorf("failed to wait for routing policy %s update: %w", *params.policy.Name, err)
+	}
+
+	m.logger.InfoContext(ctx, "Successfully committed routing policy changes",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("routingPolicyName", *params.policy.Name),
+	)
 	return nil
 }
 

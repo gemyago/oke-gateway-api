@@ -1012,6 +1012,99 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			assert.Nil(t, actualRules)
 		})
 	})
+
+	t.Run("commitRoutingPolicy", func(t *testing.T) {
+		t.Run("successfully update routing policy", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			params := commitRoutingPolicyParams{
+				loadBalancerID: faker.UUIDHyphenated(),
+				policy:         makeRandomOCIRoutingPolicy(),
+			}
+			workRequestID := faker.UUIDHyphenated()
+
+			ociLoadBalancerClient.EXPECT().UpdateRoutingPolicy(t.Context(), loadbalancer.UpdateRoutingPolicyRequest{
+				LoadBalancerId:    &params.loadBalancerID,
+				RoutingPolicyName: params.policy.Name,
+				UpdateRoutingPolicyDetails: loadbalancer.UpdateRoutingPolicyDetails{
+					ConditionLanguageVersion: loadbalancer.UpdateRoutingPolicyDetailsConditionLanguageVersionEnum(
+						params.policy.ConditionLanguageVersion,
+					),
+					Rules: params.policy.Rules,
+				},
+			}).Return(loadbalancer.UpdateRoutingPolicyResponse{
+				OpcWorkRequestId: &workRequestID,
+			}, nil)
+
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
+
+			err := model.commitRoutingPolicy(t.Context(), params)
+			require.NoError(t, err)
+		})
+
+		t.Run("fail when update routing policy fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			params := commitRoutingPolicyParams{
+				loadBalancerID: faker.UUIDHyphenated(),
+				policy:         makeRandomOCIRoutingPolicy(),
+			}
+			wantErr := errors.New(faker.Sentence())
+
+			ociLoadBalancerClient.EXPECT().UpdateRoutingPolicy(t.Context(), loadbalancer.UpdateRoutingPolicyRequest{
+				LoadBalancerId:    &params.loadBalancerID,
+				RoutingPolicyName: params.policy.Name,
+				UpdateRoutingPolicyDetails: loadbalancer.UpdateRoutingPolicyDetails{
+					ConditionLanguageVersion: loadbalancer.UpdateRoutingPolicyDetailsConditionLanguageVersionEnum(
+						params.policy.ConditionLanguageVersion,
+					),
+					Rules: params.policy.Rules,
+				},
+			}).Return(loadbalancer.UpdateRoutingPolicyResponse{}, wantErr)
+
+			err := model.commitRoutingPolicy(t.Context(), params)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("fail when wait for routing policy update fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			params := commitRoutingPolicyParams{
+				loadBalancerID: faker.UUIDHyphenated(),
+				policy:         makeRandomOCIRoutingPolicy(),
+			}
+			workRequestID := faker.UUIDHyphenated()
+			wantErr := errors.New(faker.Sentence())
+
+			ociLoadBalancerClient.EXPECT().UpdateRoutingPolicy(t.Context(), loadbalancer.UpdateRoutingPolicyRequest{
+				LoadBalancerId:    &params.loadBalancerID,
+				RoutingPolicyName: params.policy.Name,
+				UpdateRoutingPolicyDetails: loadbalancer.UpdateRoutingPolicyDetails{
+					ConditionLanguageVersion: loadbalancer.UpdateRoutingPolicyDetailsConditionLanguageVersionEnum(
+						params.policy.ConditionLanguageVersion,
+					),
+					Rules: params.policy.Rules,
+				},
+			}).Return(loadbalancer.UpdateRoutingPolicyResponse{
+				OpcWorkRequestId: &workRequestID,
+			}, nil)
+
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(wantErr)
+
+			err := model.commitRoutingPolicy(t.Context(), params)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, wantErr)
+		})
+	})
 }
 
 func Test_ociListerPolicyRuleName(t *testing.T) {
