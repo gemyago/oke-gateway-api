@@ -157,6 +157,12 @@ func makeRandomHTTPRoute(
 	return route
 }
 
+func randomHTTPRouteWithNameOpt(name string) randomHTTPRouteOpt {
+	return func(route *gatewayv1.HTTPRoute) {
+		route.Name = name
+	}
+}
+
 func randomHTTPRouteWithRandomParentRefOpt(ref gatewayv1.ParentReference) randomHTTPRouteOpt {
 	return func(route *gatewayv1.HTTPRoute) {
 		route.Spec.ParentRefs = append(route.Spec.ParentRefs, ref)
@@ -189,6 +195,12 @@ func makeRandomHTTPRouteRule(
 	}
 
 	return rule
+}
+
+func randomHTTPRouteRuleWithNameOpt(name string) randomHTTPRouteRuleOpt {
+	return func(rule *gatewayv1.HTTPRouteRule) {
+		rule.Name = lo.ToPtr(gatewayv1.SectionName(name))
+	}
 }
 
 func randomHTTPRouteRuleWithRandomNameOpt() randomHTTPRouteRuleOpt {

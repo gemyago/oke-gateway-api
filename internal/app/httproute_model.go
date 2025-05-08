@@ -119,10 +119,11 @@ func backendRefName(
 }
 
 type httpRouteModelImpl struct {
-	client       k8sClient
-	logger       *slog.Logger
-	gatewayModel gatewayModel
-	ociLoadBalancerModel
+	client               k8sClient
+	logger               *slog.Logger
+	gatewayModel         gatewayModel
+	resourcesModel       resourcesModel
+	ociLoadBalancerModel ociLoadBalancerModel
 }
 
 // resolveRouteParentRefData attempts to resolve a single parent reference for an HTTPRoute.
@@ -476,20 +477,11 @@ func (m *httpRouteModelImpl) isProgrammingRequired(
 		return true, nil
 	}
 
-	resolvedRefsCondition := meta.FindStatusCondition(
-		parentStatus.Conditions,
-		string(gatewayv1.RouteConditionResolvedRefs),
-	)
-	if resolvedRefsCondition == nil {
-		return true, nil
-	}
-
-	if resolvedRefsCondition.Status == metav1.ConditionTrue &&
-		resolvedRefsCondition.ObservedGeneration == details.httpRoute.Generation {
-		return false, nil
-	}
-
-	return true, nil
+	return !m.resourcesModel.isConditionSet(isConditionSetParams{
+		resource:      &details.httpRoute,
+		conditions:    parentStatus.Conditions,
+		conditionType: string(gatewayv1.RouteConditionResolvedRefs),
+	}), nil
 }
 
 func (m *httpRouteModelImpl) setProgrammed(
@@ -498,7 +490,7 @@ func (m *httpRouteModelImpl) setProgrammed(
 ) error {
 	httpRoute := params.httpRoute.DeepCopy()
 
-	parentStatus, parentStatusIndex, found := lo.FindIndexOf(
+	_, statusIndex, found := lo.FindIndexOf(
 		httpRoute.Status.Parents,
 		func(s gatewayv1.RouteParentStatus) bool {
 			return s.ControllerName == params.gatewayClass.Spec.ControllerName &&
@@ -513,23 +505,14 @@ func (m *httpRouteModelImpl) setProgrammed(
 		)
 	}
 
-	// Update the condition for the specific parent status
-	meta.SetStatusCondition(&parentStatus.Conditions, metav1.Condition{
-		Type:               string(gatewayv1.RouteConditionResolvedRefs),
-		Status:             metav1.ConditionTrue,
-		Reason:             string(gatewayv1.RouteReasonResolvedRefs),
-		ObservedGeneration: httpRoute.Generation,
-		LastTransitionTime: metav1.Now(),
-		Message:            fmt.Sprintf("Route programmed by %s", params.gateway.Name),
-	})
-
-	httpRoute.Status.Parents[parentStatusIndex] = parentStatus
-
-	m.logger.DebugContext(ctx, "Updating HTTProute status as Programmed (ResolvedRefs=True)",
-		slog.String("route", httpRoute.Name),
-		slog.String("gateway", params.gateway.Name),
-	)
-	if err := m.client.Status().Update(ctx, httpRoute); err != nil {
+	if err := m.resourcesModel.setCondition(ctx, setConditionParams{
+		resource:      httpRoute,
+		conditions:    &httpRoute.Status.Parents[statusIndex].Conditions,
+		conditionType: string(gatewayv1.RouteConditionResolvedRefs),
+		status:        metav1.ConditionTrue,
+		reason:        string(gatewayv1.RouteReasonResolvedRefs),
+		message:       fmt.Sprintf("Route programmed by %s", params.gateway.Name),
+	}); err != nil {
 		return fmt.Errorf("failed to update programmed status for HTTProute %s: %w", httpRoute.Name, err)
 	}
 
@@ -540,10 +523,11 @@ func (m *httpRouteModelImpl) setProgrammed(
 type httpRouteModelDeps struct {
 	dig.In
 
-	K8sClient    k8sClient
-	RootLogger   *slog.Logger
-	GatewayModel gatewayModel
-	OciLBModel   ociLoadBalancerModel
+	K8sClient      k8sClient
+	RootLogger     *slog.Logger
+	GatewayModel   gatewayModel
+	OciLBModel     ociLoadBalancerModel
+	ResourcesModel resourcesModel
 }
 
 // newHTTPRouteModel creates a new instance of httpRouteModel.
@@ -553,5 +537,6 @@ func newHTTPRouteModel(deps httpRouteModelDeps) httpRouteModel {
 		logger:               deps.RootLogger.WithGroup("httproute-model"),
 		gatewayModel:         deps.GatewayModel,
 		ociLoadBalancerModel: deps.OciLBModel,
+		resourcesModel:       deps.ResourcesModel,
 	}
 }
