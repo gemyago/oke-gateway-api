@@ -481,6 +481,11 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 		},
 	})
 	if err != nil {
+		m.logger.WarnContext(ctx, "Failed to update routing policy",
+			diag.ErrAttr(err),
+			slog.String("loadBalancerId", params.loadBalancerID),
+			slog.Any("policy", params.policy),
+		)
 		return fmt.Errorf("failed to update routing policy %s: %w", *params.policy.Name, err)
 	}
 
