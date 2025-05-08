@@ -320,7 +320,7 @@ func (m *ociLoadBalancerModelImpl) resolveAndTidyRoutingPolicy(
 	}
 
 	// All rules associated with the current httpRoute will have a name starting with this prefix.
-	rulesPrefixToRemove := params.httpRoute.Name + "_"
+	rulesPrefixToRemove := sanitizePolicyName(params.httpRoute.Name) + "_"
 
 	cleanedRules := lo.Filter(policyResponse.RoutingPolicy.Rules,
 		func(rule loadbalancer.RoutingRule, _ int) bool {
@@ -535,6 +535,10 @@ and upper- or lowercase letters.
 */
 var invalidCharsForPolicyNamePattern = regexp.MustCompile(`[^a-zA-Z0-9_]`)
 
+func sanitizePolicyName(name string) string {
+	return invalidCharsForPolicyNamePattern.ReplaceAllString(name, "_")
+}
+
 // ociListerPolicyRuleName returns the name of the routing rule for the listener policy.
 // It's expected that the rule name is unique within the listener policy for every route.
 // Names should also be sortable, so we're using a 4 digit index.
@@ -551,7 +555,7 @@ func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string {
 	}
 
 	// sanitize the name using the pattern
-	resultingName = invalidCharsForPolicyNamePattern.ReplaceAllString(resultingName, "_")
+	resultingName = sanitizePolicyName(resultingName)
 
 	return resultingName
 }
