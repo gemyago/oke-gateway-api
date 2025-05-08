@@ -30,10 +30,11 @@ import (
 func TestHTTPRouteModelImpl(t *testing.T) {
 	newMockDeps := func(t *testing.T) httpRouteModelDeps {
 		return httpRouteModelDeps{
-			K8sClient:    NewMockk8sClient(t),
-			RootLogger:   diag.RootTestLogger(),
-			GatewayModel: NewMockgatewayModel(t),
-			OciLBModel:   NewMockociLoadBalancerModel(t),
+			K8sClient:      NewMockk8sClient(t),
+			RootLogger:     diag.RootTestLogger(),
+			GatewayModel:   NewMockgatewayModel(t),
+			OciLBModel:     NewMockociLoadBalancerModel(t),
+			ResourcesModel: NewMockresourcesModel(t),
 		}
 	}
 
