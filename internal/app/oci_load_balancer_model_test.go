@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"strings"
 	"testing"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -1125,6 +1126,7 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 			index := rand.IntN(len(fewRules))
 
 			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithNameOpt(faker.UUIDDigit()),
 				randomHTTPRouteWithRulesOpt(fewRules...),
 			)
 			return testCase{
@@ -1135,7 +1137,27 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 			}
 		},
 		func() testCase {
-			ruleName := faker.UUIDHyphenated()
+			rule := makeRandomHTTPRouteRule()
+			index := 0
+
+			unsanitizedParentName := fmt.Sprintf("route-%d-!#:-rule", rand.IntN(1000))
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(rule),
+				randomHTTPRouteWithNameOpt(unsanitizedParentName),
+			)
+			wantSanitizedParentName := strings.ReplaceAll(unsanitizedParentName, "-", "_")
+			wantSanitizedParentName = strings.ReplaceAll(wantSanitizedParentName, "!", "_")
+			wantSanitizedParentName = strings.ReplaceAll(wantSanitizedParentName, "#", "_")
+			wantSanitizedParentName = strings.ReplaceAll(wantSanitizedParentName, ":", "_")
+			return testCase{
+				name:      "sanitized unnamed rule",
+				route:     route,
+				ruleIndex: index,
+				want:      fmt.Sprintf("%s_r%04d", wantSanitizedParentName, index),
+			}
+		},
+		func() testCase {
+			ruleName := faker.UUIDDigit()
 			fewRules := []gatewayv1.HTTPRouteRule{
 				makeRandomHTTPRouteRule(),
 				makeRandomHTTPRouteRule(),
@@ -1145,6 +1167,7 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 			fewRules[index].Name = lo.ToPtr(gatewayv1.SectionName(ruleName))
 
 			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithNameOpt(faker.UUIDDigit()),
 				randomHTTPRouteWithRulesOpt(fewRules...),
 			)
 			return testCase{
@@ -1152,6 +1175,34 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 				route:     route,
 				ruleIndex: index,
 				want:      fmt.Sprintf("%s_r%04d_%s", route.Name, index, ruleName),
+			}
+		},
+		func() testCase {
+			unsanitizedRuleName := fmt.Sprintf("rule-%d-!#:-rule", rand.IntN(1000))
+
+			rule := makeRandomHTTPRouteRule()
+			rule.Name = lo.ToPtr(gatewayv1.SectionName(unsanitizedRuleName))
+			index := 0
+
+			unsanitizedParentName := fmt.Sprintf("route-%d-!#:-rule", rand.IntN(1000))
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(rule),
+				randomHTTPRouteWithNameOpt(unsanitizedParentName),
+			)
+			wantSanitizedParentName := strings.ReplaceAll(unsanitizedParentName, "-", "_")
+			wantSanitizedParentName = strings.ReplaceAll(wantSanitizedParentName, "!", "_")
+			wantSanitizedParentName = strings.ReplaceAll(wantSanitizedParentName, "#", "_")
+			wantSanitizedParentName = strings.ReplaceAll(wantSanitizedParentName, ":", "_")
+			wantSanitizedRuleName := strings.ReplaceAll(unsanitizedRuleName, "-", "_")
+			wantSanitizedRuleName = strings.ReplaceAll(wantSanitizedRuleName, "!", "_")
+			wantSanitizedRuleName = strings.ReplaceAll(wantSanitizedRuleName, "#", "_")
+			wantSanitizedRuleName = strings.ReplaceAll(wantSanitizedRuleName, ":", "_")
+
+			return testCase{
+				name:      "sanitized named rule",
+				route:     route,
+				ruleIndex: index,
+				want:      fmt.Sprintf("%s_r%04d_%s", wantSanitizedParentName, index, wantSanitizedRuleName),
 			}
 		},
 	}

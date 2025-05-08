@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -502,6 +503,15 @@ func listenerPolicyName(listenerName string) string {
 	return listenerName + "_policy"
 }
 
+/*
+Name for the routing policy rule set. A name is required. The name must be unique,
+and can't be changed. The name can't begin with a period and can't contain any of
+these characters: ; ? # / % \ ] [. The name must start with an lower- or upper- case
+letter or an underscore, and the rest of the name can contain numbers, underscores,
+and upper- or lowercase letters.
+*/
+var invalidCharsForPolicyNamePattern = regexp.MustCompile(`[^a-zA-Z0-9_]`)
+
 // ociListerPolicyRuleName returns the name of the routing rule for the listener policy.
 // It's expected that the rule name is unique within the listener policy for every route.
 // Names should also be sortable, so we're using a 4 digit index.
@@ -509,11 +519,18 @@ func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string {
 	// TODO: This may probably need to have namespace
 	// Also check if namespace is populated in the route if it's not in the spec
 	rule := route.Spec.Rules[ruleIndex]
+
+	var resultingName string
 	if rule.Name != nil {
-		return fmt.Sprintf("%s_r%04d_%s", route.Name, ruleIndex, string(*rule.Name))
+		resultingName = fmt.Sprintf("%s_r%04d_%s", route.Name, ruleIndex, string(*rule.Name))
+	} else {
+		resultingName = fmt.Sprintf("%s_r%04d", route.Name, ruleIndex)
 	}
 
-	return fmt.Sprintf("%s_r%04d", route.Name, ruleIndex)
+	// sanitize the name using the pattern
+	resultingName = invalidCharsForPolicyNamePattern.ReplaceAllString(resultingName, "_")
+
+	return resultingName
 }
 
 // ociBackendSetName returns the name of the backend set for the route.
