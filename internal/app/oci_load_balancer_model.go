@@ -336,7 +336,7 @@ func (m *ociLoadBalancerModelImpl) appendRoutingRule(
 	ctx context.Context,
 	params appendRoutingRuleParams,
 ) ([]loadbalancer.RoutingRule, error) {
-	m.logger.InfoContext(ctx, "Reconciling RuleSet (STUB)",
+	m.logger.DebugContext(ctx, "Adding routing rule",
 		slog.String("httpRoute", fmt.Sprintf("%s/%s", params.httpRoute.Namespace, params.httpRoute.Name)),
 		slog.Int("httpRouteRuleIndex", params.httpRouteRuleIndex),
 	)

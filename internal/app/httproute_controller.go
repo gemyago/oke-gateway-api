@@ -39,6 +39,11 @@ func (r *HTTPRouteController) performProgramming(
 	ctx context.Context,
 	resolvedData resolvedRouteDetails,
 ) error {
+	r.logger.DebugContext(ctx, "Performing HTTProute programming",
+		slog.String("httpRoute", resolvedData.httpRoute.Name),
+		slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
+	)
+
 	var acceptedRoute *gatewayv1.HTTPRoute
 	acceptedRoute, err := r.httpRouteModel.acceptRoute(ctx, resolvedData)
 	if err != nil {
@@ -73,6 +78,11 @@ func (r *HTTPRouteController) performProgramming(
 	}); err != nil {
 		return fmt.Errorf("failed to set programmed status: %w", err)
 	}
+
+	r.logger.InfoContext(ctx, "Successfully programmed HTTProute",
+		slog.String("httpRoute", resolvedData.httpRoute.Name),
+		slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
+	)
 
 	return nil
 }
