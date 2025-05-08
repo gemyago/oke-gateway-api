@@ -482,7 +482,7 @@ func (m *httpRouteModelImpl) isProgrammingRequired(
 		conditions:    parentStatus.Conditions,
 		conditionType: string(gatewayv1.RouteConditionResolvedRefs),
 		annotations: map[string]string{
-			HttpRouteProgrammingRevisionAnnotation: HttpRouteProgrammingRevisionValue,
+			HTTPRouteProgrammingRevisionAnnotation: HTTPRouteProgrammingRevisionValue,
 		},
 	}), nil
 }
@@ -516,7 +516,7 @@ func (m *httpRouteModelImpl) setProgrammed(
 		reason:        string(gatewayv1.RouteReasonResolvedRefs),
 		message:       fmt.Sprintf("Route programmed by %s", params.gateway.Name),
 		annotations: map[string]string{
-			HttpRouteProgrammingRevisionAnnotation: HttpRouteProgrammingRevisionValue,
+			HTTPRouteProgrammingRevisionAnnotation: HTTPRouteProgrammingRevisionValue,
 		},
 	}); err != nil {
 		return fmt.Errorf("failed to update programmed status for HTTProute %s: %w", httpRoute.Name, err)

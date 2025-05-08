@@ -1169,7 +1169,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				conditions:    details.httpRoute.Status.Parents[0].Conditions,
 				conditionType: string(gatewayv1.RouteConditionResolvedRefs),
 				annotations: map[string]string{
-					HttpRouteProgrammingRevisionAnnotation: HttpRouteProgrammingRevisionValue,
+					HTTPRouteProgrammingRevisionAnnotation: HTTPRouteProgrammingRevisionValue,
 				},
 			}).Return(checkResult)
 
@@ -1237,7 +1237,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				reason:        string(gatewayv1.RouteReasonResolvedRefs),
 				message:       fmt.Sprintf("Route programmed by %s", params.gateway.Name),
 				annotations: map[string]string{
-					HttpRouteProgrammingRevisionAnnotation: HttpRouteProgrammingRevisionValue,
+					HTTPRouteProgrammingRevisionAnnotation: HTTPRouteProgrammingRevisionValue,
 				},
 			}).Return(nil)
 
