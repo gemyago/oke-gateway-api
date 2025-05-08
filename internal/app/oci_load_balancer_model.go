@@ -336,9 +336,14 @@ func (m *ociLoadBalancerModelImpl) appendRoutingRule(
 	ctx context.Context,
 	params appendRoutingRuleParams,
 ) ([]loadbalancer.RoutingRule, error) {
-	m.logger.DebugContext(ctx, "Adding routing rule",
+	ruleName := ociListerPolicyRuleName(params.httpRoute, params.httpRouteRuleIndex)
+	backendSetName := ociBackendSetName(params.httpRoute, params.httpRouteRuleIndex)
+
+	m.logger.DebugContext(ctx, "Adding OCI routing rule",
 		slog.String("httpRoute", fmt.Sprintf("%s/%s", params.httpRoute.Namespace, params.httpRoute.Name)),
 		slog.Int("httpRouteRuleIndex", params.httpRouteRuleIndex),
+		slog.String("ruleName", ruleName),
+		slog.String("backendSetName", backendSetName),
 	)
 
 	ruleSpec := params.httpRoute.Spec.Rules[params.httpRouteRuleIndex]
@@ -347,9 +352,6 @@ func (m *ociLoadBalancerModelImpl) appendRoutingRule(
 	if err != nil {
 		return nil, fmt.Errorf("failed to map http route matches to condition: %w", err)
 	}
-
-	ruleName := ociListerPolicyRuleName(params.httpRoute, params.httpRouteRuleIndex)
-	backendSetName := ociBackendSetName(params.httpRoute, params.httpRouteRuleIndex)
 
 	newRule := loadbalancer.RoutingRule{
 		Name:      lo.ToPtr(ruleName),
