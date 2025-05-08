@@ -15,9 +15,9 @@ import (
 
 // GatewayController is a simple controller that watches Gateway resources.
 type GatewayController struct {
-	client         k8sClient // Reusing the k8sClient interface defined in gatewayclass_controller.go
+	client         k8sClient
 	logger         *slog.Logger
-	resourcesModel resourcesModel // Add resourcesModel field
+	resourcesModel resourcesModel
 	gatewayModel   gatewayModel
 }
 
@@ -27,7 +27,7 @@ type GatewayControllerDeps struct {
 
 	RootLogger     *slog.Logger
 	K8sClient      k8sClient
-	ResourcesModel resourcesModel // Add ResourcesModel dependency
+	ResourcesModel resourcesModel
 	GatewayModel   gatewayModel
 }
 
