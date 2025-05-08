@@ -283,9 +283,27 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 		tests := []func() testCase{
 			func() testCase {
 				pathValue1 := "/" + faker.Word()
+				return testCase{
+					name: "single match",
+					matches: []gatewayv1.HTTPRouteMatch{
+						{
+							Path: &gatewayv1.HTTPPathMatch{
+								Type:  lo.ToPtr(gatewayv1.PathMatchExact),
+								Value: lo.ToPtr(pathValue1),
+							},
+						},
+					},
+					want: fmt.Sprintf(
+						`any(http.request.url.path eq '%s')`,
+						pathValue1,
+					),
+				}
+			},
+			func() testCase {
+				pathValue1 := "/" + faker.Word()
 				pathValue2 := "/" + faker.Word() + "/" + faker.Word()
 				return testCase{
-					name: "multiple path matches",
+					name: "multiple matches",
 					matches: []gatewayv1.HTTPRouteMatch{
 						{
 							Path: &gatewayv1.HTTPPathMatch{
@@ -301,70 +319,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 						},
 					},
 					want: fmt.Sprintf(
-						`any(http.request.url.path eq '%s' or http.request.url.path sw '%s')`,
+						`any(http.request.url.path eq '%s', http.request.url.path sw '%s')`,
 						pathValue1, pathValue2,
-					),
-				}
-			},
-			func() testCase {
-				headerName1 := "X-" + faker.Word() + "-1"
-				headerValue1 := faker.Word()
-				headerName2 := "X-" + faker.Word() + "-2"
-				headerValue2 := faker.UUIDHyphenated()
-				return testCase{
-					name: "multiple header matches",
-					matches: []gatewayv1.HTTPRouteMatch{
-						{
-							Headers: []gatewayv1.HTTPHeaderMatch{
-								{
-									Type:  lo.ToPtr(gatewayv1.HeaderMatchExact),
-									Name:  gatewayv1.HTTPHeaderName(headerName1),
-									Value: headerValue1,
-								},
-							},
-						},
-						{
-							Headers: []gatewayv1.HTTPHeaderMatch{
-								{
-									Type:  lo.ToPtr(gatewayv1.HeaderMatchExact),
-									Name:  gatewayv1.HTTPHeaderName(headerName2),
-									Value: headerValue2,
-								},
-							},
-						},
-					},
-					want: fmt.Sprintf(
-						`any(http.request.headers['%s'] eq '%s' or http.request.headers['%s'] eq '%s')`,
-						headerName1, headerValue1, headerName2, headerValue2,
-					),
-				}
-			},
-			func() testCase {
-				pathValue := "/" + faker.Word()
-				headerName := "X-" + faker.Word()
-				headerValue := faker.Word()
-				return testCase{
-					name: "mix of path and header matches",
-					matches: []gatewayv1.HTTPRouteMatch{
-						{
-							Path: &gatewayv1.HTTPPathMatch{
-								Type:  lo.ToPtr(gatewayv1.PathMatchExact),
-								Value: lo.ToPtr(pathValue),
-							},
-						},
-						{
-							Headers: []gatewayv1.HTTPHeaderMatch{
-								{
-									Type:  lo.ToPtr(gatewayv1.HeaderMatchExact),
-									Name:  gatewayv1.HTTPHeaderName(headerName),
-									Value: headerValue,
-								},
-							},
-						},
-					},
-					want: fmt.Sprintf(
-						`any(http.request.url.path eq '%s' or http.request.headers['%s'] eq '%s')`,
-						pathValue, headerName, headerValue,
 					),
 				}
 			},

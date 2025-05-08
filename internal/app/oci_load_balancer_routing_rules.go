@@ -118,12 +118,9 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchesToCondition(
 	}
 
 	if len(conditions) == 0 {
+		// TODO: Investigate if empty is possible, if no - return error here
 		return "", nil
 	}
 
-	if len(conditions) > 1 {
-		return fmt.Sprintf("any(%s)", strings.Join(conditions, " or ")), nil
-	}
-
-	return strings.Join(conditions, " or "), nil
+	return fmt.Sprintf("any(%s)", strings.Join(conditions, ", ")), nil
 }
