@@ -12,6 +12,7 @@ import (
 	"github.com/go-faker/faker/v4"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
+	"github.com/samber/lo/mutable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -1021,9 +1022,37 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
 
+			rulesPrefixes := []string{
+				"routes-1",
+				"routes-2",
+				"routes-3",
+			}
+
+			rulesPrePrefix := 2 + rand.IntN(3)
+			rulesByOrder := lo.Map(rulesPrefixes, func(prefix string, _ int) []loadbalancer.RoutingRule {
+				rules := make([]loadbalancer.RoutingRule, 0, rulesPrePrefix)
+				for i := range rulesPrePrefix {
+					rules = append(rules, loadbalancer.RoutingRule{
+						Name: lo.ToPtr(fmt.Sprintf("%s-r%04d", prefix, i)),
+					})
+				}
+				return rules
+			})
+
+			wantRules := lo.Flatten(rulesByOrder)
+			wantRules = append(wantRules, loadbalancer.RoutingRule{
+				Name: lo.ToPtr(string(defaultCatchAllRuleName)),
+			})
+
+			policyRules := make([]loadbalancer.RoutingRule, 0, len(wantRules))
+			policyRules = append(policyRules, wantRules...)
+			mutable.Shuffle(policyRules)
+
 			params := commitRoutingPolicyParams{
 				loadBalancerID: faker.UUIDHyphenated(),
-				policy:         makeRandomOCIRoutingPolicy(),
+				policy: makeRandomOCIRoutingPolicy(
+					randomOCIRoutingPolicyWithRulesOpt(policyRules),
+				),
 			}
 			workRequestID := faker.UUIDHyphenated()
 
@@ -1034,7 +1063,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					ConditionLanguageVersion: loadbalancer.UpdateRoutingPolicyDetailsConditionLanguageVersionEnum(
 						params.policy.ConditionLanguageVersion,
 					),
-					Rules: params.policy.Rules,
+					Rules: wantRules,
 				},
 			}).Return(loadbalancer.UpdateRoutingPolicyResponse{
 				OpcWorkRequestId: &workRequestID,
@@ -1057,16 +1086,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			}
 			wantErr := errors.New(faker.Sentence())
 
-			ociLoadBalancerClient.EXPECT().UpdateRoutingPolicy(t.Context(), loadbalancer.UpdateRoutingPolicyRequest{
-				LoadBalancerId:    &params.loadBalancerID,
-				RoutingPolicyName: params.policy.Name,
-				UpdateRoutingPolicyDetails: loadbalancer.UpdateRoutingPolicyDetails{
-					ConditionLanguageVersion: loadbalancer.UpdateRoutingPolicyDetailsConditionLanguageVersionEnum(
-						params.policy.ConditionLanguageVersion,
-					),
-					Rules: params.policy.Rules,
-				},
-			}).Return(loadbalancer.UpdateRoutingPolicyResponse{}, wantErr)
+			ociLoadBalancerClient.EXPECT().UpdateRoutingPolicy(t.Context(), mock.Anything).
+				Return(loadbalancer.UpdateRoutingPolicyResponse{}, wantErr)
 
 			err := model.commitRoutingPolicy(t.Context(), params)
 			require.Error(t, err)
@@ -1086,18 +1107,10 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			workRequestID := faker.UUIDHyphenated()
 			wantErr := errors.New(faker.Sentence())
 
-			ociLoadBalancerClient.EXPECT().UpdateRoutingPolicy(t.Context(), loadbalancer.UpdateRoutingPolicyRequest{
-				LoadBalancerId:    &params.loadBalancerID,
-				RoutingPolicyName: params.policy.Name,
-				UpdateRoutingPolicyDetails: loadbalancer.UpdateRoutingPolicyDetails{
-					ConditionLanguageVersion: loadbalancer.UpdateRoutingPolicyDetailsConditionLanguageVersionEnum(
-						params.policy.ConditionLanguageVersion,
-					),
-					Rules: params.policy.Rules,
-				},
-			}).Return(loadbalancer.UpdateRoutingPolicyResponse{
-				OpcWorkRequestId: &workRequestID,
-			}, nil)
+			ociLoadBalancerClient.EXPECT().UpdateRoutingPolicy(t.Context(), mock.Anything).
+				Return(loadbalancer.UpdateRoutingPolicyResponse{
+					OpcWorkRequestId: &workRequestID,
+				}, nil)
 
 			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(wantErr)
 

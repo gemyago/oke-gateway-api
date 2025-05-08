@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -470,6 +471,22 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 	ctx context.Context,
 	params commitRoutingPolicyParams,
 ) error {
+	sortedRules := make([]loadbalancer.RoutingRule, 0, len(params.policy.Rules))
+	sortedRules = append(sortedRules, params.policy.Rules...)
+
+	// we should keep defaultCatchAllRuleName at the end of the list
+	sort.Slice(sortedRules, func(i, j int) bool {
+		ruleI := lo.FromPtr(sortedRules[i].Name)
+		ruleJ := lo.FromPtr(sortedRules[j].Name)
+		if ruleI == defaultCatchAllRuleName {
+			return false
+		}
+		if ruleJ == defaultCatchAllRuleName {
+			return true
+		}
+		return ruleI < ruleJ
+	})
+
 	updateRes, err := m.ociClient.UpdateRoutingPolicy(ctx, loadbalancer.UpdateRoutingPolicyRequest{
 		LoadBalancerId:    &params.loadBalancerID,
 		RoutingPolicyName: params.policy.Name,
@@ -477,7 +494,7 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 			ConditionLanguageVersion: loadbalancer.UpdateRoutingPolicyDetailsConditionLanguageVersionEnum(
 				params.policy.ConditionLanguageVersion,
 			),
-			Rules: params.policy.Rules,
+			Rules: sortedRules,
 		},
 	})
 	if err != nil {
