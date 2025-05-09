@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
-	"strings"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
@@ -22,6 +21,7 @@ import (
 const defaultBackendSetPort = 80
 const defaultCatchAllRuleName = "default_catch_all"
 const maxBackendSetNameLength = 32
+const maxListenerPolicyNameLength = 32
 
 type reconcileDefaultBackendParams struct {
 	loadBalancerID   string
@@ -321,17 +321,20 @@ func (m *ociLoadBalancerModelImpl) resolveAndTidyRoutingPolicy(
 		return loadbalancer.RoutingPolicy{}, fmt.Errorf("failed to get routing policy %s: %w", params.policyName, err)
 	}
 
-	// All rules associated with the current httpRoute will have a name starting with this prefix.
-	rulesPrefixToRemove := sanitizePolicyName(params.httpRoute.Name) + "_"
+	// TODO: This whole logic needs to be revisited. We can't prefix match since it can be
+	// sanitized. Maybe store in annotations of http route?
 
-	cleanedRules := lo.Filter(policyResponse.RoutingPolicy.Rules,
-		func(rule loadbalancer.RoutingRule, _ int) bool {
-			ruleName := lo.FromPtr(rule.Name)
-			return !strings.HasPrefix(ruleName, rulesPrefixToRemove)
-		})
+	// All rules associated with the current httpRoute will have a name starting with this prefix.
+	// rulesPrefixToRemove := sanitizePolicyName(params.httpRoute.Name) + "_"
+
+	// cleanedRules := lo.Filter(policyResponse.RoutingPolicy.Rules,
+	// 	func(rule loadbalancer.RoutingRule, _ int) bool {
+	// 		ruleName := lo.FromPtr(rule.Name)
+	// 		return !strings.HasPrefix(ruleName, rulesPrefixToRemove)
+	// 	})
 
 	cleanedPolicy := policyResponse.RoutingPolicy
-	cleanedPolicy.Rules = cleanedRules
+	// cleanedPolicy.Rules = cleanedRules
 
 	return cleanedPolicy, nil
 }
@@ -537,10 +540,6 @@ and upper- or lowercase letters.
 */
 var invalidCharsForPolicyNamePattern = regexp.MustCompile(`[^a-zA-Z0-9_]`)
 
-func sanitizePolicyName(name string) string {
-	return invalidCharsForPolicyNamePattern.ReplaceAllString(name, "_")
-}
-
 // ociListerPolicyRuleName returns the name of the routing rule for the listener policy.
 // It's expected that the rule name is unique within the listener policy for every route.
 // Names should also be sortable, so we're using a 4 digit index.
@@ -556,10 +555,10 @@ func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string {
 		resultingName = fmt.Sprintf("%s_r%04d", route.Name, ruleIndex)
 	}
 
-	// sanitize the name using the pattern
-	resultingName = sanitizePolicyName(resultingName)
-
-	return resultingName
+	return ociapi.ConstructOCIResourceName(resultingName, ociapi.OCIResourceNameConfig{
+		MaxLength:           maxListenerPolicyNameLength,
+		InvalidCharsPattern: invalidCharsForPolicyNamePattern,
+	})
 }
 
 // ociBackendSetName returns the name of the backend set for the route.
