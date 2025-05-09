@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
+	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
@@ -20,6 +21,7 @@ import (
 
 const defaultBackendSetPort = 80
 const defaultCatchAllRuleName = "default_catch_all"
+const maxBackendSetNameLength = 32
 
 type reconcileDefaultBackendParams struct {
 	loadBalancerID   string
@@ -567,11 +569,16 @@ func ociBackendSetName(httpRoute gatewayv1.HTTPRoute, ruleIndex int) string {
 	// TODO: This may probably need to have namespace
 	// Also check if namespace is populated in the route if it's not in the spec
 	rule := httpRoute.Spec.Rules[ruleIndex]
+	var output string
 	if rule.Name != nil {
-		return fmt.Sprintf("%s-r%04d-%s", httpRoute.Name, ruleIndex, string(*rule.Name))
+		output = fmt.Sprintf("%s-r%04d-%s", httpRoute.Name, ruleIndex, string(*rule.Name))
+	} else {
+		output = fmt.Sprintf("%s-r%04d", httpRoute.Name, ruleIndex)
 	}
 
-	return fmt.Sprintf("%s-r%04d", httpRoute.Name, ruleIndex)
+	return ociapi.ConstructOCIResourceName(output, ociapi.OCIResourceNameConfig{
+		MaxLength: maxBackendSetNameLength,
+	})
 }
 
 type ociLoadBalancerModelDeps struct {

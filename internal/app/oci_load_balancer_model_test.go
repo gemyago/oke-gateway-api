@@ -1257,8 +1257,41 @@ func Test_ociBackendSetName(t *testing.T) {
 			}
 		},
 		func() testCase {
-			ruleName := faker.UUIDHyphenated()
+			fewRules := []gatewayv1.HTTPRouteRule{
+				makeRandomHTTPRouteRule(),
+				makeRandomHTTPRouteRule(),
+				makeRandomHTTPRouteRule(),
+			}
+			index := rand.IntN(len(fewRules))
 
+			longName := strings.Join(
+				[]string{
+					"route",
+					faker.UUIDDigit(),
+					faker.UUIDDigit(),
+					faker.UUIDDigit(),
+				},
+				"",
+			)[:33]
+
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(fewRules...),
+			)
+			route.Name = longName
+			input := fmt.Sprintf("%s-r%04d", route.Name, index)
+			want := ociapi.ConstructOCIResourceName(input, ociapi.OCIResourceNameConfig{
+				MaxLength: 32,
+			})
+
+			return testCase{
+				name:      "unnamed rule with long name",
+				route:     route,
+				ruleIndex: index,
+				want:      want,
+			}
+		},
+		func() testCase {
+			ruleName := "rule-" + faker.Word()
 			fewRules := []gatewayv1.HTTPRouteRule{
 				makeRandomHTTPRouteRule(),
 				makeRandomHTTPRouteRule(),
@@ -1275,6 +1308,41 @@ func Test_ociBackendSetName(t *testing.T) {
 				route:     route,
 				ruleIndex: index,
 				want:      fmt.Sprintf("%s-r%04d-%s", route.Name, index, ruleName),
+			}
+		},
+		func() testCase {
+			ruleName := faker.UUIDHyphenated()
+			fewRules := []gatewayv1.HTTPRouteRule{
+				makeRandomHTTPRouteRule(),
+				makeRandomHTTPRouteRule(),
+				makeRandomHTTPRouteRule(),
+			}
+			index := rand.IntN(len(fewRules))
+			fewRules[index].Name = lo.ToPtr(gatewayv1.SectionName(ruleName))
+
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(fewRules...),
+			)
+			longName := strings.Join(
+				[]string{
+					"route",
+					faker.UUIDDigit(),
+					faker.UUIDDigit(),
+					faker.UUIDDigit(),
+				},
+				"",
+			)[:33]
+			route.Name = longName
+			input := fmt.Sprintf("%s-r%04d-%s", route.Name, index, ruleName)
+			want := ociapi.ConstructOCIResourceName(input, ociapi.OCIResourceNameConfig{
+				MaxLength: 32,
+			})
+
+			return testCase{
+				name:      "named rule with long name",
+				route:     route,
+				ruleIndex: index,
+				want:      want,
 			}
 		},
 	}
