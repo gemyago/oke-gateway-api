@@ -272,7 +272,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			wantPolicy := originalPolicy
 
-			// TODO: This is a hack to make the test work.
+			// This is a hack to make the test work.
 			// We need to revisit how we store and clean policies
 			wantPolicy.Rules = allPolicyRules
 

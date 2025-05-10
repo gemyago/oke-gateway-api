@@ -357,8 +357,6 @@ func (m *httpRouteModelImpl) acceptRoute(
 	return httpRoute, nil
 }
 
-// TODO: The only reason to have this is to check that all backend refs are valid services.
-// Need to investigate if we really need to do this.
 func (m *httpRouteModelImpl) resolveBackendRefs(
 	ctx context.Context,
 	params resolveBackendRefsParams,

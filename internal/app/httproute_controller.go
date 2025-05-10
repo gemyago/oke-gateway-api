@@ -50,8 +50,6 @@ func (r *HTTPRouteController) performProgramming(
 		return fmt.Errorf("failed to accept route: %w", err)
 	}
 
-	// TODO: This may need to go to the acceptRoute stage
-	// We only need it to make sure backend refs are valid
 	knownBackends, err := r.httpRouteModel.resolveBackendRefs(ctx, resolveBackendRefsParams{
 		httpRoute: *acceptedRoute,
 	})
@@ -125,7 +123,6 @@ func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Reque
 			)
 		}
 
-		// TODO: Review sync and make sure only relevant backends are synced
 		err = r.httpBackendModel.syncRouteEndpoints(ctx, syncRouteEndpointsParams{
 			httpRoute: resolvedData.httpRoute,
 			config:    resolvedData.gatewayDetails.config,
