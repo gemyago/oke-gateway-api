@@ -1,8 +1,6 @@
 package ociapi
 
 import (
-	"fmt"
-	"hash/crc32"
 	"regexp"
 	"strings"
 	"testing"
@@ -79,7 +77,7 @@ func TestConstructOCIResourceName_Refactored(t *testing.T) {
 				config:       OCIResourceNameConfig{MaxLength: 32},
 			},
 			want: "this-is-a-ve" +
-				testDefaultHashFunc("this-is-a-very-long-name-that-will-be-hashed-and-split") +
+				defaultHashFunc("this-is-a-very-long-name-that-will-be-hashed-and-split") +
 				"ed-and-split",
 			wantLen: 32,
 		},
@@ -93,7 +91,7 @@ func TestConstructOCIResourceName_Refactored(t *testing.T) {
 				},
 			},
 			want: "this_is_a_ve" +
-				testDefaultHashFunc("this!is!a!very!long!name!that!will!be!hashed!and!split!") +
+				defaultHashFunc("this!is!a!very!long!name!that!will!be!hashed!and!split!") +
 				"d_and_split_",
 			wantLen: 32,
 		},
@@ -103,7 +101,7 @@ func TestConstructOCIResourceName_Refactored(t *testing.T) {
 				originalName: strings.Repeat("abcdefghij", 5),
 				config:       OCIResourceNameConfig{MaxLength: 10},
 			},
-			want:    "a" + testDefaultHashFunc(strings.Repeat("abcdefghij", 5)) + "j",
+			want:    "a" + defaultHashFunc(strings.Repeat("abcdefghij", 5)) + "j",
 			wantLen: 10,
 		},
 		{
@@ -112,7 +110,7 @@ func TestConstructOCIResourceName_Refactored(t *testing.T) {
 				originalName: strings.Repeat("X", 30),
 				config:       OCIResourceNameConfig{MaxLength: 11},
 			},
-			want:    "X" + testDefaultHashFunc(strings.Repeat("X", 30)) + "XX",
+			want:    "X" + defaultHashFunc(strings.Repeat("X", 30)) + "XX",
 			wantLen: 11,
 		},
 		{
@@ -121,7 +119,7 @@ func TestConstructOCIResourceName_Refactored(t *testing.T) {
 				originalName: "a-long-name-to-force-hash",
 				config:       OCIResourceNameConfig{MaxLength: 6},
 			},
-			want:    testDefaultHashFunc("a-long-name-to-force-hash")[:6],
+			want:    defaultHashFunc("a-long-name-to-force-hash")[:6],
 			wantLen: 6,
 		},
 		{
@@ -130,7 +128,7 @@ func TestConstructOCIResourceName_Refactored(t *testing.T) {
 				originalName: "another-long-name",
 				config:       OCIResourceNameConfig{MaxLength: 8},
 			},
-			want:    testDefaultHashFunc("another-long-name"),
+			want:    defaultHashFunc("another-long-name"),
 			wantLen: 8,
 		},
 		{
@@ -168,7 +166,7 @@ func TestConstructOCIResourceName_Refactored(t *testing.T) {
 				config:       OCIResourceNameConfig{InvalidCharsPattern: regexp.MustCompile("@"), MaxLength: 32},
 			},
 			want: strings.Repeat("_", 12) +
-				testDefaultHashFunc(strings.Repeat("@@@", 20)) +
+				defaultHashFunc(strings.Repeat("@@@", 20)) +
 				strings.Repeat("_", 12),
 			wantLen: 32,
 		},
@@ -251,10 +249,4 @@ func TestConstructOCIResourceName_Refactored(t *testing.T) {
 			}
 		})
 	}
-}
-
-// testDefaultHashFunc must match the non-exported defaultHashFunc in oci_resources.go.
-func testDefaultHashFunc(input string) string {
-	checksum := crc32.ChecksumIEEE([]byte(input))
-	return fmt.Sprintf("%08x", checksum)
 }
