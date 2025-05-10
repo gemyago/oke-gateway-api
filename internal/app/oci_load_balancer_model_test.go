@@ -15,8 +15,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	v1 "k8s.io/api/core/v1"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
+
+const defaultTestHTTPPort = 80
 
 func TestOciLoadBalancerModelImpl(t *testing.T) {
 	makeMockDeps := func(t *testing.T) ociLoadBalancerModelDeps {
@@ -1245,6 +1248,62 @@ func Test_ociBackendSetNameFromBackendRef(t *testing.T) {
 		tc := tcFunc()
 		t.Run(tc.name, func(t *testing.T) {
 			got := ociBackendSetNameFromBackendRef(tc.httpRoute, tc.backendRef)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func Test_ociBackendSetNameFromService(t *testing.T) {
+	type testCase struct {
+		name    string
+		service v1.Service
+		want    string
+	}
+
+	tests := []func() testCase{
+		func() testCase {
+			svcNs := faker.Word() + "-ns"
+			svcName := faker.Username() + "-svc"
+			service := makeRandomService(
+				func(s *v1.Service) {
+					s.Name = svcName
+					s.Namespace = svcNs
+				},
+			)
+			wantName := fmt.Sprintf("%s-%s", svcNs, svcName)
+			return testCase{
+				name:    "standard name",
+				service: service,
+				want: ociapi.ConstructOCIResourceName(wantName, ociapi.OCIResourceNameConfig{
+					MaxLength: maxBackendSetNameLength,
+				}),
+			}
+		},
+		func() testCase {
+			longSvcNs := faker.UUIDDigit()[0:20]   // Ensure length that will cause truncation
+			longSvcName := faker.UUIDDigit()[0:20] // Ensure length that will cause truncation
+			service := makeRandomService(
+				func(s *v1.Service) {
+					s.Name = longSvcName
+					s.Namespace = longSvcNs
+				},
+			)
+			originalName := fmt.Sprintf("%s-%s", longSvcNs, longSvcName)
+			assert.Greater(t, len(originalName), maxBackendSetNameLength)
+			return testCase{
+				name:    "long name truncated",
+				service: service,
+				want: ociapi.ConstructOCIResourceName(originalName, ociapi.OCIResourceNameConfig{
+					MaxLength: maxBackendSetNameLength,
+				}),
+			}
+		},
+	}
+
+	for _, tcFunc := range tests {
+		tc := tcFunc()
+		t.Run(tc.name, func(t *testing.T) {
+			got := ociBackendSetNameFromService(tc.service)
 			assert.Equal(t, tc.want, got)
 		})
 	}
