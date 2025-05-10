@@ -76,8 +76,12 @@ func TestHTTPBackendModel(t *testing.T) {
 			model := newHTTPBackendModel(deps)
 
 			rules := []gatewayv1.HTTPRouteRule{
-				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt()),
-				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt()),
+				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(
+					makeRandomBackendRef(),
+				)),
+				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(
+					makeRandomBackendRef(),
+				)),
 			}
 
 			httpRoute := makeRandomHTTPRoute(
