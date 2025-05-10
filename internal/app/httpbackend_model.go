@@ -14,15 +14,15 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-type syncRouteBackendEndpointsParams struct {
+type syncRouteBackendRefsEndpointsParams struct {
 	httpRoute gatewayv1.HTTPRoute
 	config    types.GatewayConfig
 }
 
-type syncRouteBackendRuleEndpointsParams struct {
-	httpRoute gatewayv1.HTTPRoute
-	config    types.GatewayConfig
-	ruleIndex int
+type syncRouteBackendRefEndpointsParams struct {
+	config     types.GatewayConfig
+	httpRoute  gatewayv1.HTTPRoute
+	backendRef gatewayv1.HTTPBackendRef
 }
 
 type identifyBackendsToUpdateParams struct {
@@ -39,10 +39,10 @@ type identifyBackendsToUpdateResult struct {
 
 // httpBackendModel defines the interface for managing OCI backend sets based on HTTPRoute definitions.
 type httpBackendModel interface {
-	// syncRouteBackendEndpoints synchronizes the OCI Load Balancer Backend Sets associated with the
+	// syncRouteBackendRefsEndpoints synchronizes the OCI Load Balancer Backend Sets associated with the
 	// provided HTTPRoute, ensuring they contain the correct set of ready endpoints
 	// derived from the referenced Kubernetes Services' EndpointSlices.
-	syncRouteBackendEndpoints(ctx context.Context, params syncRouteBackendEndpointsParams) error
+	syncRouteBackendRefsEndpoints(ctx context.Context, params syncRouteBackendRefsEndpointsParams) error
 
 	// identifyBackendsToUpdate identifies the backends that need to be updated in the OCI Load Balancer Backend Set.
 	// It will correctly handle endpoint status changes, including draining endpoints.
@@ -51,9 +51,9 @@ type httpBackendModel interface {
 		params identifyBackendsToUpdateParams,
 	) (identifyBackendsToUpdateResult, error)
 
-	// syncRouteBackendRuleEndpoints synchronizes the OCI Load Balancer Backend Sets associated with the
-	// single rule of the provided HTTPRoute.
-	syncRouteBackendRuleEndpoints(ctx context.Context, params syncRouteBackendRuleEndpointsParams) error
+	// syncRouteBackendRefEndpoints synchronizes the OCI Load Balancer Backend Sets associated with the
+	// single backend ref of the provided HTTPRoute.
+	syncRouteBackendRefEndpoints(ctx context.Context, params syncRouteBackendRefEndpointsParams) error
 }
 
 type httpBackendModelImpl struct {
@@ -66,22 +66,25 @@ type httpBackendModelImpl struct {
 	self httpBackendModel
 }
 
-func (m *httpBackendModelImpl) syncRouteBackendEndpoints(
+func (m *httpBackendModelImpl) syncRouteBackendRefsEndpoints(
 	ctx context.Context,
-	params syncRouteBackendEndpointsParams,
+	params syncRouteBackendRefsEndpointsParams,
 ) error {
 	m.logger.InfoContext(ctx, "Syncing backend endpoints",
 		slog.String("httpRoute", params.httpRoute.Name),
 		slog.String("config", params.config.Name),
 	)
 
-	for index := range params.httpRoute.Spec.Rules {
-		if err := m.self.syncRouteBackendRuleEndpoints(ctx, syncRouteBackendRuleEndpointsParams{
-			httpRoute: params.httpRoute,
-			config:    params.config,
-			ruleIndex: index,
-		}); err != nil {
-			return fmt.Errorf("failed to sync route backend endpoints for rule %d: %w", index, err)
+	// TODO: Dedup backendRefs within the same route
+	for index, rule := range params.httpRoute.Spec.Rules {
+		for _, backendRef := range rule.BackendRefs {
+			if err := m.self.syncRouteBackendRefEndpoints(ctx, syncRouteBackendRefEndpointsParams{
+				httpRoute:  params.httpRoute,
+				config:     params.config,
+				backendRef: backendRef,
+			}); err != nil {
+				return fmt.Errorf("failed to sync route backend endpoints for rule %d: %w", index, err)
+			}
 		}
 	}
 
@@ -151,13 +154,12 @@ func (m *httpBackendModelImpl) identifyBackendsToUpdate(
 	}, nil
 }
 
-func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
+func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 	ctx context.Context,
-	params syncRouteBackendRuleEndpointsParams,
+	params syncRouteBackendRefEndpointsParams,
 ) error {
-	rule := params.httpRoute.Spec.Rules[params.ruleIndex]
-
-	backendSetName := ociBackendSetName(params.httpRoute, params.ruleIndex)
+	backendRef := params.backendRef
+	backendSetName := ociBackendSetNameFromBackendRef(params.httpRoute, backendRef)
 
 	getResp, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
 		LoadBalancerId: &params.config.Spec.LoadBalancerID,
@@ -168,25 +170,21 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 	}
 	existingBackendSet := getResp.BackendSet
 
-	// All backends should have the same port
-	firstRefPort := int32(*rule.BackendRefs[0].BackendObjectReference.Port)
+	backendPort := lo.FromPtr(params.backendRef.BackendObjectReference.Port)
 
-	allEndpointSlices := make([]discoveryv1.EndpointSlice, 0)
-	for _, backendRef := range rule.BackendRefs {
-		var endpointSlices discoveryv1.EndpointSliceList
+	var endpointSlices discoveryv1.EndpointSliceList
 
-		if err = m.k8sClient.List(ctx, &endpointSlices, client.MatchingLabels{
-			discoveryv1.LabelServiceName: string(backendRef.BackendObjectReference.Name),
-		}); err != nil {
-			return fmt.Errorf("failed to list endpoint slices for backend %s: %w", backendRef.BackendObjectReference.Name, err)
-		}
-		allEndpointSlices = append(allEndpointSlices, endpointSlices.Items...)
+	if err = m.k8sClient.List(ctx, &endpointSlices, client.MatchingLabels{
+		// TODO: Check if namespace is needed
+		discoveryv1.LabelServiceName: string(backendRef.BackendObjectReference.Name),
+	}); err != nil {
+		return fmt.Errorf("failed to list endpoint slices for backend %s: %w", backendRef.BackendObjectReference.Name, err)
 	}
 
 	backendsToUpdate, err := m.self.identifyBackendsToUpdate(ctx, identifyBackendsToUpdateParams{
-		endpointPort:    firstRefPort,
+		endpointPort:    int32(backendPort),
 		currentBackends: existingBackendSet.Backends,
-		endpointSlices:  allEndpointSlices,
+		endpointSlices:  endpointSlices.Items,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to identify backends to update: %w", err)
@@ -196,14 +194,14 @@ func (m *httpBackendModelImpl) syncRouteBackendRuleEndpoints(
 		m.logger.InfoContext(ctx, "Backend set already up-to-date, skipping update",
 			slog.String("backendSetName", backendSetName),
 			slog.String("httpRoute", params.httpRoute.Name),
-			slog.Int("ruleIndex", params.ruleIndex),
+			slog.String("backendRefName", string(backendRef.Name)),
 		)
 		return nil
 	}
 
-	m.logger.InfoContext(ctx, "Syncing backend endpoints for rule",
-		slog.Int("ruleIndex", params.ruleIndex),
+	m.logger.InfoContext(ctx, "Syncing backend endpoints for backendRef",
 		slog.String("httpRoute", params.httpRoute.Name),
+		slog.String("backendRefName", string(backendRef.Name)),
 		slog.String("backendSetName", backendSetName),
 		slog.Int("currentBackends", len(existingBackendSet.Backends)),
 		slog.Int("updatedBackends", len(backendsToUpdate.updatedBackends)),
