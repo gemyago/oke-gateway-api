@@ -25,7 +25,6 @@ func TestHTTPRouteController(t *testing.T) {
 	}
 
 	t.Run("Reconcile", func(t *testing.T) {
-
 		t.Run("RelevantRoute", func(t *testing.T) {
 			deps := newMockDeps(t)
 			controller := NewHTTPRouteController(deps)

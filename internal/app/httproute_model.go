@@ -417,7 +417,7 @@ func (m *httpRouteModelImpl) programRoute(
 		matchingListenerPolicies[i] = routingPolicy
 	}
 
-	for ruleIndex, _ := range params.httpRoute.Spec.Rules {
+	for ruleIndex := range params.httpRoute.Spec.Rules {
 		for policyIndex := range matchingListenerPolicies {
 			var updatedRules []loadbalancer.RoutingRule
 			updatedRules, err := m.ociLoadBalancerModel.appendRoutingRule(ctx, appendRoutingRuleParams{
@@ -426,7 +426,7 @@ func (m *httpRouteModelImpl) programRoute(
 				httpRouteRuleIndex: ruleIndex,
 			})
 			if err != nil {
-				return fmt.Errorf("failed to reconcile routing rule %s for route %s: %w", ruleIndex, params.httpRoute.Name, err)
+				return fmt.Errorf("failed to reconcile routing rule %d for route %s: %w", ruleIndex, params.httpRoute.Name, err)
 			}
 			matchingListenerPolicies[policyIndex].Rules = updatedRules
 		}
