@@ -33,6 +33,7 @@ type programRouteParams struct {
 	gateway          gatewayv1.Gateway
 	config           types.GatewayConfig
 	httpRoute        gatewayv1.HTTPRoute
+	knownBackends    map[string]v1.Service
 	matchedListeners []gatewayv1.Listener
 }
 
@@ -60,7 +61,7 @@ type httpRouteModel interface {
 	) (*gatewayv1.HTTPRoute, error)
 
 	// resolveBackendRefs resolves the backend references for a given HTTPRoute.
-	// It returns a map of service name to service port. It may update the route status
+	// It returns a map of service name to service object. It may update the route status
 	// with the ResolvedRefs condition.
 	resolveBackendRefs(
 		ctx context.Context,
@@ -392,12 +393,18 @@ func (m *httpRouteModelImpl) programRoute(
 	ctx context.Context,
 	params programRouteParams,
 ) error {
-	// backend set is created per rule with services as backends
-	// for the future: services must have same port to make health check work
-	// backend set name must be derived from the http route name + rule name (or index if name is empty)
+	for key, service := range params.knownBackends {
+		err := m.ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
+			loadBalancerID: params.config.Spec.LoadBalancerID,
+			service:        service,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to reconcile backend set for service %s: %w", key, err)
+		}
+	}
 
 	// Resolve and tidy matching policies
-	routingPolicies := make([]loadbalancer.RoutingPolicy, len(params.matchedListeners))
+	matchingListenerPolicies := make([]loadbalancer.RoutingPolicy, len(params.matchedListeners))
 	for i, listener := range params.matchedListeners {
 		routingPolicy, err := m.ociLoadBalancerModel.resolveAndTidyRoutingPolicy(ctx, resolveAndTidyRoutingPolicyParams{
 			loadBalancerID: params.config.Spec.LoadBalancerID,
@@ -407,52 +414,27 @@ func (m *httpRouteModelImpl) programRoute(
 		if err != nil {
 			return fmt.Errorf("failed to resolve and tidy routing policy for listener %s: %w", listener.Name, err)
 		}
-		routingPolicies[i] = routingPolicy
+		matchingListenerPolicies[i] = routingPolicy
 	}
 
-	for i, rule := range params.httpRoute.Spec.Rules {
-		bsName := ociBackendSetName(params.httpRoute, i)
-
-		// TODO: Some check is required (on accept level) to check that refs within the same rule have same port
-		// as well as liveliness probes. OCI load balancer does not support per backend HC
-		// Also make sure there is at least one backend ref
-
-		firstBackendRef := rule.BackendRefs[0]
-		port := int32(*firstBackendRef.BackendRef.Port)
-
-		err := m.ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
-			loadBalancerID: params.config.Spec.LoadBalancerID,
-			name:           bsName,
-
-			// TODO: Consider using HTTP health check
-			// Need some investigation to prove that it makes sense. We may potentially be
-			// duplicating health checks. There should be pod level liveliness probes
-			healthChecker: &loadbalancer.HealthCheckerDetails{
-				Protocol: lo.ToPtr("TCP"),
-				Port:     lo.ToPtr(int(port)),
-			},
-		})
-		if err != nil {
-			return fmt.Errorf("failed to reconcile backend set %s: %w", bsName, err)
-		}
-
-		for i := range routingPolicies {
+	for ruleIndex, _ := range params.httpRoute.Spec.Rules {
+		for policyIndex := range matchingListenerPolicies {
 			var updatedRules []loadbalancer.RoutingRule
-			updatedRules, err = m.ociLoadBalancerModel.appendRoutingRule(ctx, appendRoutingRuleParams{
-				actualPolicyRules:  routingPolicies[i].Rules,
+			updatedRules, err := m.ociLoadBalancerModel.appendRoutingRule(ctx, appendRoutingRuleParams{
+				actualPolicyRules:  matchingListenerPolicies[policyIndex].Rules,
 				httpRoute:          params.httpRoute,
-				httpRouteRuleIndex: i,
+				httpRouteRuleIndex: ruleIndex,
 			})
 			if err != nil {
-				return fmt.Errorf("failed to reconcile routing rule %s: %w", bsName, err)
+				return fmt.Errorf("failed to reconcile routing rule %s for route %s: %w", ruleIndex, params.httpRoute.Name, err)
 			}
-			routingPolicies[i].Rules = updatedRules
+			matchingListenerPolicies[policyIndex].Rules = updatedRules
 		}
 	}
 
 	// We commit in the end after all rules are added, otherwise
 	// we may be doing to many updates to the same policy
-	for _, policy := range routingPolicies {
+	for _, policy := range matchingListenerPolicies {
 		err := m.ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
 			loadBalancerID: params.config.Spec.LoadBalancerID,
 			policy:         policy,
@@ -461,6 +443,8 @@ func (m *httpRouteModelImpl) programRoute(
 			return fmt.Errorf("failed to commit routing policy %s: %w", lo.FromPtr(policy.Name), err)
 		}
 	}
+
+	// TODO: Cleanup backend sets that are no longer referenced
 
 	return nil
 }
