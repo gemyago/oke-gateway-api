@@ -19,8 +19,6 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-const defaultTestHTTPPort = 80
-
 func TestOciLoadBalancerModelImpl(t *testing.T) {
 	makeMockDeps := func(t *testing.T) ociLoadBalancerModelDeps {
 		return ociLoadBalancerModelDeps{

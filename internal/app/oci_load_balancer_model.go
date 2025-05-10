@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"regexp"
 	"sort"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
 	"go.uber.org/dig"
@@ -250,61 +252,52 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 	ctx context.Context,
 	params reconcileBackendSetParams,
 ) error {
-	// backendSetName := ociBackendSetName(params.httpRoute, params.httpRouteRuleIndex)
+	backendSetName := ociBackendSetNameFromService(params.service)
 
-	// m.logger.InfoContext(ctx, "Reconciling backend set",
-	// 	slog.String("loadBalancerId", params.loadBalancerID),
-	// 	slog.String("backendSetName", params.name),
-	// )
+	_, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
+		BackendSetName: &backendSetName,
+		LoadBalancerId: &params.loadBalancerID,
+	})
+	if err != nil {
+		serviceErr, ok := common.IsServiceError(err)
+		if !ok || serviceErr.GetHTTPStatusCode() != http.StatusNotFound {
+			return fmt.Errorf("failed to get backend set %s: %w", backendSetName, err)
+		}
+	} else {
+		m.logger.DebugContext(ctx, "Backend set found, skipping creation",
+			slog.String("loadBalancerId", params.loadBalancerID),
+			slog.String("backendSetName", backendSetName),
+		)
+		return nil
+	}
 
-	// existingBsFound := true
-	// _, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
-	// 	BackendSetName: &params.name,
-	// 	LoadBalancerId: &params.loadBalancerID,
-	// })
-	// if err != nil {
-	// 	serviceErr, ok := common.IsServiceError(err)
-	// 	if !ok || serviceErr.GetHTTPStatusCode() != http.StatusNotFound {
-	// 		return fmt.Errorf("failed to get backend set %s: %w", params.name, err)
-	// 	}
-	// 	existingBsFound = false
-	// }
+	m.logger.InfoContext(ctx, "Backend set not found, creating",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("backendSetName", backendSetName),
+	)
 
-	// if existingBsFound {
-	// 	m.logger.DebugContext(ctx, "Backend set found",
-	// 		slog.String("loadBalancerId", params.loadBalancerID),
-	// 		slog.String("backendSetName", params.name),
-	// 	)
+	createRes, err := m.ociClient.CreateBackendSet(ctx, loadbalancer.CreateBackendSetRequest{
+		LoadBalancerId: &params.loadBalancerID,
+		CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
+			Name:   &backendSetName,
+			Policy: lo.ToPtr("ROUND_ROBIN"),
+			HealthChecker: &loadbalancer.HealthCheckerDetails{
+				Protocol: lo.ToPtr("TCP"),
+				Port:     lo.ToPtr(int(params.service.Spec.Ports[0].Port)),
+			},
+		},
+	})
 
-	// 	// TODO: Logic to update backend set
+	if err != nil {
+		return fmt.Errorf("failed to create backend set %s: %w", backendSetName, err)
+	}
 
-	// 	return nil
-	// }
-
-	// m.logger.DebugContext(ctx, "Backend set not found, creating",
-	// 	slog.String("loadBalancerId", params.loadBalancerID),
-	// 	slog.String("backendSetName", params.name),
-	// )
-
-	// createRes, err := m.ociClient.CreateBackendSet(ctx, loadbalancer.CreateBackendSetRequest{
-	// 	LoadBalancerId: lo.ToPtr(params.loadBalancerID),
-	// 	CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
-	// 		Name:          &params.name,
-	// 		HealthChecker: params.healthChecker,
-	// 		Policy:        lo.ToPtr("ROUND_ROBIN"),
-	// 	},
-	// })
-
-	// if err != nil {
-	// 	return fmt.Errorf("failed to create backend set %s: %w", params.name, err)
-	// }
-
-	// if err = m.workRequestsWatcher.WaitFor(
-	// 	ctx,
-	// 	*createRes.OpcWorkRequestId,
-	// ); err != nil {
-	// 	return fmt.Errorf("failed to wait for backend set %s: %w", params.name, err)
-	// }
+	if err = m.workRequestsWatcher.WaitFor(
+		ctx,
+		*createRes.OpcWorkRequestId,
+	); err != nil {
+		return fmt.Errorf("failed to wait for backend set %s: %w", backendSetName, err)
+	}
 
 	return nil
 }
