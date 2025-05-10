@@ -5,16 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"regexp"
 	"sort"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
-	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
 	"go.uber.org/dig"
+	v1 "k8s.io/api/core/v1"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -31,8 +30,7 @@ type reconcileDefaultBackendParams struct {
 
 type reconcileBackendSetParams struct {
 	loadBalancerID string
-	name           string
-	healthChecker  *loadbalancer.HealthCheckerDetails
+	service        v1.Service
 }
 
 type reconcileHTTPListenerParams struct {
@@ -252,59 +250,61 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 	ctx context.Context,
 	params reconcileBackendSetParams,
 ) error {
-	m.logger.InfoContext(ctx, "Reconciling backend set",
-		slog.String("loadBalancerId", params.loadBalancerID),
-		slog.String("backendSetName", params.name),
-	)
+	// backendSetName := ociBackendSetName(params.httpRoute, params.httpRouteRuleIndex)
 
-	existingBsFound := true
-	_, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
-		BackendSetName: &params.name,
-		LoadBalancerId: &params.loadBalancerID,
-	})
-	if err != nil {
-		serviceErr, ok := common.IsServiceError(err)
-		if !ok || serviceErr.GetHTTPStatusCode() != http.StatusNotFound {
-			return fmt.Errorf("failed to get backend set %s: %w", params.name, err)
-		}
-		existingBsFound = false
-	}
+	// m.logger.InfoContext(ctx, "Reconciling backend set",
+	// 	slog.String("loadBalancerId", params.loadBalancerID),
+	// 	slog.String("backendSetName", params.name),
+	// )
 
-	if existingBsFound {
-		m.logger.DebugContext(ctx, "Backend set found",
-			slog.String("loadBalancerId", params.loadBalancerID),
-			slog.String("backendSetName", params.name),
-		)
+	// existingBsFound := true
+	// _, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
+	// 	BackendSetName: &params.name,
+	// 	LoadBalancerId: &params.loadBalancerID,
+	// })
+	// if err != nil {
+	// 	serviceErr, ok := common.IsServiceError(err)
+	// 	if !ok || serviceErr.GetHTTPStatusCode() != http.StatusNotFound {
+	// 		return fmt.Errorf("failed to get backend set %s: %w", params.name, err)
+	// 	}
+	// 	existingBsFound = false
+	// }
 
-		// TODO: Logic to update backend set
+	// if existingBsFound {
+	// 	m.logger.DebugContext(ctx, "Backend set found",
+	// 		slog.String("loadBalancerId", params.loadBalancerID),
+	// 		slog.String("backendSetName", params.name),
+	// 	)
 
-		return nil
-	}
+	// 	// TODO: Logic to update backend set
 
-	m.logger.DebugContext(ctx, "Backend set not found, creating",
-		slog.String("loadBalancerId", params.loadBalancerID),
-		slog.String("backendSetName", params.name),
-	)
+	// 	return nil
+	// }
 
-	createRes, err := m.ociClient.CreateBackendSet(ctx, loadbalancer.CreateBackendSetRequest{
-		LoadBalancerId: lo.ToPtr(params.loadBalancerID),
-		CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
-			Name:          &params.name,
-			HealthChecker: params.healthChecker,
-			Policy:        lo.ToPtr("ROUND_ROBIN"),
-		},
-	})
+	// m.logger.DebugContext(ctx, "Backend set not found, creating",
+	// 	slog.String("loadBalancerId", params.loadBalancerID),
+	// 	slog.String("backendSetName", params.name),
+	// )
 
-	if err != nil {
-		return fmt.Errorf("failed to create backend set %s: %w", params.name, err)
-	}
+	// createRes, err := m.ociClient.CreateBackendSet(ctx, loadbalancer.CreateBackendSetRequest{
+	// 	LoadBalancerId: lo.ToPtr(params.loadBalancerID),
+	// 	CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
+	// 		Name:          &params.name,
+	// 		HealthChecker: params.healthChecker,
+	// 		Policy:        lo.ToPtr("ROUND_ROBIN"),
+	// 	},
+	// })
 
-	if err = m.workRequestsWatcher.WaitFor(
-		ctx,
-		*createRes.OpcWorkRequestId,
-	); err != nil {
-		return fmt.Errorf("failed to wait for backend set %s: %w", params.name, err)
-	}
+	// if err != nil {
+	// 	return fmt.Errorf("failed to create backend set %s: %w", params.name, err)
+	// }
+
+	// if err = m.workRequestsWatcher.WaitFor(
+	// 	ctx,
+	// 	*createRes.OpcWorkRequestId,
+	// ); err != nil {
+	// 	return fmt.Errorf("failed to wait for backend set %s: %w", params.name, err)
+	// }
 
 	return nil
 }
@@ -344,13 +344,17 @@ func (m *ociLoadBalancerModelImpl) appendRoutingRule(
 	params appendRoutingRuleParams,
 ) ([]loadbalancer.RoutingRule, error) {
 	ruleName := ociListerPolicyRuleName(params.httpRoute, params.httpRouteRuleIndex)
-	backendSetName := ociBackendSetName(params.httpRoute, params.httpRouteRuleIndex)
+	rule := params.httpRoute.Spec.Rules[params.httpRouteRuleIndex]
+
+	targetBackends := lo.Map(rule.BackendRefs, func(backendRef gatewayv1.HTTPBackendRef, _ int) string {
+		return ociBackendSetNameFromBackendRef(params.httpRoute, backendRef)
+	})
 
 	m.logger.DebugContext(ctx, "Adding OCI routing rule",
 		slog.String("httpRoute", fmt.Sprintf("%s/%s", params.httpRoute.Namespace, params.httpRoute.Name)),
 		slog.Int("httpRouteRuleIndex", params.httpRouteRuleIndex),
 		slog.String("ruleName", ruleName),
-		slog.String("backendSetName", backendSetName),
+		slog.Any("targetBackends", targetBackends),
 	)
 
 	ruleSpec := params.httpRoute.Spec.Rules[params.httpRouteRuleIndex]
@@ -363,11 +367,11 @@ func (m *ociLoadBalancerModelImpl) appendRoutingRule(
 	newRule := loadbalancer.RoutingRule{
 		Name:      lo.ToPtr(ruleName),
 		Condition: lo.ToPtr(condition),
-		Actions: []loadbalancer.Action{
-			loadbalancer.ForwardToBackendSet{
+		Actions: lo.Map(targetBackends, func(backendSetName string, _ int) loadbalancer.Action {
+			return loadbalancer.ForwardToBackendSet{
 				BackendSetName: lo.ToPtr(backendSetName),
-			},
-		},
+			}
+		}),
 	}
 
 	return append(params.actualPolicyRules, newRule), nil
@@ -564,18 +568,25 @@ func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string {
 // ociBackendSetName returns the name of the backend set for the route.
 // It's expected that the backend set name is unique within the load balancer for every route.
 // Sorting is not required, but keeping padding for consistency and readability.
-func ociBackendSetName(httpRoute gatewayv1.HTTPRoute, ruleIndex int) string {
-	// TODO: This may probably need to have namespace
-	// Also check if namespace is populated in the route if it's not in the spec
-	rule := httpRoute.Spec.Rules[ruleIndex]
-	var output string
-	if rule.Name != nil {
-		output = fmt.Sprintf("%s-r%04d-%s", httpRoute.Name, ruleIndex, string(*rule.Name))
-	} else {
-		output = fmt.Sprintf("%s-r%04d", httpRoute.Name, ruleIndex)
+func ociBackendSetNameFromBackendRef(httpRoute gatewayv1.HTTPRoute, backendRef gatewayv1.HTTPBackendRef) string {
+	// TODO: Check if namespace is populated in the route if it's not in the spec
+	refName := string(backendRef.Name)
+	refNamespace := string(lo.FromPtr(backendRef.Namespace))
+	if refNamespace == "" {
+		refNamespace = httpRoute.Namespace
 	}
 
-	return ociapi.ConstructOCIResourceName(output, ociapi.OCIResourceNameConfig{
+	originalName := refNamespace + "-" + refName
+
+	return ociapi.ConstructOCIResourceName(originalName, ociapi.OCIResourceNameConfig{
+		MaxLength: maxBackendSetNameLength,
+	})
+}
+
+// TODO: Unit test
+func ociBackendSetNameFromService(service v1.Service) string {
+	originalName := service.Namespace + "-" + service.Name
+	return ociapi.ConstructOCIResourceName(originalName, ociapi.OCIResourceNameConfig{
 		MaxLength: maxBackendSetNameLength,
 	})
 }

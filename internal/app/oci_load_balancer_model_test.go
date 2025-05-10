@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
-	"strings"
 	"testing"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -517,17 +516,14 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		t.Run("create new backend set", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
+			service := makeRandomService()
 
 			params := reconcileBackendSetParams{
 				loadBalancerID: faker.UUIDHyphenated(),
-				name:           faker.UUIDHyphenated(),
-				healthChecker: &loadbalancer.HealthCheckerDetails{
-					Protocol: lo.ToPtr("HTTP"),
-					Port:     lo.ToPtr(rand.IntN(65535)),
-				},
+				service:        service,
 			}
 
-			wantBs := makeRandomOCIBackendSet()
+			wantBsName := ociBackendSetNameFromService(service)
 
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 
@@ -535,7 +531,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			workRequestID := faker.UUIDHyphenated()
 
 			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
-				BackendSetName: &params.name,
+				BackendSetName: &wantBsName,
 				LoadBalancerId: &params.loadBalancerID,
 			}).Return(
 				loadbalancer.GetBackendSetResponse{},
@@ -545,9 +541,12 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			ociLoadBalancerClient.EXPECT().CreateBackendSet(t.Context(), loadbalancer.CreateBackendSetRequest{
 				LoadBalancerId: &params.loadBalancerID,
 				CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
-					Name:          &params.name,
-					HealthChecker: params.healthChecker,
-					Policy:        lo.ToPtr("ROUND_ROBIN"),
+					Name: &wantBsName,
+					HealthChecker: &loadbalancer.HealthCheckerDetails{
+						Protocol: lo.ToPtr("TCP"),
+						Port:     lo.ToPtr(int(service.Spec.Ports[0].Port)),
+					},
+					Policy: lo.ToPtr("ROUND_ROBIN"),
 				},
 			}).Return(loadbalancer.CreateBackendSetResponse{
 				OpcWorkRequestId: &workRequestID,
@@ -555,121 +554,32 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
 
-			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
-				BackendSetName: &params.name,
-				LoadBalancerId: &params.loadBalancerID,
-			}).Return(loadbalancer.GetBackendSetResponse{
-				BackendSet: wantBs,
-			}, nil)
-
 			err := model.reconcileBackendSet(t.Context(), params)
 			require.NoError(t, err)
 		})
 
-		t.Run("fail when create backend set fails", func(t *testing.T) {
+		t.Run("do nothing if backend set exists", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 
+			service := makeRandomService()
+			wantBsName := ociBackendSetNameFromService(service)
+			exitingBs := makeRandomOCIBackendSet(func(bs *loadbalancer.BackendSet) {
+				bs.Name = lo.ToPtr(wantBsName)
+			})
+
 			params := reconcileBackendSetParams{
 				loadBalancerID: faker.UUIDHyphenated(),
-				name:           faker.UUIDHyphenated(),
-				healthChecker: &loadbalancer.HealthCheckerDetails{
-					Protocol: lo.ToPtr("HTTP"),
-					Port:     lo.ToPtr(rand.IntN(65535)),
-				},
+				service:        service,
 			}
 
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 
-			wantErr := errors.New(faker.Sentence())
-
 			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
-				BackendSetName: &params.name,
-				LoadBalancerId: &params.loadBalancerID,
-			}).Return(
-				loadbalancer.GetBackendSetResponse{},
-				ociapi.NewRandomServiceError(ociapi.RandomServiceErrorWithStatusCode(404)),
-			).Once()
-
-			ociLoadBalancerClient.EXPECT().CreateBackendSet(t.Context(), loadbalancer.CreateBackendSetRequest{
-				LoadBalancerId: &params.loadBalancerID,
-				CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
-					Name:          &params.name,
-					HealthChecker: params.healthChecker,
-					Policy:        lo.ToPtr("ROUND_ROBIN"),
-				},
-			}).Return(loadbalancer.CreateBackendSetResponse{}, wantErr)
-
-			err := model.reconcileBackendSet(t.Context(), params)
-			require.Error(t, err)
-			assert.ErrorIs(t, err, wantErr)
-		})
-
-		t.Run("fail when wait for backend set fails", func(t *testing.T) {
-			deps := makeMockDeps(t)
-			model := newOciLoadBalancerModel(deps)
-
-			params := reconcileBackendSetParams{
-				loadBalancerID: faker.UUIDHyphenated(),
-				name:           faker.UUIDHyphenated(),
-				healthChecker: &loadbalancer.HealthCheckerDetails{
-					Protocol: lo.ToPtr("HTTP"),
-					Port:     lo.ToPtr(rand.IntN(65535)),
-				},
-			}
-
-			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
-			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
-			workRequestID := faker.UUIDHyphenated()
-			wantErr := errors.New(faker.Sentence())
-
-			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
-				BackendSetName: &params.name,
-				LoadBalancerId: &params.loadBalancerID,
-			}).Return(
-				loadbalancer.GetBackendSetResponse{},
-				ociapi.NewRandomServiceError(ociapi.RandomServiceErrorWithStatusCode(404)),
-			).Once()
-
-			ociLoadBalancerClient.EXPECT().CreateBackendSet(t.Context(), loadbalancer.CreateBackendSetRequest{
-				LoadBalancerId: &params.loadBalancerID,
-				CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
-					Name:          &params.name,
-					HealthChecker: params.healthChecker,
-					Policy:        lo.ToPtr("ROUND_ROBIN"),
-				},
-			}).Return(loadbalancer.CreateBackendSetResponse{
-				OpcWorkRequestId: &workRequestID,
-			}, nil)
-
-			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(wantErr)
-
-			err := model.reconcileBackendSet(t.Context(), params)
-			require.Error(t, err)
-			assert.ErrorIs(t, err, wantErr)
-		})
-
-		t.Run("return existing backend set", func(t *testing.T) {
-			deps := makeMockDeps(t)
-			model := newOciLoadBalancerModel(deps)
-
-			params := reconcileBackendSetParams{
-				loadBalancerID: faker.UUIDHyphenated(),
-				name:           faker.UUIDHyphenated(),
-				healthChecker: &loadbalancer.HealthCheckerDetails{
-					Protocol: lo.ToPtr("HTTP"),
-					Port:     lo.ToPtr(rand.IntN(65535)),
-				},
-			}
-
-			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
-
-			wantBs := makeRandomOCIBackendSet()
-			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
-				BackendSetName: &params.name,
+				BackendSetName: &wantBsName,
 				LoadBalancerId: &params.loadBalancerID,
 			}).Return(loadbalancer.GetBackendSetResponse{
-				BackendSet: wantBs,
+				BackendSet: exitingBs,
 			}, nil)
 
 			err := model.reconcileBackendSet(t.Context(), params)
@@ -947,10 +857,22 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			model := newOciLoadBalancerModel(deps)
 			routingRulesMapper, _ := deps.RoutingRulesMapper.(*MockociLoadBalancerRoutingRulesMapper)
 
+			refs := []gatewayv1.HTTPBackendRef{
+				makeRandomBackendRef(),
+				makeRandomBackendRef(),
+				makeRandomBackendRef(),
+			}
+
 			httpRoute := makeRandomHTTPRoute(
-				randomHTTPRouteWithRulesOpt(makeRandomHTTPRouteRule(), makeRandomHTTPRouteRule()),
+				randomHTTPRouteWithRulesOpt(
+					makeRandomHTTPRouteRule(),
+					makeRandomHTTPRouteRule(),
+					makeRandomHTTPRouteRule(
+						randomHTTPRouteRuleWithRandomBackendRefsOpt(refs...),
+					),
+				),
 			)
-			ruleIndex := 1
+			ruleIndex := 2
 			existingRules := []loadbalancer.RoutingRule{
 				makeRandomOCIRoutingRule(),
 				makeRandomOCIRoutingRule(),
@@ -968,18 +890,20 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			).Return(expectedCondition, nil).Once()
 
 			expectedRuleName := ociListerPolicyRuleName(httpRoute, ruleIndex)
-			expectedBackendSetName := ociBackendSetName(httpRoute, ruleIndex)
+			expectedBackendSets := lo.Map(refs, func(ref gatewayv1.HTTPBackendRef, _ int) string {
+				return ociBackendSetNameFromBackendRef(httpRoute, ref)
+			})
 
 			wantRules := make([]loadbalancer.RoutingRule, 0, len(existingRules)+1)
 			wantRules = append(wantRules, existingRules...)
 			wantRules = append(wantRules, loadbalancer.RoutingRule{
 				Name:      lo.ToPtr(expectedRuleName),
 				Condition: lo.ToPtr(expectedCondition),
-				Actions: []loadbalancer.Action{
-					loadbalancer.ForwardToBackendSet{
-						BackendSetName: lo.ToPtr(expectedBackendSetName),
-					},
-				},
+				Actions: lo.Map(expectedBackendSets, func(backendSet string, _ int) loadbalancer.Action {
+					return loadbalancer.ForwardToBackendSet{
+						BackendSetName: lo.ToPtr(backendSet),
+					}
+				}),
 			})
 
 			actualRules, err := model.appendRoutingRule(t.Context(), params)
@@ -1231,128 +1155,96 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 	}
 }
 
-func Test_ociBackendSetName(t *testing.T) {
+func Test_ociBackendSetNameFromBackendRef(t *testing.T) {
 	type testCase struct {
-		name      string
-		route     gatewayv1.HTTPRoute
-		ruleIndex int
-		want      string
+		name       string
+		httpRoute  gatewayv1.HTTPRoute
+		backendRef gatewayv1.HTTPBackendRef
+		want       string
 	}
 
 	tests := []func() testCase{
 		func() testCase {
-			fewRules := []gatewayv1.HTTPRouteRule{
-				makeRandomHTTPRouteRule(),
-				makeRandomHTTPRouteRule(),
-				makeRandomHTTPRouteRule(),
-			}
-			index := rand.IntN(len(fewRules))
+			refName := faker.Username()
+			refNamespace := faker.Word() + "-ns"
+			httpRouteNs := faker.Word() + "-route-ns"
 
-			route := makeRandomHTTPRoute(
-				randomHTTPRouteWithRulesOpt(fewRules...),
-			)
-			return testCase{
-				name:      "unnamed rule",
-				route:     route,
-				ruleIndex: index,
-				want:      fmt.Sprintf("%s-r%04d", route.Name, index),
-			}
-		},
-		func() testCase {
-			fewRules := []gatewayv1.HTTPRouteRule{
-				makeRandomHTTPRouteRule(),
-				makeRandomHTTPRouteRule(),
-				makeRandomHTTPRouteRule(),
-			}
-			index := rand.IntN(len(fewRules))
-
-			longName := strings.Join(
-				[]string{
-					"route",
-					faker.UUIDDigit(),
-					faker.UUIDDigit(),
-					faker.UUIDDigit(),
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithNameOpt(faker.Username()+"-route"),
+				func(hr *gatewayv1.HTTPRoute) {
+					hr.Namespace = httpRouteNs
 				},
-				"",
-			)[:33]
-
-			route := makeRandomHTTPRoute(
-				randomHTTPRouteWithRulesOpt(fewRules...),
 			)
-			route.Name = longName
-			input := fmt.Sprintf("%s-r%04d", route.Name, index)
-			want := ociapi.ConstructOCIResourceName(input, ociapi.OCIResourceNameConfig{
-				MaxLength: 32,
-			})
-
-			return testCase{
-				name:      "unnamed rule with long name",
-				route:     route,
-				ruleIndex: index,
-				want:      want,
-			}
-		},
-		func() testCase {
-			ruleName := "rule-" + faker.Word()
-			fewRules := []gatewayv1.HTTPRouteRule{
-				makeRandomHTTPRouteRule(),
-				makeRandomHTTPRouteRule(),
-				makeRandomHTTPRouteRule(),
-			}
-			index := rand.IntN(len(fewRules))
-			fewRules[index].Name = lo.ToPtr(gatewayv1.SectionName(ruleName))
-
-			route := makeRandomHTTPRoute(
-				randomHTTPRouteWithRulesOpt(fewRules...),
-			)
-			return testCase{
-				name:      "named rule",
-				route:     route,
-				ruleIndex: index,
-				want:      fmt.Sprintf("%s-r%04d-%s", route.Name, index, ruleName),
-			}
-		},
-		func() testCase {
-			ruleName := faker.UUIDHyphenated()
-			fewRules := []gatewayv1.HTTPRouteRule{
-				makeRandomHTTPRouteRule(),
-				makeRandomHTTPRouteRule(),
-				makeRandomHTTPRouteRule(),
-			}
-			index := rand.IntN(len(fewRules))
-			fewRules[index].Name = lo.ToPtr(gatewayv1.SectionName(ruleName))
-
-			route := makeRandomHTTPRoute(
-				randomHTTPRouteWithRulesOpt(fewRules...),
-			)
-			longName := strings.Join(
-				[]string{
-					"route",
-					faker.UUIDDigit(),
-					faker.UUIDDigit(),
-					faker.UUIDDigit(),
+			backendRef := makeRandomBackendRef(
+				func(br *gatewayv1.HTTPBackendRef) {
+					br.Name = gatewayv1.ObjectName(refName)
+					br.Namespace = lo.ToPtr(gatewayv1.Namespace(refNamespace))
 				},
-				"",
-			)[:33]
-			route.Name = longName
-			input := fmt.Sprintf("%s-r%04d-%s", route.Name, index, ruleName)
-			want := ociapi.ConstructOCIResourceName(input, ociapi.OCIResourceNameConfig{
-				MaxLength: 32,
-			})
-
+			)
+			wantName := fmt.Sprintf("%s-%s", refNamespace, refName)
 			return testCase{
-				name:      "named rule with long name",
-				route:     route,
-				ruleIndex: index,
-				want:      want,
+				name:       "with namespace in backendRef",
+				httpRoute:  httpRoute,
+				backendRef: backendRef,
+				want: ociapi.ConstructOCIResourceName(wantName, ociapi.OCIResourceNameConfig{
+					MaxLength: maxBackendSetNameLength,
+				}),
+			}
+		},
+		func() testCase {
+			routeNs := faker.Word() + "-route-namespace"
+			refName := faker.Username() + "-svc"
+
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithNameOpt(faker.Username()+"-route"),
+				func(hr *gatewayv1.HTTPRoute) {
+					hr.Namespace = routeNs
+				},
+			)
+			backendRef := makeRandomBackendRef(
+				func(br *gatewayv1.HTTPBackendRef) {
+					br.Name = gatewayv1.ObjectName(refName)
+					br.Namespace = nil // No namespace in ref
+				},
+			)
+			wantName := fmt.Sprintf("%s-%s", routeNs, refName)
+			return testCase{
+				name:       "without namespace in backendRef, uses route namespace",
+				httpRoute:  httpRoute,
+				backendRef: backendRef,
+				want: ociapi.ConstructOCIResourceName(wantName, ociapi.OCIResourceNameConfig{
+					MaxLength: maxBackendSetNameLength,
+				}),
+			}
+		},
+		func() testCase {
+			longRefNs := faker.UUIDDigit()[0:16]
+			longRefName := faker.UUIDDigit()[0:16]
+
+			httpRoute := makeRandomHTTPRoute()
+			backendRef := makeRandomBackendRef(
+				func(br *gatewayv1.HTTPBackendRef) {
+					br.Name = gatewayv1.ObjectName(longRefName)
+					br.Namespace = lo.ToPtr(gatewayv1.Namespace(longRefNs))
+				},
+			)
+			originalName := fmt.Sprintf("%s-%s", longRefNs, longRefName)
+			assert.Greater(t, len(originalName), maxBackendSetNameLength)
+			return testCase{
+				name:       "long name truncated",
+				httpRoute:  httpRoute,
+				backendRef: backendRef,
+				want: ociapi.ConstructOCIResourceName(originalName, ociapi.OCIResourceNameConfig{
+					MaxLength: maxBackendSetNameLength,
+				}),
 			}
 		},
 	}
 
-	for _, tc := range tests {
-		tc := tc()
+	for _, tcFunc := range tests {
+		tc := tcFunc()
 		t.Run(tc.name, func(t *testing.T) {
-			got := ociBackendSetName(tc.route, tc.ruleIndex)
+			got := ociBackendSetNameFromBackendRef(tc.httpRoute, tc.backendRef)
 			assert.Equal(t, tc.want, got)
 		})
 	}
