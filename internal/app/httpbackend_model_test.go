@@ -37,8 +37,16 @@ func TestHTTPBackendModel(t *testing.T) {
 			model := newHTTPBackendModel(deps)
 
 			rules := []gatewayv1.HTTPRouteRule{
-				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt()),
-				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt()),
+				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(
+					makeRandomBackendRef(),
+					makeRandomBackendRef(),
+					makeRandomBackendRef(),
+				)),
+				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(
+					makeRandomBackendRef(),
+					makeRandomBackendRef(),
+					makeRandomBackendRef(),
+				)),
 			}
 
 			httpRoute := makeRandomHTTPRoute(
@@ -61,6 +69,81 @@ func TestHTTPBackendModel(t *testing.T) {
 						},
 					).Return(nil).Once()
 				}
+			}
+
+			err := model.syncRouteEndpoints(t.Context(), syncRouteEndpointsParams{
+				httpRoute: httpRoute,
+				config:    config,
+			})
+
+			assert.NoError(t, err)
+		})
+		t.Run("deduplicate backend refs", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPBackendModel(deps)
+
+			routeNs := faker.DomainName() + "-route-ns"
+			sameRefName := faker.DomainName() + "-same-name"
+			sameNameDefaultNs := faker.DomainName() + "-same-name-default-ns"
+
+			uniqueRefs := []gatewayv1.HTTPBackendRef{
+				// fully unique
+				makeRandomBackendRef(),
+				makeRandomBackendRef(),
+
+				// same name, different namespace
+				makeRandomBackendRef(
+					randomBackendRefWithNameOpt(sameRefName),
+				),
+				makeRandomBackendRef(
+					randomBackendRefWithNameOpt(sameRefName),
+				),
+			}
+
+			sameRefDefaultNsRef := makeRandomBackendRef(
+				randomBackendRefWithNameOpt(sameNameDefaultNs),
+				randomBackendRefWithNillNamespaceOpt(),
+			)
+			rule1Refs := append([]gatewayv1.HTTPBackendRef{
+				sameRefDefaultNsRef,
+			}, uniqueRefs...)
+
+			rule2Refs := append([]gatewayv1.HTTPBackendRef{
+				makeRandomBackendRef(
+					randomBackendRefWithNameOpt(sameNameDefaultNs),
+					randomBackendRefWithNamespaceOpt(routeNs),
+				),
+			}, uniqueRefs...)
+
+			rules := []gatewayv1.HTTPRouteRule{
+				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(rule1Refs...)),
+				makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(rule2Refs...)),
+			}
+
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithNamespaceOpt(routeNs),
+				randomHTTPRouteWithRulesOpt(rules...),
+			)
+
+			config := makeRandomGatewayConfig()
+
+			mockSelf, _ := deps.self.(*MockhttpBackendModel)
+
+			// Expect syncRouteBackendRefEndpoints to be called for distinct backend ref
+
+			wantDistinctRefs := append([]gatewayv1.HTTPBackendRef{
+				sameRefDefaultNsRef,
+			}, uniqueRefs...)
+
+			for _, ref := range wantDistinctRefs {
+				mockSelf.EXPECT().syncRouteBackendRefEndpoints(
+					t.Context(),
+					syncRouteBackendRefEndpointsParams{
+						httpRoute:  httpRoute,
+						config:     config,
+						backendRef: ref,
+					},
+				).Return(nil).Once()
 			}
 
 			err := model.syncRouteEndpoints(t.Context(), syncRouteEndpointsParams{

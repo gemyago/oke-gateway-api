@@ -75,9 +75,21 @@ func (m *httpBackendModelImpl) syncRouteEndpoints(
 		slog.String("config", params.config.Name),
 	)
 
-	// TODO: Dedup backendRefs within the same route
+	processedBackendRefs := make(map[string]bool)
+
 	for index, rule := range params.httpRoute.Spec.Rules {
 		for _, backendRef := range rule.BackendRefs {
+			refNamespace := lo.Ternary(
+				backendRef.Namespace != nil,
+				string(lo.FromPtr(backendRef.Namespace)),
+				params.httpRoute.Namespace,
+			)
+			refKey := refNamespace + "/" + string(backendRef.Name)
+
+			if _, ok := processedBackendRefs[refKey]; ok {
+				continue
+			}
+
 			if err := m.self.syncRouteBackendRefEndpoints(ctx, syncRouteBackendRefEndpointsParams{
 				httpRoute:  params.httpRoute,
 				config:     params.config,
@@ -85,6 +97,7 @@ func (m *httpBackendModelImpl) syncRouteEndpoints(
 			}); err != nil {
 				return fmt.Errorf("failed to sync route backend endpoints for rule %d: %w", index, err)
 			}
+			processedBackendRefs[refKey] = true
 		}
 	}
 

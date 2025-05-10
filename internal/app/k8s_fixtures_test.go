@@ -163,6 +163,12 @@ func randomHTTPRouteWithNameOpt(name string) randomHTTPRouteOpt {
 	}
 }
 
+func randomHTTPRouteWithNamespaceOpt(namespace string) randomHTTPRouteOpt {
+	return func(route *gatewayv1.HTTPRoute) {
+		route.Namespace = namespace
+	}
+}
+
 func randomHTTPRouteWithRandomParentRefOpt(ref gatewayv1.ParentReference) randomHTTPRouteOpt {
 	return func(route *gatewayv1.HTTPRoute) {
 		route.Spec.ParentRefs = append(route.Spec.ParentRefs, ref)
@@ -242,6 +248,18 @@ func makeRandomBackendRef(
 func randomBackendRefWithNillNamespaceOpt() randomBackendRefOpt {
 	return func(ref *gatewayv1.HTTPBackendRef) {
 		ref.BackendObjectReference.Namespace = nil
+	}
+}
+
+func randomBackendRefWithNameOpt(name string) randomBackendRefOpt {
+	return func(ref *gatewayv1.HTTPBackendRef) {
+		ref.BackendObjectReference.Name = gatewayv1.ObjectName(name)
+	}
+}
+
+func randomBackendRefWithNamespaceOpt(namespace string) randomBackendRefOpt {
+	return func(ref *gatewayv1.HTTPBackendRef) {
+		ref.BackendObjectReference.Namespace = lo.ToPtr(gatewayv1.Namespace(namespace))
 	}
 }
 
