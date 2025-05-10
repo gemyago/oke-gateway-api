@@ -63,7 +63,7 @@ func TestHTTPBackendModel(t *testing.T) {
 				}
 			}
 
-			err := model.syncRouteBackendRefsEndpoints(t.Context(), syncRouteBackendRefsEndpointsParams{
+			err := model.syncRouteEndpoints(t.Context(), syncRouteEndpointsParams{
 				httpRoute: httpRoute,
 				config:    config,
 			})
@@ -110,7 +110,7 @@ func TestHTTPBackendModel(t *testing.T) {
 				},
 			).Return(expectedErr).Once()
 
-			err := model.syncRouteBackendRefsEndpoints(t.Context(), syncRouteBackendRefsEndpointsParams{
+			err := model.syncRouteEndpoints(t.Context(), syncRouteEndpointsParams{
 				httpRoute: httpRoute,
 				config:    config,
 			})

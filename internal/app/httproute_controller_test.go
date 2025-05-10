@@ -24,504 +24,510 @@ func TestHTTPRouteController(t *testing.T) {
 		}
 	}
 
-	t.Run("RelevantRoute", func(t *testing.T) {
-		deps := newMockDeps(t)
-		controller := NewHTTPRouteController(deps)
+	t.Run("Reconcile", func(t *testing.T) {
 
-		req := reconcile.Request{
-			NamespacedName: client.ObjectKey{
-				Namespace: faker.DomainName(), // Use faker for random namespace
-				Name:      faker.Word(),       // Use faker for random name
-			},
-		}
+		t.Run("RelevantRoute", func(t *testing.T) {
+			deps := newMockDeps(t)
+			controller := NewHTTPRouteController(deps)
 
-		wantResolvedData := resolvedRouteDetails{
-			httpRoute: makeRandomHTTPRoute(),
-			gatewayDetails: resolvedGatewayDetails{
-				gateway: *newRandomGateway(),
-				config:  makeRandomGatewayConfig(),
-			},
-		}
-
-		wantBackendRefs := make(map[string]v1.Service)
-		for range 3 {
-			svc := makeRandomService()
-			fullName := types.NamespacedName{
-				Namespace: svc.Namespace,
-				Name:      svc.Name,
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: faker.DomainName(), // Use faker for random namespace
+					Name:      faker.Word(),       // Use faker for random name
+				},
 			}
-			wantBackendRefs[fullName.String()] = svc
-		}
 
-		mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
-		mockModel.EXPECT().resolveRequest(
-			t.Context(),
-			req,
-		).Return(map[types.NamespacedName]resolvedRouteDetails{
-			req.NamespacedName: wantResolvedData,
-		}, (error)(nil))
-
-		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
-
-		wantAcceptedRoute := makeRandomHTTPRoute()
-
-		mockModel.EXPECT().acceptRoute(
-			t.Context(),
-			wantResolvedData,
-		).Return(&wantAcceptedRoute, nil)
-
-		mockModel.EXPECT().resolveBackendRefs(
-			t.Context(),
-			resolveBackendRefsParams{
-				httpRoute: wantAcceptedRoute,
-			},
-		).Return(wantBackendRefs, nil)
-
-		mockModel.EXPECT().programRoute(
-			t.Context(),
-			programRouteParams{
-				gateway:   wantResolvedData.gatewayDetails.gateway,
-				config:    wantResolvedData.gatewayDetails.config,
-				httpRoute: wantAcceptedRoute,
-			},
-		).Return(nil)
-
-		mockModel.EXPECT().setProgrammed(
-			t.Context(),
-			setProgrammedParams{
-				gatewayClass: wantResolvedData.gatewayDetails.gatewayClass,
-				gateway:      wantResolvedData.gatewayDetails.gateway,
-				httpRoute:    wantAcceptedRoute,
-				matchedRef:   wantResolvedData.matchedRef,
-			},
-		).Return(nil)
-
-		mockBackendModel, _ := deps.HTTPBackendModel.(*MockhttpBackendModel)
-		mockBackendModel.EXPECT().syncRouteBackendEndpoints(
-			t.Context(),
-			syncRouteBackendEndpointsParams{
-				httpRoute: wantResolvedData.httpRoute,
-				config:    wantResolvedData.gatewayDetails.config,
-			},
-		).Return(nil)
-
-		result, err := controller.Reconcile(t.Context(), req)
-
-		require.NoError(t, err)
-		assert.Equal(t, reconcile.Result{}, result)
-	})
-
-	t.Run("IrrelevantRoute", func(t *testing.T) {
-		deps := newMockDeps(t)
-		controller := NewHTTPRouteController(deps)
-
-		req := reconcile.Request{
-			NamespacedName: client.ObjectKey{
-				Namespace: faker.DomainName(),
-				Name:      faker.Word(),
-			},
-		}
-
-		mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
-		mockModel.EXPECT().resolveRequest(
-			t.Context(),
-			req,
-		).Return(map[types.NamespacedName]resolvedRouteDetails{}, (error)(nil))
-
-		result, err := controller.Reconcile(t.Context(), req)
-
-		require.NoError(t, err)
-		assert.Equal(t, reconcile.Result{}, result)
-	})
-
-	t.Run("ResolveRequestError", func(t *testing.T) {
-		deps := newMockDeps(t)
-		controller := NewHTTPRouteController(deps)
-
-		req := reconcile.Request{
-			NamespacedName: client.ObjectKey{
-				Namespace: faker.DomainName(),
-				Name:      faker.Word(),
-			},
-		}
-
-		mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
-		wantErr := fmt.Errorf("resolve error: %s", faker.Sentence())
-		mockModel.EXPECT().resolveRequest(
-			t.Context(),
-			req,
-		).Return((map[types.NamespacedName]resolvedRouteDetails)(nil), wantErr)
-
-		result, err := controller.Reconcile(t.Context(), req)
-
-		require.ErrorIs(t, err, wantErr)
-		assert.Equal(t, reconcile.Result{}, result)
-	})
-
-	t.Run("AcceptRouteError", func(t *testing.T) {
-		deps := newMockDeps(t)
-		controller := NewHTTPRouteController(deps)
-
-		req := reconcile.Request{
-			NamespacedName: client.ObjectKey{
-				Namespace: faker.DomainName(),
-				Name:      faker.Word(),
-			},
-		}
-
-		wantResolvedData := resolvedRouteDetails{
-			httpRoute: makeRandomHTTPRoute(),
-			gatewayDetails: resolvedGatewayDetails{
-				gateway: *newRandomGateway(),
-				config:  makeRandomGatewayConfig(),
-			},
-		}
-
-		mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
-		mockModel.EXPECT().resolveRequest(
-			t.Context(),
-			req,
-		).Return(map[types.NamespacedName]resolvedRouteDetails{
-			req.NamespacedName: wantResolvedData,
-		}, (error)(nil))
-
-		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
-
-		wantErr := fmt.Errorf("accept error: %s", faker.Sentence())
-		mockModel.EXPECT().acceptRoute(
-			t.Context(),
-			wantResolvedData,
-		).Return(nil, wantErr)
-
-		result, err := controller.Reconcile(t.Context(), req)
-
-		require.ErrorIs(t, err, wantErr)
-		assert.Equal(t, reconcile.Result{}, result)
-	})
-
-	t.Run("ResolveBackendRefsError", func(t *testing.T) {
-		deps := newMockDeps(t)
-		controller := NewHTTPRouteController(deps)
-
-		req := reconcile.Request{
-			NamespacedName: client.ObjectKey{
-				Namespace: faker.DomainName(),
-				Name:      faker.Word(),
-			},
-		}
-
-		wantResolvedData := resolvedRouteDetails{
-			httpRoute: makeRandomHTTPRoute(),
-			gatewayDetails: resolvedGatewayDetails{
-				gateway: *newRandomGateway(),
-				config:  makeRandomGatewayConfig(),
-			},
-		}
-
-		mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
-		mockModel.EXPECT().resolveRequest(
-			t.Context(),
-			req,
-		).Return(map[types.NamespacedName]resolvedRouteDetails{
-			req.NamespacedName: wantResolvedData,
-		}, (error)(nil))
-
-		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
-
-		wantAcceptedRoute := makeRandomHTTPRoute()
-		mockModel.EXPECT().acceptRoute(
-			t.Context(),
-			wantResolvedData,
-		).Return(&wantAcceptedRoute, nil)
-
-		wantErr := fmt.Errorf("resolve backend refs error: %s", faker.Sentence())
-		mockModel.EXPECT().resolveBackendRefs(
-			t.Context(),
-			resolveBackendRefsParams{
-				httpRoute: wantAcceptedRoute,
-			},
-		).Return(nil, wantErr)
-
-		result, err := controller.Reconcile(t.Context(), req)
-
-		require.ErrorIs(t, err, wantErr)
-		assert.Equal(t, reconcile.Result{}, result)
-	})
-
-	t.Run("ProgramRouteError", func(t *testing.T) {
-		deps := newMockDeps(t)
-		controller := NewHTTPRouteController(deps)
-
-		req := reconcile.Request{
-			NamespacedName: client.ObjectKey{
-				Namespace: faker.DomainName(),
-				Name:      faker.Word(),
-			},
-		}
-
-		wantResolvedData := resolvedRouteDetails{
-			httpRoute: makeRandomHTTPRoute(),
-			gatewayDetails: resolvedGatewayDetails{
-				gateway: *newRandomGateway(),
-				config:  makeRandomGatewayConfig(),
-			},
-		}
-
-		wantBackendRefs := make(map[string]v1.Service)
-		for range 3 {
-			svc := makeRandomService()
-			fullName := types.NamespacedName{
-				Namespace: svc.Namespace,
-				Name:      svc.Name,
+			wantResolvedData := resolvedRouteDetails{
+				httpRoute: makeRandomHTTPRoute(),
+				gatewayDetails: resolvedGatewayDetails{
+					gateway: *newRandomGateway(),
+					config:  makeRandomGatewayConfig(),
+				},
 			}
-			wantBackendRefs[fullName.String()] = svc
-		}
 
-		mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
-		mockModel.EXPECT().resolveRequest(
-			t.Context(),
-			req,
-		).Return(map[types.NamespacedName]resolvedRouteDetails{
-			req.NamespacedName: wantResolvedData,
-		}, (error)(nil))
-
-		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
-
-		wantAcceptedRoute := makeRandomHTTPRoute()
-		mockModel.EXPECT().acceptRoute(
-			t.Context(),
-			wantResolvedData,
-		).Return(&wantAcceptedRoute, nil)
-
-		mockModel.EXPECT().resolveBackendRefs(
-			t.Context(),
-			resolveBackendRefsParams{
-				httpRoute: wantAcceptedRoute,
-			},
-		).Return(wantBackendRefs, nil)
-
-		wantErr := fmt.Errorf("program route error: %s", faker.Sentence())
-		mockModel.EXPECT().programRoute(
-			t.Context(),
-			programRouteParams{
-				gateway:   wantResolvedData.gatewayDetails.gateway,
-				config:    wantResolvedData.gatewayDetails.config,
-				httpRoute: wantAcceptedRoute,
-			},
-		).Return(wantErr)
-
-		result, err := controller.Reconcile(t.Context(), req)
-
-		require.ErrorIs(t, err, wantErr)
-		assert.Equal(t, reconcile.Result{}, result)
-	})
-
-	t.Run("ProgrammingNotRequired", func(t *testing.T) {
-		deps := newMockDeps(t)
-		controller := NewHTTPRouteController(deps)
-
-		req := reconcile.Request{
-			NamespacedName: client.ObjectKey{
-				Namespace: faker.DomainName(),
-				Name:      faker.Word(),
-			},
-		}
-
-		wantResolvedData := resolvedRouteDetails{
-			httpRoute: makeRandomHTTPRoute(),
-			gatewayDetails: resolvedGatewayDetails{
-				gateway: *newRandomGateway(),
-				config:  makeRandomGatewayConfig(),
-			},
-		}
-
-		mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
-		mockModel.EXPECT().resolveRequest(
-			t.Context(),
-			req,
-		).Return(map[types.NamespacedName]resolvedRouteDetails{
-			req.NamespacedName: wantResolvedData,
-		}, (error)(nil))
-
-		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, nil)
-
-		mockBackendModel, _ := deps.HTTPBackendModel.(*MockhttpBackendModel)
-		mockBackendModel.EXPECT().syncRouteBackendEndpoints(
-			t.Context(),
-			syncRouteBackendEndpointsParams{
-				httpRoute: wantResolvedData.httpRoute,
-				config:    wantResolvedData.gatewayDetails.config,
-			},
-		).Return(nil)
-
-		result, err := controller.Reconcile(t.Context(), req)
-
-		mockModel.AssertNotCalled(t, "acceptRoute", mock.Anything, mock.Anything)
-		mockModel.AssertNotCalled(t, "resolveBackendRefs", mock.Anything, mock.Anything)
-		mockModel.AssertNotCalled(t, "programRoute", mock.Anything, mock.Anything)
-
-		require.NoError(t, err)
-		assert.Equal(t, reconcile.Result{}, result)
-	})
-
-	t.Run("SetProgrammedError", func(t *testing.T) {
-		deps := newMockDeps(t)
-		controller := NewHTTPRouteController(deps)
-
-		req := reconcile.Request{
-			NamespacedName: client.ObjectKey{
-				Namespace: faker.DomainName(), // Use faker for random namespace
-				Name:      faker.Word(),       // Use faker for random name
-			},
-		}
-
-		wantResolvedData := resolvedRouteDetails{
-			httpRoute: makeRandomHTTPRoute(),
-			gatewayDetails: resolvedGatewayDetails{
-				gateway: *newRandomGateway(),
-				config:  makeRandomGatewayConfig(),
-			},
-		}
-
-		wantBackendRefs := make(map[string]v1.Service)
-		for range 3 {
-			svc := makeRandomService()
-			fullName := types.NamespacedName{
-				Namespace: svc.Namespace,
-				Name:      svc.Name,
+			wantBackends := make(map[string]v1.Service)
+			for range 3 {
+				svc := makeRandomService()
+				fullName := types.NamespacedName{
+					Namespace: svc.Namespace,
+					Name:      svc.Name,
+				}
+				wantBackends[fullName.String()] = svc
 			}
-			wantBackendRefs[fullName.String()] = svc
-		}
 
-		mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
-		mockModel.EXPECT().resolveRequest(
-			t.Context(),
-			req,
-		).Return(map[types.NamespacedName]resolvedRouteDetails{
-			req.NamespacedName: wantResolvedData,
-		}, (error)(nil))
+			mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+			mockModel.EXPECT().resolveRequest(
+				t.Context(),
+				req,
+			).Return(map[types.NamespacedName]resolvedRouteDetails{
+				req.NamespacedName: wantResolvedData,
+			}, (error)(nil))
 
-		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
+			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
 
-		wantAcceptedRoute := makeRandomHTTPRoute()
+			wantAcceptedRoute := makeRandomHTTPRoute()
 
-		mockModel.EXPECT().acceptRoute(
-			t.Context(),
-			wantResolvedData,
-		).Return(&wantAcceptedRoute, nil)
+			mockModel.EXPECT().acceptRoute(
+				t.Context(),
+				wantResolvedData,
+			).Return(&wantAcceptedRoute, nil)
 
-		mockModel.EXPECT().resolveBackendRefs(
-			t.Context(),
-			resolveBackendRefsParams{
-				httpRoute: wantAcceptedRoute,
-			},
-		).Return(wantBackendRefs, nil)
+			mockModel.EXPECT().resolveBackendRefs(
+				t.Context(),
+				resolveBackendRefsParams{
+					httpRoute: wantAcceptedRoute,
+				},
+			).Return(wantBackends, nil)
 
-		mockModel.EXPECT().programRoute(
-			t.Context(),
-			programRouteParams{
-				gateway:   wantResolvedData.gatewayDetails.gateway,
-				config:    wantResolvedData.gatewayDetails.config,
-				httpRoute: wantAcceptedRoute,
-			},
-		).Return(nil)
+			mockModel.EXPECT().programRoute(
+				t.Context(),
+				programRouteParams{
+					gateway:       wantResolvedData.gatewayDetails.gateway,
+					config:        wantResolvedData.gatewayDetails.config,
+					httpRoute:     wantAcceptedRoute,
+					knownBackends: wantBackends,
+				},
+			).Return(nil)
 
-		wantErr := fmt.Errorf("set programmed error: %s", faker.Sentence())
-		mockModel.EXPECT().setProgrammed(
-			t.Context(),
-			setProgrammedParams{
-				gatewayClass: wantResolvedData.gatewayDetails.gatewayClass,
-				gateway:      wantResolvedData.gatewayDetails.gateway,
-				httpRoute:    wantAcceptedRoute,
-				matchedRef:   wantResolvedData.matchedRef,
-			},
-		).Return(wantErr)
+			mockModel.EXPECT().setProgrammed(
+				t.Context(),
+				setProgrammedParams{
+					gatewayClass: wantResolvedData.gatewayDetails.gatewayClass,
+					gateway:      wantResolvedData.gatewayDetails.gateway,
+					httpRoute:    wantAcceptedRoute,
+					matchedRef:   wantResolvedData.matchedRef,
+				},
+			).Return(nil)
 
-		result, err := controller.Reconcile(t.Context(), req)
+			mockBackendModel, _ := deps.HTTPBackendModel.(*MockhttpBackendModel)
+			mockBackendModel.EXPECT().syncRouteEndpoints(
+				t.Context(),
+				syncRouteEndpointsParams{
+					httpRoute: wantResolvedData.httpRoute,
+					config:    wantResolvedData.gatewayDetails.config,
+				},
+			).Return(nil)
 
-		require.ErrorIs(t, err, wantErr)
-		assert.Equal(t, reconcile.Result{}, result)
-	})
+			result, err := controller.Reconcile(t.Context(), req)
 
-	t.Run("IsProgrammingRequiredError", func(t *testing.T) {
-		deps := newMockDeps(t)
-		controller := NewHTTPRouteController(deps)
+			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
 
-		req := reconcile.Request{
-			NamespacedName: client.ObjectKey{
-				Namespace: faker.DomainName(),
-				Name:      faker.Word(),
-			},
-		}
+		t.Run("IrrelevantRoute", func(t *testing.T) {
+			deps := newMockDeps(t)
+			controller := NewHTTPRouteController(deps)
 
-		wantResolvedData := resolvedRouteDetails{
-			httpRoute: makeRandomHTTPRoute(),
-			gatewayDetails: resolvedGatewayDetails{
-				gateway: *newRandomGateway(),
-				config:  makeRandomGatewayConfig(),
-			},
-		}
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: faker.DomainName(),
+					Name:      faker.Word(),
+				},
+			}
 
-		mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
-		mockModel.EXPECT().resolveRequest(
-			t.Context(),
-			req,
-		).Return(map[types.NamespacedName]resolvedRouteDetails{
-			req.NamespacedName: wantResolvedData,
-		}, (error)(nil))
+			mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+			mockModel.EXPECT().resolveRequest(
+				t.Context(),
+				req,
+			).Return(map[types.NamespacedName]resolvedRouteDetails{}, (error)(nil))
 
-		wantErr := fmt.Errorf("is programming required error: %s", faker.Sentence())
-		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, wantErr)
+			result, err := controller.Reconcile(t.Context(), req)
 
-		result, err := controller.Reconcile(t.Context(), req)
+			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
 
-		require.ErrorIs(t, err, wantErr)
-		assert.Equal(t, reconcile.Result{}, result)
-	})
+		t.Run("ResolveRequestError", func(t *testing.T) {
+			deps := newMockDeps(t)
+			controller := NewHTTPRouteController(deps)
 
-	t.Run("SyncRouteBackendEndpointsError", func(t *testing.T) {
-		deps := newMockDeps(t)
-		controller := NewHTTPRouteController(deps)
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: faker.DomainName(),
+					Name:      faker.Word(),
+				},
+			}
 
-		req := reconcile.Request{
-			NamespacedName: client.ObjectKey{
-				Namespace: faker.DomainName(),
-				Name:      faker.Word(),
-			},
-		}
+			mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+			wantErr := fmt.Errorf("resolve error: %s", faker.Sentence())
+			mockModel.EXPECT().resolveRequest(
+				t.Context(),
+				req,
+			).Return((map[types.NamespacedName]resolvedRouteDetails)(nil), wantErr)
 
-		wantResolvedData := resolvedRouteDetails{
-			httpRoute: makeRandomHTTPRoute(),
-			gatewayDetails: resolvedGatewayDetails{
-				gateway: *newRandomGateway(),
-				config:  makeRandomGatewayConfig(),
-			},
-		}
+			result, err := controller.Reconcile(t.Context(), req)
 
-		mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
-		mockModel.EXPECT().resolveRequest(
-			t.Context(),
-			req,
-		).Return(map[types.NamespacedName]resolvedRouteDetails{
-			req.NamespacedName: wantResolvedData,
-		}, (error)(nil))
+			require.ErrorIs(t, err, wantErr)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
 
-		// Assume programming is not required to isolate the sync error
-		mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, nil)
+		t.Run("AcceptRouteError", func(t *testing.T) {
+			deps := newMockDeps(t)
+			controller := NewHTTPRouteController(deps)
 
-		mockBackendModel, _ := deps.HTTPBackendModel.(*MockhttpBackendModel)
-		wantErr := fmt.Errorf("sync error: %s", faker.Sentence())
-		mockBackendModel.EXPECT().syncRouteBackendEndpoints(
-			t.Context(),
-			syncRouteBackendEndpointsParams{
-				httpRoute: wantResolvedData.httpRoute,
-				config:    wantResolvedData.gatewayDetails.config,
-			},
-		).Return(wantErr)
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: faker.DomainName(),
+					Name:      faker.Word(),
+				},
+			}
 
-		result, err := controller.Reconcile(t.Context(), req)
+			wantResolvedData := resolvedRouteDetails{
+				httpRoute: makeRandomHTTPRoute(),
+				gatewayDetails: resolvedGatewayDetails{
+					gateway: *newRandomGateway(),
+					config:  makeRandomGatewayConfig(),
+				},
+			}
 
-		require.ErrorIs(t, err, wantErr)
-		assert.Equal(t, reconcile.Result{}, result)
+			mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+			mockModel.EXPECT().resolveRequest(
+				t.Context(),
+				req,
+			).Return(map[types.NamespacedName]resolvedRouteDetails{
+				req.NamespacedName: wantResolvedData,
+			}, (error)(nil))
+
+			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
+
+			wantErr := fmt.Errorf("accept error: %s", faker.Sentence())
+			mockModel.EXPECT().acceptRoute(
+				t.Context(),
+				wantResolvedData,
+			).Return(nil, wantErr)
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.ErrorIs(t, err, wantErr)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("ResolveBackendRefsError", func(t *testing.T) {
+			deps := newMockDeps(t)
+			controller := NewHTTPRouteController(deps)
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: faker.DomainName(),
+					Name:      faker.Word(),
+				},
+			}
+
+			wantResolvedData := resolvedRouteDetails{
+				httpRoute: makeRandomHTTPRoute(),
+				gatewayDetails: resolvedGatewayDetails{
+					gateway: *newRandomGateway(),
+					config:  makeRandomGatewayConfig(),
+				},
+			}
+
+			mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+			mockModel.EXPECT().resolveRequest(
+				t.Context(),
+				req,
+			).Return(map[types.NamespacedName]resolvedRouteDetails{
+				req.NamespacedName: wantResolvedData,
+			}, (error)(nil))
+
+			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
+
+			wantAcceptedRoute := makeRandomHTTPRoute()
+			mockModel.EXPECT().acceptRoute(
+				t.Context(),
+				wantResolvedData,
+			).Return(&wantAcceptedRoute, nil)
+
+			wantErr := fmt.Errorf("resolve backend refs error: %s", faker.Sentence())
+			mockModel.EXPECT().resolveBackendRefs(
+				t.Context(),
+				resolveBackendRefsParams{
+					httpRoute: wantAcceptedRoute,
+				},
+			).Return(nil, wantErr)
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.ErrorIs(t, err, wantErr)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("ProgramRouteError", func(t *testing.T) {
+			deps := newMockDeps(t)
+			controller := NewHTTPRouteController(deps)
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: faker.DomainName(),
+					Name:      faker.Word(),
+				},
+			}
+
+			wantResolvedData := resolvedRouteDetails{
+				httpRoute: makeRandomHTTPRoute(),
+				gatewayDetails: resolvedGatewayDetails{
+					gateway: *newRandomGateway(),
+					config:  makeRandomGatewayConfig(),
+				},
+			}
+
+			wantBackendRefs := make(map[string]v1.Service)
+			for range 3 {
+				svc := makeRandomService()
+				fullName := types.NamespacedName{
+					Namespace: svc.Namespace,
+					Name:      svc.Name,
+				}
+				wantBackendRefs[fullName.String()] = svc
+			}
+
+			mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+			mockModel.EXPECT().resolveRequest(
+				t.Context(),
+				req,
+			).Return(map[types.NamespacedName]resolvedRouteDetails{
+				req.NamespacedName: wantResolvedData,
+			}, (error)(nil))
+
+			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
+
+			wantAcceptedRoute := makeRandomHTTPRoute()
+			mockModel.EXPECT().acceptRoute(
+				t.Context(),
+				wantResolvedData,
+			).Return(&wantAcceptedRoute, nil)
+
+			mockModel.EXPECT().resolveBackendRefs(
+				t.Context(),
+				resolveBackendRefsParams{
+					httpRoute: wantAcceptedRoute,
+				},
+			).Return(wantBackendRefs, nil)
+
+			wantErr := fmt.Errorf("program route error: %s", faker.Sentence())
+			mockModel.EXPECT().programRoute(
+				t.Context(),
+				programRouteParams{
+					gateway:       wantResolvedData.gatewayDetails.gateway,
+					config:        wantResolvedData.gatewayDetails.config,
+					httpRoute:     wantAcceptedRoute,
+					knownBackends: wantBackendRefs,
+				},
+			).Return(wantErr)
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.ErrorIs(t, err, wantErr)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("ProgrammingNotRequired", func(t *testing.T) {
+			deps := newMockDeps(t)
+			controller := NewHTTPRouteController(deps)
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: faker.DomainName(),
+					Name:      faker.Word(),
+				},
+			}
+
+			wantResolvedData := resolvedRouteDetails{
+				httpRoute: makeRandomHTTPRoute(),
+				gatewayDetails: resolvedGatewayDetails{
+					gateway: *newRandomGateway(),
+					config:  makeRandomGatewayConfig(),
+				},
+			}
+
+			mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+			mockModel.EXPECT().resolveRequest(
+				t.Context(),
+				req,
+			).Return(map[types.NamespacedName]resolvedRouteDetails{
+				req.NamespacedName: wantResolvedData,
+			}, (error)(nil))
+
+			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, nil)
+
+			mockBackendModel, _ := deps.HTTPBackendModel.(*MockhttpBackendModel)
+			mockBackendModel.EXPECT().syncRouteEndpoints(
+				t.Context(),
+				syncRouteEndpointsParams{
+					httpRoute: wantResolvedData.httpRoute,
+					config:    wantResolvedData.gatewayDetails.config,
+				},
+			).Return(nil)
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			mockModel.AssertNotCalled(t, "acceptRoute", mock.Anything, mock.Anything)
+			mockModel.AssertNotCalled(t, "resolveBackendRefs", mock.Anything, mock.Anything)
+			mockModel.AssertNotCalled(t, "programRoute", mock.Anything, mock.Anything)
+
+			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("SetProgrammedError", func(t *testing.T) {
+			deps := newMockDeps(t)
+			controller := NewHTTPRouteController(deps)
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: faker.DomainName(), // Use faker for random namespace
+					Name:      faker.Word(),       // Use faker for random name
+				},
+			}
+
+			wantResolvedData := resolvedRouteDetails{
+				httpRoute: makeRandomHTTPRoute(),
+				gatewayDetails: resolvedGatewayDetails{
+					gateway: *newRandomGateway(),
+					config:  makeRandomGatewayConfig(),
+				},
+			}
+
+			wantBackendRefs := make(map[string]v1.Service)
+			for range 3 {
+				svc := makeRandomService()
+				fullName := types.NamespacedName{
+					Namespace: svc.Namespace,
+					Name:      svc.Name,
+				}
+				wantBackendRefs[fullName.String()] = svc
+			}
+
+			mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+			mockModel.EXPECT().resolveRequest(
+				t.Context(),
+				req,
+			).Return(map[types.NamespacedName]resolvedRouteDetails{
+				req.NamespacedName: wantResolvedData,
+			}, (error)(nil))
+
+			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
+
+			wantAcceptedRoute := makeRandomHTTPRoute()
+
+			mockModel.EXPECT().acceptRoute(
+				t.Context(),
+				wantResolvedData,
+			).Return(&wantAcceptedRoute, nil)
+
+			mockModel.EXPECT().resolveBackendRefs(
+				t.Context(),
+				resolveBackendRefsParams{
+					httpRoute: wantAcceptedRoute,
+				},
+			).Return(wantBackendRefs, nil)
+
+			mockModel.EXPECT().programRoute(
+				t.Context(),
+				programRouteParams{
+					gateway:       wantResolvedData.gatewayDetails.gateway,
+					config:        wantResolvedData.gatewayDetails.config,
+					httpRoute:     wantAcceptedRoute,
+					knownBackends: wantBackendRefs,
+				},
+			).Return(nil)
+
+			wantErr := fmt.Errorf("set programmed error: %s", faker.Sentence())
+			mockModel.EXPECT().setProgrammed(
+				t.Context(),
+				setProgrammedParams{
+					gatewayClass: wantResolvedData.gatewayDetails.gatewayClass,
+					gateway:      wantResolvedData.gatewayDetails.gateway,
+					httpRoute:    wantAcceptedRoute,
+					matchedRef:   wantResolvedData.matchedRef,
+				},
+			).Return(wantErr)
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.ErrorIs(t, err, wantErr)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("IsProgrammingRequiredError", func(t *testing.T) {
+			deps := newMockDeps(t)
+			controller := NewHTTPRouteController(deps)
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: faker.DomainName(),
+					Name:      faker.Word(),
+				},
+			}
+
+			wantResolvedData := resolvedRouteDetails{
+				httpRoute: makeRandomHTTPRoute(),
+				gatewayDetails: resolvedGatewayDetails{
+					gateway: *newRandomGateway(),
+					config:  makeRandomGatewayConfig(),
+				},
+			}
+
+			mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+			mockModel.EXPECT().resolveRequest(
+				t.Context(),
+				req,
+			).Return(map[types.NamespacedName]resolvedRouteDetails{
+				req.NamespacedName: wantResolvedData,
+			}, (error)(nil))
+
+			wantErr := fmt.Errorf("is programming required error: %s", faker.Sentence())
+			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, wantErr)
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.ErrorIs(t, err, wantErr)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("syncRouteEndpError", func(t *testing.T) {
+			deps := newMockDeps(t)
+			controller := NewHTTPRouteController(deps)
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: faker.DomainName(),
+					Name:      faker.Word(),
+				},
+			}
+
+			wantResolvedData := resolvedRouteDetails{
+				httpRoute: makeRandomHTTPRoute(),
+				gatewayDetails: resolvedGatewayDetails{
+					gateway: *newRandomGateway(),
+					config:  makeRandomGatewayConfig(),
+				},
+			}
+
+			mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+			mockModel.EXPECT().resolveRequest(
+				t.Context(),
+				req,
+			).Return(map[types.NamespacedName]resolvedRouteDetails{
+				req.NamespacedName: wantResolvedData,
+			}, (error)(nil))
+
+			// Assume programming is not required to isolate the sync error
+			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, nil)
+
+			mockBackendModel, _ := deps.HTTPBackendModel.(*MockhttpBackendModel)
+			wantErr := fmt.Errorf("sync error: %s", faker.Sentence())
+			mockBackendModel.EXPECT().syncRouteEndpoints(
+				t.Context(),
+				syncRouteEndpointsParams{
+					httpRoute: wantResolvedData.httpRoute,
+					config:    wantResolvedData.gatewayDetails.config,
+				},
+			).Return(wantErr)
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.ErrorIs(t, err, wantErr)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
 	})
 }

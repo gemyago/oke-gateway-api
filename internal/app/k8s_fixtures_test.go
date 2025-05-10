@@ -276,6 +276,15 @@ func makeRandomService(
 	return svc
 }
 
+func makeFewRandomServices() []corev1.Service {
+	count := 2 + rand.IntN(3)
+	services := make([]corev1.Service, count)
+	for i := range services {
+		services[i] = makeRandomService()
+	}
+	return services
+}
+
 func randomServiceFromBackendRef(ref gatewayv1.HTTPBackendRef, parent client.Object) randomServiceOpt {
 	return func(svc *corev1.Service) {
 		fullName := backendRefName(ref, parent.GetNamespace())
