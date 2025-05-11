@@ -358,14 +358,17 @@ func (m *ociLoadBalancerModelImpl) appendRoutingRule(
 		}),
 	}
 
-	// Clone the original rules slice
-	resultRules := make([]loadbalancer.RoutingRule, len(params.actualPolicyRules))
-	copy(resultRules, params.actualPolicyRules)
-
-	// Find if rule with same name already exists
-	_, ruleIndex, ruleFound := lo.FindIndexOf(resultRules, func(rule loadbalancer.RoutingRule) bool {
+	_, ruleIndex, ruleFound := lo.FindIndexOf(params.actualPolicyRules, func(rule loadbalancer.RoutingRule) bool {
 		return lo.FromPtr(rule.Name) == ruleName
 	})
+
+	nextLength := len(params.actualPolicyRules)
+	if !ruleFound {
+		nextLength++
+	}
+
+	resultRules := make([]loadbalancer.RoutingRule, 0, nextLength)
+	resultRules = append(resultRules, params.actualPolicyRules...)
 
 	if ruleFound {
 		m.logger.DebugContext(ctx, "Updating OCI routing rule",
