@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"hash/crc32"
 	"regexp"
-	"strings"
 )
 
 const (
@@ -14,7 +13,9 @@ const (
 // OCIResourceNameConfig holds configuration for generating OCI resource names.
 type OCIResourceNameConfig struct {
 	MaxLength           int
-	InvalidCharsPattern *regexp.Regexp // Optional: for sanitization
+	InvalidCharsPattern *regexp.Regexp
+	sanitizeFunc        func(string, *regexp.Regexp) string
+	hashFunc            func(string) string
 }
 
 // defaultHashFunc calculates a CRC32 checksum and returns it as an 8-character lowercase hexadecimal string.
@@ -67,60 +68,32 @@ func calculateFinalEndPart(sLen, startPartLen, endPartLen int, sanitizedName str
 // <start_of_sanitized_name> + <hash_of_original_name> + <end_of_sanitized_name>,
 // ensuring the total length does not exceed MaxLength.
 func ConstructOCIResourceName(originalName string, config OCIResourceNameConfig) string {
-	// If MaxLength is 0 or negative, it means no length limit.
-	// Sanitize if a pattern is provided, then return.
-	if config.MaxLength <= 0 {
-		if config.InvalidCharsPattern != nil {
-			return defaultSanitizeFunc(originalName, config.InvalidCharsPattern)
+	if config.hashFunc == nil {
+		config.hashFunc = defaultHashFunc
+	}
+
+	if config.sanitizeFunc == nil {
+		config.sanitizeFunc = defaultSanitizeFunc
+	}
+
+	resultingName := originalName
+	if config.InvalidCharsPattern != nil {
+		resultingName = config.sanitizeFunc(originalName, config.InvalidCharsPattern)
+	}
+
+	const hashPartDivider = 2
+
+	if config.MaxLength > 0 && len(resultingName) > config.MaxLength {
+		hash := config.hashFunc(originalName)
+		if len(hash) >= config.MaxLength {
+			return hash[:config.MaxLength]
 		}
-		return originalName
+		originalLength := len(resultingName)
+		hashStarts := originalLength/hashPartDivider - len(hash)/hashPartDivider
+		hashEnds := hashStarts + len(hash)
+		remainingLength := config.MaxLength - hashEnds
+		resultingName = resultingName[:hashStarts] + hash + resultingName[originalLength-remainingLength:]
 	}
 
-	// Proceed with existing logic if MaxLength is positive (MaxLength > 0)
-	sanitizedName := defaultSanitizeFunc(originalName, config.InvalidCharsPattern)
-
-	if len(sanitizedName) <= config.MaxLength {
-		finalOutput := sanitizedName
-		return finalOutput
-	}
-
-	// Name is too long, proceed with hashing the *original* name
-	hashStr := defaultHashFunc(originalName) // 8 characters
-	hashLen := len(hashStr)
-
-	if config.MaxLength < hashLen {
-		return hashStr[:config.MaxLength] // Return truncated hash if MaxLength is too small
-	}
-	if config.MaxLength == hashLen {
-		return hashStr // Return just the hash if MaxLength is exactly hashLen
-	}
-
-	remainingSpaceForParts := config.MaxLength - hashLen
-	sLen := len(sanitizedName)
-
-	startPartLen := remainingSpaceForParts / ociResourceNameHashPartDivider
-	endPartLen := remainingSpaceForParts - startPartLen
-
-	finalStartPart := ""
-	if startPartLen > 0 {
-		if startPartLen >= sLen {
-			finalStartPart = sanitizedName
-		} else {
-			finalStartPart = sanitizedName[:startPartLen]
-		}
-	}
-
-	finalEndPart := calculateFinalEndPart(sLen, startPartLen, endPartLen, sanitizedName)
-
-	var sb strings.Builder
-	sb.WriteString(finalStartPart)
-	sb.WriteString(hashStr)
-	sb.WriteString(finalEndPart)
-
-	finalNameResult := sb.String()
-
-	if len(finalNameResult) > config.MaxLength { // This check should ideally not be needed if logic is perfect
-		return finalNameResult[:config.MaxLength]
-	}
-	return finalNameResult
+	return resultingName
 }

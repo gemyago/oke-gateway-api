@@ -1,252 +1,184 @@
 package ociapi
 
 import (
+	"fmt"
+	"math/rand/v2"
 	"regexp"
-	"strings"
 	"testing"
 
+	"github.com/gemyago/oke-gateway-api/internal/services"
+	"github.com/go-faker/faker/v4"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestConstructOCIResourceName_Refactored(t *testing.T) {
-	type args struct {
-		originalName string
-		config       OCIResourceNameConfig
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    string
-		wantLen int
-	}{
-		{
-			name: "name fits, no sanitization pattern",
-			args: args{
-				originalName: "my-perfectly-valid-name",
-				config:       OCIResourceNameConfig{MaxLength: 32},
-			},
-			want:    "my-perfectly-valid-name",
-			wantLen: 23,
-		},
-		{
-			name: "name fits, has potentially invalid chars but no pattern provided",
-			args: args{
-				originalName: "my!name@with#chars",
-				config:       OCIResourceNameConfig{MaxLength: 32},
-			},
-			want:    "my!name@with#chars",
-			wantLen: 18,
-		},
-		{
-			name: "name exactly MaxLength, no sanitization pattern",
-			args: args{
-				originalName: strings.Repeat("a", 32),
-				config:       OCIResourceNameConfig{MaxLength: 32},
-			},
-			want:    strings.Repeat("a", 32),
-			wantLen: 32,
-		},
-		{
-			name: "name fits after sanitization",
-			args: args{
-				originalName: "my!n@me#needs$sanitization",
-				config: OCIResourceNameConfig{
-					MaxLength:           32,
-					InvalidCharsPattern: regexp.MustCompile(`[^a-zA-Z0-9-]`),
-				},
-			},
-			want:    "my_n_me_needs_sanitization",
-			wantLen: 26,
-		},
-		{
-			name: "sanitized name is exactly MaxLength",
-			args: args{
-				originalName: strings.Repeat("a!", 16),
-				config: OCIResourceNameConfig{
-					MaxLength:           32,
-					InvalidCharsPattern: regexp.MustCompile(`!`),
-				},
-			},
-			want:    strings.Repeat("a_", 16),
-			wantLen: 32,
-		},
-		{
-			name: "name too long, no sanitization pattern, hash and split",
-			args: args{
-				originalName: "this-is-a-very-long-name-that-will-be-hashed-and-split",
-				config:       OCIResourceNameConfig{MaxLength: 32},
-			},
-			want: "this-is-a-ve" +
-				defaultHashFunc("this-is-a-very-long-name-that-will-be-hashed-and-split") +
-				"ed-and-split",
-			wantLen: 32,
-		},
-		{
-			name: "name too long, with sanitization, hash original, concat sanitized parts",
-			args: args{
-				originalName: "this!is!a!very!long!name!that!will!be!hashed!and!split!",
-				config: OCIResourceNameConfig{
-					MaxLength:           32,
-					InvalidCharsPattern: regexp.MustCompile(`!`),
-				},
-			},
-			want: "this_is_a_ve" +
-				defaultHashFunc("this!is!a!very!long!name!that!will!be!hashed!and!split!") +
-				"d_and_split_",
-			wantLen: 32,
-		},
-		{
-			name: "name very long, MaxLength allows only hash and minimal parts",
-			args: args{
-				originalName: strings.Repeat("abcdefghij", 5),
-				config:       OCIResourceNameConfig{MaxLength: 10},
-			},
-			want:    "a" + defaultHashFunc(strings.Repeat("abcdefghij", 5)) + "j",
-			wantLen: 10,
-		},
-		{
-			name: "name long, MaxLength allows hash and odd remaining parts",
-			args: args{
-				originalName: strings.Repeat("X", 30),
-				config:       OCIResourceNameConfig{MaxLength: 11},
-			},
-			want:    "X" + defaultHashFunc(strings.Repeat("X", 30)) + "XX",
-			wantLen: 11,
-		},
-		{
-			name: "MaxLength is less than hash length",
-			args: args{
-				originalName: "a-long-name-to-force-hash",
-				config:       OCIResourceNameConfig{MaxLength: 6},
-			},
-			want:    defaultHashFunc("a-long-name-to-force-hash")[:6],
-			wantLen: 6,
-		},
-		{
-			name: "MaxLength equals hash length",
-			args: args{
-				originalName: "another-long-name",
-				config:       OCIResourceNameConfig{MaxLength: 8},
-			},
-			want:    defaultHashFunc("another-long-name"),
-			wantLen: 8,
-		},
-		{
-			name: "empty originalName, default config (implies MaxLength 0)",
-			args: args{
-				originalName: "",
-				config:       OCIResourceNameConfig{},
-			},
-			want:    "",
-			wantLen: 0,
-		},
-		{
-			name: "empty originalName, with sanitization pattern (no effect), MaxLength 0",
-			args: args{
-				originalName: "",
-				config:       OCIResourceNameConfig{InvalidCharsPattern: regexp.MustCompile(`[^a-z]`)},
-			},
-			want:    "",
-			wantLen: 0,
-		},
-		{
-			name: "originalName becomes empty after sanitization, and fits (MaxLength 5)",
-			args: args{
-				originalName: "!@#",
-				config:       OCIResourceNameConfig{InvalidCharsPattern: regexp.MustCompile("[^a-z]"), MaxLength: 5},
-			},
-			want:    "___",
-			wantLen: 3,
-		},
-		{
-			name: "originalName becomes empty after sanitization, " +
-				"but original was non-empty, too long -> hash original (MaxLength 32)",
-			args: args{
-				originalName: strings.Repeat("@@@", 20),
-				config:       OCIResourceNameConfig{InvalidCharsPattern: regexp.MustCompile("@"), MaxLength: 32},
-			},
-			want: strings.Repeat("_", 12) +
-				defaultHashFunc(strings.Repeat("@@@", 20)) +
-				strings.Repeat("_", 12),
-			wantLen: 32,
-		},
-		{
-			name: "zero-value config, should behave as no limit and no sanitization",
-			args: args{
-				originalName: "my-name-with-nil-config-long-enough-to-be-hashed-if-limited",
-				config:       OCIResourceNameConfig{},
-			},
-			want:    "my-name-with-nil-config-long-enough-to-be-hashed-if-limited",
-			wantLen: 59,
-		},
-		{
-			name: "MaxLength is 0 (no limit), name is short",
-			args: args{
-				originalName: "short",
-				config:       OCIResourceNameConfig{MaxLength: 0},
-			},
-			want:    "short",
-			wantLen: 5,
-		},
-		{
-			name: "MaxLength is 0 (no limit), name is long, no sanitization",
-			args: args{
-				originalName: "this-is-a-very-long-name-that-would-normally-be-hashed-and-split-but-should-not-be",
-				config:       OCIResourceNameConfig{MaxLength: 0},
-			},
-			want:    "this-is-a-very-long-name-that-would-normally-be-hashed-and-split-but-should-not-be",
-			wantLen: 82,
-		},
-		{
-			name: "MaxLength is 0 (no limit), name is long, with sanitization",
-			args: args{
-				originalName: "this!is!a!very!long!name!that!would!be!sanitized!but!not!hashed!or!split!",
-				config:       OCIResourceNameConfig{MaxLength: 0, InvalidCharsPattern: regexp.MustCompile(`!`)},
-			},
-			want:    "this_is_a_very_long_name_that_would_be_sanitized_but_not_hashed_or_split_",
-			wantLen: 73,
-		},
-		{
-			name: "MaxLength is negative (no limit), name is long",
-			args: args{
-				originalName: "another-very-long-name-for-negative-maxlength-test-case",
-				config:       OCIResourceNameConfig{MaxLength: -5},
-			},
-			want:    "another-very-long-name-for-negative-maxlength-test-case",
-			wantLen: 55,
-		},
-	}
+func TestConstructOCIResourceName(t *testing.T) {
+	t.Run("behavior", func(t *testing.T) {
+		t.Run("no limits", func(t *testing.T) {
+			inputLength := 15 + rand.IntN(30)
+			input := services.RandomString(inputLength)
+			got := ConstructOCIResourceName(input, OCIResourceNameConfig{})
+			require.Equal(t, input, got)
+		})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := ConstructOCIResourceName(tt.args.originalName, tt.args.config)
+		t.Run("no limit with sanitize", func(t *testing.T) {
+			inputLength := 15 + rand.IntN(30)
+			input := services.RandomString(inputLength)
+			wantSanitizedName := faker.UUIDDigit()
+			sanitizeCalled := false
+			wantPattern := regexp.MustCompile(`[^a-zA-Z0-9]+`)
+			got := ConstructOCIResourceName(input, OCIResourceNameConfig{
+				InvalidCharsPattern: wantPattern,
+				sanitizeFunc: func(name string, pattern *regexp.Regexp) string {
+					sanitizeCalled = true
+					assert.Equal(t, input, name)
+					assert.Equal(t, wantPattern, pattern)
+					return wantSanitizedName
+				},
+			})
+			require.Equal(t, wantSanitizedName, got)
+			require.True(t, sanitizeCalled)
+		})
 
-			require.Equal(t, tt.want, got,
-				"Test case: %s - ConstructOCIResourceName() got = %v, want %v", tt.name, got, tt.want)
+		t.Run("with limit no sanitize (generic)", func(t *testing.T) {
+			input := "|is-" + services.RandomString(20+rand.IntN(30)) + "-ie|"
+			inputLength := len(input)
+			wantHash := "|hs-" + services.RandomString(5+rand.IntN(10)) + "-he|"
+			wantMaxLength := inputLength - 2
 
-			// Check length if wantLen is specified and positive
-			if tt.wantLen > 0 {
-				require.Len(t, got, tt.wantLen,
-					"Test case: %s - ConstructOCIResourceName() output length. got = %d, want %d", tt.name, len(got), tt.wantLen)
+			hashStarts := inputLength/2 - len(wantHash)/2
+			hashEnds := hashStarts + len(wantHash)
+			remainingLength := wantMaxLength - hashEnds
+			wantResult := input[:hashStarts] + wantHash + input[inputLength-remainingLength:]
+
+			got := ConstructOCIResourceName(input, OCIResourceNameConfig{
+				MaxLength: wantMaxLength,
+				hashFunc: func(hashInput string) string {
+					assert.Equal(t, input, hashInput)
+					return wantHash
+				},
+			})
+			require.Equal(t, wantResult, got)
+		})
+
+		t.Run("with limit with sanitize (generic)", func(t *testing.T) {
+			input := "|is-" + services.RandomString(20+rand.IntN(30)) + "-ie|"
+			inputLength := len(input)
+			wantHash := "|hs-" + services.RandomString(5+rand.IntN(10)) + "-he|"
+			wantMaxLength := inputLength - 2
+
+			hashStarts := inputLength/2 - len(wantHash)/2
+			hashEnds := hashStarts + len(wantHash)
+			remainingLength := wantMaxLength - hashEnds
+			wantResult := input[:hashStarts] + wantHash + input[inputLength-remainingLength:]
+
+			sanitized := false
+			wantPattern := regexp.MustCompile(`[^a-zA-Z0-9]+`)
+			got := ConstructOCIResourceName(input, OCIResourceNameConfig{
+				MaxLength:           wantMaxLength,
+				InvalidCharsPattern: wantPattern,
+				sanitizeFunc: func(name string, pattern *regexp.Regexp) string {
+					assert.Equal(t, input, name)
+					assert.Equal(t, wantPattern, pattern)
+					sanitized = true
+					return input
+				},
+				hashFunc: func(hashInput string) string {
+					assert.Equal(t, input, hashInput)
+					return wantHash
+				},
+			})
+			require.Equal(t, wantResult, got)
+			require.True(t, sanitized)
+		})
+
+		t.Run("with limit no sanitize fixed cases", func(t *testing.T) {
+			type testCase struct {
+				input string
+				hash  string
+				limit int
+				want  string
 			}
+			// |is-012345678901234567890123456789-ie| - 38 chars
+			// |hs-0123456789-he| - 18 chars
+			testCases := []testCase{
+				// case0 - limit same as input - input is returned
+				{
+					input: "|is-012345678901234567890123456789-ie|",
+					hash:  "|hs-0123456789-he|",
+					limit: 38,
+					want:  "|is-012345678901234567890123456789-ie|",
+				},
+				// case1 - even input, even hash - odd limit
+				{
+					input: "|is-012345678901234567890123456789-ie|",
+					hash:  "|hs-0123456789-he|",
+					limit: 37,
 
-			// If MaxLength is positive, ensure output length does not exceed it.
-			// If MaxLength <= 0, it means no limit, so this check is skipped.
-			if tt.args.config.MaxLength > 0 {
-				require.LessOrEqual(t, len(got), tt.args.config.MaxLength,
-					"Test case: %s - Length of got (%d) should be <= MaxLength (%d)", tt.name, len(got), tt.args.config.MaxLength)
+					// 38 / 2 = 19
+					// 18 / 2 = 9
+					// 19 - 9 = 10 - hash should start at 10
+					// 19 + 9 = 28 - hash should end at 28
+					// 37 - 28 = 9 - chars of input remaining
+					// 38 - 9 = 29 - starting part of remaining input
+					want: "|is-012345|hs-0123456789-he|56789-ie|",
+				},
+				// case2 - even input, even hash - even limit
+				{
+					input: "|is-012345678901234567890123456789-ie|",
+					hash:  "|hs-0123456789-he|",
+					limit: 36,
+
+					// 38 / 2 = 19
+					// 18 / 2 = 9
+					// 19 - 9 = 10 - hash should start at 10
+					// 19 + 9 = 28 - hash should end at 28
+					// 36 - 28 = 8 - chars of input remaining
+					// 38 - 8 = 30 - starting part of remaining input
+					want: "|is-012345|hs-0123456789-he|6789-ie|",
+				},
+				// case3 - odd input, even hash - odd limit
+				{
+					input: "|is-01234567890123456789012345678-ie|",
+					hash:  "|hs-0123456789-he|",
+					limit: 36,
+
+					// 37 / 2 = 18
+					// 18 / 2 = 9
+					// 18 - 9 = 9 - hash should start at 9
+					// 18 + 9 = 27 - hash should end at 27
+					// 36 - 27 = 9 - chars of input remaining
+					// 37 - 9 = 28 - starting part of remaining input
+					want: "|is-01234|hs-0123456789-he|45678-ie|",
+				},
+				// case4 - limit same as hash - hash is returned
+				{
+					input: "|is-012345678901234567890123456789-ie|",
+					hash:  "|hs-0123456789-he|",
+					limit: 18,
+					want:  "|hs-0123456789-he|",
+				},
+				// case5 - limit less than hash - truncated hash is returned
+				{
+					input: "|is-012345678901234567890123456789-ie|",
+					hash:  "|hs-0123456789-he|",
+					limit: 17,
+					want:  "|hs-0123456789-he",
+				},
 			}
-
-			// Verify no invalid characters in the output if a pattern was provided
-			if tt.args.config.InvalidCharsPattern != nil && got != "" {
-				for _, r := range got {
-					char := string(r)
-					if char != "_" && tt.args.config.InvalidCharsPattern.MatchString(char) {
-						t.Errorf("Test case: %s - Output '%s' contains invalid char '%s' (that is not '_') according to pattern '%s'",
-							tt.name, got, char, tt.args.config.InvalidCharsPattern.String())
-					}
-				}
+			for i, tc := range testCases {
+				t.Run(fmt.Sprintf("case %d", i), func(t *testing.T) {
+					got := ConstructOCIResourceName(tc.input, OCIResourceNameConfig{
+						MaxLength: tc.limit,
+						hashFunc: func(_ string) string {
+							return tc.hash
+						},
+					})
+					require.Equal(t, tc.want, got)
+					assert.GreaterOrEqual(t, len(tc.input), tc.limit, "input length should be greater or equal to limit")
+					assert.Len(t, got, tc.limit, "got length should be equal to limit")
+				})
 			}
 		})
-	}
+	})
 }
