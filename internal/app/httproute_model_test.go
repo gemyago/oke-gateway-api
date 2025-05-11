@@ -1032,7 +1032,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				for policyIdx := range wantListenerPolicies {
 					wantUpdatedRules := append([]loadbalancer.RoutingRule{}, wantListenerPolicies[policyIdx].Rules...)
 					wantUpdatedRules = append(wantUpdatedRules, makeRandomOCIRoutingRule())
-					ociLBModel.EXPECT().appendRoutingRule(t.Context(), appendRoutingRuleParams{
+					ociLBModel.EXPECT().upsertRoutingRule(t.Context(), upsertRoutingRuleParams{
 						actualPolicyRules:  wantListenerPolicies[policyIdx].Rules,
 						httpRoute:          httpRoute,
 						httpRouteRuleIndex: ruleIdx,

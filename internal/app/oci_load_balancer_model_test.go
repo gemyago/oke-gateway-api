@@ -879,7 +879,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				makeRandomOCIRoutingRule(),
 			}
 
-			params := appendRoutingRuleParams{
+			params := upsertRoutingRuleParams{
 				actualPolicyRules:  existingRules,
 				httpRoute:          httpRoute,
 				httpRouteRuleIndex: ruleIndex,
@@ -907,7 +907,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				}),
 			})
 
-			actualRules, err := model.appendRoutingRule(t.Context(), params)
+			actualRules, err := model.upsertRoutingRule(t.Context(), params)
 			require.NoError(t, err)
 			assert.Equal(t, wantRules, actualRules)
 		})
@@ -951,7 +951,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				makeRandomOCIRoutingRule(),
 			}
 
-			params := appendRoutingRuleParams{
+			params := upsertRoutingRuleParams{
 				actualPolicyRules:  existingRules,
 				httpRoute:          httpRoute,
 				httpRouteRuleIndex: ruleIndex,
@@ -983,7 +983,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				}),
 			}
 
-			actualRules, err := model.appendRoutingRule(t.Context(), params)
+			actualRules, err := model.upsertRoutingRule(t.Context(), params)
 			require.NoError(t, err)
 			assert.Equal(t, wantRules, actualRules)
 		})
@@ -1001,7 +1001,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				makeRandomOCIRoutingRule(),
 			}
 
-			params := appendRoutingRuleParams{
+			params := upsertRoutingRuleParams{
 				actualPolicyRules:  existingRules,
 				httpRoute:          httpRoute,
 				httpRouteRuleIndex: ruleIndex,
@@ -1012,7 +1012,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				httpRoute.Spec.Rules[ruleIndex].Matches,
 			).Return("", expectedErr).Once()
 
-			actualRules, err := model.appendRoutingRule(t.Context(), params)
+			actualRules, err := model.upsertRoutingRule(t.Context(), params)
 			require.Error(t, err)
 			require.ErrorIs(t, err, expectedErr)
 			assert.Nil(t, actualRules)

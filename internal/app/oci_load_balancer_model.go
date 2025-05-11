@@ -48,7 +48,7 @@ type resolveAndTidyRoutingPolicyParams struct {
 	httpRoute      gatewayv1.HTTPRoute
 }
 
-type appendRoutingRuleParams struct {
+type upsertRoutingRuleParams struct {
 	actualPolicyRules  []loadbalancer.RoutingRule
 	httpRoute          gatewayv1.HTTPRoute
 	httpRouteRuleIndex int
@@ -88,10 +88,10 @@ type ociLoadBalancerModel interface {
 		params resolveAndTidyRoutingPolicyParams,
 	) (loadbalancer.RoutingPolicy, error)
 
-	// appendRoutingRule appends a new routing rule to the routing policy.
-	appendRoutingRule(
+	// upsertRoutingRule appends a new routing rule to the routing policy.
+	upsertRoutingRule(
 		ctx context.Context,
-		params appendRoutingRuleParams,
+		params upsertRoutingRuleParams,
 	) ([]loadbalancer.RoutingRule, error)
 
 	commitRoutingPolicy(
@@ -330,9 +330,9 @@ func (m *ociLoadBalancerModelImpl) resolveAndTidyRoutingPolicy(
 	return cleanedPolicy, nil
 }
 
-func (m *ociLoadBalancerModelImpl) appendRoutingRule(
+func (m *ociLoadBalancerModelImpl) upsertRoutingRule(
 	ctx context.Context,
-	params appendRoutingRuleParams,
+	params upsertRoutingRuleParams,
 ) ([]loadbalancer.RoutingRule, error) {
 	ruleName := ociListerPolicyRuleName(params.httpRoute, params.httpRouteRuleIndex)
 	rule := params.httpRoute.Spec.Rules[params.httpRouteRuleIndex]
