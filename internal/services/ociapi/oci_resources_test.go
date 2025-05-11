@@ -2,6 +2,7 @@ package ociapi
 
 import (
 	"fmt"
+	"hash/crc32"
 	"math/rand/v2"
 	"regexp"
 	"testing"
@@ -179,6 +180,29 @@ func TestConstructOCIResourceName(t *testing.T) {
 					assert.Len(t, got, tc.limit, "got length should be equal to limit")
 				})
 			}
+		})
+	})
+
+	t.Run("defaultHashFunc", func(t *testing.T) {
+		input := services.RandomString(10 + rand.IntN(30))
+		want := fmt.Sprintf("%08x", crc32.ChecksumIEEE([]byte(input)))
+
+		got := defaultHashFunc(input)
+		require.Equal(t, want, got)
+	})
+
+	t.Run("defaultSanitizeFunc", func(t *testing.T) {
+		t.Run("no pattern", func(t *testing.T) {
+			input := services.RandomString(10 + rand.IntN(30))
+			got := defaultSanitizeFunc(input, nil)
+			require.Equal(t, input, got)
+		})
+
+		t.Run("pattern", func(t *testing.T) {
+			input := faker.UUIDHyphenated()
+			wantPattern := regexp.MustCompile(`[^a-zA-Z0-9]+`)
+			got := defaultSanitizeFunc(input, wantPattern)
+			require.Equal(t, wantPattern.ReplaceAllString(input, "_"), got)
 		})
 	})
 }

@@ -33,33 +33,6 @@ func defaultSanitizeFunc(name string, pattern *regexp.Regexp) string {
 	return pattern.ReplaceAllString(name, "_")
 }
 
-// calculateFinalEndPart determines the ending part of the sanitized name when constructing a hashed resource name.
-// sLen: length of the (potentially) sanitized name.
-// startPartLen: calculated length of the starting part of the sanitized name.
-// endPartLen: calculated desired length of the ending part of the sanitized name.
-// sanitizedName: the (potentially) sanitized name string.
-func calculateFinalEndPart(sLen, startPartLen, endPartLen int, sanitizedName string) string {
-	if endPartLen <= 0 {
-		return ""
-	}
-	if startPartLen >= sLen {
-		return ""
-	}
-
-	startIndexOfEnd := sLen - endPartLen
-	switch {
-	case startIndexOfEnd < startPartLen:
-		if startPartLen < sLen {
-			return sanitizedName[startPartLen:]
-		}
-		return ""
-	case startIndexOfEnd < sLen:
-		return sanitizedName[startIndexOfEnd:]
-	default:
-		return ""
-	}
-}
-
 // ConstructOCIResourceName generates a resource name string based on the originalName and configuration.
 // If a sanitization pattern is provided in the config, originalName is first sanitized.
 // If the resulting name is within MaxLength (and MaxLength > 0), it's returned.
@@ -81,15 +54,13 @@ func ConstructOCIResourceName(originalName string, config OCIResourceNameConfig)
 		resultingName = config.sanitizeFunc(originalName, config.InvalidCharsPattern)
 	}
 
-	const hashPartDivider = 2
-
 	if config.MaxLength > 0 && len(resultingName) > config.MaxLength {
 		hash := config.hashFunc(originalName)
 		if len(hash) >= config.MaxLength {
 			return hash[:config.MaxLength]
 		}
 		originalLength := len(resultingName)
-		hashStarts := originalLength/hashPartDivider - len(hash)/hashPartDivider
+		hashStarts := originalLength/ociResourceNameHashPartDivider - len(hash)/ociResourceNameHashPartDivider
 		hashEnds := hashStarts + len(hash)
 		remainingLength := config.MaxLength - hashEnds
 		resultingName = resultingName[:hashStarts] + hash + resultingName[originalLength-remainingLength:]
