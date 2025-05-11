@@ -912,6 +912,82 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			assert.Equal(t, wantRules, actualRules)
 		})
 
+		t.Run("replace an existing rule by name", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			routingRulesMapper, _ := deps.RoutingRulesMapper.(*MockociLoadBalancerRoutingRulesMapper)
+
+			// Create HTTP route with backend refs
+			refs := []gatewayv1.HTTPBackendRef{
+				makeRandomBackendRef(),
+				makeRandomBackendRef(),
+			}
+
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(
+					makeRandomHTTPRouteRule(),
+					makeRandomHTTPRouteRule(
+						randomHTTPRouteRuleWithRandomBackendRefsOpt(refs...),
+					),
+				),
+			)
+			ruleIndex := 1
+
+			// Generate the rule name that will be used
+			expectedRuleName := ociListerPolicyRuleName(httpRoute, ruleIndex)
+
+			// Create existing rules with one matching the name of the rule we'll add
+			existingRules := []loadbalancer.RoutingRule{
+				makeRandomOCIRoutingRule(),
+				{
+					Name:      lo.ToPtr(expectedRuleName),
+					Condition: lo.ToPtr(faker.Sentence()),
+					Actions: []loadbalancer.Action{
+						loadbalancer.ForwardToBackendSet{
+							BackendSetName: lo.ToPtr(faker.UUIDHyphenated()),
+						},
+					},
+				},
+				makeRandomOCIRoutingRule(),
+			}
+
+			params := appendRoutingRuleParams{
+				actualPolicyRules:  existingRules,
+				httpRoute:          httpRoute,
+				httpRouteRuleIndex: ruleIndex,
+			}
+
+			// Set up expectations for mapper
+			expectedCondition := faker.Sentence()
+			routingRulesMapper.EXPECT().mapHTTPRouteMatchesToCondition(
+				httpRoute.Spec.Rules[ruleIndex].Matches,
+			).Return(expectedCondition, nil).Once()
+
+			// Expected backend sets based on refs
+			expectedBackendSets := lo.Map(refs, func(ref gatewayv1.HTTPBackendRef, _ int) string {
+				return ociBackendSetNameFromBackendRef(httpRoute, ref)
+			})
+
+			// Build expected rules after replacement
+			wantRules := make([]loadbalancer.RoutingRule, len(existingRules))
+			copy(wantRules, existingRules)
+
+			// Replace rule at index 1 with the new rule
+			wantRules[1] = loadbalancer.RoutingRule{
+				Name:      lo.ToPtr(expectedRuleName),
+				Condition: lo.ToPtr(expectedCondition),
+				Actions: lo.Map(expectedBackendSets, func(backendSet string, _ int) loadbalancer.Action {
+					return loadbalancer.ForwardToBackendSet{
+						BackendSetName: lo.ToPtr(backendSet),
+					}
+				}),
+			}
+
+			actualRules, err := model.appendRoutingRule(t.Context(), params)
+			require.NoError(t, err)
+			assert.Equal(t, wantRules, actualRules)
+		})
+
 		t.Run("fail when mapping matches to condition fails", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)

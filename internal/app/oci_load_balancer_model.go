@@ -341,13 +341,6 @@ func (m *ociLoadBalancerModelImpl) appendRoutingRule(
 		return ociBackendSetNameFromBackendRef(params.httpRoute, backendRef)
 	})
 
-	m.logger.DebugContext(ctx, "Adding OCI routing rule",
-		slog.String("httpRoute", fmt.Sprintf("%s/%s", params.httpRoute.Namespace, params.httpRoute.Name)),
-		slog.Int("httpRouteRuleIndex", params.httpRouteRuleIndex),
-		slog.String("ruleName", ruleName),
-		slog.Any("targetBackends", targetBackends),
-	)
-
 	ruleSpec := params.httpRoute.Spec.Rules[params.httpRouteRuleIndex]
 
 	condition, err := m.routingRulesMapper.mapHTTPRouteMatchesToCondition(ruleSpec.Matches)
@@ -365,7 +358,34 @@ func (m *ociLoadBalancerModelImpl) appendRoutingRule(
 		}),
 	}
 
-	return append(params.actualPolicyRules, newRule), nil
+	// Clone the original rules slice
+	resultRules := make([]loadbalancer.RoutingRule, len(params.actualPolicyRules))
+	copy(resultRules, params.actualPolicyRules)
+
+	// Find if rule with same name already exists
+	_, ruleIndex, ruleFound := lo.FindIndexOf(resultRules, func(rule loadbalancer.RoutingRule) bool {
+		return lo.FromPtr(rule.Name) == ruleName
+	})
+
+	if ruleFound {
+		m.logger.DebugContext(ctx, "Updating OCI routing rule",
+			slog.String("httpRoute", fmt.Sprintf("%s/%s", params.httpRoute.Namespace, params.httpRoute.Name)),
+			slog.Int("httpRouteRuleIndex", params.httpRouteRuleIndex),
+			slog.String("ruleName", ruleName),
+			slog.Any("targetBackends", targetBackends),
+		)
+		resultRules[ruleIndex] = newRule
+	} else {
+		m.logger.DebugContext(ctx, "Adding OCI routing rule",
+			slog.String("httpRoute", fmt.Sprintf("%s/%s", params.httpRoute.Namespace, params.httpRoute.Name)),
+			slog.Int("httpRouteRuleIndex", params.httpRouteRuleIndex),
+			slog.String("ruleName", ruleName),
+			slog.Any("targetBackends", targetBackends),
+		)
+		resultRules = append(resultRules, newRule)
+	}
+
+	return resultRules, nil
 }
 
 func (m *ociLoadBalancerModelImpl) deleteMissingListener(
