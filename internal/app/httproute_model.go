@@ -37,6 +37,11 @@ type programRouteParams struct {
 	matchedListeners []gatewayv1.Listener
 }
 
+type programRouteResult struct {
+	// Names of the policy rules that were programmed for this particular route
+	programmedPolicyRules []string
+}
+
 type setProgrammedParams struct {
 	httpRoute    gatewayv1.HTTPRoute
 	gatewayClass gatewayv1.GatewayClass
