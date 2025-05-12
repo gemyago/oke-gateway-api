@@ -42,20 +42,9 @@ type reconcileHTTPListenerParams struct {
 	listenerSpec          *gatewayv1.Listener
 }
 
-type upsertRoutingRuleParams struct {
-	actualPolicyRules  []loadbalancer.RoutingRule
-	httpRoute          gatewayv1.HTTPRoute
-	httpRouteRuleIndex int
-}
-
 type makeRoutingRuleParams struct {
 	httpRoute          gatewayv1.HTTPRoute
 	httpRouteRuleIndex int
-}
-
-type commitRoutingPolicyParams struct {
-	loadBalancerID string
-	policy         loadbalancer.RoutingPolicy
 }
 
 type commitRoutingPolicyV2Params struct {
@@ -90,17 +79,6 @@ type ociLoadBalancerModel interface {
 		ctx context.Context,
 		params makeRoutingRuleParams,
 	) (loadbalancer.RoutingRule, error)
-
-	// upsertRoutingRule appends a new routing rule to the routing policy.
-	upsertRoutingRule(
-		ctx context.Context,
-		params upsertRoutingRuleParams,
-	) ([]loadbalancer.RoutingRule, error)
-
-	commitRoutingPolicy(
-		ctx context.Context,
-		params commitRoutingPolicyParams,
-	) error
 
 	commitRoutingPolicyV2(
 		ctx context.Context,
@@ -342,67 +320,6 @@ func (m *ociLoadBalancerModelImpl) makeRoutingRule(
 	}, nil
 }
 
-func (m *ociLoadBalancerModelImpl) upsertRoutingRule(
-	ctx context.Context,
-	params upsertRoutingRuleParams,
-) ([]loadbalancer.RoutingRule, error) {
-	ruleName := ociListerPolicyRuleName(params.httpRoute, params.httpRouteRuleIndex)
-	rule := params.httpRoute.Spec.Rules[params.httpRouteRuleIndex]
-
-	targetBackends := lo.Map(rule.BackendRefs, func(backendRef gatewayv1.HTTPBackendRef, _ int) string {
-		return ociBackendSetNameFromBackendRef(params.httpRoute, backendRef)
-	})
-
-	ruleSpec := params.httpRoute.Spec.Rules[params.httpRouteRuleIndex]
-
-	condition, err := m.routingRulesMapper.mapHTTPRouteMatchesToCondition(ruleSpec.Matches)
-	if err != nil {
-		return nil, fmt.Errorf("failed to map http route matches to condition: %w", err)
-	}
-
-	newRule := loadbalancer.RoutingRule{
-		Name:      lo.ToPtr(ruleName),
-		Condition: lo.ToPtr(condition),
-		Actions: lo.Map(targetBackends, func(backendSetName string, _ int) loadbalancer.Action {
-			return loadbalancer.ForwardToBackendSet{
-				BackendSetName: lo.ToPtr(backendSetName),
-			}
-		}),
-	}
-
-	_, ruleIndex, ruleFound := lo.FindIndexOf(params.actualPolicyRules, func(rule loadbalancer.RoutingRule) bool {
-		return lo.FromPtr(rule.Name) == ruleName
-	})
-
-	nextLength := len(params.actualPolicyRules)
-	if !ruleFound {
-		nextLength++
-	}
-
-	resultRules := make([]loadbalancer.RoutingRule, 0, nextLength)
-	resultRules = append(resultRules, params.actualPolicyRules...)
-
-	if ruleFound {
-		m.logger.DebugContext(ctx, "Updating OCI routing rule",
-			slog.String("httpRoute", fmt.Sprintf("%s/%s", params.httpRoute.Namespace, params.httpRoute.Name)),
-			slog.Int("httpRouteRuleIndex", params.httpRouteRuleIndex),
-			slog.String("ruleName", ruleName),
-			slog.Any("targetBackends", targetBackends),
-		)
-		resultRules[ruleIndex] = newRule
-	} else {
-		m.logger.DebugContext(ctx, "Adding OCI routing rule",
-			slog.String("httpRoute", fmt.Sprintf("%s/%s", params.httpRoute.Namespace, params.httpRoute.Name)),
-			slog.Int("httpRouteRuleIndex", params.httpRouteRuleIndex),
-			slog.String("ruleName", ruleName),
-			slog.Any("targetBackends", targetBackends),
-		)
-		resultRules = append(resultRules, newRule)
-	}
-
-	return resultRules, nil
-}
-
 func (m *ociLoadBalancerModelImpl) deleteMissingListener(
 	ctx context.Context,
 	loadBalancerID string,
@@ -500,60 +417,6 @@ func (m *ociLoadBalancerModelImpl) removeMissingListeners(
 	}
 
 	return errors.Join(errs...)
-}
-
-func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
-	ctx context.Context,
-	params commitRoutingPolicyParams,
-) error {
-	sortedRules := make([]loadbalancer.RoutingRule, 0, len(params.policy.Rules))
-	sortedRules = append(sortedRules, params.policy.Rules...)
-
-	// we should keep defaultCatchAllRuleName at the end of the list
-	sort.Slice(sortedRules, func(i, j int) bool {
-		ruleI := lo.FromPtr(sortedRules[i].Name)
-		ruleJ := lo.FromPtr(sortedRules[j].Name)
-		if ruleI == defaultCatchAllRuleName {
-			return false
-		}
-		if ruleJ == defaultCatchAllRuleName {
-			return true
-		}
-		return ruleI < ruleJ
-	})
-
-	updateRes, err := m.ociClient.UpdateRoutingPolicy(ctx, loadbalancer.UpdateRoutingPolicyRequest{
-		LoadBalancerId:    &params.loadBalancerID,
-		RoutingPolicyName: params.policy.Name,
-		UpdateRoutingPolicyDetails: loadbalancer.UpdateRoutingPolicyDetails{
-			ConditionLanguageVersion: loadbalancer.UpdateRoutingPolicyDetailsConditionLanguageVersionEnum(
-				params.policy.ConditionLanguageVersion,
-			),
-			Rules: sortedRules,
-		},
-	})
-	if err != nil {
-		m.logger.WarnContext(ctx, "Failed to update routing policy",
-			diag.ErrAttr(err),
-			slog.String("loadBalancerId", params.loadBalancerID),
-			slog.String("policyName", lo.FromPtr(params.policy.Name)),
-			slog.Any("policyRules", sortedRules),
-		)
-		return fmt.Errorf("failed to update routing policy %s: %w", *params.policy.Name, err)
-	}
-
-	if err = m.workRequestsWatcher.WaitFor(
-		ctx,
-		*updateRes.OpcWorkRequestId,
-	); err != nil {
-		return fmt.Errorf("failed to wait for routing policy %s update: %w", *params.policy.Name, err)
-	}
-
-	m.logger.InfoContext(ctx, "Successfully committed routing policy changes",
-		slog.String("loadBalancerId", params.loadBalancerID),
-		slog.String("routingPolicyName", *params.policy.Name),
-	)
-	return nil
 }
 
 func (m *ociLoadBalancerModelImpl) commitRoutingPolicyV2(

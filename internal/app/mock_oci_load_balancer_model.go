@@ -24,53 +24,6 @@ func (_m *MockociLoadBalancerModel) EXPECT() *MockociLoadBalancerModel_Expecter 
 	return &MockociLoadBalancerModel_Expecter{mock: &_m.Mock}
 }
 
-// commitRoutingPolicy provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) commitRoutingPolicy(ctx context.Context, params commitRoutingPolicyParams) error {
-	ret := _m.Called(ctx, params)
-
-	if len(ret) == 0 {
-		panic("no return value specified for commitRoutingPolicy")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, commitRoutingPolicyParams) error); ok {
-		r0 = rf(ctx, params)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockociLoadBalancerModel_commitRoutingPolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'commitRoutingPolicy'
-type MockociLoadBalancerModel_commitRoutingPolicy_Call struct {
-	*mock.Call
-}
-
-// commitRoutingPolicy is a helper method to define mock.On call
-//   - ctx context.Context
-//   - params commitRoutingPolicyParams
-func (_e *MockociLoadBalancerModel_Expecter) commitRoutingPolicy(ctx interface{}, params interface{}) *MockociLoadBalancerModel_commitRoutingPolicy_Call {
-	return &MockociLoadBalancerModel_commitRoutingPolicy_Call{Call: _e.mock.On("commitRoutingPolicy", ctx, params)}
-}
-
-func (_c *MockociLoadBalancerModel_commitRoutingPolicy_Call) Run(run func(ctx context.Context, params commitRoutingPolicyParams)) *MockociLoadBalancerModel_commitRoutingPolicy_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(commitRoutingPolicyParams))
-	})
-	return _c
-}
-
-func (_c *MockociLoadBalancerModel_commitRoutingPolicy_Call) Return(_a0 error) *MockociLoadBalancerModel_commitRoutingPolicy_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockociLoadBalancerModel_commitRoutingPolicy_Call) RunAndReturn(run func(context.Context, commitRoutingPolicyParams) error) *MockociLoadBalancerModel_commitRoutingPolicy_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // commitRoutingPolicyV2 provides a mock function with given fields: ctx, params
 func (_m *MockociLoadBalancerModel) commitRoutingPolicyV2(ctx context.Context, params commitRoutingPolicyV2Params) error {
 	ret := _m.Called(ctx, params)
@@ -369,65 +322,6 @@ func (_c *MockociLoadBalancerModel_removeMissingListeners_Call) Return(_a0 error
 }
 
 func (_c *MockociLoadBalancerModel_removeMissingListeners_Call) RunAndReturn(run func(context.Context, removeMissingListenersParams) error) *MockociLoadBalancerModel_removeMissingListeners_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// upsertRoutingRule provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) upsertRoutingRule(ctx context.Context, params upsertRoutingRuleParams) ([]loadbalancer.RoutingRule, error) {
-	ret := _m.Called(ctx, params)
-
-	if len(ret) == 0 {
-		panic("no return value specified for upsertRoutingRule")
-	}
-
-	var r0 []loadbalancer.RoutingRule
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, upsertRoutingRuleParams) ([]loadbalancer.RoutingRule, error)); ok {
-		return rf(ctx, params)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, upsertRoutingRuleParams) []loadbalancer.RoutingRule); ok {
-		r0 = rf(ctx, params)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]loadbalancer.RoutingRule)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, upsertRoutingRuleParams) error); ok {
-		r1 = rf(ctx, params)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockociLoadBalancerModel_upsertRoutingRule_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'upsertRoutingRule'
-type MockociLoadBalancerModel_upsertRoutingRule_Call struct {
-	*mock.Call
-}
-
-// upsertRoutingRule is a helper method to define mock.On call
-//   - ctx context.Context
-//   - params upsertRoutingRuleParams
-func (_e *MockociLoadBalancerModel_Expecter) upsertRoutingRule(ctx interface{}, params interface{}) *MockociLoadBalancerModel_upsertRoutingRule_Call {
-	return &MockociLoadBalancerModel_upsertRoutingRule_Call{Call: _e.mock.On("upsertRoutingRule", ctx, params)}
-}
-
-func (_c *MockociLoadBalancerModel_upsertRoutingRule_Call) Run(run func(ctx context.Context, params upsertRoutingRuleParams)) *MockociLoadBalancerModel_upsertRoutingRule_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(upsertRoutingRuleParams))
-	})
-	return _c
-}
-
-func (_c *MockociLoadBalancerModel_upsertRoutingRule_Call) Return(_a0 []loadbalancer.RoutingRule, _a1 error) *MockociLoadBalancerModel_upsertRoutingRule_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockociLoadBalancerModel_upsertRoutingRule_Call) RunAndReturn(run func(context.Context, upsertRoutingRuleParams) ([]loadbalancer.RoutingRule, error)) *MockociLoadBalancerModel_upsertRoutingRule_Call {
 	_c.Call.Return(run)
 	return _c
 }
