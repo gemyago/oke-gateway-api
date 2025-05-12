@@ -413,6 +413,7 @@ func (m *httpRouteModelImpl) programRoute(
 
 	// Create all routing rules for the HTTP route
 	policyRules := make([]loadbalancer.RoutingRule, 0, len(params.httpRoute.Spec.Rules))
+	policyRulesNames := make([]string, 0, len(params.httpRoute.Spec.Rules))
 	for ruleIndex := range params.httpRoute.Spec.Rules {
 		rule, err := m.ociLoadBalancerModel.makeRoutingRule(ctx, makeRoutingRuleParams{
 			httpRoute:          params.httpRoute,
@@ -423,6 +424,7 @@ func (m *httpRouteModelImpl) programRoute(
 				fmt.Errorf("failed to make routing rule %d for route %s: %w", ruleIndex, params.httpRoute.Name, err)
 		}
 		policyRules = append(policyRules, rule)
+		policyRulesNames = append(policyRulesNames, *rule.Name)
 	}
 
 	// Commit the rules to each listener's policy
@@ -438,10 +440,7 @@ func (m *httpRouteModelImpl) programRoute(
 	}
 
 	return programRouteResult{
-		programmedPolicyRules: lo.Map(policyRules,
-			func(rule loadbalancer.RoutingRule, _ int) string {
-				return *rule.Name
-			}),
+		programmedPolicyRules: policyRulesNames,
 	}, nil
 }
 
