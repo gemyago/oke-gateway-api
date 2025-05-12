@@ -51,6 +51,11 @@ type commitRoutingPolicyParams struct {
 	loadBalancerID string
 	listenerName   string
 	policyRules    []loadbalancer.RoutingRule
+
+	// Previously programmed policy rules. This parameter helps to detect
+	// rules that are not programmed anymore and needs to be removed. They are no
+	// longer in the policyRules so there is no way to detect them otherwise.
+	prevPolicyRules []string
 }
 
 type removeMissingListenersParams struct {
@@ -440,9 +445,22 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 		},
 	)
 
+	policyRulesNames := make(map[string]struct{})
 	for _, newRule := range params.policyRules {
 		ruleName := lo.FromPtr(newRule.Name)
 		currentRulesByName[ruleName] = newRule
+		policyRulesNames[ruleName] = struct{}{}
+	}
+
+	for _, prevRuleName := range params.prevPolicyRules {
+		if _, ok := policyRulesNames[prevRuleName]; !ok {
+			m.logger.InfoContext(ctx, "Deleting previous policy rule",
+				slog.String("ruleName", prevRuleName),
+				slog.String("loadBalancerId", params.loadBalancerID),
+				slog.String("policyName", policyName),
+			)
+			delete(currentRulesByName, prevRuleName)
+		}
 	}
 
 	mergedRules := lo.Values(currentRulesByName)

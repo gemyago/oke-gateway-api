@@ -864,7 +864,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		})
 	})
 
-	t.Run("commitRoutingPolicyV2", func(t *testing.T) {
+	t.Run("commitRoutingPolicy", func(t *testing.T) {
 		t.Run("successfully merge and update routing policy", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
@@ -965,6 +965,131 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					Rules: wantMergedRules,
 				},
 			}).Return(loadbalancer.UpdateRoutingPolicyResponse{
+				OpcWorkRequestId: &workRequestID,
+			}, nil)
+
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
+
+			err := model.commitRoutingPolicy(t.Context(), params)
+			require.NoError(t, err)
+		})
+
+		t.Run("delete previously programmed rules that are not in the new policy", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			loadBalancerID := faker.UUIDHyphenated()
+			listenerName := faker.UUIDHyphenated()
+			policyName := listenerPolicyName(listenerName)
+
+			existingRulePrefixes := []string{
+				"routes-1",
+				"routes-2",
+				"routes-3",
+				"routes-4",
+			}
+
+			deletedRulePrefixes := []string{
+				"deleted-routes-1",
+				"deleted-routes-2",
+				"deleted-routes-3",
+			}
+
+			deletedRules := lo.Map(deletedRulePrefixes, func(prefix string, i int) loadbalancer.RoutingRule {
+				return loadbalancer.RoutingRule{
+					Name:      lo.ToPtr(fmt.Sprintf("%s%04d", prefix, i)),
+					Condition: lo.ToPtr(faker.Sentence()),
+				}
+			})
+
+			existingRules := lo.Map(existingRulePrefixes, func(prefix string, i int) loadbalancer.RoutingRule {
+				return loadbalancer.RoutingRule{
+					Name:      lo.ToPtr(fmt.Sprintf("%s%04d", prefix, i)),
+					Condition: lo.ToPtr(faker.Sentence()),
+				}
+			})
+
+			existingRules = append(existingRules, loadbalancer.RoutingRule{
+				Name:      lo.ToPtr(string(defaultCatchAllRuleName)),
+				Condition: lo.ToPtr(faker.Sentence()),
+			})
+
+			newRulesPrefixes := []string{
+				"new-routes-1",
+				"new-routes-2",
+				"new-routes-3",
+			}
+			newRules := lo.Map(newRulesPrefixes, func(prefix string, i int) loadbalancer.RoutingRule {
+				return loadbalancer.RoutingRule{
+					Name:      lo.ToPtr(fmt.Sprintf("%s%04d", prefix, i)),
+					Condition: lo.ToPtr(faker.Sentence()),
+				}
+			})
+
+			replacedRuleIndex := rand.IntN(len(existingRulePrefixes))
+			replacedRule := loadbalancer.RoutingRule{
+				Name:      lo.ToPtr(fmt.Sprintf("%s%04d", existingRulePrefixes[replacedRuleIndex], replacedRuleIndex)),
+				Condition: lo.ToPtr(faker.Sentence()),
+			}
+
+			rulesToCommit := make([]loadbalancer.RoutingRule, 0, len(existingRules)+len(newRules))
+			rulesToCommit = append(rulesToCommit, existingRules...)
+			rulesToCommit[replacedRuleIndex] = replacedRule
+			rulesToCommit = append(rulesToCommit, newRules...)
+
+			wantMergedRules := make([]loadbalancer.RoutingRule, 0, len(rulesToCommit))
+			wantMergedRules = append(wantMergedRules, rulesToCommit...)
+
+			// Sort the expected rules
+			sort.Slice(wantMergedRules, func(i, j int) bool {
+				ruleI := lo.FromPtr(wantMergedRules[i].Name)
+				ruleJ := lo.FromPtr(wantMergedRules[j].Name)
+				if ruleI == defaultCatchAllRuleName {
+					return false
+				}
+				if ruleJ == defaultCatchAllRuleName {
+					return true
+				}
+				return ruleI < ruleJ
+			})
+
+			params := commitRoutingPolicyParams{
+				loadBalancerID: loadBalancerID,
+				listenerName:   listenerName,
+				policyRules:    rulesToCommit,
+				prevPolicyRules: lo.Map(deletedRules, func(rule loadbalancer.RoutingRule, _ int) string {
+					return lo.FromPtr(rule.Name)
+				}),
+			}
+
+			allExistingRules := make([]loadbalancer.RoutingRule, 0, len(existingRules)+len(deletedRules))
+			allExistingRules = append(allExistingRules, existingRules...)
+			allExistingRules = append(allExistingRules, deletedRules...)
+
+			existingPolicy := loadbalancer.RoutingPolicy{
+				Name:                     lo.ToPtr(policyName),
+				Rules:                    allExistingRules,
+				ConditionLanguageVersion: loadbalancer.RoutingPolicyConditionLanguageVersionV1,
+			}
+
+			// Expect to get the current routing policy
+			ociLoadBalancerClient.EXPECT().GetRoutingPolicy(t.Context(), loadbalancer.GetRoutingPolicyRequest{
+				RoutingPolicyName: lo.ToPtr(policyName),
+				LoadBalancerId:    &loadBalancerID,
+			}).Return(loadbalancer.GetRoutingPolicyResponse{
+				RoutingPolicy: existingPolicy,
+			}, nil)
+
+			// Expect to update the policy with merged rules
+			workRequestID := faker.UUIDHyphenated()
+			ociLoadBalancerClient.EXPECT().UpdateRoutingPolicy(t.Context(), mock.MatchedBy(
+				func(req loadbalancer.UpdateRoutingPolicyRequest) bool {
+					assert.Equal(t, wantMergedRules, req.UpdateRoutingPolicyDetails.Rules)
+					return true
+				},
+			)).Return(loadbalancer.UpdateRoutingPolicyResponse{
 				OpcWorkRequestId: &workRequestID,
 			}, nil)
 
