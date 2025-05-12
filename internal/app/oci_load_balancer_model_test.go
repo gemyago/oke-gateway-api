@@ -1150,7 +1150,7 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 				name:      "unnamed rule",
 				route:     route,
 				ruleIndex: index,
-				want:      fmt.Sprintf("%s_r%04d", route.Name, index),
+				want:      fmt.Sprintf("p%04d_%s", index, route.Name),
 			}
 		},
 		func() testCase {
@@ -1162,7 +1162,7 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 				randomHTTPRouteWithRulesOpt(rule),
 				randomHTTPRouteWithNameOpt(unsanitizedParentName),
 			)
-			unsanitizedInput := fmt.Sprintf("%s_r%04d", unsanitizedParentName, index)
+			unsanitizedInput := fmt.Sprintf("p%04d_%s", index, unsanitizedParentName)
 			want := ociapi.ConstructOCIResourceName(unsanitizedInput, ociapi.OCIResourceNameConfig{
 				MaxLength:           32,
 				InvalidCharsPattern: invalidCharsForPolicyNamePattern,
@@ -1193,7 +1193,7 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 				name:      "named rule",
 				route:     route,
 				ruleIndex: index,
-				want:      fmt.Sprintf("%s_r%04d_%s", route.Name, index, ruleName),
+				want:      fmt.Sprintf("p%04d_%s_%s", index, route.Name, ruleName),
 			}
 		},
 		func() testCase {
@@ -1208,7 +1208,7 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 				randomHTTPRouteWithRulesOpt(rule),
 				randomHTTPRouteWithNameOpt(unsanitizedParentName),
 			)
-			unsanitizedInput := fmt.Sprintf("%s_r%04d_%s", unsanitizedParentName, index, unsanitizedRuleName)
+			unsanitizedInput := fmt.Sprintf("p%04d_%s_%s", index, unsanitizedParentName, unsanitizedRuleName)
 			want := ociapi.ConstructOCIResourceName(unsanitizedInput, ociapi.OCIResourceNameConfig{
 				MaxLength:           32,
 				InvalidCharsPattern: invalidCharsForPolicyNamePattern,

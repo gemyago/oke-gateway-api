@@ -568,9 +568,9 @@ func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string {
 
 	var resultingName string
 	if rule.Name != nil {
-		resultingName = fmt.Sprintf("%s_r%04d_%s", route.Name, ruleIndex, string(*rule.Name))
+		resultingName = fmt.Sprintf("p%04d_%s_%s", ruleIndex, route.Name, string(*rule.Name))
 	} else {
-		resultingName = fmt.Sprintf("%s_r%04d", route.Name, ruleIndex)
+		resultingName = fmt.Sprintf("p%04d_%s", ruleIndex, route.Name)
 	}
 
 	return ociapi.ConstructOCIResourceName(resultingName, ociapi.OCIResourceNameConfig{
