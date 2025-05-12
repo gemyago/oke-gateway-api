@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"sort"
-	"strings"
 	"testing"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -1213,106 +1212,55 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			listenerName := faker.UUIDHyphenated()
 			policyName := listenerPolicyName(listenerName)
 
-			// Generate random rule prefixes
-			rulePrefixes := []string{
+			existingRulePrefixes := []string{
 				"routes-1",
 				"routes-2",
 				"routes-3",
+				"routes-4",
 			}
 
-			// Generate random existing rules
-			rulesPerPrefix := 2 + rand.IntN(3)
-			existingRulesByPrefix := lo.Map(rulePrefixes, func(prefix string, _ int) []loadbalancer.RoutingRule {
-				rules := make([]loadbalancer.RoutingRule, 0, rulesPerPrefix)
-				for i := range rulesPerPrefix {
-					rules = append(rules, loadbalancer.RoutingRule{
-						Name:      lo.ToPtr(fmt.Sprintf("%s%04d", prefix, i)),
-						Condition: lo.ToPtr(faker.Sentence()),
-						Actions: []loadbalancer.Action{
-							loadbalancer.ForwardToBackendSet{
-								BackendSetName: lo.ToPtr(faker.UUIDHyphenated()),
-							},
-						},
-					})
-				}
-				return rules
-			})
-
-			// Flatten the rules and add a default catch-all rule
-			existingRules := lo.Flatten(existingRulesByPrefix)
-			existingRules = append(existingRules, loadbalancer.RoutingRule{
-				Name:      lo.ToPtr(defaultCatchAllRuleName),
-				Condition: lo.ToPtr("any(http.request.url.path sw '/')"),
-				Actions: []loadbalancer.Action{
-					loadbalancer.ForwardToBackendSet{
-						BackendSetName: lo.ToPtr(faker.UUIDHyphenated()),
-					},
-				},
-			})
-
-			// Create random policy with the existing rules
-			existingPolicy := makeRandomOCIRoutingPolicy(
-				randomOCIRoutingPolicyWithRulesOpt(existingRules),
-				func(policy *loadbalancer.RoutingPolicy) {
-					policy.Name = lo.ToPtr(policyName)
-				},
-			)
-
-			// Create new rules that will replace some existing ones and add new ones
-			// Replace rules with prefix "api-" and add new rules with prefix "new-"
-			newRulesToReplace := []loadbalancer.RoutingRule{}
-			for _, rule := range existingRules {
-				ruleName := lo.FromPtr(rule.Name)
-				if strings.HasPrefix(ruleName, "api-") {
-					newRulesToReplace = append(newRulesToReplace, loadbalancer.RoutingRule{
-						Name:      rule.Name,
-						Condition: lo.ToPtr(faker.Sentence()), // New condition
-						Actions: []loadbalancer.Action{
-							loadbalancer.ForwardToBackendSet{
-								BackendSetName: lo.ToPtr(faker.UUIDHyphenated()),
-							},
-						},
-					})
-				}
-			}
-
-			// New rules to add
-			numNewRules := 1 + rand.IntN(3)
-			newRulesToAdd := make([]loadbalancer.RoutingRule, 0, numNewRules)
-			for i := range numNewRules {
-				newRulesToAdd = append(newRulesToAdd, loadbalancer.RoutingRule{
-					Name:      lo.ToPtr(fmt.Sprintf("new-%04d", i)),
+			existingRules := lo.Map(existingRulePrefixes, func(prefix string, i int) loadbalancer.RoutingRule {
+				return loadbalancer.RoutingRule{
+					Name:      lo.ToPtr(fmt.Sprintf("%s%04d", prefix, i)),
 					Condition: lo.ToPtr(faker.Sentence()),
-					Actions: []loadbalancer.Action{
-						loadbalancer.ForwardToBackendSet{
-							BackendSetName: lo.ToPtr(faker.UUIDHyphenated()),
-						},
-					},
-				})
+				}
+			})
+
+			existingRules = append(existingRules, loadbalancer.RoutingRule{
+				Name:      lo.ToPtr(string(defaultCatchAllRuleName)),
+				Condition: lo.ToPtr(faker.Sentence()),
+			})
+
+			newRulesPrefixes := []string{
+				"new-routes-1",
+				"new-routes-2",
+				"new-routes-3",
+			}
+			newRules := lo.Map(newRulesPrefixes, func(prefix string, i int) loadbalancer.RoutingRule {
+				return loadbalancer.RoutingRule{
+					Name:      lo.ToPtr(fmt.Sprintf("%s%04d", prefix, i)),
+					Condition: lo.ToPtr(faker.Sentence()),
+				}
+			})
+
+			replacedRuleIndex := rand.IntN(len(existingRulePrefixes))
+			replacedRule := loadbalancer.RoutingRule{
+				Name:      lo.ToPtr(fmt.Sprintf("%s%04d", existingRulePrefixes[replacedRuleIndex], replacedRuleIndex)),
+				Condition: lo.ToPtr(faker.Sentence()),
 			}
 
-			// Combined set of new rules
-			newRules := append(newRulesToReplace, newRulesToAdd...)
+			rulesToCommit := make([]loadbalancer.RoutingRule, 0, len(existingRules)+len(newRules))
+			rulesToCommit = append(rulesToCommit, existingRules...)
+			rulesToCommit[replacedRuleIndex] = replacedRule
+			rulesToCommit = append(rulesToCommit, newRules...)
 
-			// Create the expected merged rules
-			currentRulesByName := lo.SliceToMap(
-				existingRules,
-				func(rule loadbalancer.RoutingRule) (string, loadbalancer.RoutingRule) {
-					return lo.FromPtr(rule.Name), rule
-				},
-			)
-
-			for _, newRule := range newRules {
-				ruleName := lo.FromPtr(newRule.Name)
-				currentRulesByName[ruleName] = newRule
-			}
-
-			mergedRules := lo.Values(currentRulesByName)
+			wantMergedRules := make([]loadbalancer.RoutingRule, 0, len(rulesToCommit))
+			wantMergedRules = append(wantMergedRules, rulesToCommit...)
 
 			// Sort the expected rules
-			sort.Slice(mergedRules, func(i, j int) bool {
-				ruleI := lo.FromPtr(mergedRules[i].Name)
-				ruleJ := lo.FromPtr(mergedRules[j].Name)
+			sort.Slice(wantMergedRules, func(i, j int) bool {
+				ruleI := lo.FromPtr(wantMergedRules[i].Name)
+				ruleJ := lo.FromPtr(wantMergedRules[j].Name)
 				if ruleI == defaultCatchAllRuleName {
 					return false
 				}
@@ -1325,7 +1273,15 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			params := commitRoutingPolicyV2Params{
 				loadBalancerID: loadBalancerID,
 				listenerName:   listenerName,
-				policyRules:    newRules,
+				policyRules:    rulesToCommit,
+			}
+
+			existingPolicy := loadbalancer.RoutingPolicy{
+				Name:  lo.ToPtr(policyName),
+				Rules: existingRules,
+				ConditionLanguageVersion: loadbalancer.RoutingPolicyConditionLanguageVersionEnum(
+					loadbalancer.RoutingPolicyConditionLanguageVersionV1,
+				),
 			}
 
 			// Expect to get the current routing policy
@@ -1345,7 +1301,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					ConditionLanguageVersion: loadbalancer.UpdateRoutingPolicyDetailsConditionLanguageVersionEnum(
 						existingPolicy.ConditionLanguageVersion,
 					),
-					Rules: mergedRules,
+					Rules: wantMergedRules,
 				},
 			}).Return(loadbalancer.UpdateRoutingPolicyResponse{
 				OpcWorkRequestId: &workRequestID,
