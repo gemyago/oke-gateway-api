@@ -1277,11 +1277,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			}
 
 			existingPolicy := loadbalancer.RoutingPolicy{
-				Name:  lo.ToPtr(policyName),
-				Rules: existingRules,
-				ConditionLanguageVersion: loadbalancer.RoutingPolicyConditionLanguageVersionEnum(
-					loadbalancer.RoutingPolicyConditionLanguageVersionV1,
-				),
+				Name:                     lo.ToPtr(policyName),
+				Rules:                    existingRules,
+				ConditionLanguageVersion: loadbalancer.RoutingPolicyConditionLanguageVersionV1,
 			}
 
 			// Expect to get the current routing policy
