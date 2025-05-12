@@ -64,6 +64,12 @@ type commitRoutingPolicyParams struct {
 	policy         loadbalancer.RoutingPolicy
 }
 
+type commitRoutingPolicyV2Params struct {
+	loadBalancerID string
+	listenerName   string
+	policyRules    []loadbalancer.RoutingRule
+}
+
 type removeMissingListenersParams struct {
 	loadBalancerID   string
 	knownListeners   map[string]loadbalancer.Listener
@@ -108,6 +114,11 @@ type ociLoadBalancerModel interface {
 	commitRoutingPolicy(
 		ctx context.Context,
 		params commitRoutingPolicyParams,
+	) error
+
+	commitRoutingPolicyV2(
+		ctx context.Context,
+		params commitRoutingPolicyV2Params,
 	) error
 
 	// removeMissingListeners removes listeners from the load balancer that are not present in the gateway spec.
@@ -589,6 +600,81 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 	return nil
 }
 
+func (m *ociLoadBalancerModelImpl) commitRoutingPolicyV2(
+	ctx context.Context,
+	params commitRoutingPolicyV2Params,
+) error {
+	policyName := listenerPolicyName(params.listenerName)
+
+	policyResponse, err := m.ociClient.GetRoutingPolicy(ctx, loadbalancer.GetRoutingPolicyRequest{
+		RoutingPolicyName: &policyName,
+		LoadBalancerId:    &params.loadBalancerID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get routing policy %s: %w", policyName, err)
+	}
+
+	currentRulesByName := lo.SliceToMap(
+		policyResponse.RoutingPolicy.Rules,
+		func(rule loadbalancer.RoutingRule) (string, loadbalancer.RoutingRule) {
+			return lo.FromPtr(rule.Name), rule
+		},
+	)
+
+	for _, newRule := range params.policyRules {
+		ruleName := lo.FromPtr(newRule.Name)
+		currentRulesByName[ruleName] = newRule
+	}
+
+	mergedRules := lo.Values(currentRulesByName)
+
+	// Sort the rules: defaultCatchAllRuleName should be at the end
+	sort.Slice(mergedRules, func(i, j int) bool {
+		ruleI := lo.FromPtr(mergedRules[i].Name)
+		ruleJ := lo.FromPtr(mergedRules[j].Name)
+		if ruleI == defaultCatchAllRuleName {
+			return false
+		}
+		if ruleJ == defaultCatchAllRuleName {
+			return true
+		}
+		return ruleI < ruleJ
+	})
+
+	updateRes, err := m.ociClient.UpdateRoutingPolicy(ctx, loadbalancer.UpdateRoutingPolicyRequest{
+		LoadBalancerId:    &params.loadBalancerID,
+		RoutingPolicyName: &policyName,
+		UpdateRoutingPolicyDetails: loadbalancer.UpdateRoutingPolicyDetails{
+			ConditionLanguageVersion: loadbalancer.UpdateRoutingPolicyDetailsConditionLanguageVersionEnum(
+				policyResponse.RoutingPolicy.ConditionLanguageVersion,
+			),
+			Rules: mergedRules,
+		},
+	})
+	if err != nil {
+		m.logger.WarnContext(ctx, "Failed to update routing policy",
+			diag.ErrAttr(err),
+			slog.String("loadBalancerId", params.loadBalancerID),
+			slog.String("policyName", policyName),
+			slog.Any("policyRules", mergedRules),
+		)
+		return fmt.Errorf("failed to update routing policy %s: %w", policyName, err)
+	}
+
+	if err = m.workRequestsWatcher.WaitFor(
+		ctx,
+		*updateRes.OpcWorkRequestId,
+	); err != nil {
+		return fmt.Errorf("failed to wait for routing policy %s update: %w", policyName, err)
+	}
+
+	m.logger.InfoContext(ctx, "Successfully committed routing policy changes",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("routingPolicyName", policyName),
+	)
+	return nil
+}
+
 func listenerPolicyName(listenerName string) string {
 	// TODO: Sanitize the name, investigate docs for allowed characters
 	return listenerName + "_policy"
@@ -609,6 +695,9 @@ var invalidCharsForPolicyNamePattern = regexp.MustCompile(`[^a-zA-Z0-9_]`)
 func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string {
 	// TODO: This may probably need to have namespace
 	// Also check if namespace is populated in the route if it's not in the spec
+	// Also mention in docs that policy is per listener and rules for different
+	// services best to have something unique like host matching
+
 	rule := route.Spec.Rules[ruleIndex]
 
 	var resultingName string
@@ -642,7 +731,6 @@ func ociBackendSetNameFromBackendRef(httpRoute gatewayv1.HTTPRoute, backendRef g
 	})
 }
 
-// TODO: Unit test
 func ociBackendSetNameFromService(service v1.Service) string {
 	originalName := service.Namespace + "-" + service.Name
 	return ociapi.ConstructOCIResourceName(originalName, ociapi.OCIResourceNameConfig{

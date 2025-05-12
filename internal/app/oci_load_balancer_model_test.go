@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -1197,6 +1199,280 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			_, err := model.makeRoutingRule(t.Context(), params)
 			require.Error(t, err)
 			require.ErrorIs(t, err, expectedErr)
+		})
+	})
+
+	t.Run("commitRoutingPolicyV2", func(t *testing.T) {
+		t.Run("successfully merge and update routing policy", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			loadBalancerID := faker.UUIDHyphenated()
+			listenerName := faker.UUIDHyphenated()
+			policyName := listenerPolicyName(listenerName)
+
+			// Generate random rule prefixes
+			rulePrefixes := []string{
+				"routes-1",
+				"routes-2",
+				"routes-3",
+			}
+
+			// Generate random existing rules
+			rulesPerPrefix := 2 + rand.IntN(3)
+			existingRulesByPrefix := lo.Map(rulePrefixes, func(prefix string, _ int) []loadbalancer.RoutingRule {
+				rules := make([]loadbalancer.RoutingRule, 0, rulesPerPrefix)
+				for i := range rulesPerPrefix {
+					rules = append(rules, loadbalancer.RoutingRule{
+						Name:      lo.ToPtr(fmt.Sprintf("%s%04d", prefix, i)),
+						Condition: lo.ToPtr(faker.Sentence()),
+						Actions: []loadbalancer.Action{
+							loadbalancer.ForwardToBackendSet{
+								BackendSetName: lo.ToPtr(faker.UUIDHyphenated()),
+							},
+						},
+					})
+				}
+				return rules
+			})
+
+			// Flatten the rules and add a default catch-all rule
+			existingRules := lo.Flatten(existingRulesByPrefix)
+			existingRules = append(existingRules, loadbalancer.RoutingRule{
+				Name:      lo.ToPtr(defaultCatchAllRuleName),
+				Condition: lo.ToPtr("any(http.request.url.path sw '/')"),
+				Actions: []loadbalancer.Action{
+					loadbalancer.ForwardToBackendSet{
+						BackendSetName: lo.ToPtr(faker.UUIDHyphenated()),
+					},
+				},
+			})
+
+			// Create random policy with the existing rules
+			existingPolicy := makeRandomOCIRoutingPolicy(
+				randomOCIRoutingPolicyWithRulesOpt(existingRules),
+				func(policy *loadbalancer.RoutingPolicy) {
+					policy.Name = lo.ToPtr(policyName)
+				},
+			)
+
+			// Create new rules that will replace some existing ones and add new ones
+			// Replace rules with prefix "api-" and add new rules with prefix "new-"
+			newRulesToReplace := []loadbalancer.RoutingRule{}
+			for _, rule := range existingRules {
+				ruleName := lo.FromPtr(rule.Name)
+				if strings.HasPrefix(ruleName, "api-") {
+					newRulesToReplace = append(newRulesToReplace, loadbalancer.RoutingRule{
+						Name:      rule.Name,
+						Condition: lo.ToPtr(faker.Sentence()), // New condition
+						Actions: []loadbalancer.Action{
+							loadbalancer.ForwardToBackendSet{
+								BackendSetName: lo.ToPtr(faker.UUIDHyphenated()),
+							},
+						},
+					})
+				}
+			}
+
+			// New rules to add
+			numNewRules := 1 + rand.IntN(3)
+			newRulesToAdd := make([]loadbalancer.RoutingRule, 0, numNewRules)
+			for i := range numNewRules {
+				newRulesToAdd = append(newRulesToAdd, loadbalancer.RoutingRule{
+					Name:      lo.ToPtr(fmt.Sprintf("new-%04d", i)),
+					Condition: lo.ToPtr(faker.Sentence()),
+					Actions: []loadbalancer.Action{
+						loadbalancer.ForwardToBackendSet{
+							BackendSetName: lo.ToPtr(faker.UUIDHyphenated()),
+						},
+					},
+				})
+			}
+
+			// Combined set of new rules
+			newRules := append(newRulesToReplace, newRulesToAdd...)
+
+			// Create the expected merged rules
+			currentRulesByName := lo.SliceToMap(
+				existingRules,
+				func(rule loadbalancer.RoutingRule) (string, loadbalancer.RoutingRule) {
+					return lo.FromPtr(rule.Name), rule
+				},
+			)
+
+			for _, newRule := range newRules {
+				ruleName := lo.FromPtr(newRule.Name)
+				currentRulesByName[ruleName] = newRule
+			}
+
+			mergedRules := lo.Values(currentRulesByName)
+
+			// Sort the expected rules
+			sort.Slice(mergedRules, func(i, j int) bool {
+				ruleI := lo.FromPtr(mergedRules[i].Name)
+				ruleJ := lo.FromPtr(mergedRules[j].Name)
+				if ruleI == defaultCatchAllRuleName {
+					return false
+				}
+				if ruleJ == defaultCatchAllRuleName {
+					return true
+				}
+				return ruleI < ruleJ
+			})
+
+			params := commitRoutingPolicyV2Params{
+				loadBalancerID: loadBalancerID,
+				listenerName:   listenerName,
+				policyRules:    newRules,
+			}
+
+			// Expect to get the current routing policy
+			ociLoadBalancerClient.EXPECT().GetRoutingPolicy(t.Context(), loadbalancer.GetRoutingPolicyRequest{
+				RoutingPolicyName: lo.ToPtr(policyName),
+				LoadBalancerId:    &loadBalancerID,
+			}).Return(loadbalancer.GetRoutingPolicyResponse{
+				RoutingPolicy: existingPolicy,
+			}, nil)
+
+			// Expect to update the policy with merged rules
+			workRequestID := faker.UUIDHyphenated()
+			ociLoadBalancerClient.EXPECT().UpdateRoutingPolicy(t.Context(), loadbalancer.UpdateRoutingPolicyRequest{
+				LoadBalancerId:    &loadBalancerID,
+				RoutingPolicyName: lo.ToPtr(policyName),
+				UpdateRoutingPolicyDetails: loadbalancer.UpdateRoutingPolicyDetails{
+					ConditionLanguageVersion: loadbalancer.UpdateRoutingPolicyDetailsConditionLanguageVersionEnum(
+						existingPolicy.ConditionLanguageVersion,
+					),
+					Rules: mergedRules,
+				},
+			}).Return(loadbalancer.UpdateRoutingPolicyResponse{
+				OpcWorkRequestId: &workRequestID,
+			}, nil)
+
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
+
+			err := model.commitRoutingPolicyV2(t.Context(), params)
+			require.NoError(t, err)
+		})
+
+		t.Run("fail when get routing policy fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			loadBalancerID := faker.UUIDHyphenated()
+			listenerName := faker.UUIDHyphenated()
+			policyName := listenerPolicyName(listenerName)
+
+			newRules := []loadbalancer.RoutingRule{
+				makeRandomOCIRoutingRule(),
+			}
+
+			params := commitRoutingPolicyV2Params{
+				loadBalancerID: loadBalancerID,
+				listenerName:   listenerName,
+				policyRules:    newRules,
+			}
+
+			wantErr := errors.New(faker.Sentence())
+			ociLoadBalancerClient.EXPECT().GetRoutingPolicy(t.Context(), loadbalancer.GetRoutingPolicyRequest{
+				RoutingPolicyName: lo.ToPtr(policyName),
+				LoadBalancerId:    &loadBalancerID,
+			}).Return(loadbalancer.GetRoutingPolicyResponse{}, wantErr)
+
+			err := model.commitRoutingPolicyV2(t.Context(), params)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("fail when update routing policy fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			loadBalancerID := faker.UUIDHyphenated()
+			listenerName := faker.UUIDHyphenated()
+			policyName := listenerPolicyName(listenerName)
+
+			existingPolicy := makeRandomOCIRoutingPolicy(
+				func(policy *loadbalancer.RoutingPolicy) {
+					policy.Name = lo.ToPtr(policyName)
+				},
+			)
+
+			newRules := []loadbalancer.RoutingRule{
+				makeRandomOCIRoutingRule(),
+			}
+
+			params := commitRoutingPolicyV2Params{
+				loadBalancerID: loadBalancerID,
+				listenerName:   listenerName,
+				policyRules:    newRules,
+			}
+
+			ociLoadBalancerClient.EXPECT().GetRoutingPolicy(t.Context(), loadbalancer.GetRoutingPolicyRequest{
+				RoutingPolicyName: lo.ToPtr(policyName),
+				LoadBalancerId:    &loadBalancerID,
+			}).Return(loadbalancer.GetRoutingPolicyResponse{
+				RoutingPolicy: existingPolicy,
+			}, nil)
+
+			wantErr := errors.New(faker.Sentence())
+			ociLoadBalancerClient.EXPECT().UpdateRoutingPolicy(t.Context(), mock.Anything).
+				Return(loadbalancer.UpdateRoutingPolicyResponse{}, wantErr)
+
+			err := model.commitRoutingPolicyV2(t.Context(), params)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("fail when wait for update fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			loadBalancerID := faker.UUIDHyphenated()
+			listenerName := faker.UUIDHyphenated()
+			policyName := listenerPolicyName(listenerName)
+
+			existingPolicy := makeRandomOCIRoutingPolicy(
+				func(policy *loadbalancer.RoutingPolicy) {
+					policy.Name = lo.ToPtr(policyName)
+				},
+			)
+
+			newRules := []loadbalancer.RoutingRule{
+				makeRandomOCIRoutingRule(),
+			}
+
+			params := commitRoutingPolicyV2Params{
+				loadBalancerID: loadBalancerID,
+				listenerName:   listenerName,
+				policyRules:    newRules,
+			}
+
+			ociLoadBalancerClient.EXPECT().GetRoutingPolicy(t.Context(), loadbalancer.GetRoutingPolicyRequest{
+				RoutingPolicyName: lo.ToPtr(policyName),
+				LoadBalancerId:    &loadBalancerID,
+			}).Return(loadbalancer.GetRoutingPolicyResponse{
+				RoutingPolicy: existingPolicy,
+			}, nil)
+
+			workRequestID := faker.UUIDHyphenated()
+			ociLoadBalancerClient.EXPECT().UpdateRoutingPolicy(t.Context(), mock.Anything).
+				Return(loadbalancer.UpdateRoutingPolicyResponse{
+					OpcWorkRequestId: &workRequestID,
+				}, nil)
+
+			wantErr := errors.New(faker.Sentence())
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(wantErr)
+
+			err := model.commitRoutingPolicyV2(t.Context(), params)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, wantErr)
 		})
 	})
 }

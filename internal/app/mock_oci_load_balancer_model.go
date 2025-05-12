@@ -71,6 +71,53 @@ func (_c *MockociLoadBalancerModel_commitRoutingPolicy_Call) RunAndReturn(run fu
 	return _c
 }
 
+// commitRoutingPolicyV2 provides a mock function with given fields: ctx, params
+func (_m *MockociLoadBalancerModel) commitRoutingPolicyV2(ctx context.Context, params commitRoutingPolicyV2Params) error {
+	ret := _m.Called(ctx, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for commitRoutingPolicyV2")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, commitRoutingPolicyV2Params) error); ok {
+		r0 = rf(ctx, params)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockociLoadBalancerModel_commitRoutingPolicyV2_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'commitRoutingPolicyV2'
+type MockociLoadBalancerModel_commitRoutingPolicyV2_Call struct {
+	*mock.Call
+}
+
+// commitRoutingPolicyV2 is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params commitRoutingPolicyV2Params
+func (_e *MockociLoadBalancerModel_Expecter) commitRoutingPolicyV2(ctx interface{}, params interface{}) *MockociLoadBalancerModel_commitRoutingPolicyV2_Call {
+	return &MockociLoadBalancerModel_commitRoutingPolicyV2_Call{Call: _e.mock.On("commitRoutingPolicyV2", ctx, params)}
+}
+
+func (_c *MockociLoadBalancerModel_commitRoutingPolicyV2_Call) Run(run func(ctx context.Context, params commitRoutingPolicyV2Params)) *MockociLoadBalancerModel_commitRoutingPolicyV2_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(commitRoutingPolicyV2Params))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_commitRoutingPolicyV2_Call) Return(_a0 error) *MockociLoadBalancerModel_commitRoutingPolicyV2_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_commitRoutingPolicyV2_Call) RunAndReturn(run func(context.Context, commitRoutingPolicyV2Params) error) *MockociLoadBalancerModel_commitRoutingPolicyV2_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // makeRoutingRule provides a mock function with given fields: ctx, params
 func (_m *MockociLoadBalancerModel) makeRoutingRule(ctx context.Context, params makeRoutingRuleParams) (loadbalancer.RoutingRule, error) {
 	ret := _m.Called(ctx, params)
