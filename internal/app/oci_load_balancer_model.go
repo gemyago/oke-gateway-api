@@ -54,6 +54,11 @@ type upsertRoutingRuleParams struct {
 	httpRouteRuleIndex int
 }
 
+type makeRoutingRuleParams struct {
+	httpRoute          gatewayv1.HTTPRoute
+	httpRouteRuleIndex int
+}
+
 type commitRoutingPolicyParams struct {
 	loadBalancerID string
 	policy         loadbalancer.RoutingPolicy
@@ -87,6 +92,12 @@ type ociLoadBalancerModel interface {
 		ctx context.Context,
 		params resolveAndTidyRoutingPolicyParams,
 	) (loadbalancer.RoutingPolicy, error)
+
+	// makeRoutingRule appends a new routing rule to the routing policy.
+	makeRoutingRule(
+		ctx context.Context,
+		params makeRoutingRuleParams,
+	) (loadbalancer.RoutingRule, error)
 
 	// upsertRoutingRule appends a new routing rule to the routing policy.
 	upsertRoutingRule(
@@ -328,6 +339,40 @@ func (m *ociLoadBalancerModelImpl) resolveAndTidyRoutingPolicy(
 	// cleanedPolicy.Rules = cleanedRules
 
 	return cleanedPolicy, nil
+}
+
+func (m *ociLoadBalancerModelImpl) makeRoutingRule(
+	ctx context.Context,
+	params makeRoutingRuleParams,
+) (loadbalancer.RoutingRule, error) {
+	ruleName := ociListerPolicyRuleName(params.httpRoute, params.httpRouteRuleIndex)
+	rule := params.httpRoute.Spec.Rules[params.httpRouteRuleIndex]
+
+	targetBackends := lo.Map(rule.BackendRefs, func(backendRef gatewayv1.HTTPBackendRef, _ int) string {
+		return ociBackendSetNameFromBackendRef(params.httpRoute, backendRef)
+	})
+
+	condition, err := m.routingRulesMapper.mapHTTPRouteMatchesToCondition(rule.Matches)
+	if err != nil {
+		return loadbalancer.RoutingRule{}, fmt.Errorf("failed to map http route matches to condition: %w", err)
+	}
+
+	m.logger.DebugContext(ctx, "Building OCI routing rule",
+		slog.String("httpRoute", fmt.Sprintf("%s/%s", params.httpRoute.Namespace, params.httpRoute.Name)),
+		slog.Int("httpRouteRuleIndex", params.httpRouteRuleIndex),
+		slog.String("ruleName", ruleName),
+		slog.Any("targetBackends", targetBackends),
+	)
+
+	return loadbalancer.RoutingRule{
+		Name:      lo.ToPtr(ruleName),
+		Condition: lo.ToPtr(condition),
+		Actions: lo.Map(targetBackends, func(backendSetName string, _ int) loadbalancer.Action {
+			return loadbalancer.ForwardToBackendSet{
+				BackendSetName: lo.ToPtr(backendSetName),
+			}
+		}),
+	}, nil
 }
 
 func (m *ociLoadBalancerModelImpl) upsertRoutingRule(

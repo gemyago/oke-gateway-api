@@ -1123,6 +1123,82 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			assert.ErrorIs(t, err, wantErr)
 		})
 	})
+
+	t.Run("makeRoutingRule", func(t *testing.T) {
+		t.Run("successfully create a routing rule", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			routingRulesMapper, _ := deps.RoutingRulesMapper.(*MockociLoadBalancerRoutingRulesMapper)
+
+			refs := []gatewayv1.HTTPBackendRef{
+				makeRandomBackendRef(),
+				makeRandomBackendRef(),
+			}
+
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(
+					makeRandomHTTPRouteRule(
+						randomHTTPRouteRuleWithRandomBackendRefsOpt(refs...),
+					),
+				),
+			)
+			ruleIndex := 0
+
+			params := makeRoutingRuleParams{
+				httpRoute:          httpRoute,
+				httpRouteRuleIndex: ruleIndex,
+			}
+
+			expectedCondition := faker.Sentence()
+			routingRulesMapper.EXPECT().mapHTTPRouteMatchesToCondition(
+				httpRoute.Spec.Rules[ruleIndex].Matches,
+			).Return(expectedCondition, nil).Once()
+
+			expectedRuleName := ociListerPolicyRuleName(httpRoute, ruleIndex)
+			expectedBackendSets := lo.Map(refs, func(ref gatewayv1.HTTPBackendRef, _ int) string {
+				return ociBackendSetNameFromBackendRef(httpRoute, ref)
+			})
+
+			expectedRule := loadbalancer.RoutingRule{
+				Name:      lo.ToPtr(expectedRuleName),
+				Condition: lo.ToPtr(expectedCondition),
+				Actions: lo.Map(expectedBackendSets, func(backendSet string, _ int) loadbalancer.Action {
+					return loadbalancer.ForwardToBackendSet{
+						BackendSetName: lo.ToPtr(backendSet),
+					}
+				}),
+			}
+
+			actualRule, err := model.makeRoutingRule(t.Context(), params)
+			require.NoError(t, err)
+			assert.Equal(t, expectedRule, actualRule)
+		})
+
+		t.Run("fail when mapping matches to condition fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			routingRulesMapper, _ := deps.RoutingRulesMapper.(*MockociLoadBalancerRoutingRulesMapper)
+
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(makeRandomHTTPRouteRule()),
+			)
+			ruleIndex := 0
+
+			params := makeRoutingRuleParams{
+				httpRoute:          httpRoute,
+				httpRouteRuleIndex: ruleIndex,
+			}
+
+			expectedErr := errors.New(faker.Sentence())
+			routingRulesMapper.EXPECT().mapHTTPRouteMatchesToCondition(
+				httpRoute.Spec.Rules[ruleIndex].Matches,
+			).Return("", expectedErr).Once()
+
+			_, err := model.makeRoutingRule(t.Context(), params)
+			require.Error(t, err)
+			require.ErrorIs(t, err, expectedErr)
+		})
+	})
 }
 
 func Test_ociListerPolicyRuleName(t *testing.T) {
