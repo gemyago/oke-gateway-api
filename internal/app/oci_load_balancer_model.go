@@ -42,12 +42,6 @@ type reconcileHTTPListenerParams struct {
 	listenerSpec          *gatewayv1.Listener
 }
 
-type resolveAndTidyRoutingPolicyParams struct {
-	loadBalancerID string
-	policyName     string
-	httpRoute      gatewayv1.HTTPRoute
-}
-
 type upsertRoutingRuleParams struct {
 	actualPolicyRules  []loadbalancer.RoutingRule
 	httpRoute          gatewayv1.HTTPRoute
@@ -90,14 +84,6 @@ type ociLoadBalancerModel interface {
 		ctx context.Context,
 		params reconcileBackendSetParams,
 	) error
-
-	// resolveAndTidyRoutingPolicy removes rules from the routing policy that are
-	// associated with the given httpRoute. It is expected that consumer will repopulate
-	// new rules related to the given httpRoute.
-	resolveAndTidyRoutingPolicy(
-		ctx context.Context,
-		params resolveAndTidyRoutingPolicyParams,
-	) (loadbalancer.RoutingPolicy, error)
 
 	// makeRoutingRule appends a new routing rule to the routing policy.
 	makeRoutingRule(
@@ -320,36 +306,6 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 	}
 
 	return nil
-}
-
-func (m *ociLoadBalancerModelImpl) resolveAndTidyRoutingPolicy(
-	ctx context.Context,
-	params resolveAndTidyRoutingPolicyParams,
-) (loadbalancer.RoutingPolicy, error) {
-	policyResponse, err := m.ociClient.GetRoutingPolicy(ctx, loadbalancer.GetRoutingPolicyRequest{
-		RoutingPolicyName: &params.policyName,
-		LoadBalancerId:    &params.loadBalancerID,
-	})
-	if err != nil {
-		return loadbalancer.RoutingPolicy{}, fmt.Errorf("failed to get routing policy %s: %w", params.policyName, err)
-	}
-
-	// TODO: This whole logic needs to be revisited. We can't prefix match since it can be
-	// sanitized. Maybe store in annotations of http route?
-
-	// All rules associated with the current httpRoute will have a name starting with this prefix.
-	// rulesPrefixToRemove := sanitizePolicyName(params.httpRoute.Name) + "_"
-
-	// cleanedRules := lo.Filter(policyResponse.RoutingPolicy.Rules,
-	// 	func(rule loadbalancer.RoutingRule, _ int) bool {
-	// 		ruleName := lo.FromPtr(rule.Name)
-	// 		return !strings.HasPrefix(ruleName, rulesPrefixToRemove)
-	// 	})
-
-	cleanedPolicy := policyResponse.RoutingPolicy
-	// cleanedPolicy.Rules = cleanedRules
-
-	return cleanedPolicy, nil
 }
 
 func (m *ociLoadBalancerModelImpl) makeRoutingRule(
