@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/gemyago/oke-gateway-api/internal/types"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -47,6 +48,9 @@ type setProgrammedParams struct {
 	gatewayClass gatewayv1.GatewayClass
 	gateway      gatewayv1.Gateway
 	matchedRef   gatewayv1.ParentReference
+
+	// List of load balancer policy rules that were programmed for this route
+	programmedPolicyRules []string
 }
 
 // httpRouteModel defines the interface for managing HTTPRoute resources.
@@ -492,7 +496,8 @@ func (m *httpRouteModelImpl) setProgrammed(
 		reason:        string(gatewayv1.RouteReasonResolvedRefs),
 		message:       fmt.Sprintf("Route programmed by %s", params.gateway.Name),
 		annotations: map[string]string{
-			HTTPRouteProgrammingRevisionAnnotation: HTTPRouteProgrammingRevisionValue,
+			HTTPRouteProgrammingRevisionAnnotation:   HTTPRouteProgrammingRevisionValue,
+			HTTPRouteProgrammedPolicyRulesAnnotation: strings.Join(params.programmedPolicyRules, ","),
 		},
 	}); err != nil {
 		return fmt.Errorf("failed to update programmed status for HTTProute %s: %w", httpRoute.Name, err)

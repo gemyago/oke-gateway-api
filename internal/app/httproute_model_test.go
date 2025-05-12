@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -1287,6 +1288,11 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				gatewayClass: gatewayData.gatewayClass,
 				gateway:      gatewayData.gateway,
 				matchedRef:   matchedRef,
+				programmedPolicyRules: []string{
+					"rule1-" + faker.Word(),
+					"rule2-" + faker.Word(),
+					"rule3-" + faker.Word(),
+				},
 			}
 
 			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
@@ -1298,7 +1304,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				reason:        string(gatewayv1.RouteReasonResolvedRefs),
 				message:       fmt.Sprintf("Route programmed by %s", params.gateway.Name),
 				annotations: map[string]string{
-					HTTPRouteProgrammingRevisionAnnotation: HTTPRouteProgrammingRevisionValue,
+					HTTPRouteProgrammingRevisionAnnotation:   HTTPRouteProgrammingRevisionValue,
+					HTTPRouteProgrammedPolicyRulesAnnotation: strings.Join(params.programmedPolicyRules, ","),
 				},
 			}).Return(nil)
 
