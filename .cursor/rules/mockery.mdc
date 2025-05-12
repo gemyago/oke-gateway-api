@@ -1,5 +1,5 @@
 ---
-description: 
+description: This rule applies when new mocks need to be added or updated
 globs: 
 alwaysApply: false
 ---
