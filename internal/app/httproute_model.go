@@ -417,7 +417,7 @@ func (m *httpRouteModelImpl) programRoute(
 
 	// Commit the rules to each listener's policy
 	for _, listener := range params.matchedListeners {
-		err := m.ociLoadBalancerModel.commitRoutingPolicyV2(ctx, commitRoutingPolicyV2Params{
+		err := m.ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
 			loadBalancerID: params.config.Spec.LoadBalancerID,
 			listenerName:   string(listener.Name),
 			policyRules:    policyRules,

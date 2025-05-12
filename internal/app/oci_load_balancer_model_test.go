@@ -933,7 +933,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				return ruleI < ruleJ
 			})
 
-			params := commitRoutingPolicyV2Params{
+			params := commitRoutingPolicyParams{
 				loadBalancerID: loadBalancerID,
 				listenerName:   listenerName,
 				policyRules:    rulesToCommit,
@@ -970,7 +970,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
 
-			err := model.commitRoutingPolicyV2(t.Context(), params)
+			err := model.commitRoutingPolicy(t.Context(), params)
 			require.NoError(t, err)
 		})
 
@@ -987,7 +987,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				makeRandomOCIRoutingRule(),
 			}
 
-			params := commitRoutingPolicyV2Params{
+			params := commitRoutingPolicyParams{
 				loadBalancerID: loadBalancerID,
 				listenerName:   listenerName,
 				policyRules:    newRules,
@@ -999,7 +999,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				LoadBalancerId:    &loadBalancerID,
 			}).Return(loadbalancer.GetRoutingPolicyResponse{}, wantErr)
 
-			err := model.commitRoutingPolicyV2(t.Context(), params)
+			err := model.commitRoutingPolicy(t.Context(), params)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, wantErr)
 		})
@@ -1023,7 +1023,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				makeRandomOCIRoutingRule(),
 			}
 
-			params := commitRoutingPolicyV2Params{
+			params := commitRoutingPolicyParams{
 				loadBalancerID: loadBalancerID,
 				listenerName:   listenerName,
 				policyRules:    newRules,
@@ -1040,7 +1040,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			ociLoadBalancerClient.EXPECT().UpdateRoutingPolicy(t.Context(), mock.Anything).
 				Return(loadbalancer.UpdateRoutingPolicyResponse{}, wantErr)
 
-			err := model.commitRoutingPolicyV2(t.Context(), params)
+			err := model.commitRoutingPolicy(t.Context(), params)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, wantErr)
 		})
@@ -1065,7 +1065,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				makeRandomOCIRoutingRule(),
 			}
 
-			params := commitRoutingPolicyV2Params{
+			params := commitRoutingPolicyParams{
 				loadBalancerID: loadBalancerID,
 				listenerName:   listenerName,
 				policyRules:    newRules,
@@ -1087,7 +1087,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			wantErr := errors.New(faker.Sentence())
 			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(wantErr)
 
-			err := model.commitRoutingPolicyV2(t.Context(), params)
+			err := model.commitRoutingPolicy(t.Context(), params)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, wantErr)
 		})

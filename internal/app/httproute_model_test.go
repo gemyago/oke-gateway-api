@@ -1032,7 +1032,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			// Expect commitRoutingPolicyV2 to be called for each listener
 			for _, listener := range listeners {
-				ociLBModel.EXPECT().commitRoutingPolicyV2(t.Context(), commitRoutingPolicyV2Params{
+				ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
 					loadBalancerID: config.Spec.LoadBalancerID,
 					listenerName:   string(listener.Name),
 					policyRules:    expectedRules,
@@ -1162,7 +1162,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			wantErr := errors.New(faker.Sentence())
 
 			// Committing policy fails
-			ociLBModel.EXPECT().commitRoutingPolicyV2(t.Context(), mock.Anything).Return(wantErr)
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), mock.Anything).Return(wantErr)
 
 			err := model.programRoute(t.Context(), params)
 			require.Error(t, err)

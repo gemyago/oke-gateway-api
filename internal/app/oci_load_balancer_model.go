@@ -47,7 +47,7 @@ type makeRoutingRuleParams struct {
 	httpRouteRuleIndex int
 }
 
-type commitRoutingPolicyV2Params struct {
+type commitRoutingPolicyParams struct {
 	loadBalancerID string
 	listenerName   string
 	policyRules    []loadbalancer.RoutingRule
@@ -80,9 +80,9 @@ type ociLoadBalancerModel interface {
 		params makeRoutingRuleParams,
 	) (loadbalancer.RoutingRule, error)
 
-	commitRoutingPolicyV2(
+	commitRoutingPolicy(
 		ctx context.Context,
-		params commitRoutingPolicyV2Params,
+		params commitRoutingPolicyParams,
 	) error
 
 	// removeMissingListeners removes listeners from the load balancer that are not present in the gateway spec.
@@ -419,9 +419,9 @@ func (m *ociLoadBalancerModelImpl) removeMissingListeners(
 	return errors.Join(errs...)
 }
 
-func (m *ociLoadBalancerModelImpl) commitRoutingPolicyV2(
+func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 	ctx context.Context,
-	params commitRoutingPolicyV2Params,
+	params commitRoutingPolicyParams,
 ) error {
 	policyName := listenerPolicyName(params.listenerName)
 
