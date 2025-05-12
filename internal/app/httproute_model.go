@@ -427,12 +427,18 @@ func (m *httpRouteModelImpl) programRoute(
 		policyRulesNames = append(policyRulesNames, *rule.Name)
 	}
 
+	var prevPolicyRules []string
+	if prevPolicyRulesStr, ok := params.httpRoute.Annotations[HTTPRouteProgrammedPolicyRulesAnnotation]; ok {
+		prevPolicyRules = strings.Split(prevPolicyRulesStr, ",")
+	}
+
 	// Commit the rules to each listener's policy
 	for _, listener := range params.matchedListeners {
 		err := m.ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
-			loadBalancerID: params.config.Spec.LoadBalancerID,
-			listenerName:   string(listener.Name),
-			policyRules:    policyRules,
+			loadBalancerID:  params.config.Spec.LoadBalancerID,
+			listenerName:    string(listener.Name),
+			policyRules:     policyRules,
+			prevPolicyRules: prevPolicyRules,
 		})
 		if err != nil {
 			return programRouteResult{}, fmt.Errorf("failed to commit routing policy for listener %s: %w", listener.Name, err)
