@@ -57,7 +57,7 @@ func (r *HTTPRouteController) performProgramming(
 		return fmt.Errorf("failed to resolve backend refs: %w", err)
 	}
 
-	_, err = r.httpRouteModel.programRoute(ctx, programRouteParams{
+	programResult, err := r.httpRouteModel.programRoute(ctx, programRouteParams{
 		gateway:          resolvedData.gatewayDetails.gateway,
 		config:           resolvedData.gatewayDetails.config,
 		httpRoute:        *acceptedRoute,
@@ -70,10 +70,11 @@ func (r *HTTPRouteController) performProgramming(
 
 	// Mark the route as programmed by setting the ResolvedRefs condition
 	if err = r.httpRouteModel.setProgrammed(ctx, setProgrammedParams{
-		gatewayClass: resolvedData.gatewayDetails.gatewayClass,
-		gateway:      resolvedData.gatewayDetails.gateway,
-		httpRoute:    *acceptedRoute,
-		matchedRef:   resolvedData.matchedRef,
+		gatewayClass:          resolvedData.gatewayDetails.gatewayClass,
+		gateway:               resolvedData.gatewayDetails.gateway,
+		httpRoute:             *acceptedRoute,
+		matchedRef:            resolvedData.matchedRef,
+		programmedPolicyRules: programResult.programmedPolicyRules,
 	}); err != nil {
 		return fmt.Errorf("failed to set programmed status: %w", err)
 	}

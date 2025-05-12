@@ -78,6 +78,12 @@ func TestHTTPRouteController(t *testing.T) {
 				},
 			).Return(wantBackends, nil)
 
+			programmedPolicyRules := []string{
+				"policy1-" + faker.Word(),
+				"policy2-" + faker.Word(),
+				"policy3-" + faker.Word(),
+			}
+
 			mockModel.EXPECT().programRoute(
 				t.Context(),
 				programRouteParams{
@@ -86,15 +92,18 @@ func TestHTTPRouteController(t *testing.T) {
 					httpRoute:     wantAcceptedRoute,
 					knownBackends: wantBackends,
 				},
-			).Return(programRouteResult{}, nil)
+			).Return(programRouteResult{
+				programmedPolicyRules: programmedPolicyRules,
+			}, nil)
 
 			mockModel.EXPECT().setProgrammed(
 				t.Context(),
 				setProgrammedParams{
-					gatewayClass: wantResolvedData.gatewayDetails.gatewayClass,
-					gateway:      wantResolvedData.gatewayDetails.gateway,
-					httpRoute:    wantAcceptedRoute,
-					matchedRef:   wantResolvedData.matchedRef,
+					gatewayClass:          wantResolvedData.gatewayDetails.gatewayClass,
+					gateway:               wantResolvedData.gatewayDetails.gateway,
+					httpRoute:             wantAcceptedRoute,
+					matchedRef:            wantResolvedData.matchedRef,
+					programmedPolicyRules: programmedPolicyRules,
 				},
 			).Return(nil)
 
