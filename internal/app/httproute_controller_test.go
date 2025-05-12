@@ -86,7 +86,7 @@ func TestHTTPRouteController(t *testing.T) {
 					httpRoute:     wantAcceptedRoute,
 					knownBackends: wantBackends,
 				},
-			).Return(nil)
+			).Return(programRouteResult{}, nil)
 
 			mockModel.EXPECT().setProgrammed(
 				t.Context(),
@@ -311,7 +311,7 @@ func TestHTTPRouteController(t *testing.T) {
 					httpRoute:     wantAcceptedRoute,
 					knownBackends: wantBackendRefs,
 				},
-			).Return(wantErr)
+			).Return(programRouteResult{}, wantErr)
 
 			result, err := controller.Reconcile(t.Context(), req)
 
@@ -428,7 +428,7 @@ func TestHTTPRouteController(t *testing.T) {
 					httpRoute:     wantAcceptedRoute,
 					knownBackends: wantBackendRefs,
 				},
-			).Return(nil)
+			).Return(programRouteResult{}, nil)
 
 			wantErr := fmt.Errorf("set programmed error: %s", faker.Sentence())
 			mockModel.EXPECT().setProgrammed(

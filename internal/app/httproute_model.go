@@ -82,7 +82,7 @@ type httpRouteModel interface {
 	programRoute(
 		ctx context.Context,
 		params programRouteParams,
-	) error
+	) (programRouteResult, error)
 
 	// setProgrammed marks the route as successfully programmed by updating its status.
 	setProgrammed(
@@ -395,7 +395,7 @@ func (m *httpRouteModelImpl) resolveBackendRefs(
 func (m *httpRouteModelImpl) programRoute(
 	ctx context.Context,
 	params programRouteParams,
-) error {
+) (programRouteResult, error) {
 	// First, reconcile all backend sets for known backends
 	for key, service := range params.knownBackends {
 		err := m.ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
@@ -403,7 +403,7 @@ func (m *httpRouteModelImpl) programRoute(
 			service:        service,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to reconcile backend set for service %s: %w", key, err)
+			return programRouteResult{}, fmt.Errorf("failed to reconcile backend set for service %s: %w", key, err)
 		}
 	}
 
@@ -415,7 +415,8 @@ func (m *httpRouteModelImpl) programRoute(
 			httpRouteRuleIndex: ruleIndex,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to make routing rule %d for route %s: %w", ruleIndex, params.httpRoute.Name, err)
+			return programRouteResult{},
+				fmt.Errorf("failed to make routing rule %d for route %s: %w", ruleIndex, params.httpRoute.Name, err)
 		}
 		policyRules = append(policyRules, rule)
 	}
@@ -428,11 +429,16 @@ func (m *httpRouteModelImpl) programRoute(
 			policyRules:    policyRules,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to commit routing policy for listener %s: %w", listener.Name, err)
+			return programRouteResult{}, fmt.Errorf("failed to commit routing policy for listener %s: %w", listener.Name, err)
 		}
 	}
 
-	return nil
+	return programRouteResult{
+		programmedPolicyRules: lo.Map(policyRules,
+			func(rule loadbalancer.RoutingRule, _ int) string {
+				return *rule.Name
+			}),
+	}, nil
 }
 
 func (m *httpRouteModelImpl) isProgrammingRequired(

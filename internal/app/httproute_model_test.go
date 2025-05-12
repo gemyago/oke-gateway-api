@@ -1039,7 +1039,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				}).Return(nil)
 			}
 
-			err := model.programRoute(t.Context(), params)
+			_, err := model.programRoute(t.Context(), params)
 			require.NoError(t, err)
 		})
 
@@ -1074,7 +1074,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			// First service reconciliation fails
 			ociLBModel.EXPECT().reconcileBackendSet(t.Context(), mock.Anything).Return(wantErr)
 
-			err := model.programRoute(t.Context(), params)
+			_, err := model.programRoute(t.Context(), params)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, wantErr)
 		})
@@ -1117,7 +1117,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			// Making routing rule fails
 			ociLBModel.EXPECT().makeRoutingRule(t.Context(), mock.Anything).Return(loadbalancer.RoutingRule{}, wantErr)
 
-			err := model.programRoute(t.Context(), params)
+			_, err := model.programRoute(t.Context(), params)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, wantErr)
 		})
@@ -1164,7 +1164,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			// Committing policy fails
 			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), mock.Anything).Return(wantErr)
 
-			err := model.programRoute(t.Context(), params)
+			_, err := model.programRoute(t.Context(), params)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, wantErr)
 		})

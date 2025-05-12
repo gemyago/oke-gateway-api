@@ -57,7 +57,7 @@ func (r *HTTPRouteController) performProgramming(
 		return fmt.Errorf("failed to resolve backend refs: %w", err)
 	}
 
-	err = r.httpRouteModel.programRoute(ctx, programRouteParams{
+	_, err = r.httpRouteModel.programRoute(ctx, programRouteParams{
 		gateway:          resolvedData.gatewayDetails.gateway,
 		config:           resolvedData.gatewayDetails.config,
 		httpRoute:        *acceptedRoute,

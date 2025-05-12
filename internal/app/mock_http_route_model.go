@@ -147,21 +147,31 @@ func (_c *MockhttpRouteModel_isProgrammingRequired_Call) RunAndReturn(run func(r
 }
 
 // programRoute provides a mock function with given fields: ctx, params
-func (_m *MockhttpRouteModel) programRoute(ctx context.Context, params programRouteParams) error {
+func (_m *MockhttpRouteModel) programRoute(ctx context.Context, params programRouteParams) (programRouteResult, error) {
 	ret := _m.Called(ctx, params)
 
 	if len(ret) == 0 {
 		panic("no return value specified for programRoute")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, programRouteParams) error); ok {
+	var r0 programRouteResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, programRouteParams) (programRouteResult, error)); ok {
+		return rf(ctx, params)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, programRouteParams) programRouteResult); ok {
 		r0 = rf(ctx, params)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(programRouteResult)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, programRouteParams) error); ok {
+		r1 = rf(ctx, params)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockhttpRouteModel_programRoute_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'programRoute'
@@ -183,12 +193,12 @@ func (_c *MockhttpRouteModel_programRoute_Call) Run(run func(ctx context.Context
 	return _c
 }
 
-func (_c *MockhttpRouteModel_programRoute_Call) Return(_a0 error) *MockhttpRouteModel_programRoute_Call {
-	_c.Call.Return(_a0)
+func (_c *MockhttpRouteModel_programRoute_Call) Return(_a0 programRouteResult, _a1 error) *MockhttpRouteModel_programRoute_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockhttpRouteModel_programRoute_Call) RunAndReturn(run func(context.Context, programRouteParams) error) *MockhttpRouteModel_programRoute_Call {
+func (_c *MockhttpRouteModel_programRoute_Call) RunAndReturn(run func(context.Context, programRouteParams) (programRouteResult, error)) *MockhttpRouteModel_programRoute_Call {
 	_c.Call.Return(run)
 	return _c
 }
