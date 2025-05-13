@@ -1,0 +1,76 @@
+name: Tag Release Images
+
+# --- Testing Instructions ---
+# To test this workflow manually:
+# 1. Create PR with updates. Wait for CI to pass and docker images are available.
+# 2. Create a latest release using the GitHub CLI using one of the commands:
+#    gh release create v1.2.3 --latest --generate-notes --target "$(git branch --show-current)"
+# 3. Ensure action is triggered and tagged images as follows: git-tag-v1.2.3 v1.2.3 v1.2-latest v1-latest latest
+# 4. Create a pre-release using the GitHub CLI using one of the commands:
+#    gh release create v1.2.3-rc --prerelease --generate-notes --target "$(git branch --show-current)"
+# 5. Ensure action is triggered and tagged images as follows: git-tag-v1.2.3-rc v1.2.3-rc
+# 6. Drop created releases and tags after testing is done using the following commands:
+#    gh release delete v1.2.3-rc --yes --cleanup-tag
+#    gh release delete v1.2.3 --yes --cleanup-tag
+# --- End Testing Instructions ---
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: "read" # Needed for checkout
+  packages: "write" # Needed to push docker images to ghcr.io
+
+concurrency:
+  group: tag-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: Tag Release Images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }} 
+
+      - name: Set up build dependencies (crane)
+        working-directory: build
+        run: make install-crane
+
+      - name: Authenticate crane to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | ./build/bin/crane auth login ghcr.io -u "${{ github.actor }}" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare and Tag Images
+        env:
+          SOURCE_COMMIT_SHA: ${{ github.sha }}
+          GIT_REF: ${{ github.ref }}
+          LATEST_FLAG: ${{ !github.event.release.prerelease && '--latest' || '' }}
+        run: |
+          make -C build docker/.remote-image-names
+          echo "Base image names generated in build/docker/.remote-image-names"
+          cat build/docker/.remote-image-names
+          
+          build/scripts/read-build-config.sh --key stable_branches > /tmp/stable-branches.txt
+          echo "Stable branches: $(cat /tmp/stable-branches.txt)"
+          
+          build/scripts/resolve-docker-tags.sh \
+            --commit-sha "$SOURCE_COMMIT_SHA" \
+            --git-ref "$GIT_REF" \
+            --stable-branches "$(cat /tmp/stable-branches.txt)" \
+            $LATEST_FLAG > /tmp/target-tags.txt
+          echo "Target tags calculated"
+          cat /tmp/target-tags.txt
+
+          echo "Tagging remote images..."
+          build/scripts/tag-remote-images.sh \
+            --source-commit-sha "$SOURCE_COMMIT_SHA" \
+            --target-tags "$(cat /tmp/target-tags.txt)" \
+            --remote-images-file build/docker/.remote-image-names
+          
+          echo "Image tagging process finished."

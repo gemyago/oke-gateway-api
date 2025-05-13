@@ -1,0 +1,58 @@
+name: Promote Docker Images
+
+on:
+  pull_request:
+    types: [closed]
+    # types: [labeled] # Use this for testing (comment out the merged condition)
+
+jobs:
+  promote:
+    name: Promote Images
+    if: github.event.pull_request.merged == true # For testing, comment out the merged condition
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: "read"
+      packages: "write"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup deps
+        working-directory: build
+        run: |
+          make install-crane
+
+      - name: Authenticate crane to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | build/bin/crane auth login ghcr.io -u "${{ github.actor }}" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare and Tag Images
+        env:
+          SOURCE_COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+          TARGET_COMMIT_SHA: ${{ github.event.pull_request.merged == true && github.event.pull_request.merge_commit_sha || github.event.pull_request.base.sha }}
+          TARGET_REF: refs/heads/${{ github.event.pull_request.base.ref }}
+        run: |
+          make -C build docker/.remote-image-names
+          echo "Base image names generated in build/docker/.remote-image-names"
+          cat build/docker/.remote-image-names
+
+          build/scripts/read-build-config.sh --key stable_branches > /tmp/stable-branches.txt
+          echo "Stable branches: $(cat /tmp/stable-branches.txt)"
+
+          build/scripts/resolve-docker-tags.sh \
+            --commit-sha "$TARGET_COMMIT_SHA" \
+            --git-ref "$TARGET_REF" \
+            --stable-branches "$(cat /tmp/stable-branches.txt)" > /tmp/target-tags.txt
+          echo "Target tags calculated"
+          cat /tmp/target-tags.txt
+
+          echo "Tagging remote images..."
+          build/scripts/tag-remote-images.sh \
+            --source-commit-sha "$SOURCE_COMMIT_SHA" \
+            --target-tags "$(cat /tmp/target-tags.txt)" \
+            --remote-images-file build/docker/.remote-image-names
+
+          echo "Image tagging process finished."
