@@ -3,6 +3,8 @@
 package services
 
 import (
+	"math"
+	"strings"
 	"time"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -44,4 +46,13 @@ func NewTestShutdownHooks() *ShutdownHooks {
 		RootLogger:              diag.RootTestLogger(),
 		GracefulShutdownTimeout: defaultTestShutdownTimeout,
 	})
+}
+
+func RandomString(length int) string {
+	segmentsCount := math.Ceil(float64(length) / 32)
+	segments := make([]string, int(segmentsCount))
+	for i := range segments {
+		segments[i] = faker.UUIDDigit()
+	}
+	return strings.Join(segments, "")[:length]
 }

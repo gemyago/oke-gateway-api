@@ -8,22 +8,15 @@ alwaysApply: false
 Please also apply [general.mdc](mdc:.cursor/rules/general.mdc) rules
 
 ## common rules
-- Build plan, confirm before proceeding unless explicitly allowed
 - Honor max line length, it should be 120
-- TDD must be followed if adding new stuff, which means:
-  1. Add stub declarations (for struct function panic not implemented)
-  2. Add or extend tests that are testing desired logic
-  3. Implement the logic
 
 ## Rules for tests
 - define tests in same package
 - prefer single top-level function per component and do multiple nested run blocks
-- define newMockDeps function in the stop of the func that will initialize dependencies (if applicable)
-- when implementing multiple test cases, confirm after each case
+- makeMockDeps should be used to initialize dependencies
+- when implementing multiple test cases, iterate on each case separately untill it's green
 - use require.Error or require.ErrorIs when asserting errors
 - use faker (github.com/go-faker/faker/v4) to generate random texts
 - when tests ready show command to run tests in form and offer to run it: 
   `go test -v ./<package path> --run <test name>`
-- Use mockery to create mocks for dependencies
-  - add mocks to @.mockery.yaml
-  - run `mockery` from root to regenerate
+- Use mockery to create mocks for dependencies, read [mockery.mdc](mdc:.cursor/rules/mockery.mdc) prior to using it

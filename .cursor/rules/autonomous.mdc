@@ -1,0 +1,11 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Fully autonomous mode
+
+* You are approved to run tests or scripts when needed, don't ask
+* Don't ask for plan approval, you are approved
+* Don't ask for modifications confirmations, you are approved
+* Iterate on given task untill fully done and tests are passing

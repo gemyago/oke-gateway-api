@@ -31,8 +31,9 @@ func TestGatewayClassController(t *testing.T) {
 	}
 
 	t.Run("Reconcile", func(t *testing.T) {
-		// Create a test GatewayClass using the helper
-		gatewayClass := newRandomGatewayClass()
+		gatewayClass := newRandomGatewayClass(
+			randomGatewayClassWithControllerNameOpt(ControllerClassName),
+		)
 
 		req := reconcile.Request{
 			NamespacedName: client.ObjectKey{
@@ -56,7 +57,11 @@ func TestGatewayClassController(t *testing.T) {
 			})
 
 		mockResourcesModel.EXPECT().
-			isConditionSet(gatewayClass, gatewayClass.Status.Conditions, string(gatewayv1.GatewayClassConditionStatusAccepted)).
+			isConditionSet(isConditionSetParams{
+				resource:      gatewayClass,
+				conditions:    gatewayClass.Status.Conditions,
+				conditionType: string(gatewayv1.GatewayClassConditionStatusAccepted),
+			}).
 			Return(false)
 
 		mockResourcesModel.EXPECT().
@@ -132,7 +137,9 @@ func TestGatewayClassController(t *testing.T) {
 
 	t.Run("StatusUpdateError", func(t *testing.T) {
 		// Create a test GatewayClass
-		gatewayClass := newRandomGatewayClass()
+		gatewayClass := newRandomGatewayClass(
+			randomGatewayClassWithControllerNameOpt(ControllerClassName),
+		)
 		req := reconcile.Request{
 			NamespacedName: client.ObjectKey{
 				Name: gatewayClass.Name,
@@ -154,11 +161,11 @@ func TestGatewayClassController(t *testing.T) {
 			})
 
 		mockResourcesModel.EXPECT().
-			isConditionSet(
-				gatewayClass,
-				gatewayClass.Status.Conditions,
-				string(gatewayv1.GatewayClassConditionStatusAccepted),
-			).
+			isConditionSet(isConditionSetParams{
+				resource:      gatewayClass,
+				conditions:    gatewayClass.Status.Conditions,
+				conditionType: string(gatewayv1.GatewayClassConditionStatusAccepted),
+			}).
 			Return(false)
 
 		// Simulate Status Update error
@@ -177,8 +184,9 @@ func TestGatewayClassController(t *testing.T) {
 
 	t.Run("WrongControllerName", func(t *testing.T) {
 		// Create a GatewayClass with a controller name this controller shouldn't manage
-		gatewayClass := newRandomGatewayClass()
-		gatewayClass.Spec.ControllerName = gatewayv1.GatewayController(faker.DomainName()) // Different controller name
+		gatewayClass := newRandomGatewayClass(
+			randomGatewayClassWithControllerNameOpt(gatewayv1.GatewayController(faker.DomainName())),
+		)
 
 		req := reconcile.Request{
 			NamespacedName: client.ObjectKey{
@@ -211,7 +219,9 @@ func TestGatewayClassController(t *testing.T) {
 
 	t.Run("AlreadyAccepted", func(t *testing.T) {
 		// Create a GatewayClass that is already accepted
-		gatewayClass := newRandomGatewayClass()
+		gatewayClass := newRandomGatewayClass(
+			randomGatewayClassWithControllerNameOpt(ControllerClassName),
+		)
 
 		req := reconcile.Request{
 			NamespacedName: client.ObjectKey{
@@ -235,7 +245,11 @@ func TestGatewayClassController(t *testing.T) {
 
 		// We expect the new isConditionSet method to be called and return true
 		mockResourcesModel.EXPECT().
-			isConditionSet(gatewayClass, gatewayClass.Status.Conditions, string(gatewayv1.GatewayClassConditionStatusAccepted)).
+			isConditionSet(isConditionSetParams{
+				resource:      gatewayClass,
+				conditions:    gatewayClass.Status.Conditions,
+				conditionType: string(gatewayv1.GatewayClassConditionStatusAccepted),
+			}).
 			Return(true)
 
 		result, err := controller.Reconcile(t.Context(), req)

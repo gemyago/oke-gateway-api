@@ -41,6 +41,27 @@ type ociLoadBalancerClient interface {
 
 	UpdateBackendSet(ctx context.Context, request loadbalancer.UpdateBackendSetRequest) (
 		response loadbalancer.UpdateBackendSetResponse, err error)
+
+	DeleteListener(ctx context.Context, request loadbalancer.DeleteListenerRequest) (
+		response loadbalancer.DeleteListenerResponse, err error)
+
+	UpdateRuleSet(ctx context.Context, request loadbalancer.UpdateRuleSetRequest) (
+		response loadbalancer.UpdateRuleSetResponse, err error)
+
+	GetRuleSet(ctx context.Context, request loadbalancer.GetRuleSetRequest) (
+		response loadbalancer.GetRuleSetResponse, err error)
+
+	GetRoutingPolicy(ctx context.Context, request loadbalancer.GetRoutingPolicyRequest) (
+		response loadbalancer.GetRoutingPolicyResponse, err error)
+
+	CreateRoutingPolicy(ctx context.Context, request loadbalancer.CreateRoutingPolicyRequest) (
+		response loadbalancer.CreateRoutingPolicyResponse, err error)
+
+	UpdateRoutingPolicy(ctx context.Context, request loadbalancer.UpdateRoutingPolicyRequest) (
+		response loadbalancer.UpdateRoutingPolicyResponse, err error)
+
+	DeleteRoutingPolicy(ctx context.Context, request loadbalancer.DeleteRoutingPolicyRequest) (
+		response loadbalancer.DeleteRoutingPolicyResponse, err error)
 }
 
 type workRequestsWatcher interface {

@@ -6,7 +6,6 @@ import (
 	"log/slog"
 
 	"go.uber.org/dig"
-	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
@@ -40,25 +39,30 @@ func (r *HTTPRouteController) performProgramming(
 	ctx context.Context,
 	resolvedData resolvedRouteDetails,
 ) error {
+	r.logger.DebugContext(ctx, "Performing HTTProute programming",
+		slog.String("httpRoute", resolvedData.httpRoute.Name),
+		slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
+	)
+
 	var acceptedRoute *gatewayv1.HTTPRoute
 	acceptedRoute, err := r.httpRouteModel.acceptRoute(ctx, resolvedData)
 	if err != nil {
 		return fmt.Errorf("failed to accept route: %w", err)
 	}
 
-	var backendRefs map[string]v1.Service
-	backendRefs, err = r.httpRouteModel.resolveBackendRefs(ctx, resolveBackendRefsParams{
+	knownBackends, err := r.httpRouteModel.resolveBackendRefs(ctx, resolveBackendRefsParams{
 		httpRoute: *acceptedRoute,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to resolve backend refs: %w", err)
 	}
 
-	err = r.httpRouteModel.programRoute(ctx, programRouteParams{
-		gateway:             resolvedData.gatewayDetails.gateway,
-		config:              resolvedData.gatewayDetails.config,
-		httpRoute:           *acceptedRoute,
-		resolvedBackendRefs: backendRefs,
+	programResult, err := r.httpRouteModel.programRoute(ctx, programRouteParams{
+		gateway:          resolvedData.gatewayDetails.gateway,
+		config:           resolvedData.gatewayDetails.config,
+		httpRoute:        *acceptedRoute,
+		matchedListeners: resolvedData.matchedListeners,
+		knownBackends:    knownBackends,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to program route: %w", err)
@@ -66,13 +70,19 @@ func (r *HTTPRouteController) performProgramming(
 
 	// Mark the route as programmed by setting the ResolvedRefs condition
 	if err = r.httpRouteModel.setProgrammed(ctx, setProgrammedParams{
-		gatewayClass: resolvedData.gatewayDetails.gatewayClass,
-		gateway:      resolvedData.gatewayDetails.gateway,
-		httpRoute:    *acceptedRoute,
-		matchedRef:   resolvedData.matchedRef,
+		gatewayClass:          resolvedData.gatewayDetails.gatewayClass,
+		gateway:               resolvedData.gatewayDetails.gateway,
+		httpRoute:             *acceptedRoute,
+		matchedRef:            resolvedData.matchedRef,
+		programmedPolicyRules: programResult.programmedPolicyRules,
 	}); err != nil {
 		return fmt.Errorf("failed to set programmed status: %w", err)
 	}
+
+	r.logger.InfoContext(ctx, "Successfully programmed HTTProute",
+		slog.String("httpRoute", resolvedData.httpRoute.Name),
+		slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
+	)
 
 	return nil
 }
@@ -82,43 +92,45 @@ func (r *HTTPRouteController) performProgramming(
 func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	r.logger.InfoContext(ctx, fmt.Sprintf("Processing reconciliation for HTTProute %s", req.NamespacedName))
 
-	var resolvedData resolvedRouteDetails
-	resolved, err := r.httpRouteModel.resolveRequest(ctx, req, &resolvedData)
+	resolvedRequests, err := r.httpRouteModel.resolveRequest(ctx, req)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("failed to resolve request parent: %w", err)
 	}
-	if !resolved {
+	if len(resolvedRequests) == 0 {
 		r.logger.InfoContext(ctx, "Ignoring irrelevant HTTPRoute route",
 			slog.String("httpRoute", req.NamespacedName.String()),
 		)
 		return reconcile.Result{}, nil
 	}
 
-	// Check if programming is required based on status
-	programmingRequired, err := r.httpRouteModel.isProgrammingRequired(resolvedData)
-	if err != nil {
-		r.logger.ErrorContext(ctx, "Failed to check if programming is required",
-			slog.String("httpRoute", req.NamespacedName.String()),
-		)
-		return reconcile.Result{}, err
-	}
-	if programmingRequired {
-		err = r.performProgramming(ctx, resolvedData)
+	for _, resolvedData := range resolvedRequests {
+		var programmingRequired bool
+		programmingRequired, err = r.httpRouteModel.isProgrammingRequired(resolvedData)
 		if err != nil {
-			return reconcile.Result{}, fmt.Errorf("failed to perform programming: %w", err)
+			return reconcile.Result{}, fmt.Errorf("failed to check programming requirement for gateway %s: %w",
+				resolvedData.gatewayDetails.gateway.Name, err)
 		}
-	} else {
-		r.logger.DebugContext(ctx, "HTTPRoute programming not required",
-			slog.String("httpRoute", req.NamespacedName.String()),
-		)
-	}
 
-	err = r.httpBackendModel.syncRouteBackendEndpoints(ctx, syncRouteBackendEndpointsParams{
-		httpRoute: resolvedData.httpRoute,
-		config:    resolvedData.gatewayDetails.config,
-	})
-	if err != nil {
-		return reconcile.Result{}, fmt.Errorf("failed to sync backend endpoints: %w", err)
+		if programmingRequired {
+			err = r.performProgramming(ctx, resolvedData)
+			if err != nil {
+				return reconcile.Result{}, fmt.Errorf("failed to perform programming for gateway %s: %w",
+					resolvedData.gatewayDetails.gateway.Name, err)
+			}
+		} else {
+			r.logger.DebugContext(ctx, "HTTPRoute programming not required for parent",
+				slog.String("httpRoute", req.NamespacedName.String()),
+				slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
+			)
+		}
+
+		err = r.httpBackendModel.syncRouteEndpoints(ctx, syncRouteEndpointsParams{
+			httpRoute: resolvedData.httpRoute,
+			config:    resolvedData.gatewayDetails.config,
+		})
+		if err != nil {
+			return reconcile.Result{}, fmt.Errorf("failed to sync backend endpoints: %w", err)
+		}
 	}
 
 	r.logger.InfoContext(ctx, fmt.Sprintf("Reconciled HTTProute %s", req.NamespacedName))

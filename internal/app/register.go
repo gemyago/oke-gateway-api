@@ -20,6 +20,7 @@ func Register(container *dig.Container) error {
 		newGatewayModel,
 		newHTTPRouteModel,
 		newOciLoadBalancerModel,
+		newOciLoadBalancerRoutingRulesMapper,
 		newHTTPBackendModel,
 		NewWatchesModel,
 	)

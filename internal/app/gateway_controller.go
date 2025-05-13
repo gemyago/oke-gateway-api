@@ -15,9 +15,9 @@ import (
 
 // GatewayController is a simple controller that watches Gateway resources.
 type GatewayController struct {
-	client         k8sClient // Reusing the k8sClient interface defined in gatewayclass_controller.go
+	client         k8sClient
 	logger         *slog.Logger
-	resourcesModel resourcesModel // Add resourcesModel field
+	resourcesModel resourcesModel
 	gatewayModel   gatewayModel
 }
 
@@ -27,7 +27,7 @@ type GatewayControllerDeps struct {
 
 	RootLogger     *slog.Logger
 	K8sClient      k8sClient
-	ResourcesModel resourcesModel // Add ResourcesModel dependency
+	ResourcesModel resourcesModel
 	GatewayModel   gatewayModel
 }
 
@@ -82,11 +82,11 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 		return reconcile.Result{}, nil
 	}
 
-	if !r.resourcesModel.isConditionSet(
-		&data.gateway,
-		data.gateway.Status.Conditions,
-		string(gatewayv1.GatewayConditionAccepted),
-	) {
+	if !r.resourcesModel.isConditionSet(isConditionSetParams{
+		resource:      &data.gateway,
+		conditions:    data.gateway.Status.Conditions,
+		conditionType: string(gatewayv1.GatewayConditionAccepted),
+	}) {
 		if err = r.resourcesModel.setCondition(ctx, setConditionParams{
 			resource:      &data.gateway,
 			conditions:    &data.gateway.Status.Conditions,
@@ -99,11 +99,14 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 		}
 	}
 
-	if !r.resourcesModel.isConditionSet(
-		&data.gateway,
-		data.gateway.Status.Conditions,
-		string(gatewayv1.GatewayConditionProgrammed),
-	) {
+	if !r.resourcesModel.isConditionSet(isConditionSetParams{
+		resource:      &data.gateway,
+		conditions:    data.gateway.Status.Conditions,
+		conditionType: string(gatewayv1.GatewayConditionProgrammed),
+		annotations: map[string]string{
+			GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+		},
+	}) {
 		r.logger.DebugContext(ctx, "Programming gateway",
 			slog.Any("req", req),
 			slog.Any("gateway", data.gateway),
@@ -122,6 +125,9 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 			status:        v1.ConditionTrue,
 			reason:        string(gatewayv1.GatewayConditionProgrammed),
 			message:       fmt.Sprintf("Gateway %s programmed by %s", data.gateway.Name, ControllerClassName),
+			annotations: map[string]string{
+				GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+			},
 		}); err != nil {
 			return reconcile.Result{}, fmt.Errorf("failed to set accepted condition for Gateway %s: %w", req.NamespacedName, err)
 		}

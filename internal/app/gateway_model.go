@@ -50,7 +50,6 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
 	if err := m.client.Get(ctx, req.NamespacedName, &receiver.gateway); err != nil {
 		if apierrors.IsNotFound(err) {
 			m.logger.InfoContext(ctx, fmt.Sprintf("Gateway %s not found", req.NamespacedName))
-			// TODO: We may need to handle deprovisioning, maybe via finalizer?
 			return false, nil
 		}
 		return false, fmt.Errorf("failed to get Gateway %s: %w", req.NamespacedName, err)
@@ -109,6 +108,8 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 		slog.String("loadBalancerId", loadBalancerID),
 	)
 
+	// TODO: We probably need to reset Programmed condition if we're here
+
 	request := loadbalancer.GetLoadBalancerRequest{
 		LoadBalancerId: &loadBalancerID,
 	}
@@ -131,18 +132,27 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 		return fmt.Errorf("failed to program default backend set: %w", err)
 	}
 
-	for _, listenerSpec := range data.gateway.Spec.Listeners {
+	for _, listener := range data.gateway.Spec.Listeners {
 		// TODO: Support listener with hostname
 
-		_, err = m.ociLoadBalancerModel.reconcileHTTPListener(ctx, reconcileHTTPListenerParams{
+		params := reconcileHTTPListenerParams{
 			loadBalancerID:        loadBalancerID,
-			defaultBackendSetName: *defaultBackendSet.Name,
 			knownListeners:        response.LoadBalancer.Listeners,
-			listenerSpec:          &listenerSpec,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to program listener %s: %w", listenerSpec.Name, err)
+			defaultBackendSetName: *defaultBackendSet.Name,
+			listenerSpec:          &listener,
 		}
+
+		if err = m.ociLoadBalancerModel.reconcileHTTPListener(ctx, params); err != nil {
+			return fmt.Errorf("failed to reconcile listener %s: %w", listener.Name, err)
+		}
+	}
+
+	if err = m.ociLoadBalancerModel.removeMissingListeners(ctx, removeMissingListenersParams{
+		loadBalancerID:   loadBalancerID,
+		knownListeners:   response.LoadBalancer.Listeners,
+		gatewayListeners: data.gateway.Spec.Listeners,
+	}); err != nil {
+		return fmt.Errorf("failed to remove missing listeners: %w", err)
 	}
 
 	return nil

@@ -18,6 +18,14 @@ type setConditionParams struct {
 	status        metav1.ConditionStatus
 	reason        string
 	message       string
+	annotations   map[string]string
+}
+
+type isConditionSetParams struct {
+	resource      client.Object
+	conditions    []metav1.Condition
+	conditionType string
+	annotations   map[string]string
 }
 
 type resourcesModel interface {
@@ -25,7 +33,7 @@ type resourcesModel interface {
 	setCondition(ctx context.Context, params setConditionParams) error
 
 	// isConditionSet checks if a specific condition is already set, true, and observed at the correct generation.
-	isConditionSet(resource client.Object, conditions []metav1.Condition, conditionType string) bool
+	isConditionSet(params isConditionSetParams) bool
 }
 
 type resourcesModelImpl struct {
@@ -34,6 +42,23 @@ type resourcesModelImpl struct {
 }
 
 func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditionParams) error {
+	if len(params.annotations) > 0 {
+		m.logger.DebugContext(ctx, "Updating resource annotations before setting condition",
+			slog.String("resource", params.resource.GetName()),
+			slog.Any("annotations", params.annotations))
+		currentAnnotations := params.resource.GetAnnotations()
+		if currentAnnotations == nil {
+			currentAnnotations = make(map[string]string)
+		}
+		for k, v := range params.annotations {
+			currentAnnotations[k] = v
+		}
+		params.resource.SetAnnotations(currentAnnotations)
+		if err := m.client.Update(ctx, params.resource); err != nil {
+			return fmt.Errorf("failed to update resource %s with annotations: %w", params.resource.GetName(), err)
+		}
+	}
+
 	m.logger.DebugContext(ctx,
 		fmt.Sprintf("Setting %s condition", params.conditionType),
 		slog.String("resource", params.resource.GetName()),
@@ -62,13 +87,23 @@ func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditi
 	return nil
 }
 
-func (m *resourcesModelImpl) isConditionSet(
-	resource client.Object,
-	conditions []metav1.Condition,
-	conditionType string) bool {
-	existingCondition := meta.FindStatusCondition(conditions, conditionType)
+func (m *resourcesModelImpl) isConditionSet(params isConditionSetParams) bool {
+	if len(params.annotations) > 0 {
+		resourceAnnotations := params.resource.GetAnnotations()
+		if resourceAnnotations == nil {
+			return false
+		}
+		for key, expectedValue := range params.annotations {
+			actualValue, found := resourceAnnotations[key]
+			if !found || actualValue != expectedValue {
+				return false
+			}
+		}
+	}
+
+	existingCondition := meta.FindStatusCondition(params.conditions, params.conditionType)
 	if existingCondition != nil &&
-		existingCondition.ObservedGeneration == resource.GetGeneration() {
+		existingCondition.ObservedGeneration == params.resource.GetGeneration() {
 		return true
 	}
 	return false

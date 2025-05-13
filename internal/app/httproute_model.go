@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
+	"strings"
 
 	"github.com/gemyago/oke-gateway-api/internal/types"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -20,9 +20,10 @@ import (
 )
 
 type resolvedRouteDetails struct {
-	gatewayDetails resolvedGatewayDetails
-	matchedRef     gatewayv1.ParentReference
-	httpRoute      gatewayv1.HTTPRoute
+	gatewayDetails   resolvedGatewayDetails
+	httpRoute        gatewayv1.HTTPRoute
+	matchedRef       gatewayv1.ParentReference
+	matchedListeners []gatewayv1.Listener
 }
 
 type resolveBackendRefsParams struct {
@@ -30,10 +31,16 @@ type resolveBackendRefsParams struct {
 }
 
 type programRouteParams struct {
-	gateway             gatewayv1.Gateway
-	config              types.GatewayConfig
-	httpRoute           gatewayv1.HTTPRoute
-	resolvedBackendRefs map[string]v1.Service
+	gateway          gatewayv1.Gateway
+	config           types.GatewayConfig
+	httpRoute        gatewayv1.HTTPRoute
+	knownBackends    map[string]v1.Service
+	matchedListeners []gatewayv1.Listener
+}
+
+type programRouteResult struct {
+	// Names of the policy rules that were programmed for this particular route
+	programmedPolicyRules []string
 }
 
 type setProgrammedParams struct {
@@ -41,18 +48,19 @@ type setProgrammedParams struct {
 	gatewayClass gatewayv1.GatewayClass
 	gateway      gatewayv1.Gateway
 	matchedRef   gatewayv1.ParentReference
+
+	// List of load balancer policy rules that were programmed for this route
+	programmedPolicyRules []string
 }
 
 // httpRouteModel defines the interface for managing HTTPRoute resources.
 type httpRouteModel interface {
 	// resolveRequest resolves the parent details for a given HTTPRoute.
-	// It returns true if the request is relevant for this controller and
-	// the parent has been resolved.
+	// It returns a map of parent names (gateway names) to resolved route details.
 	resolveRequest(
 		ctx context.Context,
 		req reconcile.Request,
-		receiver *resolvedRouteDetails,
-	) (bool, error)
+	) (map[apitypes.NamespacedName]resolvedRouteDetails, error)
 
 	// acceptRoute accepts a reconcile request for a given HTTPRoute.
 	// It returns updated HTTPRoute with status parents updated.
@@ -62,7 +70,7 @@ type httpRouteModel interface {
 	) (*gatewayv1.HTTPRoute, error)
 
 	// resolveBackendRefs resolves the backend references for a given HTTPRoute.
-	// It returns a map of service name to service port. It may update the route status
+	// It returns a map of service name to service object. It may update the route status
 	// with the ResolvedRefs condition.
 	resolveBackendRefs(
 		ctx context.Context,
@@ -78,7 +86,7 @@ type httpRouteModel interface {
 	programRoute(
 		ctx context.Context,
 		params programRouteParams,
-	) error
+	) (programRouteResult, error)
 
 	// setProgrammed marks the route as successfully programmed by updating its status.
 	setProgrammed(
@@ -87,11 +95,24 @@ type httpRouteModel interface {
 	) error
 }
 
-func parentRefEqual(a, b gatewayv1.ParentReference) bool {
+// parentRefSameTarget checks if two parent references target the same resource.
+// It ignores the section name and port.
+func parentRefSameTarget(a, b gatewayv1.ParentReference) bool {
 	return a.Name == b.Name &&
 		lo.FromPtr(a.Namespace) == lo.FromPtr(b.Namespace) &&
 		lo.FromPtr(a.Kind) == lo.FromPtr(b.Kind) &&
 		lo.FromPtr(a.Group) == lo.FromPtr(b.Group)
+}
+
+// makeTargetOnlyParentRef makes a parent reference that only targets the resource
+// by name and namespace. It ignores the section name and port.
+func makeTargetOnlyParentRef(parentRef gatewayv1.ParentReference) gatewayv1.ParentReference {
+	return gatewayv1.ParentReference{
+		Name:      parentRef.Name,
+		Namespace: parentRef.Namespace,
+		Kind:      parentRef.Kind,
+		Group:     parentRef.Group,
+	}
 }
 
 func backendRefName(
@@ -107,85 +128,174 @@ func backendRefName(
 	}
 }
 
-func backendSetName(httpRoute gatewayv1.HTTPRoute, rule gatewayv1.HTTPRouteRule, ruleIndex int) string {
-	ruleName := lo.TernaryF(
-		rule.Name != nil,
-		func() gatewayv1.SectionName { return *rule.Name },
-		func() gatewayv1.SectionName { return gatewayv1.SectionName("rt-" + strconv.Itoa(ruleIndex)) },
-	)
-	return httpRoute.Name + "-" + string(ruleName)
+type httpRouteModelImpl struct {
+	client               k8sClient
+	logger               *slog.Logger
+	gatewayModel         gatewayModel
+	resourcesModel       resourcesModel
+	ociLoadBalancerModel ociLoadBalancerModel
 }
 
-type httpRouteModelImpl struct {
-	client       k8sClient
-	logger       *slog.Logger
-	gatewayModel gatewayModel
-	ociLoadBalancerModel
+// resolveRouteParentRefData attempts to resolve a single parent reference for an HTTPRoute.
+// It returns the resolved gateway details, the matched listeners based on SectionName (if any),
+// and an error if resolution fails. If the gateway is not found or no listeners match the
+// SectionName, it returns nil details/listeners without an error.
+func (m *httpRouteModelImpl) resolveRouteParentRefData(
+	ctx context.Context,
+	httpRoute gatewayv1.HTTPRoute,
+	parentRef gatewayv1.ParentReference,
+	defaultNamespace string,
+) (*resolvedGatewayDetails, []gatewayv1.Listener, error) {
+	var resolvedGatewayData resolvedGatewayDetails
+	gatewayNamespace := defaultNamespace
+	if parentRef.Namespace != nil {
+		gatewayNamespace = string(lo.FromPtr(parentRef.Namespace))
+	}
+	parentName := apitypes.NamespacedName{
+		Namespace: gatewayNamespace,
+		Name:      string(parentRef.Name),
+	}
+	m.logger.DebugContext(ctx, "Resolving parent for HTTProute",
+		slog.String("parentName", parentName.String()),
+		slog.Any("parentRef", parentRef),
+		slog.String("route", apitypes.NamespacedName{
+			Namespace: httpRoute.Namespace,
+			Name:      httpRoute.Name,
+		}.String()),
+	)
+
+	gatewayResolved, err := m.gatewayModel.resolveReconcileRequest(ctx, reconcile.Request{
+		NamespacedName: parentName,
+	}, &resolvedGatewayData)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to resolve gateway %s for route %s/%s: %w",
+			parentName.String(), httpRoute.Namespace, httpRoute.Name, err)
+	}
+	if !gatewayResolved {
+		m.logger.DebugContext(ctx, "Gateway not resolved or not relevant",
+			slog.String("parentName", parentName.String()),
+		)
+		return nil, nil, nil
+	}
+
+	if parentRef.SectionName != nil {
+		sectionName := *parentRef.SectionName
+		matchingListeners := lo.Filter(resolvedGatewayData.gateway.Spec.Listeners, func(l gatewayv1.Listener, _ int) bool {
+			return l.Name == sectionName
+		})
+
+		if len(matchingListeners) == 0 {
+			m.logger.DebugContext(ctx, "Gateway resolved, but no listener matched section name",
+				slog.String("parentName", parentName.String()),
+				slog.String("sectionName", string(sectionName)),
+			)
+			return nil, nil, nil
+		}
+
+		m.logger.DebugContext(ctx, "Gateway resolved with matching section name listener(s)",
+			slog.String("parentName", parentName.String()),
+			slog.String("sectionName", string(sectionName)),
+			slog.Int("matchedListenersCount", len(matchingListeners)),
+		)
+		return &resolvedGatewayData, matchingListeners, nil
+	}
+
+	// If no SectionName, all listeners are considered matched
+	m.logger.DebugContext(ctx, "Gateway resolved without section name, all listeners match",
+		slog.String("parentName", parentName.String()),
+	)
+	return &resolvedGatewayData, resolvedGatewayData.gateway.Spec.Listeners, nil
+}
+
+// aggregateRouteParentRefData adds or updates the results map with the resolved parent details.
+// It handles merging listeners if the same gateway is referenced multiple times (e.g., by different sections).
+func (m *httpRouteModelImpl) aggregateRouteParentRefData(
+	ctx context.Context,
+	results map[apitypes.NamespacedName]resolvedRouteDetails,
+	httpRoute gatewayv1.HTTPRoute,
+	gatewayDetails resolvedGatewayDetails,
+	matchedRef gatewayv1.ParentReference, // Should be target-only ref
+	matchedListeners []gatewayv1.Listener,
+) {
+	parentName := apitypes.NamespacedName{
+		Namespace: gatewayDetails.gateway.Namespace,
+		Name:      gatewayDetails.gateway.Name,
+	}
+
+	if existingResult, found := results[parentName]; found {
+		newListeners := lo.UniqBy(
+			append(existingResult.matchedListeners, matchedListeners...),
+			func(l gatewayv1.Listener) gatewayv1.SectionName {
+				return l.Name
+			},
+		)
+		existingResult.matchedListeners = newListeners
+		results[parentName] = existingResult
+		m.logger.DebugContext(ctx, "Appended/merged listeners for existing gateway result",
+			slog.String("parentName", parentName.String()),
+			slog.Int("totalListeners", len(newListeners)),
+		)
+	} else {
+		results[parentName] = resolvedRouteDetails{
+			httpRoute:        httpRoute,
+			gatewayDetails:   gatewayDetails,
+			matchedRef:       matchedRef, // Use the target-only ref
+			matchedListeners: matchedListeners,
+		}
+		m.logger.DebugContext(ctx, "Added new gateway result",
+			slog.String("parentName", parentName.String()),
+			slog.Int("initialListeners", len(matchedListeners)),
+		)
+	}
 }
 
 func (m *httpRouteModelImpl) resolveRequest(
 	ctx context.Context,
 	req reconcile.Request,
-	receiver *resolvedRouteDetails,
-) (bool, error) {
+) (map[apitypes.NamespacedName]resolvedRouteDetails, error) {
 	var httpRoute gatewayv1.HTTPRoute
 	if err := m.client.Get(ctx, req.NamespacedName, &httpRoute); err != nil {
 		if apierrors.IsNotFound(err) {
-			m.logger.DebugContext(ctx, "HTTProute not found",
+			m.logger.DebugContext(ctx, "HTTProute not found during resolution",
 				slog.String("route", req.NamespacedName.String()),
 			)
-			return false, nil
+			return map[apitypes.NamespacedName]resolvedRouteDetails{}, nil
 		}
-		return false, err
+		return nil, fmt.Errorf("failed to get HTTPRoute %s: %w", req.NamespacedName.String(), err)
 	}
 
-	var resolvedGatewayData resolvedGatewayDetails
-	var matchedRef gatewayv1.ParentReference
-	gatewayAccepted := false
+	results := make(map[apitypes.NamespacedName]resolvedRouteDetails)
+
 	for _, parentRef := range httpRoute.Spec.ParentRefs {
-		gatewayNamespace := req.NamespacedName.Namespace
-		if parentRef.Namespace != nil {
-			gatewayNamespace = string(lo.FromPtr(parentRef.Namespace))
-		}
-		parentName := apitypes.NamespacedName{
-			Namespace: gatewayNamespace,
-			Name:      string(parentRef.Name),
-		}
-		m.logger.DebugContext(ctx, "Resolving parent for HTTProute",
-			slog.String("parentName", parentName.String()),
-			slog.Any("parentRef", parentRef),
+		resolvedGatewayData, matchedListeners, err := m.resolveRouteParentRefData(
+			ctx,
+			httpRoute,
+			parentRef,
+			req.NamespacedName.Namespace,
 		)
-		accepted, err := m.gatewayModel.resolveReconcileRequest(ctx, reconcile.Request{
-			NamespacedName: parentName,
-		}, &resolvedGatewayData)
 		if err != nil {
-			return false, fmt.Errorf("failed to accept reconcile request for gateway %s: %w", parentRef.Name, err)
+			return nil, err
 		}
-		if accepted {
-			gatewayAccepted = true
-			matchedRef = parentRef
-			break
+
+		if resolvedGatewayData != nil {
+			m.aggregateRouteParentRefData(ctx,
+				results,
+				httpRoute,
+				*resolvedGatewayData,
+				makeTargetOnlyParentRef(parentRef),
+				matchedListeners,
+			)
 		}
 	}
 
-	if !gatewayAccepted {
-		m.logger.InfoContext(ctx, "No relevant gateway found for HTTProute",
+	if len(results) == 0 {
+		m.logger.InfoContext(ctx, "No relevant gateway found for HTTProute after checking all parents",
 			slog.String("route", req.NamespacedName.String()),
 			slog.Int("triedParentRefs", len(httpRoute.Spec.ParentRefs)),
 		)
-		return false, nil
 	}
 
-	m.logger.InfoContext(ctx, "Resolved relevant HTTProute parent",
-		slog.String("route", req.NamespacedName.String()),
-		slog.String("gateway", resolvedGatewayData.gateway.Name),
-	)
-
-	receiver.httpRoute = httpRoute
-	receiver.matchedRef = matchedRef
-	receiver.gatewayDetails = resolvedGatewayData
-
-	return true, nil
+	return results, nil
 }
 
 // TODO: Some mechanism to check if all parents are accepted
@@ -198,7 +308,8 @@ func (m *httpRouteModelImpl) acceptRoute(
 	parentStatus, parentStatusIndex, found := lo.FindIndexOf(
 		routeDetails.httpRoute.Status.Parents,
 		func(s gatewayv1.RouteParentStatus) bool {
-			return s.ControllerName == routeDetails.gatewayDetails.gatewayClass.Spec.ControllerName
+			return s.ControllerName == routeDetails.gatewayDetails.gatewayClass.Spec.ControllerName &&
+				parentRefSameTarget(s.ParentRef, routeDetails.matchedRef)
 		})
 	if found {
 		existingCondition := meta.FindStatusCondition(
@@ -217,7 +328,9 @@ func (m *httpRouteModelImpl) acceptRoute(
 		}
 	} else {
 		parentStatus = gatewayv1.RouteParentStatus{
-			ParentRef:      routeDetails.matchedRef,
+			// We collapse the parent ref into a single object
+			// so using just name and namespace
+			ParentRef:      makeTargetOnlyParentRef(routeDetails.matchedRef),
 			ControllerName: routeDetails.gatewayDetails.gatewayClass.Spec.ControllerName,
 		}
 	}
@@ -253,8 +366,6 @@ func (m *httpRouteModelImpl) acceptRoute(
 	return httpRoute, nil
 }
 
-// TODO: The only reason to have this is to check that all backend refs are valid services.
-// Need to investigate if we really need to do this.
 func (m *httpRouteModelImpl) resolveBackendRefs(
 	ctx context.Context,
 	params resolveBackendRefsParams,
@@ -288,39 +399,55 @@ func (m *httpRouteModelImpl) resolveBackendRefs(
 func (m *httpRouteModelImpl) programRoute(
 	ctx context.Context,
 	params programRouteParams,
-) error {
-	// backend set is created per rule with services as backends
-	// for the future: services must have same port to make health check work
-	// backend set name must be derived from the http route name + rule name (or index if name is empty)
-
-	for i, rule := range params.httpRoute.Spec.Rules {
-		bsName := backendSetName(params.httpRoute, rule, i)
-
-		// TODO: Some check is required (on accept level) to check that refs within the same rule have same port
-		// as well as liveliness probes. OCI load balancer does not support per backend HC
-		// Also make sure there is at least one backend ref
-
-		firstBackendRef := rule.BackendRefs[0]
-		port := int32(*firstBackendRef.BackendRef.Port)
-
-		_, err := m.ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
+) (programRouteResult, error) {
+	// First, reconcile all backend sets for known backends
+	for key, service := range params.knownBackends {
+		err := m.ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
 			loadBalancerID: params.config.Spec.LoadBalancerID,
-			name:           bsName,
-
-			// TODO: Consider using HTTP health check
-			// Need some investigation to prove that it makes sense. We may potentially be
-			// duplicating health checks. There should be pod level liveliness probes
-			healthChecker: &loadbalancer.HealthCheckerDetails{
-				Protocol: lo.ToPtr("TCP"),
-				Port:     lo.ToPtr(int(port)),
-			},
+			service:        service,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to reconcile backend set %s: %w", bsName, err)
+			return programRouteResult{}, fmt.Errorf("failed to reconcile backend set for service %s: %w", key, err)
 		}
 	}
 
-	return nil
+	// Create all routing rules for the HTTP route
+	policyRules := make([]loadbalancer.RoutingRule, 0, len(params.httpRoute.Spec.Rules))
+	policyRulesNames := make([]string, 0, len(params.httpRoute.Spec.Rules))
+	for ruleIndex := range params.httpRoute.Spec.Rules {
+		rule, err := m.ociLoadBalancerModel.makeRoutingRule(ctx, makeRoutingRuleParams{
+			httpRoute:          params.httpRoute,
+			httpRouteRuleIndex: ruleIndex,
+		})
+		if err != nil {
+			return programRouteResult{},
+				fmt.Errorf("failed to make routing rule %d for route %s: %w", ruleIndex, params.httpRoute.Name, err)
+		}
+		policyRules = append(policyRules, rule)
+		policyRulesNames = append(policyRulesNames, *rule.Name)
+	}
+
+	var prevPolicyRules []string
+	if prevPolicyRulesStr, ok := params.httpRoute.Annotations[HTTPRouteProgrammedPolicyRulesAnnotation]; ok {
+		prevPolicyRules = strings.Split(prevPolicyRulesStr, ",")
+	}
+
+	// Commit the rules to each listener's policy
+	for _, listener := range params.matchedListeners {
+		err := m.ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
+			loadBalancerID:  params.config.Spec.LoadBalancerID,
+			listenerName:    string(listener.Name),
+			policyRules:     policyRules,
+			prevPolicyRules: prevPolicyRules,
+		})
+		if err != nil {
+			return programRouteResult{}, fmt.Errorf("failed to commit routing policy for listener %s: %w", listener.Name, err)
+		}
+	}
+
+	return programRouteResult{
+		programmedPolicyRules: policyRulesNames,
+	}, nil
 }
 
 func (m *httpRouteModelImpl) isProgrammingRequired(
@@ -328,27 +455,21 @@ func (m *httpRouteModelImpl) isProgrammingRequired(
 ) (bool, error) {
 	parentStatus, found := lo.Find(details.httpRoute.Status.Parents, func(s gatewayv1.RouteParentStatus) bool {
 		return s.ControllerName == details.gatewayDetails.gatewayClass.Spec.ControllerName &&
-			parentRefEqual(s.ParentRef, details.matchedRef)
+			parentRefSameTarget(s.ParentRef, details.matchedRef)
 	})
 
 	if !found {
 		return true, nil
 	}
 
-	resolvedRefsCondition := meta.FindStatusCondition(
-		parentStatus.Conditions,
-		string(gatewayv1.RouteConditionResolvedRefs),
-	)
-	if resolvedRefsCondition == nil {
-		return true, nil
-	}
-
-	if resolvedRefsCondition.Status == metav1.ConditionTrue &&
-		resolvedRefsCondition.ObservedGeneration == details.httpRoute.Generation {
-		return false, nil
-	}
-
-	return true, nil
+	return !m.resourcesModel.isConditionSet(isConditionSetParams{
+		resource:      &details.httpRoute,
+		conditions:    parentStatus.Conditions,
+		conditionType: string(gatewayv1.RouteConditionResolvedRefs),
+		annotations: map[string]string{
+			HTTPRouteProgrammingRevisionAnnotation: HTTPRouteProgrammingRevisionValue,
+		},
+	}), nil
 }
 
 func (m *httpRouteModelImpl) setProgrammed(
@@ -357,11 +478,11 @@ func (m *httpRouteModelImpl) setProgrammed(
 ) error {
 	httpRoute := params.httpRoute.DeepCopy()
 
-	parentStatus, parentStatusIndex, found := lo.FindIndexOf(
+	_, statusIndex, found := lo.FindIndexOf(
 		httpRoute.Status.Parents,
 		func(s gatewayv1.RouteParentStatus) bool {
 			return s.ControllerName == params.gatewayClass.Spec.ControllerName &&
-				parentRefEqual(s.ParentRef, params.matchedRef)
+				parentRefSameTarget(s.ParentRef, params.matchedRef)
 		},
 	)
 
@@ -372,23 +493,18 @@ func (m *httpRouteModelImpl) setProgrammed(
 		)
 	}
 
-	// Update the condition for the specific parent status
-	meta.SetStatusCondition(&parentStatus.Conditions, metav1.Condition{
-		Type:               string(gatewayv1.RouteConditionResolvedRefs),
-		Status:             metav1.ConditionTrue,
-		Reason:             string(gatewayv1.RouteReasonResolvedRefs),
-		ObservedGeneration: httpRoute.Generation,
-		LastTransitionTime: metav1.Now(),
-		Message:            fmt.Sprintf("Route programmed by %s", params.gateway.Name),
-	})
-
-	httpRoute.Status.Parents[parentStatusIndex] = parentStatus
-
-	m.logger.DebugContext(ctx, "Updating HTTProute status as Programmed (ResolvedRefs=True)",
-		slog.String("route", httpRoute.Name),
-		slog.String("gateway", params.gateway.Name),
-	)
-	if err := m.client.Status().Update(ctx, httpRoute); err != nil {
+	if err := m.resourcesModel.setCondition(ctx, setConditionParams{
+		resource:      httpRoute,
+		conditions:    &httpRoute.Status.Parents[statusIndex].Conditions,
+		conditionType: string(gatewayv1.RouteConditionResolvedRefs),
+		status:        metav1.ConditionTrue,
+		reason:        string(gatewayv1.RouteReasonResolvedRefs),
+		message:       fmt.Sprintf("Route programmed by %s", params.gateway.Name),
+		annotations: map[string]string{
+			HTTPRouteProgrammingRevisionAnnotation:   HTTPRouteProgrammingRevisionValue,
+			HTTPRouteProgrammedPolicyRulesAnnotation: strings.Join(params.programmedPolicyRules, ","),
+		},
+	}); err != nil {
 		return fmt.Errorf("failed to update programmed status for HTTProute %s: %w", httpRoute.Name, err)
 	}
 
@@ -399,10 +515,11 @@ func (m *httpRouteModelImpl) setProgrammed(
 type httpRouteModelDeps struct {
 	dig.In
 
-	K8sClient    k8sClient
-	RootLogger   *slog.Logger
-	GatewayModel gatewayModel
-	OciLBModel   ociLoadBalancerModel
+	K8sClient      k8sClient
+	RootLogger     *slog.Logger
+	GatewayModel   gatewayModel
+	OciLBModel     ociLoadBalancerModel
+	ResourcesModel resourcesModel
 }
 
 // newHTTPRouteModel creates a new instance of httpRouteModel.
@@ -412,5 +529,6 @@ func newHTTPRouteModel(deps httpRouteModelDeps) httpRouteModel {
 		logger:               deps.RootLogger.WithGroup("httproute-model"),
 		gatewayModel:         deps.GatewayModel,
 		ociLoadBalancerModel: deps.OciLBModel,
+		resourcesModel:       deps.ResourcesModel,
 	}
 }
