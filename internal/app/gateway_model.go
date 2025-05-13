@@ -50,7 +50,6 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
 	if err := m.client.Get(ctx, req.NamespacedName, &receiver.gateway); err != nil {
 		if apierrors.IsNotFound(err) {
 			m.logger.InfoContext(ctx, fmt.Sprintf("Gateway %s not found", req.NamespacedName))
-			// TODO: We may need to handle deprovisioning, maybe via finalizer?
 			return false, nil
 		}
 		return false, fmt.Errorf("failed to get Gateway %s: %w", req.NamespacedName, err)

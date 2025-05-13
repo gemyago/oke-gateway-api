@@ -203,18 +203,6 @@ func makeRandomHTTPRouteRule(
 	return rule
 }
 
-func randomHTTPRouteRuleWithNameOpt(name string) randomHTTPRouteRuleOpt {
-	return func(rule *gatewayv1.HTTPRouteRule) {
-		rule.Name = lo.ToPtr(gatewayv1.SectionName(name))
-	}
-}
-
-func randomHTTPRouteRuleWithRandomNameOpt() randomHTTPRouteRuleOpt {
-	return func(rule *gatewayv1.HTTPRouteRule) {
-		rule.Name = lo.ToPtr(gatewayv1.SectionName(faker.DomainName()))
-	}
-}
-
 func randomHTTPRouteRuleWithRandomBackendRefsOpt(
 	refs ...gatewayv1.HTTPBackendRef,
 ) randomHTTPRouteRuleOpt {
@@ -398,16 +386,6 @@ func randomEndpointSliceWithServiceNameOpt(serviceName string) randomEndpointSli
 			ep.Labels = make(map[string]string)
 		}
 		ep.Labels[discoveryv1.LabelServiceName] = serviceName
-	}
-}
-
-func randomEndpointSliceWithEndpointsOpt() randomEndpointSliceOpt {
-	return func(ep *discoveryv1.EndpointSlice) {
-		count := 2 + rand.IntN(5)
-		ep.Endpoints = make([]discoveryv1.Endpoint, count)
-		for i := range ep.Endpoints {
-			ep.Endpoints[i] = makeRandomEndpoint()
-		}
 	}
 }
 
