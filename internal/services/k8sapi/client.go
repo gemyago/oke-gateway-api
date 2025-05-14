@@ -26,13 +26,22 @@ type ConfigDeps struct {
 	RootLogger *slog.Logger
 
 	// This can be set via APP_K8SAPI_NOOP env variable
-	Noop bool `name:"config.k8sapi.noop"`
+	Noop      bool `name:"config.k8sapi.noop"`
+	InCluster bool `name:"config.k8sapi.inCluster"`
 }
 
 func newConfig(deps ConfigDeps) (*rest.Config, error) {
 	if deps.Noop {
 		deps.RootLogger.Warn("Kubernetes API client is in noop mode")
 		return &rest.Config{}, nil
+	}
+
+	if deps.InCluster {
+		cfg, err := rest.InClusterConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get in-cluster config: %w", err)
+		}
+		return cfg, nil
 	}
 
 	kubeconfig := os.Getenv("KUBECONFIG")

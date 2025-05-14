@@ -3,5 +3,8 @@
   "httpServer": {
     "mode": "stealth",
     "accessLogsLevel": "DEBUG"
+  },
+  "k8sapi": {
+    "inCluster": true
   }
 }
