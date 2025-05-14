@@ -35,6 +35,8 @@ spec:
         args:
         - start
         - --json-logs
+        - --env
+        - in-cluster-debug
         ports: [] # Add ports if needed for health checks etc.
         # Add livenessProbe, readinessProbe here if configured
         resources:

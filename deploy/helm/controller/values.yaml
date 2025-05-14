@@ -22,7 +22,7 @@ deployment:
   image:
     repository: ghcr.io/gemyago/oke-gateway-api-controller
     pullPolicy: IfNotPresent
-    tag: "" # AppVersion is used by default
+    tag: "git-commit-67107f1" # AppVersion is used by default
 
   resources:
     limits:
