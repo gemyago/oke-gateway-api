@@ -32,6 +32,9 @@ spec:
       - name: controller
         image: "{{ .Values.deployment.image.repository }}:{{ .Values.deployment.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.deployment.image.pullPolicy }}
+        args:
+        - start
+        - --json-logs
         ports: [] # Add ports if needed for health checks etc.
         # Add livenessProbe, readinessProbe here if configured
         resources:
