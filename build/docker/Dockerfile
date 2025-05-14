@@ -1,6 +1,6 @@
 # It is assumed that the build context is the root of the project
 
-ARG RUNTIME_IMAGE=scratch
+ARG RUNTIME_IMAGE=gcr.io/distroless/static-debian12:latest
 FROM --platform=$BUILDPLATFORM $RUNTIME_IMAGE
 ARG TARGETOS
 ARG TARGETARCH
