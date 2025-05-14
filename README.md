@@ -19,6 +19,25 @@ Install the OKE Gateway API controller:
 kubectl apply -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/gateway-api-controller.yaml
 ```
 
+Prepare API key and config file (use actual values):
+```ini
+[DEFAULT]
+user=<user_ocid>
+fingerprint=<key_fingerprint>
+tenancy=<tenancy_ocid>
+region=<oci_region>
+key_file=/etc/oci/oci_api_key.pem
+```
+Note: `key_file` corresponds to the location on pod that will be mounted as a secret, so leave it as is.
+
+Create a secret with the API key and config file:
+```sh
+kubectl create secret generic oci-api-key \
+  --from-file=config=/path/to/created/config \
+  --from-file=key.pem=/path/to/actual/privatekey.pem \
+  -n oke-gw
+```
+
 Install the OKE Gateway API controller using Helm:
 ```sh
 # Create namespace
