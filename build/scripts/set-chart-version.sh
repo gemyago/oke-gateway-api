@@ -104,12 +104,6 @@ if [[ "$COMMIT" == "true" ]]; then
     echo ""
     echo "Commit message that would be used:"
     echo "  $commit_msg"
-  else
-    echo ""
-    echo "Committing changes..."
-    git add "$CHART_FILE"
-    git commit -m "$commit_msg"
-    echo "Changes committed with message: $commit_msg"
   fi
 fi
 
@@ -131,3 +125,11 @@ echo ""
 echo "Chart $CHART_FILE updated successfully:"
 echo "  New appVersion: $GIT_REF"
 echo "  New version: $new_version"
+
+if [[ "$COMMIT" == "true" ]]; then
+  echo ""
+  echo "Committing changes..."
+  git add "$CHART_FILE"
+  git commit -m "$commit_msg"
+  echo "Changes committed with message: $commit_msg"
+fi
