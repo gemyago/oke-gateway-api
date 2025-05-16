@@ -9,7 +9,7 @@ make tools
 
 ## Publish helm chart
 
-Helm chart is built and published automatically with each release. Steps below are for local testing.
+Helm chart is built and published automatically with each release. Steps below are for local testing. Run the following from deploy directory:
 
 ```sh
 # Login to ghcr registry (assuming you have gh cli configured)
