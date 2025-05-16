@@ -4,17 +4,17 @@ set -euo pipefail
 
 # Function to print usage information
 usage() {
-  echo "Usage: $0 --chart-path <path> --git-ref <ref> [--noop] [--commit]"
+  echo "Usage: $0 --chart-path <path> --app-version <version> [--noop] [--commit]"
   echo "Options:"
   echo "  --chart-path <path>       Path to the Helm chart directory (e.g., deploy/helm/controller)"
-  echo "  --git-ref <ref>           Git reference (e.g., main, v1.2.3, feature/xyz)"
+  echo "  --app-version <version>   Version to set as appVersion (e.g., main, v1.2.3, feature/xyz)"
   echo "  --noop                    Show what would be changed without making changes"
   echo "  --commit                  Commit changes after updating"
   echo "  -h, --help                Show this help message"
 }
 
 CHART_PATH=""
-GIT_REF=""
+APP_VERSION=""
 NOOP=false
 COMMIT=false
 
@@ -24,8 +24,8 @@ while [[ $# -gt 0 ]]; do
       CHART_PATH="$2"
       shift 2
       ;;
-    --git-ref)
-      GIT_REF="$2"
+    --app-version)
+      APP_VERSION="$2"
       shift 2
       ;;
     --noop)
@@ -54,8 +54,8 @@ if [[ -z "$CHART_PATH" ]]; then
   exit 1
 fi
 
-if [[ -z "$GIT_REF" ]]; then
-  echo "Error: --git-ref is required"
+if [[ -z "$APP_VERSION" ]]; then
+  echo "Error: --app-version is required"
   usage
   exit 1
 fi
@@ -95,11 +95,11 @@ new_version="${major}.${minor}.${new_patch}"
 
 echo ""
 echo "Changes that would be made:"
-echo "  New appVersion: $GIT_REF"
+echo "  New appVersion: $APP_VERSION"
 echo "  New version: $new_version"
 
 if [[ "$COMMIT" == "true" ]]; then
-  commit_msg="chore: update chart version to $new_version and appVersion to $GIT_REF"
+  commit_msg="chore: update chart version to $new_version and appVersion to $APP_VERSION"
   if [[ "$NOOP" == "true" ]]; then
     echo ""
     echo "Commit message that would be used:"
@@ -114,7 +114,7 @@ if [[ "$NOOP" == "true" ]]; then
 fi
 
 # Update appVersion using sed
-sed -i.bak "s/^appVersion:.*/appVersion: \"$GIT_REF\"/" "$CHART_FILE"
+sed -i.bak "s/^appVersion:.*/appVersion: \"$APP_VERSION\"/" "$CHART_FILE"
 rm -f "${CHART_FILE}.bak"
 
 # Update version using sed
@@ -123,7 +123,7 @@ rm -f "${CHART_FILE}.bak"
 
 echo ""
 echo "Chart $CHART_FILE updated successfully:"
-echo "  New appVersion: $GIT_REF"
+echo "  New appVersion: $APP_VERSION"
 echo "  New version: $new_version"
 
 if [[ "$COMMIT" == "true" ]]; then
