@@ -8,10 +8,12 @@ on:
         required: true
         type: string
 
-# Add permissions at workflow level
+# Add permissions at workflow level with all necessary scopes
 permissions:
   contents: write
   pull-requests: write
+  issues: write
+  statuses: write
 
 jobs:
   prepare-draft-release:
