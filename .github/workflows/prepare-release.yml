@@ -42,6 +42,10 @@ jobs:
             --app-version "${{ github.event.inputs.release_name }}" \
             --commit
 
+      - name: Push changes
+        run: |
+          git push origin "$BRANCH_NAME"
+
       - name: Create Pull Request
         id: create-pr
         env:
