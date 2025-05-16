@@ -47,7 +47,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PR_NUMBER=$(gh pr create \
+          # Create the PR and store the URL
+          PR_URL=$(gh pr create \
             --title "Release ${{ github.event.inputs.release_name }}" \
             --body "This PR prepares the release ${{ github.event.inputs.release_name }}.
             Changes include:
@@ -55,8 +56,10 @@ jobs:
             - Updated app version" \
             --head "$BRANCH_NAME" \
             --base main \
-            --draft \
-            --json number --jq '.number')
+            --draft)
+          
+          # Extract PR number from the URL
+          PR_NUMBER=$(echo "$PR_URL" | grep -o '[0-9]*$')
           echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
 
       - name: Create Draft Release
