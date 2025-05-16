@@ -8,12 +8,14 @@ on:
         required: true
         type: string
 
+# Add permissions at workflow level
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   prepare-draft-release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write # Needed to create releases/tags
-      pull-requests: write # Needed to create PRs
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
