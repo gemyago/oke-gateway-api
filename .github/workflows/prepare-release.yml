@@ -13,11 +13,51 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # Needed to create releases/tags
+      pull-requests: write # Needed to create PRs
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Fetches all history for release notes generation
+
+      - name: Configure Git
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Create and checkout release branch
+        run: |
+          BRANCH_NAME="release/${{ github.event.inputs.release_name }}"
+          git checkout -b "$BRANCH_NAME"
+          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+
+      - name: Update chart version
+        run: |
+          ./build/scripts/set-chart-version.sh \
+            --chart-file deploy/helm/controller/Chart.yaml \
+            --app-version "${{ github.event.inputs.release_name }}" \
+            --commit
+
+      - name: Push changes
+        run: |
+          git push origin "$BRANCH_NAME"
+
+      - name: Create Pull Request
+        id: create-pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=$(gh pr create \
+            --title "Release ${{ github.event.inputs.release_name }}" \
+            --body "This PR prepares the release ${{ github.event.inputs.release_name }}.
+            Changes include:
+            - Updated chart version
+            - Updated app version" \
+            --head "$BRANCH_NAME" \
+            --base main \
+            --draft \
+            --json number --jq '.number')
+          echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
 
       - name: Create Draft Release
         env:
@@ -27,6 +67,11 @@ jobs:
           echo "Creating draft release for tag $RELEASE_NAME"
           gh release create "$RELEASE_NAME" \
             --draft \
+            --target "$BRANCH_NAME" \
             --title "$RELEASE_NAME" \
             --generate-notes
-          echo "Draft release created: https://github.com/${{ github.repository }}/releases/tag/$RELEASE_NAME"
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/$RELEASE_NAME"
+          echo "Draft release created: $RELEASE_URL"
+          
+          # Add release URL as PR comment
+          gh pr comment "$PR_NUMBER" --body "Draft release created: $RELEASE_URL"
