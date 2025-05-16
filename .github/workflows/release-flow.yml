@@ -26,3 +26,7 @@ jobs:
   release-tag-images:
     name: Release Tag Images
     uses: ./.github/workflows/release-tag-images.yml
+
+  release-publish-helm:
+    name: Release Publish Helm
+    uses: ./.github/workflows/release-publish-helm.yml
