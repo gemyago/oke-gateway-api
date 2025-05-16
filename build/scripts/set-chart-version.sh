@@ -4,24 +4,24 @@ set -euo pipefail
 
 # Function to print usage information
 usage() {
-  echo "Usage: $0 --chart-path <path> --app-version <version> [--noop] [--commit]"
+  echo "Usage: $0 --chart-file <path> --app-version <version> [--noop] [--commit]"
   echo "Options:"
-  echo "  --chart-path <path>       Path to the Helm chart directory (e.g., deploy/helm/controller)"
+  echo "  --chart-file <path>       Path to the Chart.yaml file (e.g., deploy/helm/controller/Chart.yaml)"
   echo "  --app-version <version>   Version to set as appVersion (e.g., main, v1.2.3, feature/xyz)"
   echo "  --noop                    Show what would be changed without making changes"
   echo "  --commit                  Commit changes after updating"
   echo "  -h, --help                Show this help message"
 }
 
-CHART_PATH=""
+CHART_FILE=""
 APP_VERSION=""
 NOOP=false
 COMMIT=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --chart-path)
-      CHART_PATH="$2"
+    --chart-file)
+      CHART_FILE="$2"
       shift 2
       ;;
     --app-version)
@@ -48,8 +48,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$CHART_PATH" ]]; then
-  echo "Error: --chart-path is required"
+if [[ -z "$CHART_FILE" ]]; then
+  echo "Error: --chart-file is required"
   usage
   exit 1
 fi
@@ -59,8 +59,6 @@ if [[ -z "$APP_VERSION" ]]; then
   usage
   exit 1
 fi
-
-CHART_FILE="${CHART_PATH}/Chart.yaml"
 
 if [[ ! -f "$CHART_FILE" ]]; then
   echo "Error: Chart.yaml not found at $CHART_FILE"
