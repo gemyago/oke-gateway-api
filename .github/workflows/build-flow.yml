@@ -2,8 +2,7 @@ name: Build
 
 on: 
   pull_request:
-    # types: [opened, synchronize, reopened]
-    types: [labeled] #TODO: revert to opened, synchronize, reopened
+    types: [opened, synchronize, reopened]
 
     # This is target branch filter, not current branch
     branches:

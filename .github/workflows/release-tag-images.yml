@@ -1,30 +1,7 @@
-name: Tag Release Images
-
-# --- Testing Instructions ---
-# To test this workflow manually:
-# 1. Create PR with updates. Wait for CI to pass and docker images are available.
-# 2. Create a latest release using the GitHub CLI using one of the commands:
-#    gh release create v1.2.3 --latest --generate-notes --target "$(git branch --show-current)"
-# 3. Ensure action is triggered and tagged images as follows: git-tag-v1.2.3 v1.2.3 v1.2-latest v1-latest latest
-# 4. Create a pre-release using the GitHub CLI using one of the commands:
-#    gh release create v1.2.3-rc --prerelease --generate-notes --target "$(git branch --show-current)"
-# 5. Ensure action is triggered and tagged images as follows: git-tag-v1.2.3-rc v1.2.3-rc
-# 6. Drop created releases and tags after testing is done using the following commands:
-#    gh release delete v1.2.3-rc --yes --cleanup-tag
-#    gh release delete v1.2.3 --yes --cleanup-tag
-# --- End Testing Instructions ---
+name: Tag Images
 
 on:
-  release:
-    types: [published]
-
-permissions:
-  contents: "read" # Needed for checkout
-  packages: "write" # Needed to push docker images to ghcr.io
-
-concurrency:
-  group: tag-release-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_call:
 
 jobs:
   publish:
