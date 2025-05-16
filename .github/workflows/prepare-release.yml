@@ -77,7 +77,9 @@ jobs:
             --target "$BRANCH_NAME" \
             --title "$RELEASE_NAME" \
             --generate-notes
-          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/$RELEASE_NAME"
+          
+          # Get the release URL using gh release view
+          RELEASE_URL=$(gh release view "$RELEASE_NAME" --json url --jq '.url')
           echo "Draft release created: $RELEASE_URL"
           
           # Add release URL as PR comment
