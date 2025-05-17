@@ -7,9 +7,6 @@ jobs:
   publish:
     name: Publish Helm Chart
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -23,7 +20,7 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v3
         with:
-          version: v${{ steps.helm-version.outputs.version }}
+          version: ${{ steps.helm-version.outputs.version }}
 
       - name: Login to GitHub Container Registry
         run: |
