@@ -5,18 +5,13 @@
 
 [Gateway API](https://gateway-api.sigs.k8s.io/) implementation for [Oracle Kubernetes (OKE)](https://www.oracle.com/cloud/cloud-native/kubernetes-engine/).
 
-Project status: **Early Alpha**
+Project status: **Alpha**
 
 ## Getting Started
 
 Install Gateway API CRDs:
 ```sh
 kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.0/standard-install.yaml
-```
-
-Install the OKE Gateway API controller:
-```sh
-kubectl apply -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/gateway-api-controller.yaml
 ```
 
 Prepare API key and config file (use actual values):
@@ -32,6 +27,9 @@ Note: `key_file` corresponds to the location on pod that will be mounted as a se
 
 Create a secret with the API key and config file:
 ```sh
+# Ensure namespace exists first
+kubectl create namespace oke-gw
+
 kubectl create secret generic oci-api-key \
   --from-file=config=/path/to/created/config \
   --from-file=key.pem=/path/to/actual/privatekey.pem \
@@ -40,11 +38,9 @@ kubectl create secret generic oci-api-key \
 
 Install the OKE Gateway API controller using Helm:
 ```sh
-# Create namespace
-kubectl create namespace oke-gw
-
-# Install controller
-helm install oke-gateway-api-controller oke-gateway-api/controller --namespace oke-gw
+helm upgrade oke-gateway-api-controller oci://ghcr.io/gemyago/helm-charts/oke-gateway-api-controller \
+    --install \
+    -n oke-gw
 ```
 
 Create a GatewayClass resource:
@@ -114,7 +110,7 @@ spec:
     spec:
       containers:
       - name: echo
-        image: ghcr.io/gemyago/oke-gateway-api-server:git-commit-839515d
+        image: ghcr.io/gemyago/oke-gateway-api-server:main
         args:
           - start
           - --json-logs
@@ -174,13 +170,6 @@ kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway
 kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/gateway.yaml
 kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/serverdeployment.yaml
 kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/echoroutes.yaml
-
-# Or if running in a locally cloned repo
-kubectl apply -n oke-gw -f deploy/manifests/examples/gatewayclass.yaml
-kubectl apply -n oke-gw -f deploy/manifests/examples/gatewayconfig.yaml
-kubectl apply -n oke-gw -f deploy/manifests/examples/gateway.yaml
-kubectl apply -n oke-gw -f deploy/manifests/examples/serverdeployment.yaml
-kubectl apply -n oke-gw -f deploy/manifests/examples/serverroutes.yaml
 ```
 
 Uninstall example resources:

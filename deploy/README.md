@@ -7,6 +7,16 @@ Install deployment related tools:
 make tools
 ```
 
+## Install example resources
+
+```sh
+kubectl apply -n oke-gw -f manifests/examples/gatewayclass.yaml
+kubectl apply -n oke-gw -f manifests/examples/gatewayconfig.yaml
+kubectl apply -n oke-gw -f manifests/examples/gateway.yaml
+kubectl apply -n oke-gw -f manifests/examples/serverdeployment.yaml
+kubectl apply -n oke-gw -f manifests/examples/serverroutes.yaml
+```
+
 ## Publish helm chart
 
 Helm chart is built and published automatically with each release. Steps below are for local testing. Run the following from deploy directory:
