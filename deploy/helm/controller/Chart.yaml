@@ -4,9 +4,9 @@ description: A Helm chart for the OKE Gateway API Controller
 
 type: application
 
-# Incremented automatically with each release.
+# Patch version is incremented automatically with each release.
 # Versions are expected to follow Semantic Versioning (https://semver.org/)
-version: 0.1.0
+version: 0.0.1
 
 # Set automatically to the release version by release tool.
-appVersion: "main"
+appVersion: "0.0.1"
