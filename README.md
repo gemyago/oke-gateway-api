@@ -185,6 +185,15 @@ kubectl -n oke-gw delete deployment oke-gateway-example-server
 kubectl -n oke-gw delete httproute oke-gateway-example-server
 ```
 
+### HTTPS
+
+HTTPS listeners are supported but require certificates pre-provisioning outside of the gateway.
+Most typical way to provision certificates is to use certificate manager.
+
+Key points:
+* certmanager needs to have gateway api enabled
+* loadbalancer needs to allow inbound traffic for http challenges (certmanager requirement)
+
 ## Contributing
 
 ### Project Setup
