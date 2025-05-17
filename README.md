@@ -30,6 +30,8 @@ Create a secret with the API key and config file:
 # Ensure namespace exists first
 kubectl create namespace oke-gw
 
+# config should point to the locally prepared config file as per above example
+# key.pem should point to the locally prepared private key file
 kubectl create secret generic oci-api-key \
   --from-file=config=/path/to/created/config \
   --from-file=key.pem=/path/to/actual/privatekey.pem \
@@ -55,7 +57,8 @@ spec:
 EOF
 ```
 
-Prepare a GatewayConfig resource. You will need to specify the OCID of an existing OCI Load Balancer.
+The controller will not automatically create the load balancer. Please create it first.
+Prepare a GatewayConfig resource. You will need to specify the OCID of a previously created OCI Load Balancer.
 ```yaml
 cat <<EOF | kubectl -n oke-gw apply -f -
 apiVersion: oke-gateway-api.gemyago.github.io/v1
@@ -110,6 +113,7 @@ spec:
     spec:
       containers:
       - name: echo
+        # This is simple echo server that can be used to test the gateway
         image: ghcr.io/gemyago/oke-gateway-api-server:main
         args:
           - start
@@ -227,19 +231,6 @@ make lint
 make test
 ```
 
-Run specific tests:
-```bash
-# Run once
-go test -v ./internal/api/http/v1controllers/ --run TestHealthCheck
-
-# Run same test multiple times
-# This is useful to catch flaky tests
-go test -v -count=5 ./internal/api/http/v1controllers/ --run TestHealthCheck
-
-# Run and watch. Useful when iterating on tests
-gow test -v ./internal/api/http/v1controllers/ --run TestHealthCheck
-```
-
 ### Running in a local mode
 
 For local development purposes you can run the controller fully locally pointing on a local k8s cluster and provision the resources in a real OCI tenancy.
@@ -268,11 +259,6 @@ oci iam user list
 ```
 
 Make sure to have locally running k8s cluster and `kubectl` configured to point to it.
-
-You may want to apply just the CRDs in the cluster for config resources:
-```sh
-kubectl apply -f deploy/helm/controller/templates/gateway-config-crd.yaml
-```
 
 Run the controller locally:
 ```sh
