@@ -24,10 +24,21 @@ jobs:
         with:
           fetch-depth: 0 # Fetches all history for release notes generation
 
-      - name: Configure Git
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+      - name: Generate bot app token
+        id: bot-app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }} 
+
+      - name: Get Bot App User ID
+        id: get-user-id
+        run: echo "user-id=$(gh api "/users/${{ steps.bot-app-token.outputs.app-slug }}[bot]" --jq .id)" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ steps.bot-app-token.outputs.token }}
+      - run: |
+          git config --global user.name '${{ steps.app-token.outputs.app-slug }}[bot]'
+          git config --global user.email '${{ steps.get-user-id.outputs.user-id }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com'
 
       - name: Create and checkout release branch
         run: |
@@ -49,7 +60,7 @@ jobs:
       - name: Create Pull Request
         id: create-pr
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.bot-app-token.outputs.token }}
         run: |
           # Create the PR and store the URL
           PR_URL=$(gh pr create \
@@ -68,7 +79,7 @@ jobs:
 
       - name: Create Draft Release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.bot-app-token.outputs.token }}
           RELEASE_NAME: ${{ github.event.inputs.release_name }}
         run: |
           echo "Creating draft release for tag $RELEASE_NAME"
