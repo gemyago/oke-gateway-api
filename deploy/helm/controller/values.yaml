@@ -20,17 +20,17 @@ serviceAccount:
 # Deployment configuration
 deployment:
   image:
-    repository: ghcr.io/gemyago/oke-gateway-api-server
+    repository: ghcr.io/gemyago/oke-gateway-api-controller
     pullPolicy: IfNotPresent
-    tag: "git-commit-9185063"
+    tag: "" # AppVersion is used by default
 
   resources:
     limits:
-      cpu: 100m
-      memory: 128Mi
-    requests:
       cpu: 200m
       memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
 
   # Node selector, tolerations, and affinity settings can be added here if needed.
   nodeSelector: {}

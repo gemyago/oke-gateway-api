@@ -12,6 +12,7 @@
     "accessLogsLevel": ""
   },
   "k8sapi": {
+    "inCluster": false,
     "noop": false
   },
   "ociapi": {

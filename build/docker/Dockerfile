@@ -1,6 +1,8 @@
 # It is assumed that the build context is the root of the project
 
+# To change the runtime image, modify build.cfg (docker_runtime_image)
 ARG RUNTIME_IMAGE=scratch
+
 FROM --platform=$BUILDPLATFORM $RUNTIME_IMAGE
 ARG TARGETOS
 ARG TARGETARCH

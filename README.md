@@ -5,7 +5,7 @@
 
 [Gateway API](https://gateway-api.sigs.k8s.io/) implementation for [Oracle Kubernetes (OKE)](https://www.oracle.com/cloud/cloud-native/kubernetes-engine/).
 
-Project status: **Early Alpha**
+Project status: **Alpha**
 
 ## Getting Started
 
@@ -14,18 +14,35 @@ Install Gateway API CRDs:
 kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.0/standard-install.yaml
 ```
 
-Install the OKE Gateway API controller:
+Prepare API key and config file (use actual values):
+```ini
+[DEFAULT]
+user=<user_ocid>
+fingerprint=<key_fingerprint>
+tenancy=<tenancy_ocid>
+region=<oci_region>
+key_file=/etc/oci/oci_api_key.pem
+```
+Note: `key_file` corresponds to the location on pod that will be mounted as a secret, so leave it as is.
+
+Create a secret with the API key and config file:
 ```sh
-kubectl apply -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/gateway-api-controller.yaml
+# Ensure namespace exists first
+kubectl create namespace oke-gw
+
+# config should point to the locally prepared config file as per above example
+# key.pem should point to the locally prepared private key file
+kubectl create secret generic oci-api-key \
+  --from-file=config=/path/to/created/config \
+  --from-file=key.pem=/path/to/actual/privatekey.pem \
+  -n oke-gw
 ```
 
 Install the OKE Gateway API controller using Helm:
 ```sh
-# Create namespace
-kubectl create namespace oke-gw
-
-# Install controller
-helm install oke-gateway-api-controller oke-gateway-api/controller --namespace oke-gw
+helm upgrade oke-gateway-api-controller oci://ghcr.io/gemyago/helm-charts/oke-gateway-api-controller \
+    --install \
+    -n oke-gw
 ```
 
 Create a GatewayClass resource:
@@ -40,7 +57,8 @@ spec:
 EOF
 ```
 
-Prepare a GatewayConfig resource. You will need to specify the OCID of an existing OCI Load Balancer.
+The controller will not automatically create the load balancer. Please create it first.
+Prepare a GatewayConfig resource. You will need to specify the OCID of a previously created OCI Load Balancer.
 ```yaml
 cat <<EOF | kubectl -n oke-gw apply -f -
 apiVersion: oke-gateway-api.gemyago.github.io/v1
@@ -95,7 +113,8 @@ spec:
     spec:
       containers:
       - name: echo
-        image: ghcr.io/gemyago/oke-gateway-api-server:git-commit-839515d
+        # This is simple echo server that can be used to test the gateway
+        image: ghcr.io/gemyago/oke-gateway-api-server:main
         args:
           - start
           - --json-logs
@@ -155,13 +174,6 @@ kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway
 kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/gateway.yaml
 kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/serverdeployment.yaml
 kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/echoroutes.yaml
-
-# Or if running in a locally cloned repo
-kubectl apply -n oke-gw -f deploy/manifests/examples/gatewayclass.yaml
-kubectl apply -n oke-gw -f deploy/manifests/examples/gatewayconfig.yaml
-kubectl apply -n oke-gw -f deploy/manifests/examples/gateway.yaml
-kubectl apply -n oke-gw -f deploy/manifests/examples/serverdeployment.yaml
-kubectl apply -n oke-gw -f deploy/manifests/examples/serverroutes.yaml
 ```
 
 Uninstall example resources:
@@ -219,19 +231,6 @@ make lint
 make test
 ```
 
-Run specific tests:
-```bash
-# Run once
-go test -v ./internal/api/http/v1controllers/ --run TestHealthCheck
-
-# Run same test multiple times
-# This is useful to catch flaky tests
-go test -v -count=5 ./internal/api/http/v1controllers/ --run TestHealthCheck
-
-# Run and watch. Useful when iterating on tests
-gow test -v ./internal/api/http/v1controllers/ --run TestHealthCheck
-```
-
 ### Running in a local mode
 
 For local development purposes you can run the controller fully locally pointing on a local k8s cluster and provision the resources in a real OCI tenancy.
@@ -260,11 +259,6 @@ oci iam user list
 ```
 
 Make sure to have locally running k8s cluster and `kubectl` configured to point to it.
-
-You may want to apply just the CRDs in the cluster for config resources:
-```sh
-kubectl apply -f deploy/helm/controller/templates/gateway-config-crd.yaml
-```
 
 Run the controller locally:
 ```sh

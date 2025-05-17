@@ -1,0 +1,6 @@
+{
+  "defaultLogLevel": "DEBUG",
+  "k8sapi": {
+    "inCluster": true
+  }
+}

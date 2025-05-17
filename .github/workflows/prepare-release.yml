@@ -8,25 +8,90 @@ on:
         required: true
         type: string
 
+# Add permissions at workflow level with all necessary scopes
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  statuses: write
+
 jobs:
   prepare-draft-release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write # Needed to create releases/tags
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Fetches all history for release notes generation
 
+      - name: Generate bot app token
+        id: bot-app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }} 
+
+      - name: Get Bot App User ID
+        id: get-user-id
+        run: echo "user-id=$(gh api "/users/${{ steps.bot-app-token.outputs.app-slug }}[bot]" --jq .id)" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ steps.bot-app-token.outputs.token }}
+      - run: |
+          git config --global user.name '${{ steps.app-token.outputs.app-slug }}[bot]'
+          git config --global user.email '${{ steps.get-user-id.outputs.user-id }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com'
+
+      - name: Create and checkout release branch
+        run: |
+          BRANCH_NAME="release/${{ github.event.inputs.release_name }}"
+          git checkout -b "$BRANCH_NAME"
+          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+
+      - name: Update chart version
+        run: |
+          ./build/scripts/set-chart-version.sh \
+            --chart-file deploy/helm/controller/Chart.yaml \
+            --app-version "${{ github.event.inputs.release_name }}" \
+            --commit
+
+      - name: Push changes
+        run: |
+          git push origin "$BRANCH_NAME"
+
+      - name: Create Pull Request
+        id: create-pr
+        env:
+          GH_TOKEN: ${{ steps.bot-app-token.outputs.token }}
+        run: |
+          # Create the PR and store the URL
+          PR_URL=$(gh pr create \
+            --title "Release ${{ github.event.inputs.release_name }}" \
+            --body "This PR prepares the release ${{ github.event.inputs.release_name }}.
+            Changes include:
+            - Updated chart version
+            - Updated app version" \
+            --head "$BRANCH_NAME" \
+            --base main \
+            --draft)
+          
+          # Extract PR number from the URL
+          PR_NUMBER=$(echo "$PR_URL" | grep -o '[0-9]*$')
+          echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
+
       - name: Create Draft Release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.bot-app-token.outputs.token }}
           RELEASE_NAME: ${{ github.event.inputs.release_name }}
         run: |
           echo "Creating draft release for tag $RELEASE_NAME"
           gh release create "$RELEASE_NAME" \
             --draft \
+            --target "$BRANCH_NAME" \
             --title "$RELEASE_NAME" \
             --generate-notes
-          echo "Draft release created: https://github.com/${{ github.repository }}/releases/tag/$RELEASE_NAME"
+          
+          # Get the release URL using gh release view
+          RELEASE_URL=$(gh release view "$RELEASE_NAME" --json url --jq '.url')
+          echo "Draft release created: $RELEASE_URL"
+          
+          # Add release URL as PR comment
+          gh pr comment "$PR_NUMBER" --body "Draft release created: $RELEASE_URL"

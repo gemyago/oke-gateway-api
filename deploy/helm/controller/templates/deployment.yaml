@@ -28,12 +28,27 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "oke-gateway-api-controller.serviceAccountName" . }}
+      volumes:
+      - name: oci-config-volume
+        secret:
+          secretName: oci-api-key
       containers:
       - name: controller
         image: "{{ .Values.deployment.image.repository }}:{{ .Values.deployment.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.deployment.image.pullPolicy }}
+        args:
+        - start
+        - --json-logs
+        - --env
+        - in-cluster-debug
         ports: [] # Add ports if needed for health checks etc.
         # Add livenessProbe, readinessProbe here if configured
         resources:
           {{- toYaml .Values.deployment.resources | nindent 10 }}
-        # Add environment variables if needed 
+        env:
+        - name: OCI_CONFIG_FILE
+          value: /etc/oci/config
+        volumeMounts:
+        - name: oci-config-volume
+          mountPath: "/etc/oci"
+          readOnly: true

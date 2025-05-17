@@ -2,25 +2,11 @@ apiVersion: v2
 name: oke-gateway-api-controller
 description: A Helm chart for the OKE Gateway API Controller
 
-# A chart can be either an 'application' or a 'library' chart.
-# Application charts are installable charts.
-# Library charts provide useful templates or functions for the chart developer.
-# They usually contain shared templates that can be used charts that depend on them.
 type: application
 
-# This is the chart version. This version number should be incremented each time you make changes
-# to the chart and its templates, including the app version.
+# Patch version is incremented automatically with each release.
 # Versions are expected to follow Semantic Versioning (https://semver.org/)
-version: 0.1.0
+version: 0.0.1
 
-# This is the version number of the application being deployed. This version number should be
-# incremented each time you make changes to the application. Versions are not expected to
-# follow Semantic Versioning. They should reflect the version the application is using.
-# It is recommended to use it with quotes.
-appVersion: "git-commit-9185063"
-
-# Optional: Add dependencies here if needed
-# dependencies:
-# - name: common
-#   version: "1.x.x"
-#   repository: "https://charts.bitnami.com/bitnami" 
+# Set automatically to the release version by release tool.
+appVersion: "0.0.1"

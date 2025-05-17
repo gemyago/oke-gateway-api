@@ -22,3 +22,11 @@ rules:
 - apiGroups: ["coordination.k8s.io"]
   resources: ["leases"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"] 
+# Permission to get endpointslices
+- apiGroups: ["discovery.k8s.io"]
+  resources: ["endpointslices"]
+  verbs: ["get", "list", "watch"]
+# Permission to list own configs
+- apiGroups: ["oke-gateway-api.gemyago.github.io"]
+  resources: ["gateway-configs"]
+  verbs: ["get", "list", "watch"]
