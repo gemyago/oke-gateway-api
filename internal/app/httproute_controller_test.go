@@ -188,13 +188,6 @@ func TestHTTPRouteController(t *testing.T) {
 			).Return(nil)
 
 			mockBackendModel, _ := deps.HTTPBackendModel.(*MockhttpBackendModel)
-			mockBackendModel.EXPECT().syncRouteEndpoints(
-				t.Context(),
-				syncRouteEndpointsParams{
-					httpRoute: wantResolvedData.httpRoute,
-					config:    wantResolvedData.gatewayDetails.config,
-				},
-			).Return(nil)
 
 			result, err := controller.Reconcile(t.Context(), req)
 
@@ -204,6 +197,7 @@ func TestHTTPRouteController(t *testing.T) {
 			mockModel.AssertNotCalled(t, "acceptRoute", mock.Anything, mock.Anything)
 			mockModel.AssertNotCalled(t, "programRoute", mock.Anything, mock.Anything)
 			mockModel.AssertNotCalled(t, "setProgrammed", mock.Anything, mock.Anything)
+			mockBackendModel.AssertNotCalled(t, "syncRouteEndpoints", mock.Anything, mock.Anything)
 		})
 
 		t.Run("ResolveRequestError", func(t *testing.T) {
