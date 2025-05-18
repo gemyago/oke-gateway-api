@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
@@ -326,6 +327,15 @@ func (m *ociLoadBalancerModelImpl) deprovisionBackendSet(
 				slog.String("backendSetName", backendSetName),
 			)
 			return nil // Already gone
+		}
+		if ok && serviceErr.GetHTTPStatusCode() == http.StatusBadRequest &&
+			serviceErr.GetCode() == "InvalidParameter" &&
+			strings.Contains(serviceErr.GetMessage(), "used in routing policy") {
+			m.logger.InfoContext(ctx, "Backend set is used in routing policy, skipping deletion",
+				slog.String("loadBalancerId", params.loadBalancerID),
+				slog.String("backendSetName", backendSetName),
+			)
+			return nil // Skip deletion as it's used in routing policy
 		}
 		return fmt.Errorf("failed to delete backend set %s: %w", backendSetName, err)
 	}

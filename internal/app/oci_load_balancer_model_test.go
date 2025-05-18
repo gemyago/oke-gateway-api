@@ -1604,4 +1604,35 @@ func TestOciLoadBalancerModelImpl_deprovisionBackendSet(t *testing.T) {
 		err := model.deprovisionBackendSet(t.Context(), params)
 		require.NoError(t, err)
 	})
+
+	t.Run("succeeds if backend set is used in routing policy (400 InvalidParameter)", func(t *testing.T) {
+		deps := makeMockDeps(t)
+		model := newOciLoadBalancerModel(deps)
+		ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+		loadBalancerID := faker.UUIDHyphenated()
+		httpRoute := makeRandomHTTPRoute()
+		backendRef := makeRandomBackendRef()
+		backendSetName := ociBackendSetNameFromBackendRef(httpRoute, backendRef)
+
+		params := deprovisionBackendSetParams{
+			loadBalancerID: loadBalancerID,
+			httpRoute:      httpRoute,
+			backendRef:     backendRef,
+		}
+
+		serviceErr := ociapi.NewRandomServiceError(
+			ociapi.RandomServiceErrorWithStatusCode(400),
+			ociapi.RandomServiceErrorWithCode("InvalidParameter"),
+			ociapi.RandomServiceErrorWithMessage("Backend set is used in routing policy"),
+		)
+
+		ociLoadBalancerClient.EXPECT().DeleteBackendSet(t.Context(), loadbalancer.DeleteBackendSetRequest{
+			LoadBalancerId: &loadBalancerID,
+			BackendSetName: &backendSetName,
+		}).Return(loadbalancer.DeleteBackendSetResponse{}, serviceErr).Once()
+
+		err := model.deprovisionBackendSet(t.Context(), params)
+		require.NoError(t, err)
+	})
 }
