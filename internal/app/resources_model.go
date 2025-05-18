@@ -42,23 +42,6 @@ type resourcesModelImpl struct {
 }
 
 func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditionParams) error {
-	if len(params.annotations) > 0 {
-		m.logger.DebugContext(ctx, "Updating resource annotations before setting condition",
-			slog.String("resource", params.resource.GetName()),
-			slog.Any("annotations", params.annotations))
-		currentAnnotations := params.resource.GetAnnotations()
-		if currentAnnotations == nil {
-			currentAnnotations = make(map[string]string)
-		}
-		for k, v := range params.annotations {
-			currentAnnotations[k] = v
-		}
-		params.resource.SetAnnotations(currentAnnotations)
-		if err := m.client.Update(ctx, params.resource); err != nil {
-			return fmt.Errorf("failed to update resource %s with annotations: %w", params.resource.GetName(), err)
-		}
-	}
-
 	m.logger.DebugContext(ctx,
 		fmt.Sprintf("Setting %s condition", params.conditionType),
 		slog.String("resource", params.resource.GetName()),
@@ -82,6 +65,25 @@ func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditi
 
 	if err := m.client.Status().Update(ctx, params.resource); err != nil {
 		return fmt.Errorf("failed to update status for %s: %w", params.resource.GetName(), err)
+	}
+
+	// For some reason if we update annotations first, the status is not updated
+	// so we update status first and then annotations. Ideally this needs to be investigated.
+	if len(params.annotations) > 0 {
+		m.logger.DebugContext(ctx, "Updating resource annotations",
+			slog.String("resource", params.resource.GetName()),
+			slog.Any("annotations", params.annotations))
+		currentAnnotations := params.resource.GetAnnotations()
+		if currentAnnotations == nil {
+			currentAnnotations = make(map[string]string)
+		}
+		for k, v := range params.annotations {
+			currentAnnotations[k] = v
+		}
+		params.resource.SetAnnotations(currentAnnotations)
+		if err := m.client.Update(ctx, params.resource); err != nil {
+			return fmt.Errorf("failed to update resource %s with annotations: %w", params.resource.GetName(), err)
+		}
 	}
 
 	return nil

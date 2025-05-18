@@ -182,21 +182,11 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 			annotations:   newAnnotations,
 		}
 
-		updateCall := mockClient.EXPECT().
-			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
-				gc, ok := obj.(*gatewayv1.GatewayClass)
-				require.True(t, ok, "Object should be GatewayClass")
-				assert.Equal(t, expectedMergedAnnotations, gc.GetAnnotations(), "Annotations should be merged")
-				return true
-			}), mock.Anything).Return(nil).Once()
-
-		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
-
-		mockStatusWriter.EXPECT().
+		updateStatusCall := mockStatusWriter.EXPECT().
 			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
 				gc, ok := obj.(*gatewayv1.GatewayClass)
 				require.True(t, ok, "Object should be GatewayClass for status update")
-				assert.Equal(t, expectedMergedAnnotations, gc.GetAnnotations(), "Annotations should persist for Status Update")
+				assert.Equal(t, initialAnnotations, gc.GetAnnotations())
 				require.Len(t, gc.Status.Conditions, 1, "Expected one condition in status")
 				cond := meta.FindStatusCondition(gc.Status.Conditions, params.conditionType)
 				require.NotNil(t, cond)
@@ -207,8 +197,17 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 				return true
 			}), mock.Anything).
 			Return(nil).
-			NotBefore(updateCall). // Ensure Status().Update() happens AFTER client.Update()
 			Once()
+
+		mockClient.EXPECT().
+			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				gc, ok := obj.(*gatewayv1.GatewayClass)
+				require.True(t, ok, "Object should be GatewayClass")
+				assert.Equal(t, expectedMergedAnnotations, gc.GetAnnotations(), "Annotations should be merged")
+				return true
+			}), mock.Anything).Return(nil).Once().NotBefore(updateStatusCall)
+
+		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
 
 		err := model.setCondition(t.Context(), params)
 		require.NoError(t, err)
@@ -249,27 +248,25 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 			annotations:   newAnnotations,
 		}
 
-		updateCall := mockClient.EXPECT().
+		updateStatusCall := mockStatusWriter.EXPECT().
+			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				gc, ok := obj.(*gatewayv1.GatewayClass)
+				require.True(t, ok)
+				require.Len(t, gc.Status.Conditions, 1)
+				return true
+			}), mock.Anything).
+			Return(nil).
+			Once()
+
+		mockClient.EXPECT().
 			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
 				gc, ok := obj.(*gatewayv1.GatewayClass)
 				require.True(t, ok)
 				assert.Equal(t, newAnnotations, gc.GetAnnotations(), "Annotations should match the new ones")
 				return true
-			}), mock.Anything).Return(nil).Once()
+			}), mock.Anything).Return(nil).Once().NotBefore(updateStatusCall)
 
 		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
-
-		mockStatusWriter.EXPECT().
-			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
-				gc, ok := obj.(*gatewayv1.GatewayClass)
-				require.True(t, ok)
-				assert.Equal(t, newAnnotations, gc.GetAnnotations(), "Annotations should persist for Status Update")
-				require.Len(t, gc.Status.Conditions, 1)
-				return true
-			}), mock.Anything).
-			Return(nil).
-			NotBefore(updateCall).
-			Once()
 
 		err := model.setCondition(t.Context(), params)
 		require.NoError(t, err)
@@ -301,6 +298,13 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 		}
 
 		expectedError := errors.New(faker.Sentence())
+
+		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
+		mockStatusWriter.EXPECT().
+			Update(t.Context(), mock.Anything, mock.Anything).
+			Return(nil).
+			Once()
 
 		mockClient.EXPECT().
 			Update(t.Context(), gatewayClass, mock.Anything).
