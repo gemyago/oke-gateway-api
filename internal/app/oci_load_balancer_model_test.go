@@ -1476,3 +1476,132 @@ func Test_ociBackendSetNameFromService(t *testing.T) {
 		})
 	}
 }
+
+func TestOciLoadBalancerModelImpl_deprovisionBackendSet(t *testing.T) {
+	makeMockDeps := func(t *testing.T) ociLoadBalancerModelDeps {
+		return ociLoadBalancerModelDeps{
+			RootLogger:          diag.RootTestLogger(),
+			OciClient:           NewMockociLoadBalancerClient(t),
+			WorkRequestsWatcher: NewMockworkRequestsWatcher(t),
+			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
+		}
+	}
+
+	t.Run("successfully deprovisions an existing backend set", func(t *testing.T) {
+		deps := makeMockDeps(t)
+		model := newOciLoadBalancerModel(deps)
+		ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+		workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+		loadBalancerID := faker.UUIDHyphenated()
+		httpRoute := makeRandomHTTPRoute()
+		backendRef := makeRandomBackendRef()
+		backendSetName := ociBackendSetNameFromBackendRef(httpRoute, backendRef)
+		workRequestID := faker.UUIDHyphenated()
+
+		params := deprovisionBackendSetParams{
+			loadBalancerID: loadBalancerID,
+			httpRoute:      httpRoute,
+			backendRef:     backendRef,
+		}
+
+		ociLoadBalancerClient.EXPECT().DeleteBackendSet(t.Context(), loadbalancer.DeleteBackendSetRequest{
+			LoadBalancerId: &loadBalancerID,
+			BackendSetName: &backendSetName,
+		}).Return(loadbalancer.DeleteBackendSetResponse{
+			OpcWorkRequestId: &workRequestID,
+		}, nil).Once()
+
+		workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil).Once()
+
+		err := model.deprovisionBackendSet(t.Context(), params)
+		require.NoError(t, err)
+	})
+
+	t.Run("returns error if delete backend set fails", func(t *testing.T) {
+		deps := makeMockDeps(t)
+		model := newOciLoadBalancerModel(deps)
+		ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+		loadBalancerID := faker.UUIDHyphenated()
+		httpRoute := makeRandomHTTPRoute()
+		backendRef := makeRandomBackendRef()
+		backendSetName := ociBackendSetNameFromBackendRef(httpRoute, backendRef)
+		wantErr := errors.New(faker.Sentence())
+
+		params := deprovisionBackendSetParams{
+			loadBalancerID: loadBalancerID,
+			httpRoute:      httpRoute,
+			backendRef:     backendRef,
+		}
+
+		ociLoadBalancerClient.EXPECT().DeleteBackendSet(t.Context(), loadbalancer.DeleteBackendSetRequest{
+			LoadBalancerId: &loadBalancerID,
+			BackendSetName: &backendSetName,
+		}).Return(loadbalancer.DeleteBackendSetResponse{}, wantErr).Once()
+
+		err := model.deprovisionBackendSet(t.Context(), params)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("returns error if waiting for deletion fails", func(t *testing.T) {
+		deps := makeMockDeps(t)
+		model := newOciLoadBalancerModel(deps)
+		ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+		workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+		loadBalancerID := faker.UUIDHyphenated()
+		httpRoute := makeRandomHTTPRoute()
+		backendRef := makeRandomBackendRef()
+		backendSetName := ociBackendSetNameFromBackendRef(httpRoute, backendRef)
+		workRequestID := faker.UUIDHyphenated()
+		wantErr := errors.New(faker.Sentence())
+
+		params := deprovisionBackendSetParams{
+			loadBalancerID: loadBalancerID,
+			httpRoute:      httpRoute,
+			backendRef:     backendRef,
+		}
+
+		ociLoadBalancerClient.EXPECT().DeleteBackendSet(t.Context(), loadbalancer.DeleteBackendSetRequest{
+			LoadBalancerId: &loadBalancerID,
+			BackendSetName: &backendSetName,
+		}).Return(loadbalancer.DeleteBackendSetResponse{
+			OpcWorkRequestId: &workRequestID,
+		}, nil).Once()
+
+		workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(wantErr).Once()
+
+		err := model.deprovisionBackendSet(t.Context(), params)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("succeeds if backend set does not exist (404 on delete)", func(t *testing.T) {
+		deps := makeMockDeps(t)
+		model := newOciLoadBalancerModel(deps)
+		ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+		loadBalancerID := faker.UUIDHyphenated()
+		httpRoute := makeRandomHTTPRoute()
+		backendRef := makeRandomBackendRef()
+		backendSetName := ociBackendSetNameFromBackendRef(httpRoute, backendRef)
+
+		params := deprovisionBackendSetParams{
+			loadBalancerID: loadBalancerID,
+			httpRoute:      httpRoute,
+			backendRef:     backendRef,
+		}
+
+		ociLoadBalancerClient.EXPECT().DeleteBackendSet(t.Context(), loadbalancer.DeleteBackendSetRequest{
+			LoadBalancerId: &loadBalancerID,
+			BackendSetName: &backendSetName,
+		}).Return(
+			loadbalancer.DeleteBackendSetResponse{},
+			ociapi.NewRandomServiceError(ociapi.RandomServiceErrorWithStatusCode(404))).Once()
+
+		err := model.deprovisionBackendSet(t.Context(), params)
+		require.NoError(t, err)
+	})
+}

@@ -307,6 +307,40 @@ func (m *ociLoadBalancerModelImpl) deprovisionBackendSet(
 	ctx context.Context,
 	params deprovisionBackendSetParams,
 ) error {
+	backendSetName := ociBackendSetNameFromBackendRef(params.httpRoute, params.backendRef)
+
+	m.logger.InfoContext(ctx, "Deprovisioning backend set",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("backendSetName", backendSetName),
+	)
+
+	deleteRes, err := m.ociClient.DeleteBackendSet(ctx, loadbalancer.DeleteBackendSetRequest{
+		LoadBalancerId: &params.loadBalancerID,
+		BackendSetName: &backendSetName,
+	})
+	if err != nil {
+		serviceErr, ok := common.IsServiceError(err)
+		if ok && serviceErr.GetHTTPStatusCode() == http.StatusNotFound {
+			m.logger.InfoContext(ctx, "Backend set not found, assuming already deprovisioned",
+				slog.String("loadBalancerId", params.loadBalancerID),
+				slog.String("backendSetName", backendSetName),
+			)
+			return nil // Already gone
+		}
+		return fmt.Errorf("failed to delete backend set %s: %w", backendSetName, err)
+	}
+
+	if err = m.workRequestsWatcher.WaitFor(
+		ctx,
+		*deleteRes.OpcWorkRequestId,
+	); err != nil {
+		return fmt.Errorf("failed to wait for backend set %s deletion: %w", backendSetName, err)
+	}
+
+	m.logger.InfoContext(ctx, "Successfully deprovisioned backend set",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("backendSetName", backendSetName),
+	)
 	return nil
 }
 
