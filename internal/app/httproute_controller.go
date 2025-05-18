@@ -54,6 +54,12 @@ func (r *HTTPRouteController) reconcileResolvedRoute(
 			return fmt.Errorf("failed to deprovision route for gateway %s: %w",
 				resolvedData.gatewayDetails.gateway.Name, err)
 		}
+
+		r.logger.InfoContext(ctx, "Successfully deprovisioned HTTProute",
+			slog.String("httpRoute", resolvedData.httpRoute.Name),
+			slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
+		)
+
 		return nil
 	}
 
