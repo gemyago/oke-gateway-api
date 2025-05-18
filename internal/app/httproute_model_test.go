@@ -1481,4 +1481,95 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			require.ErrorIs(t, err, updateErr)
 		})
 	})
+
+	t.Run("deprovisionRoute", func(t *testing.T) {
+		t.Run("successfully deprovisions route with multiple listeners", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			config := makeRandomGatewayConfig()
+			httpRoute := makeRandomHTTPRoute()
+			wantPreviousRules := []string{
+				"rule1-" + faker.Word(),
+				"rule2-" + faker.Word(),
+			}
+			httpRoute.Annotations = map[string]string{
+				HTTPRouteProgrammedPolicyRulesAnnotation: strings.Join(wantPreviousRules, ","),
+			}
+			listeners := makeFewRandomHTTPListeners()
+
+			params := deprovisionRouteParams{
+				gateway:          *newRandomGateway(),
+				config:           config,
+				httpRoute:        httpRoute,
+				matchedListeners: listeners,
+			}
+
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+
+			for _, listener := range listeners {
+				ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+					loadBalancerID:  config.Spec.LoadBalancerID,
+					listenerName:    string(listener.Name),
+					policyRules:     []loadbalancer.RoutingRule{}, // Important: No rules to program
+					prevPolicyRules: wantPreviousRules,
+				}).Return(nil).Once()
+			}
+
+			err := model.deprovisionRoute(t.Context(), params)
+			require.NoError(t, err)
+		})
+
+		t.Run("successfully deprovisions route with no previous rules annotation", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			config := makeRandomGatewayConfig()
+			httpRoute := makeRandomHTTPRoute() // No annotations
+			listeners := makeFewRandomHTTPListeners()
+
+			params := deprovisionRouteParams{
+				gateway:          *newRandomGateway(),
+				config:           config,
+				httpRoute:        httpRoute,
+				matchedListeners: listeners,
+			}
+
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			// Expect commitRoutingPolicy NOT to be called
+			ociLBModel.AssertNotCalled(t, "commitRoutingPolicy", mock.Anything, mock.Anything)
+
+			err := model.deprovisionRoute(t.Context(), params)
+			require.NoError(t, err)
+		})
+
+		t.Run("fails when commitRoutingPolicy fails", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			config := makeRandomGatewayConfig()
+			httpRoute := makeRandomHTTPRoute()
+			// Ensure prevPolicyRules annotation is present so the method doesn't return early
+			httpRoute.Annotations = map[string]string{
+				HTTPRouteProgrammedPolicyRulesAnnotation: "rule1,rule2",
+			}
+			listeners := []gatewayv1.Listener{makeRandomHTTPListener()} // Just one for simplicity
+
+			params := deprovisionRouteParams{
+				gateway:          *newRandomGateway(),
+				config:           config,
+				httpRoute:        httpRoute,
+				matchedListeners: listeners,
+			}
+
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			wantErr := errors.New(faker.Sentence())
+
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), mock.Anything).Return(wantErr)
+
+			err := model.deprovisionRoute(t.Context(), params)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, wantErr)
+		})
+	})
 }

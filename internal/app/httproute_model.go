@@ -468,6 +468,40 @@ func (m *httpRouteModelImpl) deprovisionRoute(
 	ctx context.Context,
 	params deprovisionRouteParams,
 ) error {
+	var prevPolicyRules []string
+	if prevPolicyRulesStr, ok := params.httpRoute.Annotations[HTTPRouteProgrammedPolicyRulesAnnotation]; ok {
+		if prevPolicyRulesStr != "" { // Ensure not to split an empty string, which results in [""]
+			prevPolicyRules = strings.Split(prevPolicyRulesStr, ",")
+		}
+	}
+
+	if len(prevPolicyRules) == 0 {
+		m.logger.InfoContext(ctx, "No previous policy rules found in annotation, skipping deprovisioning.",
+			slog.String("route", params.httpRoute.Name),
+			slog.String("annotationKey", HTTPRouteProgrammedPolicyRulesAnnotation),
+		)
+		return nil
+	}
+
+	for _, listener := range params.matchedListeners {
+		m.logger.DebugContext(ctx, "Deprovisioning listener for HTTPRoute",
+			slog.String("route", params.httpRoute.Name),
+			slog.String("listener", string(listener.Name)),
+			slog.String("loadBalancerID", params.config.Spec.LoadBalancerID),
+		)
+		err := m.ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
+			loadBalancerID:  params.config.Spec.LoadBalancerID,
+			listenerName:    string(listener.Name),
+			policyRules:     []loadbalancer.RoutingRule{}, // Empty rules for deprovisioning
+			prevPolicyRules: prevPolicyRules,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to deprovision routing policy for listener %s: %w", listener.Name, err)
+		}
+	}
+
+	// TODO: Remove finalizer and annotations from the HTTPRoute resource
+
 	return nil
 }
 
