@@ -1385,6 +1385,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 					HTTPRouteProgrammingRevisionAnnotation:   HTTPRouteProgrammingRevisionValue,
 					HTTPRouteProgrammedPolicyRulesAnnotation: strings.Join(params.programmedPolicyRules, ","),
 				},
+				finalizer: HTTPRouteProgrammedFinalizer,
 			}).Return(nil)
 
 			// The model receives details by value, so it works on a copy of httpRoute.

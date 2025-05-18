@@ -504,6 +504,7 @@ func (m *httpRouteModelImpl) setProgrammed(
 			HTTPRouteProgrammingRevisionAnnotation:   HTTPRouteProgrammingRevisionValue,
 			HTTPRouteProgrammedPolicyRulesAnnotation: strings.Join(params.programmedPolicyRules, ","),
 		},
+		finalizer: HTTPRouteProgrammedFinalizer,
 	}); err != nil {
 		return fmt.Errorf("failed to update programmed status for HTTProute %s: %w", httpRoute.Name, err)
 	}
