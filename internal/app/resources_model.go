@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 type setConditionParams struct {
@@ -19,6 +20,7 @@ type setConditionParams struct {
 	reason        string
 	message       string
 	annotations   map[string]string
+	finalizer     string
 }
 
 type isConditionSetParams struct {
@@ -48,6 +50,8 @@ func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditi
 		slog.String("status", string(params.status)),
 		slog.String("reason", params.reason),
 		slog.String("message", params.message),
+		slog.Any("annotations", params.annotations),
+		slog.String("finalizer", params.finalizer),
 	)
 
 	generation := params.resource.GetGeneration()
@@ -67,12 +71,12 @@ func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditi
 		return fmt.Errorf("failed to update status for %s: %w", params.resource.GetName(), err)
 	}
 
-	// For some reason if we update annotations first, the status is not updated
-	// so we update status first and then annotations. Ideally this needs to be investigated.
+	needsResourceUpdate := false
+	if params.finalizer != "" {
+		needsResourceUpdate = controllerutil.AddFinalizer(params.resource, params.finalizer)
+	}
+
 	if len(params.annotations) > 0 {
-		m.logger.DebugContext(ctx, "Updating resource annotations",
-			slog.String("resource", params.resource.GetName()),
-			slog.Any("annotations", params.annotations))
 		currentAnnotations := params.resource.GetAnnotations()
 		if currentAnnotations == nil {
 			currentAnnotations = make(map[string]string)
@@ -81,8 +85,12 @@ func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditi
 			currentAnnotations[k] = v
 		}
 		params.resource.SetAnnotations(currentAnnotations)
+		needsResourceUpdate = true
+	}
+
+	if needsResourceUpdate {
 		if err := m.client.Update(ctx, params.resource); err != nil {
-			return fmt.Errorf("failed to update resource %s with annotations: %w", params.resource.GetName(), err)
+			return fmt.Errorf("failed to update resource %s with finalizer/annotations: %w", params.resource.GetName(), err)
 		}
 	}
 
