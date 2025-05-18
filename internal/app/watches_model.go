@@ -65,6 +65,14 @@ func (m *WatchesModel) indexHTTPRouteByBackendService(ctx context.Context, obj c
 		return nil
 	}
 
+	if httpRoute.DeletionTimestamp != nil {
+		m.logger.DebugContext(ctx, "Ignoring HTTPRoute marked for deletion",
+			slog.String("httpRoute", client.ObjectKeyFromObject(httpRoute).String()),
+			slog.Time("deletionTimestamp", httpRoute.DeletionTimestamp.Time),
+		)
+		return nil
+	}
+
 	uniqueServiceKeys := make(map[string]struct{})
 	for _, rule := range httpRoute.Spec.Rules {
 		for _, backendRef := range rule.BackendRefs {

@@ -194,6 +194,31 @@ func TestWatchesModel(t *testing.T) {
 			result := model.indexHTTPRouteByBackendService(t.Context(), &corev1.Service{})
 			require.Nil(t, result)
 		})
+
+		t.Run("ignores deleted routes", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			refs := []gatewayv1.HTTPBackendRef{
+				makeRandomBackendRef(),
+				makeRandomBackendRef(),
+			}
+
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(
+					makeRandomHTTPRouteRule(
+						randomHTTPRouteRuleWithRandomBackendRefsOpt(refs...),
+					),
+				),
+			)
+
+			// Mark the route for deletion
+			deletionTimestamp := metav1.Now()
+			httpRoute.DeletionTimestamp = &deletionTimestamp
+
+			result := model.indexHTTPRouteByBackendService(t.Context(), &httpRoute)
+			require.Nil(t, result)
+		})
 	})
 
 	t.Run("MapEndpointSliceToHTTPRoute", func(t *testing.T) {
