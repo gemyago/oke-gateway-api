@@ -135,6 +135,16 @@ func randomOCILoadBalancerWithRandomBackendSetsOpt() randomOCILoadBalancerOpt {
 	}
 }
 
+func randomOCILoadBalancerWithRandomPoliciesOpt() randomOCILoadBalancerOpt {
+	return func(lb *loadbalancer.LoadBalancer) {
+		lb.RoutingPolicies = map[string]loadbalancer.RoutingPolicy{}
+		for range lb.RoutingPolicies {
+			policy := makeRandomOCIRoutingPolicy()
+			lb.RoutingPolicies[*policy.Name] = policy
+		}
+	}
+}
+
 type randomOCIRoutingPolicyOpt func(*loadbalancer.RoutingPolicy)
 
 func makeRandomOCIRoutingPolicy(

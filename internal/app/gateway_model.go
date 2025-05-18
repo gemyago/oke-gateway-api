@@ -138,6 +138,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 		params := reconcileHTTPListenerParams{
 			loadBalancerID:        loadBalancerID,
 			knownListeners:        response.LoadBalancer.Listeners,
+			knownRoutingPolicies:  response.LoadBalancer.RoutingPolicies,
 			defaultBackendSetName: *defaultBackendSet.Name,
 			listenerSpec:          &listener,
 		}

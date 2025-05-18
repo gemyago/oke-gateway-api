@@ -563,6 +563,7 @@ func TestGatewayModelImpl(t *testing.T) {
 			)
 			loadBalancer := makeRandomOCILoadBalancer(
 				randomOCILoadBalancerWithRandomBackendSetsOpt(),
+				randomOCILoadBalancerWithRandomPoliciesOpt(),
 			)
 			loadBalancer.Listeners = make(map[string]loadbalancer.Listener)
 			for _, listener := range gateway.Spec.Listeners {
@@ -595,6 +596,7 @@ func TestGatewayModelImpl(t *testing.T) {
 						loadBalancerID:        config.Spec.LoadBalancerID,
 						defaultBackendSetName: *defaultBackendSet.Name,
 						knownListeners:        loadBalancer.Listeners,
+						knownRoutingPolicies:  loadBalancer.RoutingPolicies,
 						listenerSpec:          &listener,
 					}).
 					Return(nil)

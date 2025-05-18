@@ -45,6 +45,7 @@ type deprovisionBackendSetParams struct {
 type reconcileHTTPListenerParams struct {
 	loadBalancerID        string
 	knownListeners        map[string]loadbalancer.Listener
+	knownRoutingPolicies  map[string]loadbalancer.RoutingPolicy
 	defaultBackendSetName string
 	listenerSpec          *gatewayv1.Listener
 }
