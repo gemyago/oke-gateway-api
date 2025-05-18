@@ -485,10 +485,11 @@ func (m *httpRouteModelImpl) deprovisionRoute(
 	}
 
 	for _, listener := range params.matchedListeners {
-		m.logger.DebugContext(ctx, "Deprovisioning listener for HTTPRoute",
+		m.logger.DebugContext(ctx, "Deprovisioning listener policies for HTTPRoute",
 			slog.String("route", params.httpRoute.Name),
 			slog.String("listener", string(listener.Name)),
 			slog.String("loadBalancerID", params.config.Spec.LoadBalancerID),
+			slog.Any("prevPolicyRules", prevPolicyRules),
 		)
 		err := m.ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
 			loadBalancerID:  params.config.Spec.LoadBalancerID,
