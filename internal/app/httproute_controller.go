@@ -35,17 +35,50 @@ func NewHTTPRouteController(deps HTTPRouteControllerDeps) *HTTPRouteController {
 	}
 }
 
-func (r *HTTPRouteController) performProgramming(
+func (r *HTTPRouteController) reconcileResolvedRoute(
 	ctx context.Context,
 	resolvedData resolvedRouteDetails,
 ) error {
+	if resolvedData.httpRoute.DeletionTimestamp != nil {
+		r.logger.InfoContext(ctx, "HTTPRoute is marked for deletion, deprovisioning",
+			slog.String("httpRoute", resolvedData.httpRoute.Name),
+			slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
+		)
+		err := r.httpRouteModel.deprovisionRoute(ctx, deprovisionRouteParams{
+			gateway:          resolvedData.gatewayDetails.gateway,
+			config:           resolvedData.gatewayDetails.config,
+			httpRoute:        resolvedData.httpRoute,
+			matchedListeners: resolvedData.matchedListeners,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to deprovision route for gateway %s: %w",
+				resolvedData.gatewayDetails.gateway.Name, err)
+		}
+		return nil
+	}
+
+	var programmingRequired bool
+	programmingRequired, err := r.httpRouteModel.isProgrammingRequired(resolvedData)
+	if err != nil {
+		return fmt.Errorf("failed to check programming requirement for gateway %s: %w",
+			resolvedData.gatewayDetails.gateway.Name, err)
+	}
+
+	if !programmingRequired {
+		r.logger.DebugContext(ctx, "HTTPRoute programming not required for parent",
+			slog.String("httpRoute", resolvedData.httpRoute.Name),
+			slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
+		)
+		return nil
+	}
+
 	r.logger.DebugContext(ctx, "Performing HTTProute programming",
 		slog.String("httpRoute", resolvedData.httpRoute.Name),
 		slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
 	)
 
 	var acceptedRoute *gatewayv1.HTTPRoute
-	acceptedRoute, err := r.httpRouteModel.acceptRoute(ctx, resolvedData)
+	acceptedRoute, err = r.httpRouteModel.acceptRoute(ctx, resolvedData)
 	if err != nil {
 		return fmt.Errorf("failed to accept route: %w", err)
 	}
@@ -87,8 +120,6 @@ func (r *HTTPRouteController) performProgramming(
 	return nil
 }
 
-// Reconcile implements the reconcile.Reconciler interface.
-// For now, it just returns a "not implemented" error.
 func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	r.logger.InfoContext(ctx, fmt.Sprintf("Processing reconciliation for HTTProute %s", req.NamespacedName))
 
@@ -103,42 +134,13 @@ func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Reque
 		return reconcile.Result{}, nil
 	}
 
+	// Route may be attached to multiple gateways in theory, so we need to reconcile the route
+	// for each gateway separately.
 	for _, resolvedData := range resolvedRequests {
-		if resolvedData.httpRoute.DeletionTimestamp != nil {
-			r.logger.InfoContext(ctx, "HTTPRoute is marked for deletion, deprovisioning",
-				slog.String("httpRoute", req.NamespacedName.String()),
-				slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
-			)
-			err = r.httpRouteModel.deprovisionRoute(ctx, deprovisionRouteParams{
-				gateway:          resolvedData.gatewayDetails.gateway,
-				config:           resolvedData.gatewayDetails.config,
-				httpRoute:        resolvedData.httpRoute,
-				matchedListeners: resolvedData.matchedListeners,
-			})
-			if err != nil {
-				return reconcile.Result{}, fmt.Errorf("failed to deprovision route for gateway %s: %w",
-					resolvedData.gatewayDetails.gateway.Name, err)
-			}
-		} else {
-			var programmingRequired bool
-			programmingRequired, err = r.httpRouteModel.isProgrammingRequired(resolvedData)
-			if err != nil {
-				return reconcile.Result{}, fmt.Errorf("failed to check programming requirement for gateway %s: %w",
-					resolvedData.gatewayDetails.gateway.Name, err)
-			}
-
-			if programmingRequired {
-				err = r.performProgramming(ctx, resolvedData)
-				if err != nil {
-					return reconcile.Result{}, fmt.Errorf("failed to perform programming for gateway %s: %w",
-						resolvedData.gatewayDetails.gateway.Name, err)
-				}
-			} else {
-				r.logger.DebugContext(ctx, "HTTPRoute programming not required for parent",
-					slog.String("httpRoute", req.NamespacedName.String()),
-					slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
-				)
-			}
+		err = r.reconcileResolvedRoute(ctx, resolvedData)
+		if err != nil {
+			return reconcile.Result{}, fmt.Errorf("failed to reconcile gateway %s for route %s: %w",
+				resolvedData.gatewayDetails.gateway.Name, resolvedData.httpRoute.Name, err)
 		}
 
 		err = r.httpBackendModel.syncRouteEndpoints(ctx, syncRouteEndpointsParams{
