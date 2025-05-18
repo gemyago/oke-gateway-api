@@ -24,6 +24,9 @@ type ociLoadBalancerClient interface {
 	CreateBackendSet(ctx context.Context, request loadbalancer.CreateBackendSetRequest) (
 		response loadbalancer.CreateBackendSetResponse, err error)
 
+	DeleteBackendSet(ctx context.Context, request loadbalancer.DeleteBackendSetRequest) (
+		response loadbalancer.DeleteBackendSetResponse, err error)
+
 	GetBackendSet(ctx context.Context, request loadbalancer.GetBackendSetRequest) (
 		response loadbalancer.GetBackendSetResponse, err error)
 

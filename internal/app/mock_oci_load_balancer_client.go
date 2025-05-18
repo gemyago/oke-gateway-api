@@ -309,6 +309,63 @@ func (_c *MockociLoadBalancerClient_CreateRoutingPolicy_Call) RunAndReturn(run f
 	return _c
 }
 
+// DeleteBackendSet provides a mock function with given fields: ctx, request
+func (_m *MockociLoadBalancerClient) DeleteBackendSet(ctx context.Context, request loadbalancer.DeleteBackendSetRequest) (loadbalancer.DeleteBackendSetResponse, error) {
+	ret := _m.Called(ctx, request)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteBackendSet")
+	}
+
+	var r0 loadbalancer.DeleteBackendSetResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.DeleteBackendSetRequest) (loadbalancer.DeleteBackendSetResponse, error)); ok {
+		return rf(ctx, request)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.DeleteBackendSetRequest) loadbalancer.DeleteBackendSetResponse); ok {
+		r0 = rf(ctx, request)
+	} else {
+		r0 = ret.Get(0).(loadbalancer.DeleteBackendSetResponse)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.DeleteBackendSetRequest) error); ok {
+		r1 = rf(ctx, request)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockociLoadBalancerClient_DeleteBackendSet_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteBackendSet'
+type MockociLoadBalancerClient_DeleteBackendSet_Call struct {
+	*mock.Call
+}
+
+// DeleteBackendSet is a helper method to define mock.On call
+//   - ctx context.Context
+//   - request loadbalancer.DeleteBackendSetRequest
+func (_e *MockociLoadBalancerClient_Expecter) DeleteBackendSet(ctx interface{}, request interface{}) *MockociLoadBalancerClient_DeleteBackendSet_Call {
+	return &MockociLoadBalancerClient_DeleteBackendSet_Call{Call: _e.mock.On("DeleteBackendSet", ctx, request)}
+}
+
+func (_c *MockociLoadBalancerClient_DeleteBackendSet_Call) Run(run func(ctx context.Context, request loadbalancer.DeleteBackendSetRequest)) *MockociLoadBalancerClient_DeleteBackendSet_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(loadbalancer.DeleteBackendSetRequest))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_DeleteBackendSet_Call) Return(response loadbalancer.DeleteBackendSetResponse, err error) *MockociLoadBalancerClient_DeleteBackendSet_Call {
+	_c.Call.Return(response, err)
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_DeleteBackendSet_Call) RunAndReturn(run func(context.Context, loadbalancer.DeleteBackendSetRequest) (loadbalancer.DeleteBackendSetResponse, error)) *MockociLoadBalancerClient_DeleteBackendSet_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DeleteListener provides a mock function with given fields: ctx, request
 func (_m *MockociLoadBalancerClient) DeleteListener(ctx context.Context, request loadbalancer.DeleteListenerRequest) (loadbalancer.DeleteListenerResponse, error) {
 	ret := _m.Called(ctx, request)
