@@ -227,6 +227,7 @@ func TestHTTPBackendModel(t *testing.T) {
 				client.MatchingLabels{
 					discoveryv1.LabelServiceName: string(backendRef.BackendObjectReference.Name),
 				},
+				client.InNamespace(string(lo.FromPtr(backendRef.BackendObjectReference.Namespace))),
 			).RunAndReturn(func(_ context.Context, ol client.ObjectList, _ ...client.ListOption) error {
 				epSliceList, ok := ol.(*discoveryv1.EndpointSliceList)
 				require.True(t, ok, "expected an EndpointSliceList")
@@ -314,6 +315,82 @@ func TestHTTPBackendModel(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("update backend without explicit namespace", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPBackendModel(deps)
+
+			backendRef := makeRandomBackendRef(
+				randomBackendRefWithNillNamespaceOpt(),
+			)
+			httpRoute := makeRandomHTTPRoute()
+
+			config := makeRandomGatewayConfig()
+
+			endpointSlice := makeRandomEndpointSlice()
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				mock.Anything,
+				client.MatchingLabels{
+					discoveryv1.LabelServiceName: string(backendRef.BackendObjectReference.Name),
+				},
+				client.InNamespace(httpRoute.Namespace),
+			).RunAndReturn(func(_ context.Context, ol client.ObjectList, _ ...client.ListOption) error {
+				epSliceList, ok := ol.(*discoveryv1.EndpointSliceList)
+				require.True(t, ok, "expected an EndpointSliceList")
+				epSliceList.Items = append(epSliceList.Items, endpointSlice)
+				return nil
+			}).Once()
+
+			wantUpdatedBackends := makeFewRandomOCIBackendDetails()
+			backendSetName := ociBackendSetNameFromBackendRef(httpRoute, backendRef)
+
+			// Create a sample existing BackendSet using the fixture
+			currentBackends := makeFewRandomOCIBackends()
+			sampleBackendSet := makeRandomOCIBackendSet(
+				randomOCIBackendSetWithNameOpt(backendSetName),
+				randomOCIBackendSetWithBackendsOpt(currentBackends),
+			)
+
+			mockSelf, _ := deps.self.(*MockhttpBackendModel)
+			mockSelf.EXPECT().identifyBackendsToUpdate(
+				t.Context(),
+				mock.Anything,
+			).Return(identifyBackendsToUpdateResult{
+				updateRequired:  true,
+				updatedBackends: wantUpdatedBackends,
+			}, nil).Once()
+
+			mockOciLoadBalancerClient, _ := deps.OciLoadBalancerClient.(*MockociLoadBalancerClient)
+
+			// Expect GetBackendSet call
+			mockOciLoadBalancerClient.EXPECT().GetBackendSet(
+				t.Context(),
+				mock.Anything,
+			).Return(loadbalancer.GetBackendSetResponse{BackendSet: sampleBackendSet}, nil).Once()
+
+			wantOperationID := faker.UUIDHyphenated()
+			mockOciLoadBalancerClient.EXPECT().UpdateBackendSet(
+				t.Context(),
+				mock.Anything,
+			).Return(loadbalancer.UpdateBackendSetResponse{
+				OpcWorkRequestId: &wantOperationID,
+			}, nil).Once()
+
+			mockWorkRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+			mockWorkRequestsWatcher.EXPECT().WaitFor(t.Context(), wantOperationID).Return(nil).Once()
+
+			err := model.syncRouteBackendRefEndpoints(t.Context(), syncRouteBackendRefEndpointsParams{
+				httpRoute:  httpRoute,
+				config:     config,
+				backendRef: backendRef,
+			})
+
+			require.NoError(t, err)
+		})
+
 		t.Run("no update required", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPBackendModel(deps)
@@ -332,6 +409,7 @@ func TestHTTPBackendModel(t *testing.T) {
 				client.MatchingLabels{
 					discoveryv1.LabelServiceName: string(backendRef.BackendObjectReference.Name),
 				},
+				client.InNamespace(string(lo.FromPtr(backendRef.BackendObjectReference.Namespace))),
 			).RunAndReturn(func(_ context.Context, ol client.ObjectList, _ ...client.ListOption) error {
 				epSliceList, ok := ol.(*discoveryv1.EndpointSliceList)
 				require.True(t, ok, "expected an EndpointSliceList")
