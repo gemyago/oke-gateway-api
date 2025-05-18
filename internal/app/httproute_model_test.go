@@ -1489,19 +1489,26 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			config := makeRandomGatewayConfig()
 			httpRoute := makeRandomHTTPRoute()
+
 			wantPreviousRules := []string{
 				"rule1-" + faker.Word(),
 				"rule2-" + faker.Word(),
 			}
+			annotationValue := strings.Join(wantPreviousRules, ",")
 			httpRoute.Annotations = map[string]string{
-				HTTPRouteProgrammedPolicyRulesAnnotation: strings.Join(wantPreviousRules, ","),
+				HTTPRouteProgrammedPolicyRulesAnnotation: annotationValue,
 			}
+			httpRoute.Finalizers = []string{
+				HTTPRouteProgrammedFinalizer,
+				faker.DomainName(),
+			}
+
 			listeners := makeFewRandomHTTPListeners()
 
 			params := deprovisionRouteParams{
 				gateway:          *newRandomGateway(),
 				config:           config,
-				httpRoute:        httpRoute,
+				httpRoute:        httpRoute, // Use the configured route (pointer)
 				matchedListeners: listeners,
 			}
 
@@ -1516,6 +1523,18 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				}).Return(nil).Once()
 			}
 
+			// Expect client update for finalizer removal
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			var updatedRoute *gatewayv1.HTTPRoute
+			mockK8sClient.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				var ok bool
+				updatedRoute, ok = obj.(*gatewayv1.HTTPRoute)
+
+				assert.NotContains(t, updatedRoute.Finalizers, HTTPRouteProgrammedFinalizer)
+
+				return ok && assert.Equal(t, httpRoute.Name, updatedRoute.Name)
+			})).Return(nil)
+
 			err := model.deprovisionRoute(t.Context(), params)
 			require.NoError(t, err)
 		})
@@ -1525,7 +1544,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			model := newHTTPRouteModel(deps)
 
 			config := makeRandomGatewayConfig()
-			httpRoute := makeRandomHTTPRoute() // No annotations
+			httpRoute := makeRandomHTTPRoute()
 			listeners := makeFewRandomHTTPListeners()
 
 			params := deprovisionRouteParams{

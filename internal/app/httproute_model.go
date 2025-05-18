@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
@@ -500,7 +501,13 @@ func (m *httpRouteModelImpl) deprovisionRoute(
 		}
 	}
 
-	// TODO: Remove finalizer and annotations from the HTTPRoute resource
+	routeToUpdate := params.httpRoute.DeepCopy()
+	controllerutil.RemoveFinalizer(routeToUpdate, HTTPRouteProgrammedFinalizer)
+
+	if err := m.client.Update(ctx, routeToUpdate); err != nil {
+		return fmt.Errorf("failed to update HTTPRoute %s/%s after deprovisioning: %w",
+			routeToUpdate.Namespace, routeToUpdate.Name, err)
+	}
 
 	return nil
 }
