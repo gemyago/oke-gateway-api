@@ -35,6 +35,12 @@ type reconcileBackendSetParams struct {
 	service        v1.Service
 }
 
+type deprovisionBackendSetParams struct {
+	loadBalancerID string
+	httpRoute      gatewayv1.HTTPRoute
+	backendRef     gatewayv1.HTTPBackendRef
+}
+
 type reconcileHTTPListenerParams struct {
 	loadBalancerID        string
 	knownListeners        map[string]loadbalancer.Listener
@@ -69,6 +75,7 @@ type ociLoadBalancerModel interface {
 		ctx context.Context,
 		params reconcileDefaultBackendParams,
 	) (loadbalancer.BackendSet, error)
+
 	reconcileHTTPListener(
 		ctx context.Context,
 		params reconcileHTTPListenerParams,
@@ -77,6 +84,11 @@ type ociLoadBalancerModel interface {
 	reconcileBackendSet(
 		ctx context.Context,
 		params reconcileBackendSetParams,
+	) error
+
+	deprovisionBackendSet(
+		ctx context.Context,
+		params deprovisionBackendSetParams,
 	) error
 
 	// makeRoutingRule appends a new routing rule to the routing policy.
@@ -288,6 +300,13 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 		return fmt.Errorf("failed to wait for backend set %s: %w", backendSetName, err)
 	}
 
+	return nil
+}
+
+func (m *ociLoadBalancerModelImpl) deprovisionBackendSet(
+	ctx context.Context,
+	params deprovisionBackendSetParams,
+) error {
 	return nil
 }
 

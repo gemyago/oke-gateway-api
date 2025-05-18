@@ -71,6 +71,53 @@ func (_c *MockociLoadBalancerModel_commitRoutingPolicy_Call) RunAndReturn(run fu
 	return _c
 }
 
+// deprovisionBackendSet provides a mock function with given fields: ctx, params
+func (_m *MockociLoadBalancerModel) deprovisionBackendSet(ctx context.Context, params deprovisionBackendSetParams) error {
+	ret := _m.Called(ctx, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for deprovisionBackendSet")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, deprovisionBackendSetParams) error); ok {
+		r0 = rf(ctx, params)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockociLoadBalancerModel_deprovisionBackendSet_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'deprovisionBackendSet'
+type MockociLoadBalancerModel_deprovisionBackendSet_Call struct {
+	*mock.Call
+}
+
+// deprovisionBackendSet is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params deprovisionBackendSetParams
+func (_e *MockociLoadBalancerModel_Expecter) deprovisionBackendSet(ctx interface{}, params interface{}) *MockociLoadBalancerModel_deprovisionBackendSet_Call {
+	return &MockociLoadBalancerModel_deprovisionBackendSet_Call{Call: _e.mock.On("deprovisionBackendSet", ctx, params)}
+}
+
+func (_c *MockociLoadBalancerModel_deprovisionBackendSet_Call) Run(run func(ctx context.Context, params deprovisionBackendSetParams)) *MockociLoadBalancerModel_deprovisionBackendSet_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(deprovisionBackendSetParams))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_deprovisionBackendSet_Call) Return(_a0 error) *MockociLoadBalancerModel_deprovisionBackendSet_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_deprovisionBackendSet_Call) RunAndReturn(run func(context.Context, deprovisionBackendSetParams) error) *MockociLoadBalancerModel_deprovisionBackendSet_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // makeRoutingRule provides a mock function with given fields: ctx, params
 func (_m *MockociLoadBalancerModel) makeRoutingRule(ctx context.Context, params makeRoutingRuleParams) (loadbalancer.RoutingRule, error) {
 	ret := _m.Called(ctx, params)
