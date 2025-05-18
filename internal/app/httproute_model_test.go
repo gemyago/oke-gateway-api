@@ -1520,7 +1520,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			params := deprovisionRouteParams{
 				gateway:          *newRandomGateway(),
 				config:           config,
-				httpRoute:        httpRoute, // Use the configured route (pointer)
+				httpRoute:        httpRoute,
 				matchedListeners: listeners,
 			}
 
