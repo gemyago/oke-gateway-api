@@ -1487,8 +1487,20 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
+			wantBackendRefs := []gatewayv1.HTTPBackendRef{
+				makeRandomBackendRef(),
+				makeRandomBackendRef(),
+				makeRandomBackendRef(),
+			}
+
+			backendResRules := lo.Map(wantBackendRefs, func(br gatewayv1.HTTPBackendRef, _ int) gatewayv1.HTTPRouteRule {
+				return makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(br))
+			})
+
 			config := makeRandomGatewayConfig()
-			httpRoute := makeRandomHTTPRoute()
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(backendResRules...),
+			)
 
 			wantPreviousRules := []string{
 				"rule1-" + faker.Word(),
@@ -1514,13 +1526,22 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
 
+			var lastCommitCall *mock.Call
 			for _, listener := range listeners {
-				ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				lastCommitCall = ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
 					loadBalancerID:  config.Spec.LoadBalancerID,
 					listenerName:    string(listener.Name),
 					policyRules:     []loadbalancer.RoutingRule{}, // Important: No rules to program
 					prevPolicyRules: wantPreviousRules,
 				}).Return(nil).Once()
+			}
+
+			for _, backendRef := range wantBackendRefs {
+				ociLBModel.EXPECT().deprovisionBackendSet(t.Context(), deprovisionBackendSetParams{
+					loadBalancerID: config.Spec.LoadBalancerID,
+					httpRoute:      httpRoute,
+					backendRef:     backendRef,
+				}).Return(nil).Once().NotBefore(lastCommitCall)
 			}
 
 			// Expect client update for finalizer removal

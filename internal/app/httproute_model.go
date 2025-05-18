@@ -501,6 +501,25 @@ func (m *httpRouteModelImpl) deprovisionRoute(
 		}
 	}
 
+	// TODO: Dedup and filter-out non service refs
+	for _, rule := range params.httpRoute.Spec.Rules {
+		for _, backendRef := range rule.BackendRefs {
+			err := m.ociLoadBalancerModel.deprovisionBackendSet(ctx, deprovisionBackendSetParams{
+				loadBalancerID: params.config.Spec.LoadBalancerID,
+				httpRoute:      params.httpRoute,
+				backendRef:     backendRef,
+			})
+			if err != nil {
+				return fmt.Errorf(
+					"failed to deprovision backend set for rule %s/%s: %w",
+					params.httpRoute.Namespace,
+					params.httpRoute.Name,
+					err,
+				)
+			}
+		}
+	}
+
 	routeToUpdate := params.httpRoute.DeepCopy()
 	controllerutil.RemoveFinalizer(routeToUpdate, HTTPRouteProgrammedFinalizer)
 
