@@ -334,6 +334,7 @@ func (m *ociLoadBalancerModelImpl) deprovisionBackendSet(
 			m.logger.InfoContext(ctx, "Backend set is used in routing policy, skipping deletion",
 				slog.String("loadBalancerId", params.loadBalancerID),
 				slog.String("backendSetName", backendSetName),
+				slog.Any("serviceError", err),
 			)
 			return nil // Skip deletion as it's used in routing policy
 		}
