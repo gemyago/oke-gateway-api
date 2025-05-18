@@ -309,6 +309,55 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("when routing policy exists", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			gwListener := makeRandomHTTPListener()
+
+			routingPolicyName := string(gwListener.Name) + "_policy"
+
+			params := reconcileHTTPListenerParams{
+				loadBalancerID: faker.UUIDHyphenated(),
+				knownListeners: map[string]loadbalancer.Listener{
+					faker.UUIDHyphenated(): makeRandomOCIListener(),
+					faker.UUIDHyphenated(): makeRandomOCIListener(),
+				},
+				knownRoutingPolicies: map[string]loadbalancer.RoutingPolicy{
+					faker.UUIDHyphenated(): makeRandomOCIRoutingPolicy(),
+					routingPolicyName:      makeRandomOCIRoutingPolicy(),
+					faker.UUIDHyphenated(): makeRandomOCIRoutingPolicy(),
+				},
+				defaultBackendSetName: faker.UUIDHyphenated(),
+				listenerSpec:          &gwListener,
+			}
+
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			// For listener creation
+			listenerWorkRequestID := faker.UUIDHyphenated()
+
+			ociLoadBalancerClient.EXPECT().CreateListener(t.Context(), loadbalancer.CreateListenerRequest{
+				LoadBalancerId: &params.loadBalancerID,
+				CreateListenerDetails: loadbalancer.CreateListenerDetails{
+					Name:                  lo.ToPtr(string(gwListener.Name)),
+					Port:                  lo.ToPtr(int(gwListener.Port)),
+					Protocol:              lo.ToPtr(string(gwListener.Protocol)),
+					DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
+					RoutingPolicyName:     lo.ToPtr(routingPolicyName),
+				},
+			}).Return(loadbalancer.CreateListenerResponse{
+				OpcWorkRequestId: &listenerWorkRequestID,
+			}, nil)
+
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), listenerWorkRequestID).Return(nil)
+
+			err := model.reconcileHTTPListener(t.Context(), params)
+			require.NoError(t, err)
+			ociLoadBalancerClient.AssertNotCalled(t, "CreateRoutingPolicy")
+		})
+
 		t.Run("when create routing policy fails", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)

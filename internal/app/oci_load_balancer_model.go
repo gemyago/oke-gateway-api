@@ -187,43 +187,52 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 
 	// Create a routing policy first
 	routingPolicyName := listenerPolicyName(listenerName)
-	m.logger.InfoContext(ctx, "Creating routing policy for listener",
-		slog.String("loadBalancerId", params.loadBalancerID),
-		slog.String("routingPolicyName", routingPolicyName),
-		slog.String("listenerName", listenerName),
-	)
 
-	createRoutingPolicyRes, err := m.ociClient.CreateRoutingPolicy(ctx, loadbalancer.CreateRoutingPolicyRequest{
-		LoadBalancerId: &params.loadBalancerID,
-		CreateRoutingPolicyDetails: loadbalancer.CreateRoutingPolicyDetails{
-			Name:                     lo.ToPtr(routingPolicyName),
-			ConditionLanguageVersion: loadbalancer.CreateRoutingPolicyDetailsConditionLanguageVersionV1,
-			Rules: []loadbalancer.RoutingRule{
-				// We're creating routing policy to have it available when reconciling routes
-				// It's not possible to create an empty routing policy, so we're adding a default rule.
-				// Alternative could be to create and attach routing policy when reconciling routes, but
-				// it may be a bit more complex on the route reconciler side.
-				{
-					Name:      lo.ToPtr(defaultCatchAllRuleName),
-					Condition: lo.ToPtr("any(http.request.url.path sw '/')"),
-					Actions: []loadbalancer.Action{
-						loadbalancer.ForwardToBackendSet{
-							BackendSetName: lo.ToPtr(params.defaultBackendSetName),
+	if _, ok := params.knownRoutingPolicies[routingPolicyName]; !ok {
+		m.logger.InfoContext(ctx, "Creating routing policy for listener",
+			slog.String("loadBalancerId", params.loadBalancerID),
+			slog.String("routingPolicyName", routingPolicyName),
+			slog.String("listenerName", listenerName),
+		)
+
+		createRoutingPolicyRes, err := m.ociClient.CreateRoutingPolicy(ctx, loadbalancer.CreateRoutingPolicyRequest{
+			LoadBalancerId: &params.loadBalancerID,
+			CreateRoutingPolicyDetails: loadbalancer.CreateRoutingPolicyDetails{
+				Name:                     lo.ToPtr(routingPolicyName),
+				ConditionLanguageVersion: loadbalancer.CreateRoutingPolicyDetailsConditionLanguageVersionV1,
+				Rules: []loadbalancer.RoutingRule{
+					// We're creating routing policy to have it available when reconciling routes
+					// It's not possible to create an empty routing policy, so we're adding a default rule.
+					// Alternative could be to create and attach routing policy when reconciling routes, but
+					// it may be a bit more complex on the route reconciler side.
+					{
+						Name:      lo.ToPtr(defaultCatchAllRuleName),
+						Condition: lo.ToPtr("any(http.request.url.path sw '/')"),
+						Actions: []loadbalancer.Action{
+							loadbalancer.ForwardToBackendSet{
+								BackendSetName: lo.ToPtr(params.defaultBackendSetName),
+							},
 						},
 					},
 				},
 			},
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create routing policy %s: %w", routingPolicyName, err)
-	}
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create routing policy %s: %w", routingPolicyName, err)
+		}
 
-	if err = m.workRequestsWatcher.WaitFor(
-		ctx,
-		*createRoutingPolicyRes.OpcWorkRequestId,
-	); err != nil {
-		return fmt.Errorf("failed to wait for routing policy %s: %w", routingPolicyName, err)
+		if err = m.workRequestsWatcher.WaitFor(
+			ctx,
+			*createRoutingPolicyRes.OpcWorkRequestId,
+		); err != nil {
+			return fmt.Errorf("failed to wait for routing policy %s: %w", routingPolicyName, err)
+		}
+	} else {
+		m.logger.DebugContext(ctx, "Routing policy already exists, skipping creation",
+			slog.String("loadBalancerId", params.loadBalancerID),
+			slog.String("routingPolicyName", routingPolicyName),
+			slog.String("listenerName", listenerName),
+		)
 	}
 
 	// Now create the listener with the routing policy
