@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client" // Import client for ObjectKey
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -143,6 +144,66 @@ func TestHTTPRouteController(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("RelevantRouteDeleted", func(t *testing.T) {
+			deps := newMockDeps(t)
+			controller := NewHTTPRouteController(deps)
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: faker.DomainName(),
+					Name:      faker.Word(),
+				},
+			}
+
+			deletedRoute := makeRandomHTTPRoute()
+			now := metav1.Now()
+			deletedRoute.DeletionTimestamp = &now
+
+			wantResolvedData := resolvedRouteDetails{
+				httpRoute: deletedRoute,
+				gatewayDetails: resolvedGatewayDetails{
+					gateway: *newRandomGateway(),
+					config:  makeRandomGatewayConfig(),
+				},
+			}
+
+			mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+			mockModel.EXPECT().resolveRequest(
+				t.Context(),
+				req,
+			).Return(map[types.NamespacedName]resolvedRouteDetails{
+				req.NamespacedName: wantResolvedData,
+			}, (error)(nil))
+
+			mockModel.EXPECT().deprovisionRoute(
+				t.Context(),
+				deprovisionRouteParams{ // Assuming deprovisionRouteParams is the correct type
+					gateway:          wantResolvedData.gatewayDetails.gateway,
+					config:           wantResolvedData.gatewayDetails.config,
+					httpRoute:        wantResolvedData.httpRoute,
+					matchedListeners: wantResolvedData.matchedListeners,
+				},
+			).Return(nil)
+
+			mockBackendModel, _ := deps.HTTPBackendModel.(*MockhttpBackendModel)
+			mockBackendModel.EXPECT().syncRouteEndpoints(
+				t.Context(),
+				syncRouteEndpointsParams{
+					httpRoute: wantResolvedData.httpRoute,
+					config:    wantResolvedData.gatewayDetails.config,
+				},
+			).Return(nil)
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, result)
+			mockModel.AssertNotCalled(t, "isProgrammingRequired", mock.Anything)
+			mockModel.AssertNotCalled(t, "acceptRoute", mock.Anything, mock.Anything)
+			mockModel.AssertNotCalled(t, "programRoute", mock.Anything, mock.Anything)
+			mockModel.AssertNotCalled(t, "setProgrammed", mock.Anything, mock.Anything)
 		})
 
 		t.Run("ResolveRequestError", func(t *testing.T) {
@@ -536,6 +597,58 @@ func TestHTTPRouteController(t *testing.T) {
 
 			require.ErrorIs(t, err, wantErr)
 			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("deprovisionRouteError", func(t *testing.T) {
+			deps := newMockDeps(t)
+			controller := NewHTTPRouteController(deps)
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: faker.DomainName(),
+					Name:      faker.Word(),
+				},
+			}
+
+			deletedRoute := makeRandomHTTPRoute()
+			now := metav1.Now()
+			deletedRoute.DeletionTimestamp = &now
+
+			wantResolvedData := resolvedRouteDetails{
+				httpRoute: deletedRoute,
+				gatewayDetails: resolvedGatewayDetails{
+					gateway: *newRandomGateway(),
+					config:  makeRandomGatewayConfig(),
+				},
+			}
+
+			mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+			mockModel.EXPECT().resolveRequest(
+				t.Context(),
+				req,
+			).Return(map[types.NamespacedName]resolvedRouteDetails{
+				req.NamespacedName: wantResolvedData,
+			}, (error)(nil))
+
+			wantErr := fmt.Errorf("deprovision error: %s", faker.Sentence())
+			mockModel.EXPECT().deprovisionRoute(
+				t.Context(),
+				deprovisionRouteParams{ // Assuming deprovisionRouteParams is the correct type
+					gateway:          wantResolvedData.gatewayDetails.gateway,
+					config:           wantResolvedData.gatewayDetails.config,
+					httpRoute:        wantResolvedData.httpRoute,
+					matchedListeners: wantResolvedData.matchedListeners,
+				},
+			).Return(wantErr)
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.ErrorIs(t, err, wantErr)
+			assert.Equal(t, reconcile.Result{}, result)
+			mockModel.AssertNotCalled(t, "isProgrammingRequired", mock.Anything)
+			mockModel.AssertNotCalled(t, "acceptRoute", mock.Anything, mock.Anything)
+			mockModel.AssertNotCalled(t, "programRoute", mock.Anything, mock.Anything)
+			mockModel.AssertNotCalled(t, "setProgrammed", mock.Anything, mock.Anything)
 		})
 	})
 }

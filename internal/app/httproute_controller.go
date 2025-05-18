@@ -104,24 +104,41 @@ func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Reque
 	}
 
 	for _, resolvedData := range resolvedRequests {
-		var programmingRequired bool
-		programmingRequired, err = r.httpRouteModel.isProgrammingRequired(resolvedData)
-		if err != nil {
-			return reconcile.Result{}, fmt.Errorf("failed to check programming requirement for gateway %s: %w",
-				resolvedData.gatewayDetails.gateway.Name, err)
-		}
-
-		if programmingRequired {
-			err = r.performProgramming(ctx, resolvedData)
-			if err != nil {
-				return reconcile.Result{}, fmt.Errorf("failed to perform programming for gateway %s: %w",
-					resolvedData.gatewayDetails.gateway.Name, err)
-			}
-		} else {
-			r.logger.DebugContext(ctx, "HTTPRoute programming not required for parent",
+		if resolvedData.httpRoute.DeletionTimestamp != nil {
+			r.logger.InfoContext(ctx, "HTTPRoute is marked for deletion, deprovisioning",
 				slog.String("httpRoute", req.NamespacedName.String()),
 				slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
 			)
+			err = r.httpRouteModel.deprovisionRoute(ctx, deprovisionRouteParams{
+				gateway:          resolvedData.gatewayDetails.gateway,
+				config:           resolvedData.gatewayDetails.config,
+				httpRoute:        resolvedData.httpRoute,
+				matchedListeners: resolvedData.matchedListeners,
+			})
+			if err != nil {
+				return reconcile.Result{}, fmt.Errorf("failed to deprovision route for gateway %s: %w",
+					resolvedData.gatewayDetails.gateway.Name, err)
+			}
+		} else {
+			var programmingRequired bool
+			programmingRequired, err = r.httpRouteModel.isProgrammingRequired(resolvedData)
+			if err != nil {
+				return reconcile.Result{}, fmt.Errorf("failed to check programming requirement for gateway %s: %w",
+					resolvedData.gatewayDetails.gateway.Name, err)
+			}
+
+			if programmingRequired {
+				err = r.performProgramming(ctx, resolvedData)
+				if err != nil {
+					return reconcile.Result{}, fmt.Errorf("failed to perform programming for gateway %s: %w",
+						resolvedData.gatewayDetails.gateway.Name, err)
+				}
+			} else {
+				r.logger.DebugContext(ctx, "HTTPRoute programming not required for parent",
+					slog.String("httpRoute", req.NamespacedName.String()),
+					slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
+				)
+			}
 		}
 
 		err = r.httpBackendModel.syncRouteEndpoints(ctx, syncRouteEndpointsParams{
