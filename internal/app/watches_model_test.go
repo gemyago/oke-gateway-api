@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -233,6 +234,56 @@ func TestWatchesModel(t *testing.T) {
 					},
 				}
 			})
+
+			result := model.MapEndpointSliceToHTTPRoute(t.Context(), &endpointSlice)
+			require.ElementsMatch(t, wantRequests, result)
+		})
+
+		t.Run("ignores HTTPRoutes marked for deletion", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			svcName := faker.DomainName()
+			ns := faker.Username()
+			indexKey := fmt.Sprintf("%v/%v", ns, svcName)
+
+			endpointSlice := makeRandomEndpointSlice(
+				randomEndpointSliceWithNamespaceOpt(ns),
+				randomEndpointSliceWithServiceNameOpt(svcName),
+			)
+
+			// One route not marked for deletion, one route marked for deletion
+			routeToDelete := makeRandomHTTPRoute()
+			deletionTimestamp := metav1.Now()
+			routeToDelete.DeletionTimestamp = &deletionTimestamp
+
+			validRoute := makeRandomHTTPRoute()
+
+			allRoutes := []gatewayv1.HTTPRoute{
+				validRoute,
+				routeToDelete,
+			}
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.HTTPRouteList{},
+				client.MatchingFields{httpRouteBackendServiceIndexKey: indexKey},
+			).RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(allRoutes))
+				return nil
+			})
+
+			// Only the validRoute should be reconciled
+			wantRequests := []reconcile.Request{
+				{
+					NamespacedName: apitypes.NamespacedName{
+						Name:      validRoute.Name,
+						Namespace: validRoute.Namespace,
+					},
+				},
+			}
 
 			result := model.MapEndpointSliceToHTTPRoute(t.Context(), &endpointSlice)
 			require.ElementsMatch(t, wantRequests, result)

@@ -135,11 +135,20 @@ func (m *WatchesModel) MapEndpointSliceToHTTPRoute(ctx context.Context, obj clie
 		return nil
 	}
 
-	requests := make([]reconcile.Request, len(routeList.Items))
-	for i, route := range routeList.Items {
-		requests[i] = reconcile.Request{
-			NamespacedName: client.ObjectKeyFromObject(&route),
+	requests := make([]reconcile.Request, 0, len(routeList.Items))
+	for _, route := range routeList.Items {
+		if route.DeletionTimestamp != nil {
+			m.logger.DebugContext(ctx,
+				"Skipping HTTPRoute marked for deletion",
+				slog.String("httpRoute", client.ObjectKeyFromObject(&route).String()),
+				slog.String("endpointSlice", client.ObjectKeyFromObject(epSlice).String()),
+				slog.Time("deletionTimestamp", route.DeletionTimestamp.Time),
+			)
+			continue
 		}
+		requests = append(requests, reconcile.Request{
+			NamespacedName: client.ObjectKeyFromObject(&route),
+		})
 		m.logger.InfoContext(ctx,
 			"Queueing HTTPRoute for reconciliation due to EndpointSlice change",
 			slog.String("httpRoute", client.ObjectKeyFromObject(&route).String()),
