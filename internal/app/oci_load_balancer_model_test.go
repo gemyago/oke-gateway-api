@@ -295,7 +295,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				CreateListenerDetails: loadbalancer.CreateListenerDetails{
 					Name:                  lo.ToPtr(string(gwListener.Name)),
 					Port:                  lo.ToPtr(int(gwListener.Port)),
-					Protocol:              lo.ToPtr(string(gwListener.Protocol)),
+					Protocol:              lo.ToPtr("HTTP"),
 					DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
 					RoutingPolicyName:     lo.ToPtr(routingPolicyName),
 				},
@@ -343,7 +343,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				CreateListenerDetails: loadbalancer.CreateListenerDetails{
 					Name:                  lo.ToPtr(string(gwListener.Name)),
 					Port:                  lo.ToPtr(int(gwListener.Port)),
-					Protocol:              lo.ToPtr(string(gwListener.Protocol)),
+					Protocol:              lo.ToPtr("HTTP"),
 					DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
 					RoutingPolicyName:     lo.ToPtr(routingPolicyName),
 				},

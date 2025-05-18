@@ -242,7 +242,7 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 			Name:                  lo.ToPtr(listenerName),
 			DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
 			Port:                  lo.ToPtr(int(params.listenerSpec.Port)),
-			Protocol:              lo.ToPtr(string(params.listenerSpec.Protocol)),
+			Protocol:              lo.ToPtr("HTTP"),
 			RoutingPolicyName:     lo.ToPtr(routingPolicyName),
 		},
 	})
