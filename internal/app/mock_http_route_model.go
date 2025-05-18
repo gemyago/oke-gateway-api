@@ -90,6 +90,53 @@ func (_c *MockhttpRouteModel_acceptRoute_Call) RunAndReturn(run func(context.Con
 	return _c
 }
 
+// deprovisionRoute provides a mock function with given fields: ctx, params
+func (_m *MockhttpRouteModel) deprovisionRoute(ctx context.Context, params deprovisionRouteParams) error {
+	ret := _m.Called(ctx, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for deprovisionRoute")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, deprovisionRouteParams) error); ok {
+		r0 = rf(ctx, params)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockhttpRouteModel_deprovisionRoute_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'deprovisionRoute'
+type MockhttpRouteModel_deprovisionRoute_Call struct {
+	*mock.Call
+}
+
+// deprovisionRoute is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params deprovisionRouteParams
+func (_e *MockhttpRouteModel_Expecter) deprovisionRoute(ctx interface{}, params interface{}) *MockhttpRouteModel_deprovisionRoute_Call {
+	return &MockhttpRouteModel_deprovisionRoute_Call{Call: _e.mock.On("deprovisionRoute", ctx, params)}
+}
+
+func (_c *MockhttpRouteModel_deprovisionRoute_Call) Run(run func(ctx context.Context, params deprovisionRouteParams)) *MockhttpRouteModel_deprovisionRoute_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(deprovisionRouteParams))
+	})
+	return _c
+}
+
+func (_c *MockhttpRouteModel_deprovisionRoute_Call) Return(_a0 error) *MockhttpRouteModel_deprovisionRoute_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockhttpRouteModel_deprovisionRoute_Call) RunAndReturn(run func(context.Context, deprovisionRouteParams) error) *MockhttpRouteModel_deprovisionRoute_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // isProgrammingRequired provides a mock function with given fields: details
 func (_m *MockhttpRouteModel) isProgrammingRequired(details resolvedRouteDetails) (bool, error) {
 	ret := _m.Called(details)

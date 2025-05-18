@@ -43,6 +43,13 @@ type programRouteResult struct {
 	programmedPolicyRules []string
 }
 
+type deprovisionRouteParams struct {
+	gateway          gatewayv1.Gateway
+	config           types.GatewayConfig
+	httpRoute        gatewayv1.HTTPRoute
+	matchedListeners []gatewayv1.Listener
+}
+
 type setProgrammedParams struct {
 	httpRoute    gatewayv1.HTTPRoute
 	gatewayClass gatewayv1.GatewayClass
@@ -87,6 +94,13 @@ type httpRouteModel interface {
 		ctx context.Context,
 		params programRouteParams,
 	) (programRouteResult, error)
+
+	// deprovisionRoute deprovisions a given HTTPRoute, which includes removing any
+	// associated load balancer resources, and object finalizer
+	deprovisionRoute(
+		ctx context.Context,
+		params deprovisionRouteParams,
+	) error
 
 	// setProgrammed marks the route as successfully programmed by updating its status.
 	setProgrammed(
@@ -448,6 +462,13 @@ func (m *httpRouteModelImpl) programRoute(
 	return programRouteResult{
 		programmedPolicyRules: policyRulesNames,
 	}, nil
+}
+
+func (m *httpRouteModelImpl) deprovisionRoute(
+	ctx context.Context,
+	params deprovisionRouteParams,
+) error {
+	return nil
 }
 
 func (m *httpRouteModelImpl) isProgrammingRequired(
