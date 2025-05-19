@@ -386,8 +386,14 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				},
 			)
 
+			routingPolicyName := string(gwListener.Name) + "_policy"
+
 			params := reconcileHTTPListenerParams{
 				loadBalancerID: faker.UUIDHyphenated(),
+				knownRoutingPolicies: map[string]loadbalancer.RoutingPolicy{
+					faker.UUIDHyphenated(): makeRandomOCIRoutingPolicy(),
+					routingPolicyName:      makeRandomOCIRoutingPolicy(),
+				},
 				knownListeners: map[string]loadbalancer.Listener{
 					string(gwListener.Name): lbListener,
 					faker.UUIDHyphenated():  makeRandomOCIListener(),
@@ -395,8 +401,6 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				defaultBackendSetName: faker.UUIDHyphenated(),
 				listenerSpec:          &gwListener,
 			}
-
-			routingPolicyName := string(gwListener.Name) + "_policy"
 
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 

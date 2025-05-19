@@ -265,43 +265,12 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 	}, nil
 }
 
-func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
+func (m *ociLoadBalancerModelImpl) reconcileListenerRoutingPolicy(
 	ctx context.Context,
 	params reconcileHTTPListenerParams,
 ) error {
 	listenerName := string(params.listenerSpec.Name)
 	routingPolicyName := listenerPolicyName(listenerName)
-
-	if _, ok := params.knownListeners[listenerName]; ok {
-		m.logger.DebugContext(ctx, "Listener already exists, updating",
-			slog.String("loadBalancerId", params.loadBalancerID),
-			slog.String("listenerName", listenerName),
-		)
-
-		updateRes, err := m.ociClient.UpdateListener(ctx, loadbalancer.UpdateListenerRequest{
-			ListenerName: &listenerName,
-			UpdateListenerDetails: loadbalancer.UpdateListenerDetails{
-				Protocol:              lo.ToPtr(string(params.listenerSpec.Protocol)),
-				Port:                  lo.ToPtr(int(params.listenerSpec.Port)),
-				DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
-				RoutingPolicyName:     lo.ToPtr(routingPolicyName),
-			},
-		})
-		if err != nil {
-			return fmt.Errorf("failed to update listener %s: %w", listenerName, err)
-		}
-
-		if err = m.workRequestsWatcher.WaitFor(ctx, *updateRes.OpcWorkRequestId); err != nil {
-			return fmt.Errorf("failed to wait for listener %s update: %w", listenerName, err)
-		}
-
-		return nil
-	}
-
-	m.logger.InfoContext(ctx, "Listener not found, creating",
-		slog.String("loadBalancerId", params.loadBalancerID),
-		slog.String("name", listenerName),
-	)
 
 	if _, ok := params.knownRoutingPolicies[routingPolicyName]; !ok {
 		m.logger.InfoContext(ctx, "Creating routing policy for listener",
@@ -350,24 +319,66 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 		)
 	}
 
-	// Now create the listener with the routing policy
-	createRes, err := m.ociClient.CreateListener(ctx, loadbalancer.CreateListenerRequest{
-		LoadBalancerId: &params.loadBalancerID,
-		CreateListenerDetails: loadbalancer.CreateListenerDetails{
-			Name:                  lo.ToPtr(listenerName),
-			DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
-			Port:                  lo.ToPtr(int(params.listenerSpec.Port)),
-			Protocol:              lo.ToPtr(string(params.listenerSpec.Protocol)),
-			RoutingPolicyName:     lo.ToPtr(routingPolicyName),
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create listener %s: %w", listenerName, err)
+	return nil
+}
+
+func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
+	ctx context.Context,
+	params reconcileHTTPListenerParams,
+) error {
+	listenerName := string(params.listenerSpec.Name)
+
+	if err := m.reconcileListenerRoutingPolicy(ctx, params); err != nil {
+		return fmt.Errorf("failed to reconcile listener routing policy: %w", err)
 	}
 
-	if err = m.workRequestsWatcher.WaitFor(
+	var workRequestID string
+	if _, ok := params.knownListeners[listenerName]; ok {
+		m.logger.DebugContext(ctx, "Listener already exists, updating",
+			slog.String("loadBalancerId", params.loadBalancerID),
+			slog.String("listenerName", listenerName),
+		)
+
+		updateRes, err := m.ociClient.UpdateListener(ctx, loadbalancer.UpdateListenerRequest{
+			ListenerName: &listenerName,
+			UpdateListenerDetails: loadbalancer.UpdateListenerDetails{
+				Protocol:              lo.ToPtr(string(params.listenerSpec.Protocol)),
+				Port:                  lo.ToPtr(int(params.listenerSpec.Port)),
+				DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
+				RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to update listener %s: %w", listenerName, err)
+		}
+
+		workRequestID = *updateRes.OpcWorkRequestId
+	} else {
+		m.logger.InfoContext(ctx, "Listener not found, creating",
+			slog.String("loadBalancerId", params.loadBalancerID),
+			slog.String("name", listenerName),
+		)
+
+		createRes, err := m.ociClient.CreateListener(ctx, loadbalancer.CreateListenerRequest{
+			LoadBalancerId: &params.loadBalancerID,
+			CreateListenerDetails: loadbalancer.CreateListenerDetails{
+				Name:                  lo.ToPtr(listenerName),
+				DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
+				Port:                  lo.ToPtr(int(params.listenerSpec.Port)),
+				Protocol:              lo.ToPtr(string(params.listenerSpec.Protocol)),
+				RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create listener %s: %w", listenerName, err)
+		}
+
+		workRequestID = *createRes.OpcWorkRequestId
+	}
+
+	if err := m.workRequestsWatcher.WaitFor(
 		ctx,
-		*createRes.OpcWorkRequestId,
+		workRequestID,
 	); err != nil {
 		return fmt.Errorf("failed to wait for listener %s: %w", listenerName, err)
 	}
