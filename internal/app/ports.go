@@ -65,6 +65,12 @@ type ociLoadBalancerClient interface {
 
 	DeleteRoutingPolicy(ctx context.Context, request loadbalancer.DeleteRoutingPolicyRequest) (
 		response loadbalancer.DeleteRoutingPolicyResponse, err error)
+
+	CreateCertificate(ctx context.Context, request loadbalancer.CreateCertificateRequest) (
+		response loadbalancer.CreateCertificateResponse, err error)
+
+	DeleteCertificate(ctx context.Context, request loadbalancer.DeleteCertificateRequest) (
+		response loadbalancer.DeleteCertificateResponse, err error)
 }
 
 type workRequestsWatcher interface {

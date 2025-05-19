@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"sort"
 	"testing"
@@ -24,6 +25,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 	makeMockDeps := func(t *testing.T) ociLoadBalancerModelDeps {
 		return ociLoadBalancerModelDeps{
 			RootLogger:          diag.RootTestLogger(),
+			OciClient:           NewMockociLoadBalancerClient(t),
 			K8sClient:           NewMockk8sClient(t),
 			WorkRequestsWatcher: NewMockworkRequestsWatcher(t),
 			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
@@ -218,7 +220,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 	})
 
 	t.Run("reconcileListenersCertificates", func(t *testing.T) {
-		t.Run("when certificates exists", func(t *testing.T) {
+		t.Run("all certificates exist", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 			listeners := []gatewayv1.Listener{
@@ -265,6 +267,106 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			require.NoError(t, err)
 
 			assert.Equal(t, knownCertificates, gotResult.knownCertificates)
+		})
+
+		t.Run("some certificates are missing", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+
+			missingCertListeners := []gatewayv1.Listener{
+				makeRandomListener(randomListenerWithHTTPSParamsOpt()),
+				makeRandomListener(randomListenerWithHTTPSParamsOpt()),
+			}
+
+			existingCertsListeners := []gatewayv1.Listener{
+				makeRandomListener(randomListenerWithHTTPSParamsOpt()),
+				makeRandomListener(randomListenerWithHTTPSParamsOpt()),
+				makeRandomListener(randomListenerWithHTTPSParamsOpt()),
+			}
+
+			allListeners := make([]gatewayv1.Listener, 0, len(existingCertsListeners)+len(missingCertListeners))
+			allListeners = append(allListeners, existingCertsListeners...)
+			allListeners = append(allListeners, missingCertListeners...)
+
+			gateway := newRandomGateway(
+				randomGatewayWithListenersOpt(allListeners...),
+			)
+
+			existingRefs := make([]gatewayv1.SecretObjectReference, 0)
+			for _, listener := range existingCertsListeners {
+				existingRefs = append(existingRefs, listener.TLS.CertificateRefs...)
+			}
+
+			missingRefs := make([]gatewayv1.SecretObjectReference, 0)
+			for _, listener := range missingCertListeners {
+				missingRefs = append(missingRefs, listener.TLS.CertificateRefs...)
+			}
+
+			existingSecrets := lo.Map(existingRefs, func(_ gatewayv1.SecretObjectReference, _ int) corev1.Secret {
+				return makeRandomSecret()
+			})
+
+			missingSecrets := lo.Map(missingRefs, func(_ gatewayv1.SecretObjectReference, _ int) corev1.Secret {
+				return makeRandomSecret(
+					randomSecretWithTLSDataOpt(),
+				)
+			})
+
+			wantResultingCerts := make(map[string]loadbalancer.Certificate)
+			for _, secret := range existingSecrets {
+				certName := ociCertificateNameFromSecret(secret)
+				wantResultingCerts[certName] = makeRandomOCICertificate()
+			}
+
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			for i, ref := range existingRefs {
+				secret := existingSecrets[i]
+				setupClientGet(t, k8sClient, types.NamespacedName{
+					Namespace: string(lo.FromPtr(ref.Namespace)),
+					Name:      string(ref.Name),
+				}, secret).Once()
+			}
+
+			params := reconcileListenersCertificatesParams{
+				loadBalancerID:    faker.UUIDHyphenated(),
+				gateway:           gateway,
+				knownCertificates: maps.Clone(wantResultingCerts),
+			}
+
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+			for i, ref := range missingRefs {
+				secret := missingSecrets[i]
+				setupClientGet(t, k8sClient, types.NamespacedName{
+					Namespace: string(lo.FromPtr(ref.Namespace)),
+					Name:      string(ref.Name),
+				}, secret).Once()
+
+				certName := ociCertificateNameFromSecret(secret)
+				wantResultingCerts[certName] = loadbalancer.Certificate{
+					CertificateName:   &certName,
+					PublicCertificate: lo.ToPtr(string(secret.Data[corev1.TLSCertKey])),
+				}
+
+				workRequestID := faker.UUIDHyphenated()
+				ociLoadBalancerClient.EXPECT().CreateCertificate(t.Context(), loadbalancer.CreateCertificateRequest{
+					LoadBalancerId: &params.loadBalancerID,
+					CreateCertificateDetails: loadbalancer.CreateCertificateDetails{
+						CertificateName:   &certName,
+						PublicCertificate: lo.ToPtr(string(secret.Data[corev1.TLSCertKey])),
+						PrivateKey:        lo.ToPtr(string(secret.Data[corev1.TLSPrivateKeyKey])),
+					},
+				}).Return(loadbalancer.CreateCertificateResponse{
+					OpcWorkRequestId: &workRequestID,
+				}, nil)
+
+				workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
+			}
+
+			gotResult, err := model.reconcileListenersCertificates(t.Context(), params)
+			require.NoError(t, err)
+
+			assert.Equal(t, wantResultingCerts, gotResult.knownCertificates)
 		})
 	})
 

@@ -138,6 +138,63 @@ func (_c *MockociLoadBalancerClient_CreateBackendSet_Call) RunAndReturn(run func
 	return _c
 }
 
+// CreateCertificate provides a mock function with given fields: ctx, request
+func (_m *MockociLoadBalancerClient) CreateCertificate(ctx context.Context, request loadbalancer.CreateCertificateRequest) (loadbalancer.CreateCertificateResponse, error) {
+	ret := _m.Called(ctx, request)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateCertificate")
+	}
+
+	var r0 loadbalancer.CreateCertificateResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.CreateCertificateRequest) (loadbalancer.CreateCertificateResponse, error)); ok {
+		return rf(ctx, request)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.CreateCertificateRequest) loadbalancer.CreateCertificateResponse); ok {
+		r0 = rf(ctx, request)
+	} else {
+		r0 = ret.Get(0).(loadbalancer.CreateCertificateResponse)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.CreateCertificateRequest) error); ok {
+		r1 = rf(ctx, request)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockociLoadBalancerClient_CreateCertificate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateCertificate'
+type MockociLoadBalancerClient_CreateCertificate_Call struct {
+	*mock.Call
+}
+
+// CreateCertificate is a helper method to define mock.On call
+//   - ctx context.Context
+//   - request loadbalancer.CreateCertificateRequest
+func (_e *MockociLoadBalancerClient_Expecter) CreateCertificate(ctx interface{}, request interface{}) *MockociLoadBalancerClient_CreateCertificate_Call {
+	return &MockociLoadBalancerClient_CreateCertificate_Call{Call: _e.mock.On("CreateCertificate", ctx, request)}
+}
+
+func (_c *MockociLoadBalancerClient_CreateCertificate_Call) Run(run func(ctx context.Context, request loadbalancer.CreateCertificateRequest)) *MockociLoadBalancerClient_CreateCertificate_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(loadbalancer.CreateCertificateRequest))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_CreateCertificate_Call) Return(response loadbalancer.CreateCertificateResponse, err error) *MockociLoadBalancerClient_CreateCertificate_Call {
+	_c.Call.Return(response, err)
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_CreateCertificate_Call) RunAndReturn(run func(context.Context, loadbalancer.CreateCertificateRequest) (loadbalancer.CreateCertificateResponse, error)) *MockociLoadBalancerClient_CreateCertificate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CreateHostname provides a mock function with given fields: ctx, request
 func (_m *MockociLoadBalancerClient) CreateHostname(ctx context.Context, request loadbalancer.CreateHostnameRequest) (loadbalancer.CreateHostnameResponse, error) {
 	ret := _m.Called(ctx, request)
@@ -362,6 +419,63 @@ func (_c *MockociLoadBalancerClient_DeleteBackendSet_Call) Return(response loadb
 }
 
 func (_c *MockociLoadBalancerClient_DeleteBackendSet_Call) RunAndReturn(run func(context.Context, loadbalancer.DeleteBackendSetRequest) (loadbalancer.DeleteBackendSetResponse, error)) *MockociLoadBalancerClient_DeleteBackendSet_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteCertificate provides a mock function with given fields: ctx, request
+func (_m *MockociLoadBalancerClient) DeleteCertificate(ctx context.Context, request loadbalancer.DeleteCertificateRequest) (loadbalancer.DeleteCertificateResponse, error) {
+	ret := _m.Called(ctx, request)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteCertificate")
+	}
+
+	var r0 loadbalancer.DeleteCertificateResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.DeleteCertificateRequest) (loadbalancer.DeleteCertificateResponse, error)); ok {
+		return rf(ctx, request)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.DeleteCertificateRequest) loadbalancer.DeleteCertificateResponse); ok {
+		r0 = rf(ctx, request)
+	} else {
+		r0 = ret.Get(0).(loadbalancer.DeleteCertificateResponse)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.DeleteCertificateRequest) error); ok {
+		r1 = rf(ctx, request)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockociLoadBalancerClient_DeleteCertificate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteCertificate'
+type MockociLoadBalancerClient_DeleteCertificate_Call struct {
+	*mock.Call
+}
+
+// DeleteCertificate is a helper method to define mock.On call
+//   - ctx context.Context
+//   - request loadbalancer.DeleteCertificateRequest
+func (_e *MockociLoadBalancerClient_Expecter) DeleteCertificate(ctx interface{}, request interface{}) *MockociLoadBalancerClient_DeleteCertificate_Call {
+	return &MockociLoadBalancerClient_DeleteCertificate_Call{Call: _e.mock.On("DeleteCertificate", ctx, request)}
+}
+
+func (_c *MockociLoadBalancerClient_DeleteCertificate_Call) Run(run func(ctx context.Context, request loadbalancer.DeleteCertificateRequest)) *MockociLoadBalancerClient_DeleteCertificate_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(loadbalancer.DeleteCertificateRequest))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_DeleteCertificate_Call) Return(response loadbalancer.DeleteCertificateResponse, err error) *MockociLoadBalancerClient_DeleteCertificate_Call {
+	_c.Call.Return(response, err)
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_DeleteCertificate_Call) RunAndReturn(run func(context.Context, loadbalancer.DeleteCertificateRequest) (loadbalancer.DeleteCertificateResponse, error)) *MockociLoadBalancerClient_DeleteCertificate_Call {
 	_c.Call.Return(run)
 	return _c
 }
