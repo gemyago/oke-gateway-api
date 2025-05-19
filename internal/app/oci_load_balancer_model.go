@@ -340,7 +340,8 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 		)
 
 		updateRes, err := m.ociClient.UpdateListener(ctx, loadbalancer.UpdateListenerRequest{
-			ListenerName: &listenerName,
+			ListenerName:   &listenerName,
+			LoadBalancerId: &params.loadBalancerID,
 			UpdateListenerDetails: loadbalancer.UpdateListenerDetails{
 				Protocol:              lo.ToPtr(string(params.listenerSpec.Protocol)),
 				Port:                  lo.ToPtr(int(params.listenerSpec.Port)),

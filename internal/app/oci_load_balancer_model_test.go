@@ -408,7 +408,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			workRequestID := faker.UUIDHyphenated()
 
 			ociLoadBalancerClient.EXPECT().UpdateListener(t.Context(), loadbalancer.UpdateListenerRequest{
-				ListenerName: lo.ToPtr(string(gwListener.Name)),
+				LoadBalancerId: &params.loadBalancerID,
+				ListenerName:   lo.ToPtr(string(gwListener.Name)),
 				UpdateListenerDetails: loadbalancer.UpdateListenerDetails{
 					Port:                  lo.ToPtr(int(gwListener.Port)),
 					Protocol:              lo.ToPtr(string(gwListener.Protocol)),
