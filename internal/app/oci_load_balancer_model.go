@@ -125,6 +125,7 @@ type ociLoadBalancerModel interface {
 }
 
 type ociLoadBalancerModelImpl struct {
+	k8sClient           k8sClient
 	ociClient           ociLoadBalancerClient
 	logger              *slog.Logger
 	workRequestsWatcher workRequestsWatcher
@@ -676,6 +677,7 @@ type ociLoadBalancerModelDeps struct {
 	dig.In
 
 	RootLogger          *slog.Logger
+	K8sClient           k8sClient
 	OciClient           ociLoadBalancerClient
 	WorkRequestsWatcher workRequestsWatcher
 	RoutingRulesMapper  ociLoadBalancerRoutingRulesMapper
@@ -685,7 +687,15 @@ func newOciLoadBalancerModel(deps ociLoadBalancerModelDeps) ociLoadBalancerModel
 	return &ociLoadBalancerModelImpl{
 		logger:              deps.RootLogger.WithGroup("oci-load-balancer-model"),
 		ociClient:           deps.OciClient,
+		k8sClient:           deps.K8sClient,
 		workRequestsWatcher: deps.WorkRequestsWatcher,
 		routingRulesMapper:  deps.RoutingRulesMapper,
 	}
+}
+
+func ociSecretNameFromSecretObjectReference(
+	gatewayNamespace string,
+	ref gatewayv1.SecretObjectReference,
+) string {
+	return string(ref.Name)
 }

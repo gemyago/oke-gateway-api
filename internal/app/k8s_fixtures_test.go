@@ -103,6 +103,13 @@ func randomGatewayWithNameFromParentRefOpt(ref gatewayv1.ParentReference) random
 	}
 }
 
+func randomSecretObjectReference() gatewayv1.SecretObjectReference {
+	return gatewayv1.SecretObjectReference{
+		Name:      gatewayv1.ObjectName("secret-" + faker.DomainName()),
+		Namespace: lo.ToPtr(gatewayv1.Namespace("ns-" + faker.DomainName())),
+	}
+}
+
 type randomListenerOpt func(*gatewayv1.Listener)
 
 func makeRandomListener(
@@ -125,7 +132,10 @@ func randomListenerWithHTTPSParamsOpt() randomListenerOpt {
 	return func(listener *gatewayv1.Listener) {
 		listener.Protocol = gatewayv1.HTTPSProtocolType
 		listener.TLS = &gatewayv1.GatewayTLSConfig{
-			CertificateRefs: []gatewayv1.SecretObjectReference{},
+			CertificateRefs: []gatewayv1.SecretObjectReference{
+				randomSecretObjectReference(),
+				randomSecretObjectReference(),
+			},
 		}
 	}
 }
@@ -439,4 +449,30 @@ func makeRandomEndpoint(opts ...randomEndpointOpt) discoveryv1.Endpoint {
 	}
 
 	return ep
+}
+
+func makeRandomSecret(opts ...randomSecretOpt) corev1.Secret {
+	secret := corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      faker.DomainName(),
+			Namespace: faker.Username(),
+		},
+		Type: corev1.SecretTypeTLS,
+		Data: map[string][]byte{},
+	}
+
+	for _, opt := range opts {
+		opt(&secret)
+	}
+
+	return secret
+}
+
+type randomSecretOpt func(*corev1.Secret)
+
+func randomSecretWithTLSDataOpt() randomSecretOpt {
+	return func(secret *corev1.Secret) {
+		secret.Data[corev1.TLSCertKey] = []byte(faker.UUIDHyphenated())
+		secret.Data[corev1.TLSPrivateKeyKey] = []byte(faker.UUIDHyphenated())
+	}
 }

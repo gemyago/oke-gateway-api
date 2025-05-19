@@ -216,6 +216,23 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		})
 	})
 
+	t.Run("reconcileListenersCertificates", func(t *testing.T) {
+		// t.Run("when certificates exists", func(t *testing.T) {
+		// 	deps := makeMockDeps(t)
+		// 	model := newOciLoadBalancerModel(deps)
+		// 	listeners := []gatewayv1.Listener{
+		// 		makeRandomListener(randomListenerWithHTTPSParamsOpt()),
+		// 		makeRandomListener(randomListenerWithHTTPSParamsOpt()),
+		// 		makeRandomListener(randomListenerWithHTTPSParamsOpt()),
+		// 	}
+
+		// 	allRefs := make([]gatewayv1.SecretObjectReference, 0)
+		// 	for _, listener := range listeners {
+		// 		allRefs = append(allRefs, listener.TLS.CertificateRefs...)
+		// 	}
+		// })
+	})
+
 	t.Run("reconcileHTTPListener", func(t *testing.T) {
 		t.Run("when listener exists", func(t *testing.T) {
 			deps := makeMockDeps(t)
