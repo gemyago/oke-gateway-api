@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
@@ -25,7 +24,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 	makeMockDeps := func(t *testing.T) ociLoadBalancerModelDeps {
 		return ociLoadBalancerModelDeps{
 			RootLogger:          diag.RootTestLogger(),
-			OciClient:           NewMockociLoadBalancerClient(t),
+			K8sClient:           NewMockk8sClient(t),
 			WorkRequestsWatcher: NewMockworkRequestsWatcher(t),
 			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
 		}
@@ -237,22 +236,23 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				allRefs = append(allRefs, listener.TLS.CertificateRefs...)
 			}
 
-			knownCertificates := make(map[string]loadbalancer.Certificate)
-			for _, ref := range allRefs {
-				certName := ociCertificateNameFromSecretObjectReference(gateway.Namespace, ref)
-				knownCertificates[certName] = makeRandomOCICertificate()
-			}
-
-			allSecrets := lo.Map(allRefs, func(ref gatewayv1.SecretObjectReference, _ int) corev1.Secret {
+			allSecrets := lo.Map(allRefs, func(_ gatewayv1.SecretObjectReference, _ int) corev1.Secret {
 				return makeRandomSecret()
 			})
 
-			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			knownCertificates := make(map[string]loadbalancer.Certificate)
 			for _, secret := range allSecrets {
+				certName := ociCertificateNameFromSecret(secret)
+				knownCertificates[certName] = makeRandomOCICertificate()
+			}
+
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			for i, ref := range allRefs {
+				secret := allSecrets[i]
 				setupClientGet(t, k8sClient, types.NamespacedName{
-					Namespace: secret.Namespace,
-					Name:      secret.Name,
-				}, secret)
+					Namespace: string(lo.FromPtr(ref.Namespace)),
+					Name:      string(ref.Name),
+				}, secret).Once()
 			}
 
 			params := reconcileListenersCertificatesParams{
@@ -1690,7 +1690,7 @@ func Test_ociBackendSetNameFromBackendRef(t *testing.T) {
 func Test_ociBackendSetNameFromService(t *testing.T) {
 	type testCase struct {
 		name    string
-		service v1.Service
+		service corev1.Service
 		want    string
 	}
 
@@ -1699,7 +1699,7 @@ func Test_ociBackendSetNameFromService(t *testing.T) {
 			svcNs := faker.Word() + "-ns"
 			svcName := faker.Username() + "-svc"
 			service := makeRandomService(
-				func(s *v1.Service) {
+				func(s *corev1.Service) {
 					s.Name = svcName
 					s.Namespace = svcNs
 				},
@@ -1717,7 +1717,7 @@ func Test_ociBackendSetNameFromService(t *testing.T) {
 			longSvcNs := faker.UUIDDigit()[0:20]   // Ensure length that will cause truncation
 			longSvcName := faker.UUIDDigit()[0:20] // Ensure length that will cause truncation
 			service := makeRandomService(
-				func(s *v1.Service) {
+				func(s *corev1.Service) {
 					s.Name = longSvcName
 					s.Namespace = longSvcNs
 				},
@@ -1743,55 +1743,8 @@ func Test_ociBackendSetNameFromService(t *testing.T) {
 	}
 }
 
-func Test_ociSecretNameFromSecretObjectReference(t *testing.T) {
-	type testCase struct {
-		name             string
-		gatewayNamespace string
-		ref              gatewayv1.SecretObjectReference
-		want             string
-	}
-
-	tests := []func() testCase{
-		func() testCase {
-			refName := faker.Username()
-			refNamespace := faker.Word() + "-ns"
-			gatewayNs := faker.Word() + "-gateway-ns"
-
-			ref := gatewayv1.SecretObjectReference{
-				Name:      gatewayv1.ObjectName(refName),
-				Namespace: lo.ToPtr(gatewayv1.Namespace(refNamespace)),
-			}
-			wantName := fmt.Sprintf("%s-%s", refNamespace, refName)
-			return testCase{
-				name:             "with namespace in ref",
-				gatewayNamespace: gatewayNs,
-				ref:              ref,
-				want:             wantName,
-			}
-		},
-		func() testCase {
-			gatewayNs := faker.Word() + "-gateway-ns"
-			refName := faker.Username() + "-secret"
-
-			ref := gatewayv1.SecretObjectReference{
-				Name:      gatewayv1.ObjectName(refName),
-				Namespace: nil, // No namespace in ref
-			}
-			wantName := fmt.Sprintf("%s-%s", gatewayNs, refName)
-			return testCase{
-				name:             "without namespace in ref, uses gateway namespace",
-				gatewayNamespace: gatewayNs,
-				ref:              ref,
-				want:             wantName,
-			}
-		},
-	}
-
-	for _, tcFunc := range tests {
-		tc := tcFunc()
-		t.Run(tc.name, func(t *testing.T) {
-			got := ociCertificateNameFromSecretObjectReference(tc.gatewayNamespace, tc.ref)
-			assert.Equal(t, tc.want, got)
-		})
-	}
+func Test_ociCertificateNameFromSecret(t *testing.T) {
+	secret := makeRandomSecret()
+	got := ociCertificateNameFromSecret(secret)
+	assert.Equal(t, secret.Namespace+"-"+secret.Name+"-rev-"+secret.ResourceVersion, got)
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/samber/lo"
 	"go.uber.org/dig"
 	v1 "k8s.io/api/core/v1"
+	types "k8s.io/apimachinery/pkg/types"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -188,6 +189,25 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 	ctx context.Context,
 	params reconcileListenersCertificatesParams,
 ) (reconcileListenersCertificatesResult, error) {
+	allRefs := lo.FlatMap(
+		params.gateway.Spec.Listeners, func(listener gatewayv1.Listener, _ int) []gatewayv1.SecretObjectReference {
+			return listener.TLS.CertificateRefs
+		})
+
+	allSecretsByCertName := map[string]v1.Secret{}
+	for _, ref := range allRefs {
+		secret := v1.Secret{}
+		ns := lo.Ternary(ref.Namespace != nil, string(*ref.Namespace), params.gateway.Namespace)
+		err := m.k8sClient.Get(ctx, types.NamespacedName{
+			Name:      string(ref.Name),
+			Namespace: ns,
+		}, &secret)
+		if err != nil {
+			return reconcileListenersCertificatesResult{}, fmt.Errorf("failed to get secret %s: %w", ref.Name, err)
+		}
+		allSecretsByCertName[ociCertificateNameFromSecret(secret)] = secret
+	}
+
 	return reconcileListenersCertificatesResult{
 		knownCertificates: params.knownCertificates,
 	}, nil
@@ -695,15 +715,8 @@ func newOciLoadBalancerModel(deps ociLoadBalancerModelDeps) ociLoadBalancerModel
 	}
 }
 
-func ociCertificateNameFromSecretObjectReference(
-	gatewayNamespace string,
-	ref gatewayv1.SecretObjectReference,
+func ociCertificateNameFromSecret(
+	secret v1.Secret,
 ) string {
-	refName := string(ref.Name)
-	refNamespace := string(lo.FromPtr(ref.Namespace))
-	if refNamespace == "" {
-		refNamespace = gatewayNamespace
-	}
-
-	return refNamespace + "-" + refName
+	return secret.Namespace + "-" + secret.Name + "-rev-" + secret.ResourceVersion
 }

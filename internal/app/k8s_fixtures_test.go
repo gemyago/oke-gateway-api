@@ -14,7 +14,6 @@ import (
 	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
-	types "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -487,17 +486,17 @@ func randomSecretWithTLSDataOpt() randomSecretOpt {
 func setupClientGet(
 	t *testing.T,
 	cl k8sClient,
-	wantName types.NamespacedName,
+	wantName apitypes.NamespacedName,
 	wantObj interface{},
-) {
+) *mock.Call {
 	mockK8sClient, _ := cl.(*Mockk8sClient)
-	mockK8sClient.EXPECT().Get(
+	result := mockK8sClient.EXPECT().Get(
 		t.Context(),
 		wantName,
 		mock.Anything,
 	).RunAndReturn(func(
 		_ context.Context,
-		name types.NamespacedName,
+		name apitypes.NamespacedName,
 		obj client.Object,
 		_ ...client.GetOption,
 	) error {
@@ -505,4 +504,6 @@ func setupClientGet(
 		reflect.ValueOf(obj).Elem().Set(reflect.ValueOf(wantObj))
 		return nil
 	})
+
+	return result.Call
 }
