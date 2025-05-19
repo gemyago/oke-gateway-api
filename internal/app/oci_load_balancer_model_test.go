@@ -1707,3 +1707,56 @@ func Test_ociBackendSetNameFromService(t *testing.T) {
 		})
 	}
 }
+
+func Test_ociSecretNameFromSecretObjectReference(t *testing.T) {
+	type testCase struct {
+		name             string
+		gatewayNamespace string
+		ref              gatewayv1.SecretObjectReference
+		want             string
+	}
+
+	tests := []func() testCase{
+		func() testCase {
+			refName := faker.Username()
+			refNamespace := faker.Word() + "-ns"
+			gatewayNs := faker.Word() + "-gateway-ns"
+
+			ref := gatewayv1.SecretObjectReference{
+				Name:      gatewayv1.ObjectName(refName),
+				Namespace: lo.ToPtr(gatewayv1.Namespace(refNamespace)),
+			}
+			wantName := fmt.Sprintf("%s-%s", refNamespace, refName)
+			return testCase{
+				name:             "with namespace in ref",
+				gatewayNamespace: gatewayNs,
+				ref:              ref,
+				want:             wantName,
+			}
+		},
+		func() testCase {
+			gatewayNs := faker.Word() + "-gateway-ns"
+			refName := faker.Username() + "-secret"
+
+			ref := gatewayv1.SecretObjectReference{
+				Name:      gatewayv1.ObjectName(refName),
+				Namespace: nil, // No namespace in ref
+			}
+			wantName := fmt.Sprintf("%s-%s", gatewayNs, refName)
+			return testCase{
+				name:             "without namespace in ref, uses gateway namespace",
+				gatewayNamespace: gatewayNs,
+				ref:              ref,
+				want:             wantName,
+			}
+		},
+	}
+
+	for _, tcFunc := range tests {
+		tc := tcFunc()
+		t.Run(tc.name, func(t *testing.T) {
+			got := ociSecretNameFromSecretObjectReference(tc.gatewayNamespace, tc.ref)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}

@@ -697,5 +697,11 @@ func ociSecretNameFromSecretObjectReference(
 	gatewayNamespace string,
 	ref gatewayv1.SecretObjectReference,
 ) string {
-	return string(ref.Name)
+	refName := string(ref.Name)
+	refNamespace := string(lo.FromPtr(ref.Namespace))
+	if refNamespace == "" {
+		refNamespace = gatewayNamespace
+	}
+
+	return refNamespace + "-" + refName
 }
