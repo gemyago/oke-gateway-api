@@ -109,7 +109,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				mock.Anything,
 			).Return(false, nil)
 
-			wantListeners := makeFewRandomHTTPListeners()
+			wantListeners := makeFewRandomListeners()
 
 			gatewayData := makeRandomAcceptedGatewayDetails(
 				randomResolvedGatewayDetailsWithGatewayOpts(
@@ -180,11 +180,11 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
-			matchingListener := makeRandomHTTPListener(
-				randomHTTPListenerWithNameOpt(wantSectionName),
+			matchingListener := makeRandomListener(
+				randomListenerWithNameOpt(wantSectionName),
 			)
-			otherListener1 := makeRandomHTTPListener()
-			otherListener2 := makeRandomHTTPListener()
+			otherListener1 := makeRandomListener()
+			otherListener2 := makeRandomListener()
 			wantListeners := []gatewayv1.Listener{matchingListener}
 
 			gatewayData := makeRandomAcceptedGatewayDetails(
@@ -273,9 +273,9 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
 			// Define listeners for the gateway
-			listener1 := makeRandomHTTPListener(randomHTTPListenerWithNameOpt(sectionName1))
-			listener2 := makeRandomHTTPListener(randomHTTPListenerWithNameOpt(sectionName2))
-			otherListener := makeRandomHTTPListener() // This one shouldn't be matched
+			listener1 := makeRandomListener(randomListenerWithNameOpt(sectionName1))
+			listener2 := makeRandomListener(randomListenerWithNameOpt(sectionName2))
+			otherListener := makeRandomListener() // This one shouldn't be matched
 			allGatewayListeners := []gatewayv1.Listener{otherListener, listener1, listener2}
 			wantListeners := []gatewayv1.Listener{listener1, listener2} // Only these should be in the final result
 
@@ -364,7 +364,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
-			listener1 := makeRandomHTTPListener()
+			listener1 := makeRandomListener()
 			gatewayData1 := makeRandomAcceptedGatewayDetails(
 				randomResolvedGatewayDetailsWithGatewayOpts(
 					randomGatewayWithNameFromParentRefOpt(refWithNonMatchingSection),
@@ -389,7 +389,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				return true, nil
 			})
 
-			allListeners := makeFewRandomHTTPListeners()
+			allListeners := makeFewRandomListeners()
 			gatewayData2 := makeRandomAcceptedGatewayDetails(
 				randomResolvedGatewayDetailsWithGatewayOpts(
 					randomGatewayWithNameFromParentRefOpt(refWithoutSection),
@@ -459,7 +459,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
-			listener1 := makeRandomHTTPListener()
+			listener1 := makeRandomListener()
 			gatewayData := makeRandomAcceptedGatewayDetails(
 				randomResolvedGatewayDetailsWithGatewayOpts(
 					randomGatewayWithListenersOpt(listener1),
@@ -999,7 +999,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				}.String(), s
 			})
 
-			listeners := makeFewRandomHTTPListeners()
+			listeners := makeFewRandomListeners()
 
 			params := programRouteParams{
 				gateway:          *gateway,
@@ -1076,7 +1076,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				}.String(), s
 			})
 
-			listeners := makeFewRandomHTTPListeners()
+			listeners := makeFewRandomListeners()
 
 			params := programRouteParams{
 				gateway:          *gateway,
@@ -1135,7 +1135,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				"service1": makeRandomService(),
 			}
 			listeners := []gatewayv1.Listener{
-				makeRandomHTTPListener(),
+				makeRandomListener(),
 			}
 
 			params := programRouteParams{
@@ -1175,7 +1175,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				"service1": makeRandomService(),
 			}
 			listeners := []gatewayv1.Listener{
-				makeRandomHTTPListener(),
+				makeRandomListener(),
 			}
 
 			params := programRouteParams{
@@ -1218,7 +1218,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				"service1": makeRandomService(),
 			}
 			listeners := []gatewayv1.Listener{
-				makeRandomHTTPListener(),
+				makeRandomListener(),
 			}
 
 			params := programRouteParams{
@@ -1515,7 +1515,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				faker.DomainName(),
 			}
 
-			listeners := makeFewRandomHTTPListeners()
+			listeners := makeFewRandomListeners()
 
 			params := deprovisionRouteParams{
 				gateway:          *newRandomGateway(),
@@ -1566,7 +1566,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			config := makeRandomGatewayConfig()
 			httpRoute := makeRandomHTTPRoute()
-			listeners := makeFewRandomHTTPListeners()
+			listeners := makeFewRandomListeners()
 
 			params := deprovisionRouteParams{
 				gateway:          *newRandomGateway(),
@@ -1593,7 +1593,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			httpRoute.Annotations = map[string]string{
 				HTTPRouteProgrammedPolicyRulesAnnotation: "rule1,rule2",
 			}
-			listeners := []gatewayv1.Listener{makeRandomHTTPListener()} // Just one for simplicity
+			listeners := []gatewayv1.Listener{makeRandomListener()} // Just one for simplicity
 
 			params := deprovisionRouteParams{
 				gateway:          *newRandomGateway(),

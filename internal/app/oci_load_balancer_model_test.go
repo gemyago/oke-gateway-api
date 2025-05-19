@@ -220,7 +220,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		t.Run("when listener exists", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
-			gwListener := makeRandomHTTPListener()
+			gwListener := makeRandomListener()
 			lbListener := makeRandomOCIListener(
 				func(l *loadbalancer.Listener) {
 					l.Name = lo.ToPtr(string(gwListener.Name))
@@ -244,7 +244,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		t.Run("when listener does not exist", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
-			gwListener := makeRandomHTTPListener()
+			gwListener := makeRandomListener()
 
 			params := reconcileHTTPListenerParams{
 				loadBalancerID: faker.UUIDHyphenated(),
@@ -312,7 +312,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		t.Run("when routing policy exists", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
-			gwListener := makeRandomHTTPListener()
+			gwListener := makeRandomListener()
 
 			routingPolicyName := string(gwListener.Name) + "_policy"
 
@@ -361,7 +361,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		t.Run("when create routing policy fails", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
-			gwListener := makeRandomHTTPListener()
+			gwListener := makeRandomListener()
 
 			params := reconcileHTTPListenerParams{
 				loadBalancerID: faker.UUIDHyphenated(),
@@ -387,7 +387,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		t.Run("when wait for routing policy fails", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
-			gwListener := makeRandomHTTPListener()
+			gwListener := makeRandomListener()
 
 			params := reconcileHTTPListenerParams{
 				loadBalancerID: faker.UUIDHyphenated(),
@@ -419,7 +419,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		t.Run("when create listener fails", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
-			gwListener := makeRandomHTTPListener()
+			gwListener := makeRandomListener()
 
 			params := reconcileHTTPListenerParams{
 				loadBalancerID: faker.UUIDHyphenated(),
@@ -457,7 +457,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		t.Run("when wait for listener fails", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
-			gwListener := makeRandomHTTPListener()
+			gwListener := makeRandomListener()
 
 			params := reconcileHTTPListenerParams{
 				loadBalancerID: faker.UUIDHyphenated(),
@@ -578,8 +578,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 
-			gwListener1 := makeRandomHTTPListener()
-			gwListener2 := makeRandomHTTPListener()
+			gwListener1 := makeRandomListener()
+			gwListener2 := makeRandomListener()
 
 			lbListener1 := makeRandomOCIListener(func(l *loadbalancer.Listener) {
 				l.Name = lo.ToPtr(string(gwListener1.Name))
@@ -610,8 +610,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
 
-			gwListener1 := makeRandomHTTPListener()
-			gwListener2 := makeRandomHTTPListener()
+			gwListener1 := makeRandomListener()
+			gwListener2 := makeRandomListener()
 			lbListener1 := makeRandomOCIListener(func(l *loadbalancer.Listener) {
 				l.Name = lo.ToPtr(string(gwListener1.Name))
 			})
@@ -660,8 +660,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
 
-			gwListener1 := makeRandomHTTPListener()
-			gwListener2 := makeRandomHTTPListener()
+			gwListener1 := makeRandomListener()
+			gwListener2 := makeRandomListener()
 			lbListener1 := makeRandomOCIListener(func(l *loadbalancer.Listener) {
 				l.Name = lo.ToPtr(string(gwListener1.Name))
 			})

@@ -81,7 +81,7 @@ func randomGatewayWithRandomListenersOpt() randomGatewayOpt {
 	return func(gw *gatewayv1.Gateway) {
 		gw.Spec.Listeners = make([]gatewayv1.Listener, 2+rand.IntN(3))
 		for i := range gw.Spec.Listeners {
-			gw.Spec.Listeners[i] = makeRandomHTTPListener()
+			gw.Spec.Listeners[i] = makeRandomListener()
 		}
 	}
 }
@@ -103,10 +103,10 @@ func randomGatewayWithNameFromParentRefOpt(ref gatewayv1.ParentReference) random
 	}
 }
 
-type randomHTTPListenerOpt func(*gatewayv1.Listener)
+type randomListenerOpt func(*gatewayv1.Listener)
 
-func makeRandomHTTPListener(
-	opts ...randomHTTPListenerOpt,
+func makeRandomListener(
+	opts ...randomListenerOpt,
 ) gatewayv1.Listener {
 	listener := gatewayv1.Listener{
 		Name:     gatewayv1.SectionName("listener-" + faker.UUIDHyphenated()),
@@ -121,17 +121,17 @@ func makeRandomHTTPListener(
 	return listener
 }
 
-func randomHTTPListenerWithNameOpt(name gatewayv1.SectionName) randomHTTPListenerOpt {
+func randomListenerWithNameOpt(name gatewayv1.SectionName) randomListenerOpt {
 	return func(listener *gatewayv1.Listener) {
 		listener.Name = name
 	}
 }
 
-func makeFewRandomHTTPListeners() []gatewayv1.Listener {
+func makeFewRandomListeners() []gatewayv1.Listener {
 	count := 2 + rand.IntN(3)
 	listeners := make([]gatewayv1.Listener, count)
 	for i := range listeners {
-		listeners[i] = makeRandomHTTPListener()
+		listeners[i] = makeRandomListener()
 	}
 	return listeners
 }
