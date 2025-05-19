@@ -52,17 +52,17 @@ func StartManager(ctx context.Context, deps StartManagerDeps) error { // coverag
 	}
 
 	if err := builder.ControllerManagedBy(mgr).
-		For(&gatewayv1.Gateway{}).
-		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
-		Complete(wireupReconciler(deps.GatewayCtrl, middlewares...)); err != nil {
-		return fmt.Errorf("failed to setup Gateway controller: %w", err)
-	}
-
-	if err := builder.ControllerManagedBy(mgr).
 		For(&gatewayv1.GatewayClass{}).
 		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
 		Complete(wireupReconciler(deps.GatewayClassCtrl, middlewares...)); err != nil {
 		return fmt.Errorf("failed to setup GatewayClass controller: %w", err)
+	}
+
+	if err := builder.ControllerManagedBy(mgr).
+		For(&gatewayv1.Gateway{}).
+		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
+		Complete(wireupReconciler(deps.GatewayCtrl, middlewares...)); err != nil {
+		return fmt.Errorf("failed to setup Gateway controller: %w", err)
 	}
 
 	if err := builder.ControllerManagedBy(mgr).
