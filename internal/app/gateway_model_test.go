@@ -596,7 +596,7 @@ func TestGatewayModelImpl(t *testing.T) {
 			reconcileCertificatesCall := loadBalancerModel.EXPECT().
 				reconcileListenersCertificates(t.Context(), reconcileListenersCertificatesParams{
 					loadBalancerID:    config.Spec.LoadBalancerID,
-					gatewayListeners:  gateway.Spec.Listeners,
+					gateway:           gateway,
 					knownCertificates: loadBalancer.Certificates,
 				}).
 				Return(reconcileListenersCertificatesResult{
@@ -735,7 +735,7 @@ func TestGatewayModelImpl(t *testing.T) {
 			reconcileCertificatesCall := loadBalancerModel.EXPECT().
 				reconcileListenersCertificates(t.Context(), reconcileListenersCertificatesParams{
 					loadBalancerID:    config.Spec.LoadBalancerID,
-					gatewayListeners:  gateway.Spec.Listeners,
+					gateway:           gateway,
 					knownCertificates: loadBalancer.Certificates,
 				}).
 				Return(reconcileListenersCertificatesResult{

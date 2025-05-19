@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -37,29 +36,6 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			OciLBModel:     NewMockociLoadBalancerModel(t),
 			ResourcesModel: NewMockresourcesModel(t),
 		}
-	}
-
-	setupClientGet := func(
-		t *testing.T,
-		cl k8sClient,
-		wantName types.NamespacedName,
-		wantObj interface{},
-	) {
-		mockK8sClient, _ := cl.(*Mockk8sClient)
-		mockK8sClient.EXPECT().Get(
-			t.Context(),
-			wantName,
-			mock.Anything,
-		).RunAndReturn(func(
-			_ context.Context,
-			name types.NamespacedName,
-			obj client.Object,
-			_ ...client.GetOption,
-		) error {
-			assert.Equal(t, wantName, name)
-			reflect.ValueOf(obj).Elem().Set(reflect.ValueOf(wantObj))
-			return nil
-		})
 	}
 
 	t.Run("resolveRequest", func(t *testing.T) {

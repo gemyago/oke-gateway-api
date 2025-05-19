@@ -135,7 +135,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 	reconcileListenersCertificatesResult, err := m.ociLoadBalancerModel.reconcileListenersCertificates(ctx,
 		reconcileListenersCertificatesParams{
 			loadBalancerID:    loadBalancerID,
-			gatewayListeners:  data.gateway.Spec.Listeners,
+			gateway:           &data.gateway,
 			knownCertificates: response.LoadBalancer.Certificates,
 		})
 	if err != nil {

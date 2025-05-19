@@ -1,14 +1,20 @@
 package app
 
 import (
+	"context"
 	"math/rand/v2"
+	"reflect"
+	"testing"
 
 	"github.com/go-faker/faker/v4"
 	"github.com/samber/lo"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	types "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -454,8 +460,9 @@ func makeRandomEndpoint(opts ...randomEndpointOpt) discoveryv1.Endpoint {
 func makeRandomSecret(opts ...randomSecretOpt) corev1.Secret {
 	secret := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      faker.DomainName(),
-			Namespace: faker.Username(),
+			Name:            faker.DomainName(),
+			Namespace:       faker.Username(),
+			ResourceVersion: faker.UUIDHyphenated(),
 		},
 		Type: corev1.SecretTypeTLS,
 		Data: map[string][]byte{},
@@ -475,4 +482,27 @@ func randomSecretWithTLSDataOpt() randomSecretOpt {
 		secret.Data[corev1.TLSCertKey] = []byte(faker.UUIDHyphenated())
 		secret.Data[corev1.TLSPrivateKeyKey] = []byte(faker.UUIDHyphenated())
 	}
+}
+
+func setupClientGet(
+	t *testing.T,
+	cl k8sClient,
+	wantName types.NamespacedName,
+	wantObj interface{},
+) {
+	mockK8sClient, _ := cl.(*Mockk8sClient)
+	mockK8sClient.EXPECT().Get(
+		t.Context(),
+		wantName,
+		mock.Anything,
+	).RunAndReturn(func(
+		_ context.Context,
+		name types.NamespacedName,
+		obj client.Object,
+		_ ...client.GetOption,
+	) error {
+		assert.Equal(t, wantName, name)
+		reflect.ValueOf(obj).Elem().Set(reflect.ValueOf(wantObj))
+		return nil
+	})
 }

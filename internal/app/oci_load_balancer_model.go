@@ -53,7 +53,7 @@ type reconcileHTTPListenerParams struct {
 
 type reconcileListenersCertificatesParams struct {
 	loadBalancerID    string
-	gatewayListeners  []gatewayv1.Listener
+	gateway           *gatewayv1.Gateway
 	knownCertificates map[string]loadbalancer.Certificate
 }
 
@@ -188,7 +188,9 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 	ctx context.Context,
 	params reconcileListenersCertificatesParams,
 ) (reconcileListenersCertificatesResult, error) {
-	return reconcileListenersCertificatesResult{}, nil
+	return reconcileListenersCertificatesResult{
+		knownCertificates: params.knownCertificates,
+	}, nil
 }
 
 func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
@@ -693,7 +695,7 @@ func newOciLoadBalancerModel(deps ociLoadBalancerModelDeps) ociLoadBalancerModel
 	}
 }
 
-func ociSecretNameFromSecretObjectReference(
+func ociCertificateNameFromSecretObjectReference(
 	gatewayNamespace string,
 	ref gatewayv1.SecretObjectReference,
 ) string {

@@ -15,7 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
+	types "k8s.io/apimachinery/pkg/types"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -217,20 +219,53 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 	})
 
 	t.Run("reconcileListenersCertificates", func(t *testing.T) {
-		// t.Run("when certificates exists", func(t *testing.T) {
-		// 	deps := makeMockDeps(t)
-		// 	model := newOciLoadBalancerModel(deps)
-		// 	listeners := []gatewayv1.Listener{
-		// 		makeRandomListener(randomListenerWithHTTPSParamsOpt()),
-		// 		makeRandomListener(randomListenerWithHTTPSParamsOpt()),
-		// 		makeRandomListener(randomListenerWithHTTPSParamsOpt()),
-		// 	}
+		t.Run("when certificates exists", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			listeners := []gatewayv1.Listener{
+				makeRandomListener(randomListenerWithHTTPSParamsOpt()),
+				makeRandomListener(randomListenerWithHTTPSParamsOpt()),
+				makeRandomListener(randomListenerWithHTTPSParamsOpt()),
+			}
 
-		// 	allRefs := make([]gatewayv1.SecretObjectReference, 0)
-		// 	for _, listener := range listeners {
-		// 		allRefs = append(allRefs, listener.TLS.CertificateRefs...)
-		// 	}
-		// })
+			gateway := newRandomGateway(
+				randomGatewayWithListenersOpt(listeners...),
+			)
+
+			allRefs := make([]gatewayv1.SecretObjectReference, 0)
+			for _, listener := range listeners {
+				allRefs = append(allRefs, listener.TLS.CertificateRefs...)
+			}
+
+			knownCertificates := make(map[string]loadbalancer.Certificate)
+			for _, ref := range allRefs {
+				certName := ociCertificateNameFromSecretObjectReference(gateway.Namespace, ref)
+				knownCertificates[certName] = makeRandomOCICertificate()
+			}
+
+			allSecrets := lo.Map(allRefs, func(ref gatewayv1.SecretObjectReference, _ int) corev1.Secret {
+				return makeRandomSecret()
+			})
+
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			for _, secret := range allSecrets {
+				setupClientGet(t, k8sClient, types.NamespacedName{
+					Namespace: secret.Namespace,
+					Name:      secret.Name,
+				}, secret)
+			}
+
+			params := reconcileListenersCertificatesParams{
+				loadBalancerID:    faker.UUIDHyphenated(),
+				gateway:           gateway,
+				knownCertificates: knownCertificates,
+			}
+
+			gotResult, err := model.reconcileListenersCertificates(t.Context(), params)
+			require.NoError(t, err)
+
+			assert.Equal(t, knownCertificates, gotResult.knownCertificates)
+		})
 	})
 
 	t.Run("reconcileHTTPListener", func(t *testing.T) {
@@ -1755,7 +1790,7 @@ func Test_ociSecretNameFromSecretObjectReference(t *testing.T) {
 	for _, tcFunc := range tests {
 		tc := tcFunc()
 		t.Run(tc.name, func(t *testing.T) {
-			got := ociSecretNameFromSecretObjectReference(tc.gatewayNamespace, tc.ref)
+			got := ociCertificateNameFromSecretObjectReference(tc.gatewayNamespace, tc.ref)
 			assert.Equal(t, tc.want, got)
 		})
 	}
