@@ -396,6 +396,27 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				listenerSpec:          &gwListener,
 			}
 
+			routingPolicyName := string(gwListener.Name) + "_policy"
+
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+			workRequestID := faker.UUIDHyphenated()
+
+			ociLoadBalancerClient.EXPECT().UpdateListener(t.Context(), loadbalancer.UpdateListenerRequest{
+				ListenerName: lo.ToPtr(string(gwListener.Name)),
+				UpdateListenerDetails: loadbalancer.UpdateListenerDetails{
+					Port:                  lo.ToPtr(int(gwListener.Port)),
+					Protocol:              lo.ToPtr(string(gwListener.Protocol)),
+					DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
+					RoutingPolicyName:     lo.ToPtr(routingPolicyName),
+				},
+			}).Return(loadbalancer.UpdateListenerResponse{
+				OpcWorkRequestId: &workRequestID,
+			}, nil)
+
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
+
 			err := model.reconcileHTTPListener(t.Context(), params)
 			require.NoError(t, err)
 		})
@@ -403,9 +424,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		t.Run("when listener does not exist", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
-			gwListener := makeRandomListener(
-				randomListenerWithHTTPProtocolOpt(),
-			)
+			gwListener := makeRandomListener()
 
 			params := reconcileHTTPListenerParams{
 				loadBalancerID: faker.UUIDHyphenated(),
@@ -456,7 +475,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				CreateListenerDetails: loadbalancer.CreateListenerDetails{
 					Name:                  lo.ToPtr(string(gwListener.Name)),
 					Port:                  lo.ToPtr(int(gwListener.Port)),
-					Protocol:              lo.ToPtr("HTTP"),
+					Protocol:              lo.ToPtr(string(gwListener.Protocol)),
 					DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
 					RoutingPolicyName:     lo.ToPtr(routingPolicyName),
 				},

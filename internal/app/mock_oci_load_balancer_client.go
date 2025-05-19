@@ -936,6 +936,63 @@ func (_c *MockociLoadBalancerClient_UpdateBackendSet_Call) RunAndReturn(run func
 	return _c
 }
 
+// UpdateListener provides a mock function with given fields: ctx, request
+func (_m *MockociLoadBalancerClient) UpdateListener(ctx context.Context, request loadbalancer.UpdateListenerRequest) (loadbalancer.UpdateListenerResponse, error) {
+	ret := _m.Called(ctx, request)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateListener")
+	}
+
+	var r0 loadbalancer.UpdateListenerResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.UpdateListenerRequest) (loadbalancer.UpdateListenerResponse, error)); ok {
+		return rf(ctx, request)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.UpdateListenerRequest) loadbalancer.UpdateListenerResponse); ok {
+		r0 = rf(ctx, request)
+	} else {
+		r0 = ret.Get(0).(loadbalancer.UpdateListenerResponse)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.UpdateListenerRequest) error); ok {
+		r1 = rf(ctx, request)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockociLoadBalancerClient_UpdateListener_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateListener'
+type MockociLoadBalancerClient_UpdateListener_Call struct {
+	*mock.Call
+}
+
+// UpdateListener is a helper method to define mock.On call
+//   - ctx context.Context
+//   - request loadbalancer.UpdateListenerRequest
+func (_e *MockociLoadBalancerClient_Expecter) UpdateListener(ctx interface{}, request interface{}) *MockociLoadBalancerClient_UpdateListener_Call {
+	return &MockociLoadBalancerClient_UpdateListener_Call{Call: _e.mock.On("UpdateListener", ctx, request)}
+}
+
+func (_c *MockociLoadBalancerClient_UpdateListener_Call) Run(run func(ctx context.Context, request loadbalancer.UpdateListenerRequest)) *MockociLoadBalancerClient_UpdateListener_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(loadbalancer.UpdateListenerRequest))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_UpdateListener_Call) Return(response loadbalancer.UpdateListenerResponse, err error) *MockociLoadBalancerClient_UpdateListener_Call {
+	_c.Call.Return(response, err)
+	return _c
+}
+
+func (_c *MockociLoadBalancerClient_UpdateListener_Call) RunAndReturn(run func(context.Context, loadbalancer.UpdateListenerRequest) (loadbalancer.UpdateListenerResponse, error)) *MockociLoadBalancerClient_UpdateListener_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateRoutingPolicy provides a mock function with given fields: ctx, request
 func (_m *MockociLoadBalancerClient) UpdateRoutingPolicy(ctx context.Context, request loadbalancer.UpdateRoutingPolicyRequest) (loadbalancer.UpdateRoutingPolicyResponse, error) {
 	ret := _m.Called(ctx, request)

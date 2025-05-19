@@ -123,7 +123,7 @@ func makeRandomListener(
 	listener := gatewayv1.Listener{
 		Name:     gatewayv1.SectionName("listener-" + faker.UUIDHyphenated()),
 		Port:     gatewayv1.PortNumber(rand.Int32N(4000)),
-		Protocol: gatewayv1.HTTPProtocolType,
+		Protocol: gatewayv1.ProtocolType(faker.Word()),
 	}
 
 	for _, opt := range opts {
