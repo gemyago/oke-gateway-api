@@ -227,6 +227,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				makeRandomListener(randomListenerWithHTTPSParamsOpt()),
 				makeRandomListener(randomListenerWithHTTPSParamsOpt()),
 				makeRandomListener(randomListenerWithHTTPSParamsOpt()),
+				makeRandomListener(),
 			}
 
 			gateway := newRandomGateway(
@@ -235,7 +236,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			allRefs := make([]gatewayv1.SecretObjectReference, 0)
 			for _, listener := range listeners {
-				allRefs = append(allRefs, listener.TLS.CertificateRefs...)
+				if listener.TLS != nil {
+					allRefs = append(allRefs, listener.TLS.CertificateRefs...)
+				}
 			}
 
 			allSecrets := lo.Map(allRefs, func(_ gatewayv1.SecretObjectReference, _ int) corev1.Secret {

@@ -192,8 +192,17 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 ) (reconcileListenersCertificatesResult, error) {
 	allRefs := lo.FlatMap(
 		params.gateway.Spec.Listeners, func(listener gatewayv1.Listener, _ int) []gatewayv1.SecretObjectReference {
+			if listener.TLS == nil {
+				return nil
+			}
 			return listener.TLS.CertificateRefs
 		})
+
+	m.logger.DebugContext(ctx, "Reconciling certificates",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.Int("configuredRefsCount", len(allRefs)),
+		slog.Int("provisionedCertificatesCount", len(params.knownCertificates)),
+	)
 
 	resultingCertificates := maps.Clone(params.knownCertificates)
 
@@ -213,6 +222,9 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 			m.logger.DebugContext(ctx, "Certificate already exists, skipping",
 				slog.String("loadBalancerId", params.loadBalancerID),
 				slog.String("certificateName", certName),
+				slog.String("secretName", secret.Name),
+				slog.String("secretNamespace", secret.Namespace),
+				slog.String("secretVersion", secret.ResourceVersion),
 			)
 			continue
 		}
@@ -220,6 +232,9 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 		m.logger.InfoContext(ctx, "Creating certificate",
 			slog.String("loadBalancerId", params.loadBalancerID),
 			slog.String("certificateName", certName),
+			slog.String("secretName", secret.Name),
+			slog.String("secretNamespace", secret.Namespace),
+			slog.String("secretVersion", secret.ResourceVersion),
 		)
 
 		certDetails := loadbalancer.CreateCertificateDetails{
