@@ -220,7 +220,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		t.Run("when listener exists", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
-			gwListener := makeRandomListener()
+			gwListener := makeRandomListener(
+				randomListenerWithHTTPProtocolOpt(),
+			)
 			lbListener := makeRandomOCIListener(
 				func(l *loadbalancer.Listener) {
 					l.Name = lo.ToPtr(string(gwListener.Name))
@@ -244,7 +246,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		t.Run("when listener does not exist", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
-			gwListener := makeRandomListener()
+			gwListener := makeRandomListener(
+				randomListenerWithHTTPProtocolOpt(),
+			)
 
 			params := reconcileHTTPListenerParams{
 				loadBalancerID: faker.UUIDHyphenated(),
@@ -312,7 +316,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		t.Run("when routing policy exists", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
-			gwListener := makeRandomListener()
+			gwListener := makeRandomListener(
+				randomListenerWithHTTPProtocolOpt(),
+			)
 
 			routingPolicyName := string(gwListener.Name) + "_policy"
 
@@ -361,7 +367,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		t.Run("when create routing policy fails", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
-			gwListener := makeRandomListener()
+			gwListener := makeRandomListener(
+				randomListenerWithHTTPProtocolOpt(),
+			)
 
 			params := reconcileHTTPListenerParams{
 				loadBalancerID: faker.UUIDHyphenated(),
@@ -387,7 +395,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		t.Run("when wait for routing policy fails", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
-			gwListener := makeRandomListener()
+			gwListener := makeRandomListener(
+				randomListenerWithHTTPProtocolOpt(),
+			)
 
 			params := reconcileHTTPListenerParams{
 				loadBalancerID: faker.UUIDHyphenated(),
@@ -419,7 +429,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		t.Run("when create listener fails", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
-			gwListener := makeRandomListener()
+			gwListener := makeRandomListener(
+				randomListenerWithHTTPProtocolOpt(),
+			)
 
 			params := reconcileHTTPListenerParams{
 				loadBalancerID: faker.UUIDHyphenated(),
@@ -457,7 +469,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		t.Run("when wait for listener fails", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
-			gwListener := makeRandomListener()
+			gwListener := makeRandomListener(
+				randomListenerWithHTTPProtocolOpt(),
+			)
 
 			params := reconcileHTTPListenerParams{
 				loadBalancerID: faker.UUIDHyphenated(),
