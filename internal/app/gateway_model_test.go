@@ -564,6 +564,7 @@ func TestGatewayModelImpl(t *testing.T) {
 			loadBalancer := makeRandomOCILoadBalancer(
 				randomOCILoadBalancerWithRandomBackendSetsOpt(),
 				randomOCILoadBalancerWithRandomPoliciesOpt(),
+				randomOCILoadBalancerWithRandomCertificatesOpt(),
 			)
 			loadBalancer.Listeners = make(map[string]loadbalancer.Listener)
 			for _, listener := range gateway.Spec.Listeners {
@@ -590,6 +591,19 @@ func TestGatewayModelImpl(t *testing.T) {
 				}).
 				Return(defaultBackendSet, nil)
 
+			wantKnownCertificates := makeFewRandomOCICertificatesMap()
+
+			reconcileCertificatesCall := loadBalancerModel.EXPECT().
+				reconcileListenersCertificates(t.Context(), reconcileListenersCertificatesParams{
+					loadBalancerID:    config.Spec.LoadBalancerID,
+					gatewayListeners:  gateway.Spec.Listeners,
+					knownCertificates: loadBalancer.Certificates,
+				}).
+				Return(reconcileListenersCertificatesResult{
+					knownCertificates: wantKnownCertificates,
+				}, nil).
+				Once()
+
 			for _, listener := range gateway.Spec.Listeners {
 				loadBalancerModel.EXPECT().
 					reconcileHTTPListener(t.Context(), reconcileHTTPListenerParams{
@@ -597,9 +611,11 @@ func TestGatewayModelImpl(t *testing.T) {
 						defaultBackendSetName: *defaultBackendSet.Name,
 						knownListeners:        loadBalancer.Listeners,
 						knownRoutingPolicies:  loadBalancer.RoutingPolicies,
+						knownCertificates:     wantKnownCertificates,
 						listenerSpec:          &listener,
 					}).
-					Return(nil)
+					Return(nil).
+					NotBefore(reconcileCertificatesCall)
 			}
 
 			loadBalancerModel.EXPECT().
@@ -697,6 +713,7 @@ func TestGatewayModelImpl(t *testing.T) {
 			)
 			loadBalancer := makeRandomOCILoadBalancer(
 				randomOCILoadBalancerWithRandomBackendSetsOpt(),
+				randomOCILoadBalancerWithRandomCertificatesOpt(),
 			)
 			loadBalancer.Listeners = make(map[string]loadbalancer.Listener)
 			for _, listener := range gateway.Spec.Listeners {
@@ -713,7 +730,19 @@ func TestGatewayModelImpl(t *testing.T) {
 					LoadBalancer: loadBalancer,
 				}, nil)
 
+			wantKnownCertificates := makeFewRandomOCICertificatesMap()
 			loadBalancerModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			reconcileCertificatesCall := loadBalancerModel.EXPECT().
+				reconcileListenersCertificates(t.Context(), reconcileListenersCertificatesParams{
+					loadBalancerID:    config.Spec.LoadBalancerID,
+					gatewayListeners:  gateway.Spec.Listeners,
+					knownCertificates: loadBalancer.Certificates,
+				}).
+				Return(reconcileListenersCertificatesResult{
+					knownCertificates: wantKnownCertificates,
+				}, nil).
+				Once()
+
 			loadBalancerModel.EXPECT().
 				reconcileDefaultBackendSet(t.Context(), mock.Anything).
 				Return(defaultBackendSet, nil)
@@ -721,7 +750,8 @@ func TestGatewayModelImpl(t *testing.T) {
 			wantErr := errors.New(faker.Sentence())
 			loadBalancerModel.EXPECT().
 				reconcileHTTPListener(t.Context(), mock.Anything).
-				Return(wantErr)
+				Return(wantErr).
+				NotBefore(reconcileCertificatesCall)
 
 			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
 				gateway: *gateway,

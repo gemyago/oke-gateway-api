@@ -132,6 +132,16 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 		return fmt.Errorf("failed to program default backend set: %w", err)
 	}
 
+	reconcileListenersCertificatesResult, err := m.ociLoadBalancerModel.reconcileListenersCertificates(ctx,
+		reconcileListenersCertificatesParams{
+			loadBalancerID:    loadBalancerID,
+			gatewayListeners:  data.gateway.Spec.Listeners,
+			knownCertificates: response.LoadBalancer.Certificates,
+		})
+	if err != nil {
+		return fmt.Errorf("failed to reconcile listeners certificates: %w", err)
+	}
+
 	for _, listener := range data.gateway.Spec.Listeners {
 		// TODO: Support listener with hostname
 
@@ -139,6 +149,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 			loadBalancerID:        loadBalancerID,
 			knownListeners:        response.LoadBalancer.Listeners,
 			knownRoutingPolicies:  response.LoadBalancer.RoutingPolicies,
+			knownCertificates:     reconcileListenersCertificatesResult.knownCertificates,
 			defaultBackendSetName: *defaultBackendSet.Name,
 			listenerSpec:          &listener,
 		}

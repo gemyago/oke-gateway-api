@@ -121,6 +121,14 @@ func makeRandomListener(
 	return listener
 }
 
+func randomListenerWithHTTPSParamsOpt() randomListenerOpt {
+	return func(listener *gatewayv1.Listener) {
+		listener.Protocol = gatewayv1.HTTPSProtocolType
+		listener.TLS = &gatewayv1.GatewayTLSConfig{
+			CertificateRefs: []gatewayv1.SecretObjectReference{},
+		}
+	}
+}
 func randomListenerWithNameOpt(name gatewayv1.SectionName) randomListenerOpt {
 	return func(listener *gatewayv1.Listener) {
 		listener.Name = name
