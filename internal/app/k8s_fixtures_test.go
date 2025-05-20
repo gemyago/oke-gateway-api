@@ -386,6 +386,24 @@ func makeRandomRouteParentStatus(
 	return status
 }
 
+func randomRouteParentStatusWithConditionOpt(
+	conditionType string,
+	conditionStatus metav1.ConditionStatus,
+) randomRouteParentStatusOpt {
+	return func(status *gatewayv1.RouteParentStatus) {
+		status.Conditions = append(status.Conditions, metav1.Condition{
+			Type:   conditionType,
+			Status: conditionStatus,
+		})
+	}
+}
+
+func randomRouteParentStatusWithControllerNameOpt(controllerName string) randomRouteParentStatusOpt {
+	return func(status *gatewayv1.RouteParentStatus) {
+		status.ControllerName = gatewayv1.GatewayController(controllerName)
+	}
+}
+
 type randomEndpointSliceOpt func(*discoveryv1.EndpointSlice)
 
 func makeRandomEndpointSlice(

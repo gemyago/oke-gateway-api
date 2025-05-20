@@ -10,6 +10,8 @@ import (
 	"github.com/samber/lo"
 	"go.uber.org/dig"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -69,6 +71,31 @@ func (m *WatchesModel) indexHTTPRouteByBackendService(ctx context.Context, obj c
 		m.logger.DebugContext(ctx, "Ignoring HTTPRoute marked for deletion",
 			slog.String("httpRoute", client.ObjectKeyFromObject(httpRoute).String()),
 			slog.Time("deletionTimestamp", httpRoute.DeletionTimestamp.Time),
+		)
+		return nil
+	}
+
+	matchingParentStatus, found := lo.Find(
+		httpRoute.Status.Parents,
+		func(status gatewayv1.RouteParentStatus) bool {
+			return status.ControllerName == ControllerClassName
+		})
+	if !found {
+		m.logger.DebugContext(ctx, "HTTPRoute is not accepted by this controller. Skipping indexing",
+			slog.String("httpRoute", client.ObjectKeyFromObject(httpRoute).String()),
+		)
+		return nil
+	}
+
+	if condition := meta.FindStatusCondition(
+		matchingParentStatus.Conditions,
+
+		// This status is set by the controller when it's programmed
+		// we should probably create a custom status, bit it is like below for now
+		string(gatewayv1.RouteConditionResolvedRefs),
+	); condition == nil || condition.Status != v1.ConditionTrue {
+		m.logger.DebugContext(ctx, "HTTPRoute is not programmed by this controller. Skipping indexing",
+			slog.String("httpRoute", client.ObjectKeyFromObject(httpRoute).String()),
 		)
 		return nil
 	}

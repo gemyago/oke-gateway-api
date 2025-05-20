@@ -67,6 +67,19 @@ func TestWatchesModel(t *testing.T) {
 	})
 
 	t.Run("indexHTTPRouteByBackendService", func(t *testing.T) {
+		withRelevantRouteParentStatus := func(h *gatewayv1.HTTPRoute) {
+			h.Status.Parents = append(h.Status.Parents,
+				makeRandomRouteParentStatus(),
+				makeRandomRouteParentStatus(
+					randomRouteParentStatusWithConditionOpt(
+						string(gatewayv1.RouteConditionResolvedRefs),
+						metav1.ConditionTrue,
+					),
+					randomRouteParentStatusWithControllerNameOpt(ControllerClassName),
+				),
+			)
+		}
+
 		t.Run("build index of all backend refs", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
@@ -90,6 +103,7 @@ func TestWatchesModel(t *testing.T) {
 			}
 
 			httpRoute := makeRandomHTTPRoute(
+				withRelevantRouteParentStatus,
 				randomHTTPRouteWithRulesOpt(
 					makeRandomHTTPRouteRule(
 						randomHTTPRouteRuleWithRandomBackendRefsOpt(refs1...),
@@ -135,6 +149,7 @@ func TestWatchesModel(t *testing.T) {
 			}
 
 			route := makeRandomHTTPRoute(
+				withRelevantRouteParentStatus,
 				randomHTTPRouteWithRulesOpt(
 					makeRandomHTTPRouteRule(
 						randomHTTPRouteRuleWithRandomBackendRefsOpt(refs1...),
@@ -164,6 +179,7 @@ func TestWatchesModel(t *testing.T) {
 			}
 
 			httpRoute := makeRandomHTTPRoute(
+				withRelevantRouteParentStatus,
 				randomHTTPRouteWithRulesOpt(
 					makeRandomHTTPRouteRule(
 						randomHTTPRouteRuleWithRandomBackendRefsOpt(refs...),
@@ -205,6 +221,7 @@ func TestWatchesModel(t *testing.T) {
 			}
 
 			httpRoute := makeRandomHTTPRoute(
+				withRelevantRouteParentStatus,
 				randomHTTPRouteWithRulesOpt(
 					makeRandomHTTPRouteRule(
 						randomHTTPRouteRuleWithRandomBackendRefsOpt(refs...),
@@ -215,6 +232,56 @@ func TestWatchesModel(t *testing.T) {
 			// Mark the route for deletion
 			deletionTimestamp := metav1.Now()
 			httpRoute.DeletionTimestamp = &deletionTimestamp
+
+			result := model.indexHTTPRouteByBackendService(t.Context(), &httpRoute)
+			require.Nil(t, result)
+		})
+
+		t.Run("ignores routes without relevant parent status", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			refs := []gatewayv1.HTTPBackendRef{
+				makeRandomBackendRef(),
+				makeRandomBackendRef(),
+			}
+
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(refs...)),
+				),
+			)
+
+			result := model.indexHTTPRouteByBackendService(t.Context(), &httpRoute)
+			require.Nil(t, result)
+		})
+
+		t.Run("ignores routes with relevant but not accepted parent status", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			refs := []gatewayv1.HTTPBackendRef{
+				makeRandomBackendRef(),
+				makeRandomBackendRef(),
+			}
+
+			httpRoute := makeRandomHTTPRoute(
+				func(h *gatewayv1.HTTPRoute) {
+					h.Status.Parents = append(h.Status.Parents,
+						makeRandomRouteParentStatus(),
+						makeRandomRouteParentStatus(
+							randomRouteParentStatusWithConditionOpt(
+								string(gatewayv1.RouteConditionResolvedRefs),
+								metav1.ConditionFalse,
+							),
+							randomRouteParentStatusWithControllerNameOpt(ControllerClassName),
+						),
+					)
+				},
+				randomHTTPRouteWithRulesOpt(
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(refs...)),
+				),
+			)
 
 			result := model.indexHTTPRouteByBackendService(t.Context(), &httpRoute)
 			require.Nil(t, result)

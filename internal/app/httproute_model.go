@@ -545,9 +545,16 @@ func (m *httpRouteModelImpl) isProgrammingRequired(
 	}
 
 	return !m.resourcesModel.isConditionSet(isConditionSetParams{
-		resource:      &details.httpRoute,
-		conditions:    parentStatus.Conditions,
+		resource:   &details.httpRoute,
+		conditions: parentStatus.Conditions,
+
+		// This is probably not the best condition type for programmed status
+		// but the spec doesn't define a "programmed" condition for route for some reason
+		// so using resolved refs, and we may want to add a custom condition
+		// This condition is also used by indexer to check if the route is programmed
+		// so update watches model as well
 		conditionType: string(gatewayv1.RouteConditionResolvedRefs),
+
 		annotations: map[string]string{
 			HTTPRouteProgrammingRevisionAnnotation: HTTPRouteProgrammingRevisionValue,
 		},
