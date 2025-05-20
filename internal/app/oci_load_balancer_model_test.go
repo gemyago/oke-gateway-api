@@ -265,8 +265,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			gotResult, err := model.reconcileListenersCertificates(t.Context(), params)
 			require.NoError(t, err)
 
-			assert.Equal(t, knownCertificates, gotResult.knownCertificates, "knownCertificates should be equal")
-			assert.Equal(t, certificatesByListener, gotResult.listenerCertificates, "listenerCertificates should be equal")
+			assert.Equal(t, knownCertificates, gotResult.reconciledCertificates, "knownCertificates should be equal")
+			assert.Equal(t, certificatesByListener, gotResult.certificatesByListener, "listenerCertificates should be equal")
 		})
 
 		t.Run("some certificates are missing", func(t *testing.T) {
@@ -381,8 +381,12 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			gotResult, err := model.reconcileListenersCertificates(t.Context(), params)
 			require.NoError(t, err)
 
-			assert.Equal(t, wantResultingCerts, gotResult.knownCertificates, "knownCertificates should be equal")
-			assert.Equal(t, wantResultingCertsByListener, gotResult.listenerCertificates, "listenerCertificates should be equal")
+			assert.Equal(t, wantResultingCerts, gotResult.reconciledCertificates, "knownCertificates should be equal")
+			assert.Equal(t,
+				wantResultingCertsByListener,
+				gotResult.certificatesByListener,
+				"listenerCertificates should be equal",
+			)
 		})
 	})
 

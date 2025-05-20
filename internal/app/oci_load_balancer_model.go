@@ -48,7 +48,7 @@ type reconcileHTTPListenerParams struct {
 	loadBalancerID        string
 	knownListeners        map[string]loadbalancer.Listener
 	knownRoutingPolicies  map[string]loadbalancer.RoutingPolicy
-	knownCertificates     map[string]loadbalancer.Certificate
+	listenerCertificates  []loadbalancer.Certificate
 	defaultBackendSetName string
 	listenerSpec          *gatewayv1.Listener
 }
@@ -60,10 +60,11 @@ type reconcileListenersCertificatesParams struct {
 }
 
 type reconcileListenersCertificatesResult struct {
-	knownCertificates map[string]loadbalancer.Certificate
+	// List of all certificates by certificate name
+	reconciledCertificates map[string]loadbalancer.Certificate
 
 	// List of certificates by listener name
-	listenerCertificates map[string][]loadbalancer.Certificate
+	certificatesByListener map[string][]loadbalancer.Certificate
 }
 
 type makeRoutingRuleParams struct {
@@ -269,8 +270,8 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 	}
 
 	return reconcileListenersCertificatesResult{
-		knownCertificates:    resultingCertificates,
-		listenerCertificates: listenerCertificates,
+		reconciledCertificates: resultingCertificates,
+		certificatesByListener: listenerCertificates,
 	}, nil
 }
 

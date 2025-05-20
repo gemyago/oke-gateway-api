@@ -566,9 +566,16 @@ func TestGatewayModelImpl(t *testing.T) {
 				randomOCILoadBalancerWithRandomPoliciesOpt(),
 				randomOCILoadBalancerWithRandomCertificatesOpt(),
 			)
+
+			knownCertificates := map[string]loadbalancer.Certificate{}
+			certificatesByListener := map[string][]loadbalancer.Certificate{}
+
 			loadBalancer.Listeners = make(map[string]loadbalancer.Listener)
 			for _, listener := range gateway.Spec.Listeners {
 				loadBalancer.Listeners[string(listener.Name)] = makeRandomOCIListener()
+				cert := makeRandomOCICertificate()
+				knownCertificates[*cert.CertificateName] = cert
+				certificatesByListener[string(listener.Name)] = []loadbalancer.Certificate{cert}
 			}
 
 			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
@@ -591,8 +598,6 @@ func TestGatewayModelImpl(t *testing.T) {
 				}).
 				Return(defaultBackendSet, nil)
 
-			wantKnownCertificates := makeFewRandomOCICertificatesMap()
-
 			reconcileCertificatesCall := loadBalancerModel.EXPECT().
 				reconcileListenersCertificates(t.Context(), reconcileListenersCertificatesParams{
 					loadBalancerID:    config.Spec.LoadBalancerID,
@@ -600,7 +605,8 @@ func TestGatewayModelImpl(t *testing.T) {
 					knownCertificates: loadBalancer.Certificates,
 				}).
 				Return(reconcileListenersCertificatesResult{
-					knownCertificates: wantKnownCertificates,
+					reconciledCertificates: knownCertificates,
+					certificatesByListener: certificatesByListener,
 				}, nil).
 				Once()
 
@@ -611,7 +617,7 @@ func TestGatewayModelImpl(t *testing.T) {
 						defaultBackendSetName: *defaultBackendSet.Name,
 						knownListeners:        loadBalancer.Listeners,
 						knownRoutingPolicies:  loadBalancer.RoutingPolicies,
-						knownCertificates:     wantKnownCertificates,
+						listenerCertificates:  certificatesByListener[string(listener.Name)],
 						listenerSpec:          &listener,
 					}).
 					Return(nil).
@@ -739,7 +745,7 @@ func TestGatewayModelImpl(t *testing.T) {
 					knownCertificates: loadBalancer.Certificates,
 				}).
 				Return(reconcileListenersCertificatesResult{
-					knownCertificates: wantKnownCertificates,
+					reconciledCertificates: wantKnownCertificates,
 				}, nil).
 				Once()
 

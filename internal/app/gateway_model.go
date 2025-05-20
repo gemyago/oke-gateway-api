@@ -145,11 +145,13 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 	for _, listener := range data.gateway.Spec.Listeners {
 		// TODO: Support listener with hostname
 
+		listenerName := string(listener.Name)
+
 		params := reconcileHTTPListenerParams{
 			loadBalancerID:        loadBalancerID,
 			knownListeners:        response.LoadBalancer.Listeners,
 			knownRoutingPolicies:  response.LoadBalancer.RoutingPolicies,
-			knownCertificates:     reconcileListenersCertificatesResult.knownCertificates,
+			listenerCertificates:  reconcileListenersCertificatesResult.certificatesByListener[listenerName],
 			defaultBackendSetName: *defaultBackendSet.Name,
 			listenerSpec:          &listener,
 		}
