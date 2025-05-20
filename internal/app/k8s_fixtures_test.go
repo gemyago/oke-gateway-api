@@ -476,6 +476,12 @@ func makeRandomSecret(opts ...randomSecretOpt) corev1.Secret {
 
 type randomSecretOpt func(*corev1.Secret)
 
+func randomSecretWithNameOpt(name string) randomSecretOpt {
+	return func(secret *corev1.Secret) {
+		secret.Name = name
+	}
+}
+
 func randomSecretWithTLSDataOpt() randomSecretOpt {
 	return func(secret *corev1.Secret) {
 		secret.Data[corev1.TLSCertKey] = []byte(faker.UUIDHyphenated())

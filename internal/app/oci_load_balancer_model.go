@@ -61,6 +61,9 @@ type reconcileListenersCertificatesParams struct {
 
 type reconcileListenersCertificatesResult struct {
 	knownCertificates map[string]loadbalancer.Certificate
+
+	// List of certificates by listener name
+	listenerCertificates map[string][]loadbalancer.Certificate
 }
 
 type makeRoutingRuleParams struct {
@@ -190,78 +193,84 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 	ctx context.Context,
 	params reconcileListenersCertificatesParams,
 ) (reconcileListenersCertificatesResult, error) {
-	allRefs := lo.FlatMap(
-		params.gateway.Spec.Listeners, func(listener gatewayv1.Listener, _ int) []gatewayv1.SecretObjectReference {
-			if listener.TLS == nil {
-				return nil
-			}
-			return listener.TLS.CertificateRefs
-		})
-
 	m.logger.DebugContext(ctx, "Reconciling certificates",
 		slog.String("loadBalancerId", params.loadBalancerID),
-		slog.Int("configuredRefsCount", len(allRefs)),
 		slog.Int("provisionedCertificatesCount", len(params.knownCertificates)),
 	)
 
 	resultingCertificates := maps.Clone(params.knownCertificates)
+	listenerCertificates := make(map[string][]loadbalancer.Certificate)
 
-	for _, ref := range allRefs {
-		secret := corev1.Secret{}
-		ns := lo.Ternary(ref.Namespace != nil, string(*ref.Namespace), params.gateway.Namespace)
-		err := m.k8sClient.Get(ctx, types.NamespacedName{
-			Name:      string(ref.Name),
-			Namespace: ns,
-		}, &secret)
-		if err != nil {
-			return reconcileListenersCertificatesResult{}, fmt.Errorf("failed to get secret %s: %w", ref.Name, err)
+	for _, listenerSpec := range params.gateway.Spec.Listeners {
+		if listenerSpec.TLS == nil {
+			continue
 		}
 
-		certName := ociCertificateNameFromSecret(secret)
-		if _, ok := resultingCertificates[certName]; ok {
-			m.logger.DebugContext(ctx, "Certificate already exists, skipping",
+		listenerName := string(listenerSpec.Name)
+
+		for _, ref := range listenerSpec.TLS.CertificateRefs {
+			secret := corev1.Secret{}
+			ns := lo.Ternary(ref.Namespace != nil, string(*ref.Namespace), params.gateway.Namespace)
+			err := m.k8sClient.Get(ctx, types.NamespacedName{
+				Name:      string(ref.Name),
+				Namespace: ns,
+			}, &secret)
+			if err != nil {
+				return reconcileListenersCertificatesResult{}, fmt.Errorf("failed to get secret %s: %w", ref.Name, err)
+			}
+
+			certName := ociCertificateNameFromSecret(secret)
+			if cert, ok := resultingCertificates[certName]; ok {
+				m.logger.DebugContext(ctx, "Certificate already exists, skipping",
+					slog.String("loadBalancerId", params.loadBalancerID),
+					slog.String("listenerName", listenerName),
+					slog.String("certificateName", certName),
+					slog.String("secretName", secret.Name),
+					slog.String("secretNamespace", secret.Namespace),
+					slog.String("secretVersion", secret.ResourceVersion),
+				)
+				listenerCertificates[listenerName] = append(listenerCertificates[listenerName], cert)
+				continue
+			}
+
+			m.logger.InfoContext(ctx, "Creating certificate",
 				slog.String("loadBalancerId", params.loadBalancerID),
+				slog.String("listenerName", listenerName),
 				slog.String("certificateName", certName),
 				slog.String("secretName", secret.Name),
 				slog.String("secretNamespace", secret.Namespace),
 				slog.String("secretVersion", secret.ResourceVersion),
 			)
-			continue
-		}
 
-		m.logger.InfoContext(ctx, "Creating certificate",
-			slog.String("loadBalancerId", params.loadBalancerID),
-			slog.String("certificateName", certName),
-			slog.String("secretName", secret.Name),
-			slog.String("secretNamespace", secret.Namespace),
-			slog.String("secretVersion", secret.ResourceVersion),
-		)
+			certCreateDetails := loadbalancer.CreateCertificateDetails{
+				CertificateName:   &certName,
+				PublicCertificate: lo.ToPtr(string(secret.Data[corev1.TLSCertKey])),
+				PrivateKey:        lo.ToPtr(string(secret.Data[corev1.TLSPrivateKeyKey])),
+			}
+			createRes, err := m.ociClient.CreateCertificate(ctx, loadbalancer.CreateCertificateRequest{
+				LoadBalancerId:           &params.loadBalancerID,
+				CreateCertificateDetails: certCreateDetails,
+			})
+			if err != nil {
+				return reconcileListenersCertificatesResult{}, fmt.Errorf("failed to create certificate %s: %w", certName, err)
+			}
 
-		certDetails := loadbalancer.CreateCertificateDetails{
-			CertificateName:   &certName,
-			PublicCertificate: lo.ToPtr(string(secret.Data[corev1.TLSCertKey])),
-			PrivateKey:        lo.ToPtr(string(secret.Data[corev1.TLSPrivateKeyKey])),
-		}
-		createRes, err := m.ociClient.CreateCertificate(ctx, loadbalancer.CreateCertificateRequest{
-			LoadBalancerId:           &params.loadBalancerID,
-			CreateCertificateDetails: certDetails,
-		})
-		if err != nil {
-			return reconcileListenersCertificatesResult{}, fmt.Errorf("failed to create certificate %s: %w", certName, err)
-		}
+			if err = m.workRequestsWatcher.WaitFor(ctx, *createRes.OpcWorkRequestId); err != nil {
+				return reconcileListenersCertificatesResult{}, fmt.Errorf("failed to wait for certificate %s: %w", certName, err)
+			}
 
-		if err = m.workRequestsWatcher.WaitFor(ctx, *createRes.OpcWorkRequestId); err != nil {
-			return reconcileListenersCertificatesResult{}, fmt.Errorf("failed to wait for certificate %s: %w", certName, err)
-		}
-
-		resultingCertificates[certName] = loadbalancer.Certificate{
-			CertificateName:   &certName,
-			PublicCertificate: certDetails.PublicCertificate,
+			cert := loadbalancer.Certificate{
+				CertificateName:   &certName,
+				PublicCertificate: certCreateDetails.PublicCertificate,
+			}
+			resultingCertificates[certName] = cert
+			listenerCertificates[listenerName] = append(listenerCertificates[listenerName], cert)
 		}
 	}
 
 	return reconcileListenersCertificatesResult{
-		knownCertificates: resultingCertificates,
+		knownCertificates:    resultingCertificates,
+		listenerCertificates: listenerCertificates,
 	}, nil
 }
 

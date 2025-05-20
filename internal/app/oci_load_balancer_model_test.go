@@ -234,30 +234,26 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				randomGatewayWithListenersOpt(listeners...),
 			)
 
-			allRefs := make([]gatewayv1.SecretObjectReference, 0)
-			for _, listener := range listeners {
-				if listener.TLS != nil {
-					allRefs = append(allRefs, listener.TLS.CertificateRefs...)
-				}
-			}
-
-			allSecrets := lo.Map(allRefs, func(_ gatewayv1.SecretObjectReference, _ int) corev1.Secret {
-				return makeRandomSecret()
-			})
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
 
 			knownCertificates := make(map[string]loadbalancer.Certificate)
-			for _, secret := range allSecrets {
-				certName := ociCertificateNameFromSecret(secret)
-				knownCertificates[certName] = makeRandomOCICertificate()
-			}
-
-			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			for i, ref := range allRefs {
-				secret := allSecrets[i]
-				setupClientGet(t, k8sClient, types.NamespacedName{
-					Namespace: string(lo.FromPtr(ref.Namespace)),
-					Name:      string(ref.Name),
-				}, secret).Once()
+			certificatesByListener := make(map[string][]loadbalancer.Certificate)
+			for _, listener := range listeners {
+				if listener.TLS != nil {
+					for _, ref := range listener.TLS.CertificateRefs {
+						secret := makeRandomSecret()
+						setupClientGet(t, k8sClient, types.NamespacedName{
+							Namespace: string(lo.FromPtr(ref.Namespace)),
+							Name:      string(ref.Name),
+						}, secret).Once()
+						certName := ociCertificateNameFromSecret(secret)
+						knownCertificates[certName] = makeRandomOCICertificate()
+						certificatesByListener[string(listener.Name)] = append(
+							certificatesByListener[string(listener.Name)],
+							knownCertificates[certName],
+						)
+					}
+				}
 			}
 
 			params := reconcileListenersCertificatesParams{
@@ -269,7 +265,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			gotResult, err := model.reconcileListenersCertificates(t.Context(), params)
 			require.NoError(t, err)
 
-			assert.Equal(t, knownCertificates, gotResult.knownCertificates)
+			assert.Equal(t, knownCertificates, gotResult.knownCertificates, "knownCertificates should be equal")
+			assert.Equal(t, certificatesByListener, gotResult.listenerCertificates, "listenerCertificates should be equal")
 		})
 
 		t.Run("some certificates are missing", func(t *testing.T) {
@@ -277,8 +274,18 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			model := newOciLoadBalancerModel(deps)
 
 			missingCertListeners := []gatewayv1.Listener{
-				makeRandomListener(randomListenerWithHTTPSParamsOpt()),
-				makeRandomListener(randomListenerWithHTTPSParamsOpt()),
+				makeRandomListener(
+					randomListenerWithNameOpt(gatewayv1.SectionName("missing-cert-1-"+faker.UUIDHyphenated())),
+					randomListenerWithHTTPSParamsOpt(),
+				),
+				makeRandomListener(
+					randomListenerWithNameOpt(gatewayv1.SectionName("missing-cert-2-"+faker.UUIDHyphenated())),
+					randomListenerWithHTTPSParamsOpt(),
+				),
+				makeRandomListener(
+					randomListenerWithNameOpt(gatewayv1.SectionName("missing-cert-3-"+faker.UUIDHyphenated())),
+					randomListenerWithHTTPSParamsOpt(),
+				),
 			}
 
 			existingCertsListeners := []gatewayv1.Listener{
@@ -295,81 +302,87 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				randomGatewayWithListenersOpt(allListeners...),
 			)
 
-			existingRefs := make([]gatewayv1.SecretObjectReference, 0)
-			for _, listener := range existingCertsListeners {
-				existingRefs = append(existingRefs, listener.TLS.CertificateRefs...)
-			}
-
-			missingRefs := make([]gatewayv1.SecretObjectReference, 0)
-			for _, listener := range missingCertListeners {
-				missingRefs = append(missingRefs, listener.TLS.CertificateRefs...)
-			}
-
-			existingSecrets := lo.Map(existingRefs, func(_ gatewayv1.SecretObjectReference, _ int) corev1.Secret {
-				return makeRandomSecret()
-			})
-
-			missingSecrets := lo.Map(missingRefs, func(_ gatewayv1.SecretObjectReference, _ int) corev1.Secret {
-				return makeRandomSecret(
-					randomSecretWithTLSDataOpt(),
-				)
-			})
-
-			wantResultingCerts := make(map[string]loadbalancer.Certificate)
-			for _, secret := range existingSecrets {
-				certName := ociCertificateNameFromSecret(secret)
-				wantResultingCerts[certName] = makeRandomOCICertificate()
-			}
-
 			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			for i, ref := range existingRefs {
-				secret := existingSecrets[i]
-				setupClientGet(t, k8sClient, types.NamespacedName{
-					Namespace: string(lo.FromPtr(ref.Namespace)),
-					Name:      string(ref.Name),
-				}, secret).Once()
+
+			loadBalancerID := faker.UUIDHyphenated()
+			knownCertificates := make(map[string]loadbalancer.Certificate)
+			wantResultingCerts := make(map[string]loadbalancer.Certificate)
+			wantResultingCertsByListener := make(map[string][]loadbalancer.Certificate)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			for _, listener := range existingCertsListeners {
+				if listener.TLS != nil {
+					for _, ref := range listener.TLS.CertificateRefs {
+						secret := makeRandomSecret()
+						setupClientGet(t, k8sClient, types.NamespacedName{
+							Namespace: string(lo.FromPtr(ref.Namespace)),
+							Name:      string(ref.Name),
+						}, secret).Once()
+						certName := ociCertificateNameFromSecret(secret)
+						existingCert := makeRandomOCICertificate()
+						knownCertificates[certName] = existingCert
+						wantResultingCerts[certName] = existingCert
+						wantResultingCertsByListener[string(listener.Name)] = append(
+							wantResultingCertsByListener[string(listener.Name)],
+							existingCert,
+						)
+					}
+				}
+			}
+
+			for _, listener := range missingCertListeners {
+				if listener.TLS != nil {
+					for i, ref := range listener.TLS.CertificateRefs {
+						secret := makeRandomSecret(
+							randomSecretWithNameOpt(fmt.Sprintf("missing-cert-%d-%s-%s", i, faker.DomainName(), faker.Word())),
+							randomSecretWithTLSDataOpt(),
+						)
+						setupClientGet(t, k8sClient, types.NamespacedName{
+							Namespace: string(lo.FromPtr(ref.Namespace)),
+							Name:      string(ref.Name),
+						}, secret).Once()
+						certName := ociCertificateNameFromSecret(secret)
+
+						workRequestID := faker.UUIDHyphenated()
+						certCreateDetails := loadbalancer.CreateCertificateDetails{
+							CertificateName:   &certName,
+							PublicCertificate: lo.ToPtr(string(secret.Data[corev1.TLSCertKey])),
+							PrivateKey:        lo.ToPtr(string(secret.Data[corev1.TLSPrivateKeyKey])),
+						}
+						ociLoadBalancerClient.EXPECT().CreateCertificate(t.Context(), loadbalancer.CreateCertificateRequest{
+							LoadBalancerId:           &loadBalancerID,
+							CreateCertificateDetails: certCreateDetails,
+						}).Return(loadbalancer.CreateCertificateResponse{
+							OpcWorkRequestId: &workRequestID,
+						}, nil)
+
+						workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
+
+						ociCert := loadbalancer.Certificate{
+							CertificateName:   &certName,
+							PublicCertificate: certCreateDetails.PublicCertificate,
+						}
+						wantResultingCerts[certName] = ociCert
+						wantResultingCertsByListener[string(listener.Name)] = append(
+							wantResultingCertsByListener[string(listener.Name)],
+							ociCert,
+						)
+					}
+				}
 			}
 
 			params := reconcileListenersCertificatesParams{
-				loadBalancerID:    faker.UUIDHyphenated(),
+				loadBalancerID:    loadBalancerID,
 				gateway:           gateway,
-				knownCertificates: maps.Clone(wantResultingCerts),
-			}
-
-			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
-			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
-			for i, ref := range missingRefs {
-				secret := missingSecrets[i]
-				setupClientGet(t, k8sClient, types.NamespacedName{
-					Namespace: string(lo.FromPtr(ref.Namespace)),
-					Name:      string(ref.Name),
-				}, secret).Once()
-
-				certName := ociCertificateNameFromSecret(secret)
-				wantResultingCerts[certName] = loadbalancer.Certificate{
-					CertificateName:   &certName,
-					PublicCertificate: lo.ToPtr(string(secret.Data[corev1.TLSCertKey])),
-				}
-
-				workRequestID := faker.UUIDHyphenated()
-				ociLoadBalancerClient.EXPECT().CreateCertificate(t.Context(), loadbalancer.CreateCertificateRequest{
-					LoadBalancerId: &params.loadBalancerID,
-					CreateCertificateDetails: loadbalancer.CreateCertificateDetails{
-						CertificateName:   &certName,
-						PublicCertificate: lo.ToPtr(string(secret.Data[corev1.TLSCertKey])),
-						PrivateKey:        lo.ToPtr(string(secret.Data[corev1.TLSPrivateKeyKey])),
-					},
-				}).Return(loadbalancer.CreateCertificateResponse{
-					OpcWorkRequestId: &workRequestID,
-				}, nil)
-
-				workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
+				knownCertificates: maps.Clone(knownCertificates),
 			}
 
 			gotResult, err := model.reconcileListenersCertificates(t.Context(), params)
 			require.NoError(t, err)
 
-			assert.Equal(t, wantResultingCerts, gotResult.knownCertificates)
+			assert.Equal(t, wantResultingCerts, gotResult.knownCertificates, "knownCertificates should be equal")
+			assert.Equal(t, wantResultingCertsByListener, gotResult.listenerCertificates, "listenerCertificates should be equal")
 		})
 	})
 
