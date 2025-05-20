@@ -67,6 +67,9 @@ func TestGatewayController(t *testing.T) {
 					status:        metav1.ConditionTrue,
 					reason:        string(gatewayv1.GatewayReasonAccepted),
 					message:       fmt.Sprintf("Gateway %s accepted by %s", gateway.Name, ControllerClassName),
+					annotations: map[string]string{
+						ControllerClassName: "true",
+					},
 				}).
 				Return(nil).Once()
 

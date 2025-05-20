@@ -94,6 +94,9 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 			status:        v1.ConditionTrue,
 			reason:        string(gatewayv1.GatewayReasonAccepted),
 			message:       fmt.Sprintf("Gateway %s accepted by %s", data.gateway.Name, ControllerClassName),
+			annotations: map[string]string{
+				ControllerClassName: "true",
+			},
 		}); err != nil {
 			return reconcile.Result{}, fmt.Errorf("failed to set accepted condition for Gateway %s: %w", req.NamespacedName, err)
 		}
