@@ -30,6 +30,11 @@ type StartManagerDeps struct {
 	HTTPRouteCtrl    *app.HTTPRouteController
 	WatchesModel     *app.WatchesModel
 	Config           *rest.Config
+
+	// feature flags
+	ReconcileGatewayClass bool `name:"config.features.reconcileGatewayClass"`
+	ReconcileGateway      bool `name:"config.features.reconcileGateway"`
+	ReconcileHTTPRoute    bool `name:"config.features.reconcileHTTPRoute"`
 }
 
 // StartManager starts the controller manager.
@@ -51,29 +56,41 @@ func StartManager(ctx context.Context, deps StartManagerDeps) error { // coverag
 		newErrorHandlingMiddleware(deps.RootLogger),
 	}
 
-	if err := builder.ControllerManagedBy(mgr).
-		For(&gatewayv1.GatewayClass{}).
-		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
-		Complete(wireupReconciler(deps.GatewayClassCtrl, middlewares...)); err != nil {
-		return fmt.Errorf("failed to setup GatewayClass controller: %w", err)
+	if deps.ReconcileGatewayClass {
+		if err := builder.ControllerManagedBy(mgr).
+			For(&gatewayv1.GatewayClass{}).
+			WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
+			Complete(wireupReconciler(deps.GatewayClassCtrl, middlewares...)); err != nil {
+			return fmt.Errorf("failed to setup GatewayClass controller: %w", err)
+		}
+	} else {
+		logger.InfoContext(loggerCtx, "GatewayClass controller is disabled")
 	}
 
-	if err := builder.ControllerManagedBy(mgr).
-		For(&gatewayv1.Gateway{}).
-		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
-		Complete(wireupReconciler(deps.GatewayCtrl, middlewares...)); err != nil {
-		return fmt.Errorf("failed to setup Gateway controller: %w", err)
+	if deps.ReconcileGateway {
+		if err := builder.ControllerManagedBy(mgr).
+			For(&gatewayv1.Gateway{}).
+			WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
+			Complete(wireupReconciler(deps.GatewayCtrl, middlewares...)); err != nil {
+			return fmt.Errorf("failed to setup Gateway controller: %w", err)
+		}
+	} else {
+		logger.InfoContext(loggerCtx, "Gateway controller is disabled")
 	}
 
-	if err := builder.ControllerManagedBy(mgr).
-		For(&gatewayv1.HTTPRoute{}).
-		Watches(
-			&discoveryv1.EndpointSlice{},
-			handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapEndpointSliceToHTTPRoute),
-		).
-		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
-		Complete(wireupReconciler(deps.HTTPRouteCtrl, middlewares...)); err != nil {
-		return fmt.Errorf("failed to setup HTTPRoute controller: %w", err)
+	if deps.ReconcileHTTPRoute {
+		if err := builder.ControllerManagedBy(mgr).
+			For(&gatewayv1.HTTPRoute{}).
+			Watches(
+				&discoveryv1.EndpointSlice{},
+				handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapEndpointSliceToHTTPRoute),
+			).
+			WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
+			Complete(wireupReconciler(deps.HTTPRouteCtrl, middlewares...)); err != nil {
+			return fmt.Errorf("failed to setup HTTPRoute controller: %w", err)
+		}
+	} else {
+		logger.InfoContext(loggerCtx, "HTTPRoute controller is disabled")
 	}
 
 	logger.InfoContext(loggerCtx, "Starting controller manager")

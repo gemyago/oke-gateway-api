@@ -17,5 +17,10 @@
   },
   "ociapi": {
     "noop": false
+  },
+  "features": {
+    "reconcileGatewayClass": true,
+    "reconcileGateway": true,
+    "reconcileHTTPRoute": true
   }
 }
