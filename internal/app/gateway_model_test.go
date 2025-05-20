@@ -624,13 +624,22 @@ func TestGatewayModelImpl(t *testing.T) {
 					NotBefore(reconcileCertificatesCall)
 			}
 
-			loadBalancerModel.EXPECT().
+			removeCall := loadBalancerModel.EXPECT().
 				removeMissingListeners(t.Context(), removeMissingListenersParams{
 					loadBalancerID:   config.Spec.LoadBalancerID,
 					knownListeners:   loadBalancer.Listeners,
 					gatewayListeners: gateway.Spec.Listeners,
 				}).
 				Return(nil)
+
+			loadBalancerModel.EXPECT().
+				removeUnusedCertificates(t.Context(), removeUnusedCertificatesParams{
+					loadBalancerID:       config.Spec.LoadBalancerID,
+					listenerCertificates: certificatesByListener,
+					knownCertificates:    loadBalancer.Certificates,
+				}).
+				Return(nil).
+				NotBefore(removeCall.Call)
 
 			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
 				gateway: *gateway,

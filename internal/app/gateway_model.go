@@ -169,6 +169,14 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 		return fmt.Errorf("failed to remove missing listeners: %w", err)
 	}
 
+	if err = m.ociLoadBalancerModel.removeUnusedCertificates(ctx, removeUnusedCertificatesParams{
+		loadBalancerID:       loadBalancerID,
+		listenerCertificates: reconcileListenersCertificatesResult.certificatesByListener,
+		knownCertificates:    response.LoadBalancer.Certificates,
+	}); err != nil {
+		return fmt.Errorf("failed to remove unused certificates: %w", err)
+	}
+
 	return nil
 }
 
