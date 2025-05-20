@@ -269,6 +269,65 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			assert.Equal(t, certificatesByListener, gotResult.certificatesByListener, "listenerCertificates should be equal")
 		})
 
+		t.Run("all certificates exist in gateway namespace", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			listeners := []gatewayv1.Listener{
+				makeRandomListener(
+					func(l *gatewayv1.Listener) {
+						l.TLS = &gatewayv1.GatewayTLSConfig{
+							CertificateRefs: []gatewayv1.SecretObjectReference{
+								{
+									Name: gatewayv1.ObjectName("cert1-" + faker.DomainName()),
+								},
+								{
+									Name: gatewayv1.ObjectName("cert2-" + faker.DomainName()),
+								},
+							},
+						}
+					},
+				),
+			}
+
+			gateway := newRandomGateway(
+				randomGatewayWithListenersOpt(listeners...),
+			)
+
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+
+			knownCertificates := make(map[string]loadbalancer.Certificate)
+			certificatesByListener := make(map[string][]loadbalancer.Certificate)
+			for _, listener := range listeners {
+				if listener.TLS != nil {
+					for _, ref := range listener.TLS.CertificateRefs {
+						secret := makeRandomSecret()
+						setupClientGet(t, k8sClient, types.NamespacedName{
+							Namespace: gateway.Namespace,
+							Name:      string(ref.Name),
+						}, secret).Once()
+						certName := ociCertificateNameFromSecret(secret)
+						knownCertificates[certName] = makeRandomOCICertificate()
+						certificatesByListener[string(listener.Name)] = append(
+							certificatesByListener[string(listener.Name)],
+							knownCertificates[certName],
+						)
+					}
+				}
+			}
+
+			params := reconcileListenersCertificatesParams{
+				loadBalancerID:    faker.UUIDHyphenated(),
+				gateway:           gateway,
+				knownCertificates: knownCertificates,
+			}
+
+			gotResult, err := model.reconcileListenersCertificates(t.Context(), params)
+			require.NoError(t, err)
+
+			assert.Equal(t, knownCertificates, gotResult.reconciledCertificates, "knownCertificates should be equal")
+			assert.Equal(t, certificatesByListener, gotResult.certificatesByListener, "listenerCertificates should be equal")
+		})
+
 		t.Run("some certificates are missing", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)

@@ -211,7 +211,7 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 
 		for _, ref := range listenerSpec.TLS.CertificateRefs {
 			secret := corev1.Secret{}
-			ns := lo.Ternary(ref.Namespace != nil, string(*ref.Namespace), params.gateway.Namespace)
+			ns := lo.Ternary(ref.Namespace != nil, string(lo.FromPtr(ref.Namespace)), params.gateway.Namespace)
 			err := m.k8sClient.Get(ctx, types.NamespacedName{
 				Name:      string(ref.Name),
 				Namespace: ns,
