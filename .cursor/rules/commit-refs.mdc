@@ -1,0 +1,10 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Applied when requested to commit
+
+* All files referenced in a given chat needs to be committed to git
+* When committing, make sure to provide a sensible message
+* Do not ask for confirmation
