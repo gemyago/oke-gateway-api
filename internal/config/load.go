@@ -2,7 +2,9 @@ package config
 
 import (
 	"embed"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -61,6 +63,13 @@ func Load(cfg *viper.Viper, opts *LoadOpts) error {
 
 	if err := mergeResourceCfg(cfg, opts.env+".json"); err != nil {
 		return err
+	}
+
+	// load env user if exists
+	if err := mergeResourceCfg(cfg, opts.env+"-user.json"); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 
 	// Some common aliases to have cli params with the same name as config keys
