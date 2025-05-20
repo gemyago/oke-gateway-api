@@ -749,8 +749,54 @@ func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
 	ctx context.Context,
 	params removeUnusedCertificatesParams,
 ) error {
+	// Create a set of all certificates that are in use by listeners
+	usedCertificates := make(map[string]struct{})
+	for _, certs := range params.listenerCertificates {
+		for _, cert := range certs {
+			usedCertificates[*cert.CertificateName] = struct{}{}
+		}
+	}
+
+	// Iterate through all known certificates and remove those that are not in use
+	for certName, cert := range params.knownCertificates {
+		if _, isUsed := usedCertificates[certName]; !isUsed {
+			m.logger.InfoContext(ctx, "Removing unused certificate",
+				slog.String("loadBalancerId", params.loadBalancerID),
+				slog.String("certificateName", certName),
+			)
+
+			resp, err := m.ociClient.DeleteCertificate(ctx, loadbalancer.DeleteCertificateRequest{
+				LoadBalancerId:  &params.loadBalancerID,
+				CertificateName: cert.CertificateName,
+			})
+			if err != nil {
+				m.logger.WarnContext(ctx, "Failed to delete certificate",
+					diag.ErrAttr(err),
+					slog.String("certificateName", certName),
+					slog.String("loadBalancerId", params.loadBalancerID),
+				)
+				continue
+			}
+
+			if err = m.workRequestsWatcher.WaitFor(ctx, *resp.OpcWorkRequestId); err != nil {
+				m.logger.WarnContext(ctx, "Failed to wait for certificate deletion",
+					diag.ErrAttr(err),
+					slog.String("certificateName", certName),
+					slog.String("loadBalancerId", params.loadBalancerID),
+				)
+				continue
+			}
+
+			m.logger.DebugContext(ctx, "Successfully removed unused certificate",
+				slog.String("loadBalancerId", params.loadBalancerID),
+				slog.String("certificateName", certName),
+			)
+		}
+	}
+
 	return nil
 }
+
 func listenerPolicyName(listenerName string) string {
 	// TODO: Sanitize the name, investigate docs for allowed characters
 	return listenerName + "_policy"
