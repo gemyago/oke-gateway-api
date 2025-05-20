@@ -1,0 +1,23 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: oke-gw-example-issuer
+  namespace: oke-gw
+spec:
+  acme:
+    # You must replace this email address with your own.
+    # Let's Encrypt will use this to contact you about expiring
+    # certificates, and issues related to your account.
+    email: main@example.com
+
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: oke-gw-example-issuer
+    solvers:
+    - http01:
+        # Make sure to enable gateway api for certmanager
+        gatewayHTTPRoute:
+          parentRefs:
+            - name: oke-gateway
+              namespace: oke-gw
+              kind: Gateway

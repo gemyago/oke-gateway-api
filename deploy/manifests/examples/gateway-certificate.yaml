@@ -1,0 +1,15 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: oke-gw-example-https-cert
+  namespace: oke-gw
+spec:
+  secretName: oke-gw-example-https-cert
+  issuerRef:
+    name: oke-gw-example-issuer
+
+  # Make sure to specify your domain here
+  # If using http01 challenge, the domain should be accessible
+  # from the internet and should point to the load balancer ip
+  dnsNames:
+  - example.com
