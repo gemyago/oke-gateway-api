@@ -89,6 +89,12 @@ type removeMissingListenersParams struct {
 	gatewayListeners []gatewayv1.Listener
 }
 
+type removeUnusedCertificatesParams struct {
+	loadBalancerID       string
+	listenerCertificates map[string][]loadbalancer.Certificate
+	knownCertificates    map[string]loadbalancer.Certificate
+}
+
 type ociLoadBalancerModel interface {
 	reconcileDefaultBackendSet(
 		ctx context.Context,
@@ -128,6 +134,11 @@ type ociLoadBalancerModel interface {
 
 	// removeMissingListeners removes listeners from the load balancer that are not present in the gateway spec.
 	removeMissingListeners(ctx context.Context, params removeMissingListenersParams) error
+
+	removeUnusedCertificates(
+		ctx context.Context,
+		params removeUnusedCertificatesParams,
+	) error
 }
 
 type ociLoadBalancerModelImpl struct {
@@ -734,6 +745,12 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 	return nil
 }
 
+func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
+	ctx context.Context,
+	params removeUnusedCertificatesParams,
+) error {
+	return nil
+}
 func listenerPolicyName(listenerName string) string {
 	// TODO: Sanitize the name, investigate docs for allowed characters
 	return listenerName + "_policy"

@@ -430,6 +430,53 @@ func (_c *MockociLoadBalancerModel_removeMissingListeners_Call) RunAndReturn(run
 	return _c
 }
 
+// removeUnusedCertificates provides a mock function with given fields: ctx, params
+func (_m *MockociLoadBalancerModel) removeUnusedCertificates(ctx context.Context, params removeUnusedCertificatesParams) error {
+	ret := _m.Called(ctx, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for removeUnusedCertificates")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, removeUnusedCertificatesParams) error); ok {
+		r0 = rf(ctx, params)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockociLoadBalancerModel_removeUnusedCertificates_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'removeUnusedCertificates'
+type MockociLoadBalancerModel_removeUnusedCertificates_Call struct {
+	*mock.Call
+}
+
+// removeUnusedCertificates is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params removeUnusedCertificatesParams
+func (_e *MockociLoadBalancerModel_Expecter) removeUnusedCertificates(ctx interface{}, params interface{}) *MockociLoadBalancerModel_removeUnusedCertificates_Call {
+	return &MockociLoadBalancerModel_removeUnusedCertificates_Call{Call: _e.mock.On("removeUnusedCertificates", ctx, params)}
+}
+
+func (_c *MockociLoadBalancerModel_removeUnusedCertificates_Call) Run(run func(ctx context.Context, params removeUnusedCertificatesParams)) *MockociLoadBalancerModel_removeUnusedCertificates_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(removeUnusedCertificatesParams))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_removeUnusedCertificates_Call) Return(_a0 error) *MockociLoadBalancerModel_removeUnusedCertificates_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_removeUnusedCertificates_Call) RunAndReturn(run func(context.Context, removeUnusedCertificatesParams) error) *MockociLoadBalancerModel_removeUnusedCertificates_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockociLoadBalancerModel creates a new instance of MockociLoadBalancerModel. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockociLoadBalancerModel(t interface {
