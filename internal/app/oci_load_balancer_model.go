@@ -342,6 +342,15 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 		return fmt.Errorf("failed to reconcile listener routing policy: %w", err)
 	}
 
+	var sslConfig *loadbalancer.SslConfigurationDetails
+	if params.listenerSpec.TLS != nil {
+		cert := params.listenerCertificates[0]
+
+		sslConfig = &loadbalancer.SslConfigurationDetails{
+			CertificateName: cert.CertificateName,
+		}
+	}
+
 	var workRequestID string
 	if _, ok := params.knownListeners[listenerName]; ok {
 		m.logger.DebugContext(ctx, "Listener already exists, updating",
@@ -353,10 +362,11 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 			ListenerName:   &listenerName,
 			LoadBalancerId: &params.loadBalancerID,
 			UpdateListenerDetails: loadbalancer.UpdateListenerDetails{
-				Protocol:              lo.ToPtr(string(params.listenerSpec.Protocol)),
+				Protocol:              lo.ToPtr("HTTP"),
 				Port:                  lo.ToPtr(int(params.listenerSpec.Port)),
 				DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
 				RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
+				SslConfiguration:      sslConfig,
 			},
 		})
 		if err != nil {
@@ -376,8 +386,9 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 				Name:                  lo.ToPtr(listenerName),
 				DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
 				Port:                  lo.ToPtr(int(params.listenerSpec.Port)),
-				Protocol:              lo.ToPtr(string(params.listenerSpec.Protocol)),
+				Protocol:              lo.ToPtr("HTTP"),
 				RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
+				SslConfiguration:      sslConfig,
 			},
 		})
 		if err != nil {

@@ -391,7 +391,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 	})
 
 	t.Run("reconcileHTTPListener", func(t *testing.T) {
-		t.Run("when listener exists", func(t *testing.T) {
+		t.Run("when regular http listener exists", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 			gwListener := makeRandomListener(
@@ -443,10 +443,74 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("when https listener exists", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			gwListener := makeRandomListener(
+				randomListenerWithHTTPSParamsOpt(),
+			)
+			lbListener := makeRandomOCIListener(
+				func(l *loadbalancer.Listener) {
+					l.Name = lo.ToPtr(string(gwListener.Name))
+				},
+			)
+
+			ociListenerCert := makeRandomOCICertificate()
+			listenerCertificates := []loadbalancer.Certificate{
+				ociListenerCert,
+				makeRandomOCICertificate(), // first one should be used
+			}
+
+			routingPolicyName := string(gwListener.Name) + "_policy"
+
+			params := reconcileHTTPListenerParams{
+				loadBalancerID: faker.UUIDHyphenated(),
+				knownRoutingPolicies: map[string]loadbalancer.RoutingPolicy{
+					faker.UUIDHyphenated(): makeRandomOCIRoutingPolicy(),
+					routingPolicyName:      makeRandomOCIRoutingPolicy(),
+				},
+				knownListeners: map[string]loadbalancer.Listener{
+					string(gwListener.Name): lbListener,
+					faker.UUIDHyphenated():  makeRandomOCIListener(),
+				},
+				listenerCertificates:  listenerCertificates,
+				defaultBackendSetName: faker.UUIDHyphenated(),
+				listenerSpec:          &gwListener,
+			}
+
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+			workRequestID := faker.UUIDHyphenated()
+
+			ociLoadBalancerClient.EXPECT().UpdateListener(t.Context(), loadbalancer.UpdateListenerRequest{
+				LoadBalancerId: &params.loadBalancerID,
+				ListenerName:   lo.ToPtr(string(gwListener.Name)),
+				UpdateListenerDetails: loadbalancer.UpdateListenerDetails{
+					Port:                  lo.ToPtr(int(gwListener.Port)),
+					Protocol:              lo.ToPtr("HTTP"),
+					DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
+					RoutingPolicyName:     lo.ToPtr(routingPolicyName),
+					SslConfiguration: &loadbalancer.SslConfigurationDetails{
+						CertificateName: ociListenerCert.CertificateName,
+					},
+				},
+			}).Return(loadbalancer.UpdateListenerResponse{
+				OpcWorkRequestId: &workRequestID,
+			}, nil)
+
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
+
+			err := model.reconcileHTTPListener(t.Context(), params)
+			require.NoError(t, err)
+		})
+
 		t.Run("when listener does not exist", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
-			gwListener := makeRandomListener()
+			gwListener := makeRandomListener(
+				randomListenerWithHTTPProtocolOpt(),
+			)
 
 			params := reconcileHTTPListenerParams{
 				loadBalancerID: faker.UUIDHyphenated(),
@@ -500,6 +564,86 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					Protocol:              lo.ToPtr(string(gwListener.Protocol)),
 					DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
 					RoutingPolicyName:     lo.ToPtr(routingPolicyName),
+				},
+			}).Return(loadbalancer.CreateListenerResponse{
+				OpcWorkRequestId: &listenerWorkRequestID,
+			}, nil)
+
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), listenerWorkRequestID).Return(nil)
+
+			err := model.reconcileHTTPListener(t.Context(), params)
+			require.NoError(t, err)
+		})
+
+		t.Run("when https listener does not exist", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			gwListener := makeRandomListener(
+				randomListenerWithHTTPSParamsOpt(),
+			)
+
+			ociListenerCert := makeRandomOCICertificate()
+			listenerCertificates := []loadbalancer.Certificate{
+				ociListenerCert,
+				makeRandomOCICertificate(), // first one should be used
+			}
+
+			params := reconcileHTTPListenerParams{
+				loadBalancerID: faker.UUIDHyphenated(),
+				knownListeners: map[string]loadbalancer.Listener{
+					faker.UUIDHyphenated(): makeRandomOCIListener(),
+					faker.UUIDHyphenated(): makeRandomOCIListener(),
+				},
+				listenerCertificates:  listenerCertificates,
+				defaultBackendSetName: faker.UUIDHyphenated(),
+				listenerSpec:          &gwListener,
+			}
+
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			// For routing policy creation
+			routingPolicyName := string(gwListener.Name) + "_policy"
+			routingPolicyWorkRequestID := faker.UUIDHyphenated()
+
+			ociLoadBalancerClient.EXPECT().CreateRoutingPolicy(t.Context(), loadbalancer.CreateRoutingPolicyRequest{
+				LoadBalancerId: &params.loadBalancerID,
+				CreateRoutingPolicyDetails: loadbalancer.CreateRoutingPolicyDetails{
+					Name:                     &routingPolicyName,
+					ConditionLanguageVersion: loadbalancer.CreateRoutingPolicyDetailsConditionLanguageVersionV1,
+					Rules: []loadbalancer.RoutingRule{
+						{
+							Name:      lo.ToPtr("default_catch_all"),
+							Condition: lo.ToPtr("any(http.request.url.path sw '/')"),
+							Actions: []loadbalancer.Action{
+								loadbalancer.ForwardToBackendSet{
+									BackendSetName: lo.ToPtr(params.defaultBackendSetName),
+								},
+							},
+						},
+					},
+				},
+			}).Return(loadbalancer.CreateRoutingPolicyResponse{
+				OpcWorkRequestId: &routingPolicyWorkRequestID,
+			}, nil)
+
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), routingPolicyWorkRequestID).Return(nil)
+
+			// For listener creation
+			listenerWorkRequestID := faker.UUIDHyphenated()
+
+			ociLoadBalancerClient.EXPECT().CreateListener(t.Context(), loadbalancer.CreateListenerRequest{
+				LoadBalancerId: &params.loadBalancerID,
+				CreateListenerDetails: loadbalancer.CreateListenerDetails{
+					Name:                  lo.ToPtr(string(gwListener.Name)),
+					Port:                  lo.ToPtr(int(gwListener.Port)),
+					Protocol:              lo.ToPtr("HTTP"),
+					DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
+					RoutingPolicyName:     lo.ToPtr(routingPolicyName),
+					SslConfiguration: &loadbalancer.SslConfigurationDetails{
+						CertificateName: ociListenerCert.CertificateName,
+					},
 				},
 			}).Return(loadbalancer.CreateListenerResponse{
 				OpcWorkRequestId: &listenerWorkRequestID,
