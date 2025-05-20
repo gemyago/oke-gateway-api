@@ -10,7 +10,9 @@ spec:
     # certificates, and issues related to your account.
     email: main@example.com
 
+    # Prefer testing against staging prior to enabling production
     server: https://acme-staging-v02.api.letsencrypt.org/directory
+
     privateKeySecretRef:
       name: oke-gw-example-issuer
     solvers:
