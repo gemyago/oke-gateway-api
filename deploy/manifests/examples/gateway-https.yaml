@@ -10,14 +10,18 @@ spec:
       kind: GatewayConfig
       name: oke-gateway-config
   listeners:
+    # If you want to use http01 challenge, you have to have the http listener
+    # enabled. The certmanager will use it to attach verification routes.
     - name: http
       port: 80
       protocol: HTTP
+
+    # Certificate must be provisioned prior to creating the gateway with
+    # https config. You may need to comment this section out while provisioning
+    # the certificate with http01 verification challenge.
     - name: https
       port: 443
       protocol: HTTPS
       tls:
-        # Certificate must be provisioned prior to creating the gateway with
-        # https config
         certificateRefs:
           - name: oke-gw-example-https-cert
