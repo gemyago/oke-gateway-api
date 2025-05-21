@@ -31,7 +31,7 @@ func TestGatewayModelImpl(t *testing.T) {
 		}
 	}
 
-	t.Run("acceptReconcileRequest", func(t *testing.T) {
+	t.Run("resolveReconcileRequest", func(t *testing.T) {
 		t.Run("valid gateway", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)

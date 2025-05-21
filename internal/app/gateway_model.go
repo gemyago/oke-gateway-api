@@ -8,6 +8,7 @@ import (
 	"github.com/gemyago/oke-gateway-api/internal/types"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"go.uber.org/dig"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -17,7 +18,12 @@ import (
 type resolvedGatewayDetails struct {
 	gateway      gatewayv1.Gateway
 	gatewayClass gatewayv1.GatewayClass
-	config       types.GatewayConfig
+
+	// Map of secret full name to the secret object
+	// holds all secrets that are used by the gateway (mostly listeners certificates)
+	gatewaySecrets map[string]corev1.Secret
+
+	config types.GatewayConfig
 }
 
 type gatewayModel interface {
