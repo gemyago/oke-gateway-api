@@ -501,6 +501,45 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			err := model.reconcileHTTPListener(t.Context(), params)
 			require.NoError(t, err)
 		})
+		t.Run("when listener exists no changes", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			gwListener := makeRandomListener(
+				randomListenerWithHTTPProtocolOpt(),
+			)
+			defaultBackendSetName := faker.UUIDHyphenated()
+			routingPolicyName := string(gwListener.Name) + "_policy"
+			lbListener := makeRandomOCIListener(
+				func(l *loadbalancer.Listener) {
+					l.Name = lo.ToPtr(string(gwListener.Name))
+					l.Port = lo.ToPtr(int(gwListener.Port))
+					l.Protocol = lo.ToPtr(string(gwListener.Protocol))
+					l.DefaultBackendSetName = lo.ToPtr(defaultBackendSetName)
+					l.RoutingPolicyName = lo.ToPtr(routingPolicyName)
+				},
+			)
+
+			params := reconcileHTTPListenerParams{
+				loadBalancerID: faker.UUIDHyphenated(),
+				knownRoutingPolicies: map[string]loadbalancer.RoutingPolicy{
+					faker.UUIDHyphenated(): makeRandomOCIRoutingPolicy(),
+					routingPolicyName:      makeRandomOCIRoutingPolicy(),
+				},
+				knownListeners: map[string]loadbalancer.Listener{
+					string(gwListener.Name): lbListener,
+					faker.UUIDHyphenated():  makeRandomOCIListener(),
+				},
+				defaultBackendSetName: defaultBackendSetName,
+				listenerSpec:          &gwListener,
+			}
+
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			err := model.reconcileHTTPListener(t.Context(), params)
+			require.NoError(t, err)
+
+			ociLoadBalancerClient.AssertNotCalled(t, "UpdateListener")
+		})
 
 		t.Run("when https listener exists", func(t *testing.T) {
 			deps := makeMockDeps(t)
@@ -2302,11 +2341,36 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 			defaultBackendSetName := faker.UUIDHyphenated()
 
 			return testCase{
-				name: "basic http listener",
+				name: "no changes needed",
 				params: makeOciListenerUpdateDetailsParams{
 					existingListenerData: loadbalancer.Listener{
 						Protocol:              lo.ToPtr("HTTP"),
 						Port:                  lo.ToPtr(int(listenerSpec.Port)),
+						DefaultBackendSetName: lo.ToPtr(defaultBackendSetName),
+						RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
+					},
+					listenerName:          listenerName,
+					listenerSpec:          &listenerSpec,
+					defaultBackendSetName: defaultBackendSetName,
+				},
+				want:   loadbalancer.UpdateListenerDetails{},
+				wantOk: false,
+			}
+		},
+		func() testCase {
+			listenerName := faker.UUIDHyphenated()
+			listenerSpec := makeRandomListener(
+				randomListenerWithHTTPProtocolOpt(),
+			)
+			defaultBackendSetName := faker.UUIDHyphenated()
+			newPort := listenerSpec.Port + 1
+
+			return testCase{
+				name: "port change",
+				params: makeOciListenerUpdateDetailsParams{
+					existingListenerData: loadbalancer.Listener{
+						Protocol:              lo.ToPtr("HTTP"),
+						Port:                  lo.ToPtr(int(newPort)), // Set to a different port
 						DefaultBackendSetName: lo.ToPtr(defaultBackendSetName),
 						RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
 					},
@@ -2326,6 +2390,36 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 		func() testCase {
 			listenerName := faker.UUIDHyphenated()
 			listenerSpec := makeRandomListener(
+				randomListenerWithHTTPProtocolOpt(),
+			)
+			defaultBackendSetName := faker.UUIDHyphenated()
+			newDefaultBackendSetName := faker.UUIDHyphenated()
+
+			return testCase{
+				name: "default backend set change",
+				params: makeOciListenerUpdateDetailsParams{
+					existingListenerData: loadbalancer.Listener{
+						Protocol:              lo.ToPtr("HTTP"),
+						Port:                  lo.ToPtr(int(listenerSpec.Port)),
+						DefaultBackendSetName: lo.ToPtr(defaultBackendSetName),
+						RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
+					},
+					listenerName:          listenerName,
+					listenerSpec:          &listenerSpec,
+					defaultBackendSetName: newDefaultBackendSetName,
+				},
+				want: loadbalancer.UpdateListenerDetails{
+					Protocol:              lo.ToPtr("HTTP"),
+					Port:                  lo.ToPtr(int(listenerSpec.Port)),
+					DefaultBackendSetName: lo.ToPtr(newDefaultBackendSetName),
+					RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
+				},
+				wantOk: true,
+			}
+		},
+		func() testCase {
+			listenerName := faker.UUIDHyphenated()
+			listenerSpec := makeRandomListener(
 				randomListenerWithHTTPSParamsOpt(),
 			)
 			defaultBackendSetName := faker.UUIDHyphenated()
@@ -2335,14 +2429,13 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 			}
 
 			return testCase{
-				name: "https listener with ssl config",
+				name: "ssl config change",
 				params: makeOciListenerUpdateDetailsParams{
 					existingListenerData: loadbalancer.Listener{
 						Protocol:              lo.ToPtr("HTTP"),
 						Port:                  lo.ToPtr(int(listenerSpec.Port)),
 						DefaultBackendSetName: lo.ToPtr(defaultBackendSetName),
 						RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
-						SslConfiguration:      makeSslConfigFromDetails(sslConfig),
 					},
 					listenerName:          listenerName,
 					listenerSpec:          &listenerSpec,
@@ -2355,6 +2448,82 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 					DefaultBackendSetName: lo.ToPtr(defaultBackendSetName),
 					RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
 					SslConfiguration:      sslConfig,
+				},
+				wantOk: true,
+			}
+		},
+		func() testCase {
+			listenerName := faker.UUIDHyphenated()
+			listenerSpec := makeRandomListener(
+				randomListenerWithHTTPSParamsOpt(),
+			)
+			defaultBackendSetName := faker.UUIDHyphenated()
+			oldCertName := faker.UUIDHyphenated()
+			newCertName := faker.UUIDHyphenated()
+			oldSslConfig := &loadbalancer.SslConfigurationDetails{
+				CertificateName: &oldCertName,
+			}
+			newSslConfig := &loadbalancer.SslConfigurationDetails{
+				CertificateName: &newCertName,
+			}
+
+			return testCase{
+				name: "ssl config certificate change",
+				params: makeOciListenerUpdateDetailsParams{
+					existingListenerData: loadbalancer.Listener{
+						Protocol:              lo.ToPtr("HTTP"),
+						Port:                  lo.ToPtr(int(listenerSpec.Port)),
+						DefaultBackendSetName: lo.ToPtr(defaultBackendSetName),
+						RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
+						SslConfiguration:      makeSslConfigFromDetails(oldSslConfig),
+					},
+					listenerName:          listenerName,
+					listenerSpec:          &listenerSpec,
+					defaultBackendSetName: defaultBackendSetName,
+					sslConfig:             newSslConfig,
+				},
+				want: loadbalancer.UpdateListenerDetails{
+					Protocol:              lo.ToPtr("HTTP"),
+					Port:                  lo.ToPtr(int(listenerSpec.Port)),
+					DefaultBackendSetName: lo.ToPtr(defaultBackendSetName),
+					RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
+					SslConfiguration:      newSslConfig,
+				},
+				wantOk: true,
+			}
+		},
+		func() testCase {
+			listenerName := faker.UUIDHyphenated()
+			listenerSpec := makeRandomListener(
+				randomListenerWithHTTPSParamsOpt(),
+			)
+			defaultBackendSetName := faker.UUIDHyphenated()
+			certName := faker.UUIDHyphenated()
+			sslConfig := &loadbalancer.SslConfigurationDetails{
+				CertificateName: &certName,
+			}
+
+			return testCase{
+				name: "ssl config removed",
+				params: makeOciListenerUpdateDetailsParams{
+					existingListenerData: loadbalancer.Listener{
+						Protocol:              lo.ToPtr("HTTP"),
+						Port:                  lo.ToPtr(int(listenerSpec.Port)),
+						DefaultBackendSetName: lo.ToPtr(defaultBackendSetName),
+						RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
+						SslConfiguration:      makeSslConfigFromDetails(sslConfig),
+					},
+					listenerName:          listenerName,
+					listenerSpec:          &listenerSpec,
+					defaultBackendSetName: defaultBackendSetName,
+					sslConfig:             nil,
+				},
+				want: loadbalancer.UpdateListenerDetails{
+					Protocol:              lo.ToPtr("HTTP"),
+					Port:                  lo.ToPtr(int(listenerSpec.Port)),
+					DefaultBackendSetName: lo.ToPtr(defaultBackendSetName),
+					RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
+					SslConfiguration:      nil,
 				},
 				wantOk: true,
 			}

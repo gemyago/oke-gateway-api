@@ -369,13 +369,21 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 			slog.String("listenerName", listenerName),
 		)
 
-		updateDetails, _ := makeOciListenerUpdateDetails(makeOciListenerUpdateDetailsParams{
+		updateDetails, hasChanges := makeOciListenerUpdateDetails(makeOciListenerUpdateDetailsParams{
 			existingListenerData:  params.knownListeners[listenerName],
 			listenerName:          listenerName,
 			listenerSpec:          params.listenerSpec,
 			defaultBackendSetName: params.defaultBackendSetName,
 			sslConfig:             sslConfig,
 		})
+		if !hasChanges {
+			m.logger.DebugContext(ctx, "Listener already up to date, skipping update",
+				slog.String("loadBalancerId", params.loadBalancerID),
+				slog.String("listenerName", listenerName),
+			)
+			return nil
+		}
+
 		updateRes, err := m.ociClient.UpdateListener(ctx, loadbalancer.UpdateListenerRequest{
 			ListenerName:          &listenerName,
 			LoadBalancerId:        &params.loadBalancerID,
@@ -872,11 +880,49 @@ type makeOciListenerUpdateDetailsParams struct {
 func makeOciListenerUpdateDetails(
 	params makeOciListenerUpdateDetailsParams,
 ) (loadbalancer.UpdateListenerDetails, bool) {
+	hasChanges := false
+
+	if params.existingListenerData.Protocol == nil || *params.existingListenerData.Protocol != "HTTP" {
+		hasChanges = true
+	}
+
+	if params.existingListenerData.Port == nil || *params.existingListenerData.Port != int(params.listenerSpec.Port) {
+		hasChanges = true
+	}
+
+	if lo.FromPtr(params.existingListenerData.DefaultBackendSetName) != params.defaultBackendSetName {
+		hasChanges = true
+	}
+
+	expectedPolicyName := listenerPolicyName(params.listenerName)
+	if lo.FromPtr(params.existingListenerData.RoutingPolicyName) != expectedPolicyName {
+		hasChanges = true
+	}
+
+	existingCertName := ""
+	if params.existingListenerData.SslConfiguration != nil &&
+		params.existingListenerData.SslConfiguration.CertificateName != nil {
+		existingCertName = *params.existingListenerData.SslConfiguration.CertificateName
+	}
+
+	newCertName := ""
+	if params.sslConfig != nil && params.sslConfig.CertificateName != nil {
+		newCertName = *params.sslConfig.CertificateName
+	}
+
+	if existingCertName != newCertName {
+		hasChanges = true
+	}
+
+	if !hasChanges {
+		return loadbalancer.UpdateListenerDetails{}, false
+	}
+
 	return loadbalancer.UpdateListenerDetails{
 		Protocol:              lo.ToPtr("HTTP"),
 		Port:                  lo.ToPtr(int(params.listenerSpec.Port)),
 		DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
-		RoutingPolicyName:     lo.ToPtr(listenerPolicyName(params.listenerName)),
+		RoutingPolicyName:     lo.ToPtr(expectedPolicyName),
 		SslConfiguration:      params.sslConfig,
 	}, true
 }
