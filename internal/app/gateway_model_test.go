@@ -1217,5 +1217,44 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			mockResourcesModel.AssertExpectations(t)
 		})
+
+		t.Run("should check with secret annotations when gateway has secrets", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			gateway := newRandomGateway()
+			numSecrets := 2 + rand.IntN(2) // Generate 2 or 3 secrets
+			gatewaySecretsMap := make(map[string]corev1.Secret)
+			expectedAnnotations := map[string]string{
+				GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+			}
+
+			for range numSecrets {
+				secret := makeRandomSecret() // Generate secret with random name/namespace
+				fullName := secret.Namespace + "/" + secret.Name
+				gatewaySecretsMap[fullName] = secret
+				expectedAnnotations[GatewayUsedSecretsAnnotationPrefix+"/"+fullName] = secret.ResourceVersion
+			}
+
+			data := &resolvedGatewayDetails{
+				gateway:        *gateway,
+				gatewaySecrets: gatewaySecretsMap,
+			}
+
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+			mockResourcesModel.EXPECT().isConditionSet(
+				isConditionSetParams{
+					resource:      &data.gateway,
+					conditions:    data.gateway.Status.Conditions,
+					conditionType: string(gatewayv1.GatewayConditionProgrammed),
+					annotations:   expectedAnnotations,
+				},
+			).Return(true)
+
+			result := model.isProgrammed(t.Context(), data)
+			require.True(t, result)
+
+			mockResourcesModel.AssertExpectations(t)
+		})
 	})
 }

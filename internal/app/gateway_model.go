@@ -240,13 +240,23 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 }
 
 func (m *gatewayModelImpl) isProgrammed(_ context.Context, data *resolvedGatewayDetails) bool {
+	annotations := map[string]string{
+		GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+	}
+
+	// Include secrets annotations in the check
+	if len(data.gatewaySecrets) > 0 {
+		for fullName, secret := range data.gatewaySecrets {
+			annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + fullName
+			annotations[annotationKey] = secret.ResourceVersion
+		}
+	}
+
 	return m.resourcesModel.isConditionSet(isConditionSetParams{
 		resource:      &data.gateway,
 		conditions:    data.gateway.Status.Conditions,
 		conditionType: string(gatewayv1.GatewayConditionProgrammed),
-		annotations: map[string]string{
-			GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
-		},
+		annotations:   annotations,
 	})
 }
 
