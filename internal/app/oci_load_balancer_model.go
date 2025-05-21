@@ -369,16 +369,16 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 			slog.String("listenerName", listenerName),
 		)
 
+		updateDetails := makeOciListenerUpdateDetails(makeOciListenerUpdateDetailsParams{
+			listenerName:          listenerName,
+			listenerSpec:          params.listenerSpec,
+			defaultBackendSetName: params.defaultBackendSetName,
+			sslConfig:             sslConfig,
+		})
 		updateRes, err := m.ociClient.UpdateListener(ctx, loadbalancer.UpdateListenerRequest{
-			ListenerName:   &listenerName,
-			LoadBalancerId: &params.loadBalancerID,
-			UpdateListenerDetails: loadbalancer.UpdateListenerDetails{
-				Protocol:              lo.ToPtr("HTTP"),
-				Port:                  lo.ToPtr(int(params.listenerSpec.Port)),
-				DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
-				RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
-				SslConfiguration:      sslConfig,
-			},
+			ListenerName:          &listenerName,
+			LoadBalancerId:        &params.loadBalancerID,
+			UpdateListenerDetails: updateDetails,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to update listener %s: %w", listenerName, err)
@@ -858,6 +858,23 @@ func ociBackendSetNameFromService(service corev1.Service) string {
 	return ociapi.ConstructOCIResourceName(originalName, ociapi.OCIResourceNameConfig{
 		MaxLength: maxBackendSetNameLength,
 	})
+}
+
+type makeOciListenerUpdateDetailsParams struct {
+	listenerName          string
+	listenerSpec          *gatewayv1.Listener
+	defaultBackendSetName string
+	sslConfig             *loadbalancer.SslConfigurationDetails
+}
+
+func makeOciListenerUpdateDetails(params makeOciListenerUpdateDetailsParams) loadbalancer.UpdateListenerDetails {
+	return loadbalancer.UpdateListenerDetails{
+		Protocol:              lo.ToPtr("HTTP"),
+		Port:                  lo.ToPtr(int(params.listenerSpec.Port)),
+		DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
+		RoutingPolicyName:     lo.ToPtr(listenerPolicyName(params.listenerName)),
+		SslConfiguration:      params.sslConfig,
+	}
 }
 
 type ociLoadBalancerModelDeps struct {

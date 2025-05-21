@@ -2278,3 +2278,72 @@ func Test_ociCertificateNameFromSecret(t *testing.T) {
 	got := ociCertificateNameFromSecret(secret)
 	assert.Equal(t, secret.Namespace+"-"+secret.Name+"-rev-"+secret.ResourceVersion, got)
 }
+
+func Test_makeOciListenerUpdateDetails(t *testing.T) {
+	type testCase struct {
+		name   string
+		params makeOciListenerUpdateDetailsParams
+		want   loadbalancer.UpdateListenerDetails
+	}
+
+	tests := []func() testCase{
+		func() testCase {
+			listenerName := faker.UUIDHyphenated()
+			listenerSpec := makeRandomListener(
+				randomListenerWithHTTPProtocolOpt(),
+			)
+			defaultBackendSetName := faker.UUIDHyphenated()
+
+			return testCase{
+				name: "basic http listener",
+				params: makeOciListenerUpdateDetailsParams{
+					listenerName:          listenerName,
+					listenerSpec:          &listenerSpec,
+					defaultBackendSetName: defaultBackendSetName,
+				},
+				want: loadbalancer.UpdateListenerDetails{
+					Protocol:              lo.ToPtr("HTTP"),
+					Port:                  lo.ToPtr(int(listenerSpec.Port)),
+					DefaultBackendSetName: lo.ToPtr(defaultBackendSetName),
+					RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
+				},
+			}
+		},
+		func() testCase {
+			listenerName := faker.UUIDHyphenated()
+			listenerSpec := makeRandomListener(
+				randomListenerWithHTTPSParamsOpt(),
+			)
+			defaultBackendSetName := faker.UUIDHyphenated()
+			certName := faker.UUIDHyphenated()
+			sslConfig := &loadbalancer.SslConfigurationDetails{
+				CertificateName: &certName,
+			}
+
+			return testCase{
+				name: "https listener with ssl config",
+				params: makeOciListenerUpdateDetailsParams{
+					listenerName:          listenerName,
+					listenerSpec:          &listenerSpec,
+					defaultBackendSetName: defaultBackendSetName,
+					sslConfig:             sslConfig,
+				},
+				want: loadbalancer.UpdateListenerDetails{
+					Protocol:              lo.ToPtr("HTTP"),
+					Port:                  lo.ToPtr(int(listenerSpec.Port)),
+					DefaultBackendSetName: lo.ToPtr(defaultBackendSetName),
+					RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
+					SslConfiguration:      sslConfig,
+				},
+			}
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc()
+		t.Run(tc.name, func(t *testing.T) {
+			got := makeOciListenerUpdateDetails(tc.params)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
