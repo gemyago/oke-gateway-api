@@ -587,7 +587,7 @@ func TestWatchesModel(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 
-			secret := makeRandomSecret()
+			secret := makeRandomSecret(randomSecretWithTLSDataOpt())
 			indexKey := fmt.Sprintf("%v/%v", secret.Namespace, secret.Name)
 
 			wantGateways := []gatewayv1.Gateway{
@@ -616,11 +616,53 @@ func TestWatchesModel(t *testing.T) {
 			require.ElementsMatch(t, wantRequests, result)
 		})
 
+		t.Run("ignores non-TLS secrets", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			secret := makeRandomSecret(func(s *corev1.Secret) {
+				s.Type = corev1.SecretTypeOpaque
+			})
+
+			result := model.MapSecretToGateway(t.Context(), &secret)
+			require.Nil(t, result)
+		})
+
+		t.Run("ignores TLS secrets without certificate data", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			secret := makeRandomSecret(func(s *corev1.Secret) {
+				s.Type = corev1.SecretTypeTLS
+				s.Data = map[string][]byte{
+					corev1.TLSPrivateKeyKey: []byte("private-key"),
+				}
+			})
+
+			result := model.MapSecretToGateway(t.Context(), &secret)
+			require.Nil(t, result)
+		})
+
+		t.Run("ignores TLS secrets without private key data", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			secret := makeRandomSecret(func(s *corev1.Secret) {
+				s.Type = corev1.SecretTypeTLS
+				s.Data = map[string][]byte{
+					corev1.TLSCertKey: []byte("certificate"),
+				}
+			})
+
+			result := model.MapSecretToGateway(t.Context(), &secret)
+			require.Nil(t, result)
+		})
+
 		t.Run("ignores Gateways marked for deletion", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 
-			secret := makeRandomSecret()
+			secret := makeRandomSecret(randomSecretWithTLSDataOpt())
 			indexKey := fmt.Sprintf("%v/%v", secret.Namespace, secret.Name)
 
 			// One gateway not marked for deletion, one gateway marked for deletion
@@ -661,7 +703,7 @@ func TestWatchesModel(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 
-			secret := makeRandomSecret()
+			secret := makeRandomSecret(randomSecretWithTLSDataOpt())
 			indexKey := fmt.Sprintf("%v/%v", secret.Namespace, secret.Name)
 
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
@@ -680,7 +722,7 @@ func TestWatchesModel(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 
-			secret := makeRandomSecret()
+			secret := makeRandomSecret(randomSecretWithTLSDataOpt())
 			indexKey := fmt.Sprintf("%v/%v", secret.Namespace, secret.Name)
 
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)

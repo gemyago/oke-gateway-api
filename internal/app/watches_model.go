@@ -273,6 +273,29 @@ func (m *WatchesModel) MapSecretToGateway(ctx context.Context, obj client.Object
 		return nil
 	}
 
+	// Ignore non-TLS secrets
+	if secret.Type != corev1.SecretTypeTLS {
+		m.logger.DebugContext(ctx, "Ignoring non-TLS secret",
+			slog.String("secret", client.ObjectKeyFromObject(secret).String()),
+			slog.String("type", string(secret.Type)),
+		)
+		return nil
+	}
+
+	// Verify that the secret has the required TLS data
+	if _, hasCert := secret.Data[corev1.TLSCertKey]; !hasCert {
+		m.logger.DebugContext(ctx, "Ignoring TLS secret without certificate data",
+			slog.String("secret", client.ObjectKeyFromObject(secret).String()),
+		)
+		return nil
+	}
+	if _, hasKey := secret.Data[corev1.TLSPrivateKeyKey]; !hasKey {
+		m.logger.DebugContext(ctx, "Ignoring TLS secret without private key data",
+			slog.String("secret", client.ObjectKeyFromObject(secret).String()),
+		)
+		return nil
+	}
+
 	indexKey := path.Join(secret.Namespace, secret.Name)
 
 	var gatewayList gatewayv1.GatewayList
