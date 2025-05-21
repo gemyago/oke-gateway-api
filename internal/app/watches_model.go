@@ -18,6 +18,7 @@ import (
 )
 
 const httpRouteBackendServiceIndexKey = ".metadata.backendRefs.serviceName" // Virtual field name, indexed
+const gatewayCertificateIndexKey = ".metadata.certificates"                 // Virtual field name, indexed
 
 // WatchesModel implements the WatchesModel interface.
 type WatchesModel struct {
@@ -51,8 +52,20 @@ func (m *WatchesModel) RegisterFieldIndexers(ctx context.Context, indexer client
 	); err != nil {
 		return fmt.Errorf("failed to index HTTPRoute by backend service: %w", err)
 	}
+
+	if err := indexer.IndexField(ctx,
+		&gatewayv1.Gateway{},
+		gatewayCertificateIndexKey,
+		func(o client.Object) []string {
+			return m.indexGatewayByCertificate(ctx, o)
+		},
+	); err != nil {
+		return fmt.Errorf("failed to index Gateway by certificate: %w", err)
+	}
+
 	m.logger.DebugContext(ctx, "Field indexers registered",
 		slog.String("indexKey", httpRouteBackendServiceIndexKey),
+		slog.String("indexKey", gatewayCertificateIndexKey),
 	)
 	return nil
 }
@@ -125,6 +138,14 @@ func (m *WatchesModel) indexHTTPRouteByBackendService(ctx context.Context, obj c
 	)
 
 	return serviceKeys
+}
+
+// indexGatewayByCertificate extracts the namespaced names of Secrets referenced
+// in a Gateway's listeners for TLS certificates. This is used to create an index
+// for efficient lookup when a Secret changes.
+func (m *WatchesModel) indexGatewayByCertificate(ctx context.Context, obj client.Object) []string {
+	// TODO: Implement certificate indexing
+	return nil
 }
 
 // MapEndpointSliceToHTTPRoute maps EndpointSlice events to HTTPRoute reconcile requests.

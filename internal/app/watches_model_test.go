@@ -44,11 +44,18 @@ func TestWatchesModel(t *testing.T) {
 				mock.AnythingOfType("client.IndexerFunc"),
 			).Return(nil)
 
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.Gateway{},
+				gatewayCertificateIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+
 			err := model.RegisterFieldIndexers(t.Context(), mockIndexer)
 			require.NoError(t, err)
 		})
 
-		t.Run("returns error if indexer registration fails", func(t *testing.T) {
+		t.Run("returns error if HTTPRoute indexer registration fails", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 
@@ -58,6 +65,31 @@ func TestWatchesModel(t *testing.T) {
 				t.Context(),
 				&gatewayv1.HTTPRoute{},
 				httpRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(wantErr)
+
+			err := model.RegisterFieldIndexers(t.Context(), mockIndexer)
+			require.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("returns error if Gateway certificate indexer registration fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			mockIndexer := k8sapi.NewMockFieldIndexer(t)
+
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+
+			wantErr := errors.New(faker.Sentence())
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.Gateway{},
+				gatewayCertificateIndexKey,
 				mock.AnythingOfType("client.IndexerFunc"),
 			).Return(wantErr)
 
