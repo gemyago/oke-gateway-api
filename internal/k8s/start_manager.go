@@ -8,6 +8,7 @@ import (
 	"github.com/gemyago/oke-gateway-api/internal/app"
 	"github.com/go-logr/logr"
 	"go.uber.org/dig"
+	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -70,6 +71,10 @@ func StartManager(ctx context.Context, deps StartManagerDeps) error { // coverag
 	if deps.ReconcileGateway {
 		if err := builder.ControllerManagedBy(mgr).
 			For(&gatewayv1.Gateway{}).
+			Watches(
+				&corev1.Secret{},
+				handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapSecretToGateway),
+			).
 			WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
 			Complete(wireupReconciler(deps.GatewayCtrl, middlewares...)); err != nil {
 			return fmt.Errorf("failed to setup Gateway controller: %w", err)

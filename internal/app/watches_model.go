@@ -9,6 +9,7 @@ import (
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/samber/lo"
 	"go.uber.org/dig"
+	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -261,6 +262,23 @@ func (m *WatchesModel) MapEndpointSliceToHTTPRoute(ctx context.Context, obj clie
 	}
 
 	return requests
+}
+
+// MapSecretToGateway maps Secret events to Gateway reconcile requests.
+// Its signature matches handler.MapFunc.
+func (m *WatchesModel) MapSecretToGateway(ctx context.Context, obj client.Object) []reconcile.Request {
+	secret, ok := obj.(*corev1.Secret)
+	if !ok {
+		m.logger.WarnContext(ctx, "Received non-Secret object", slog.Any("object", obj))
+		return nil
+	}
+
+	m.logger.DebugContext(ctx, "Received Secret event",
+		slog.String("secret", client.ObjectKeyFromObject(secret).String()),
+	)
+
+	// TODO: Implement mapping from Secret to Gateways
+	return nil
 }
 
 // Note: indexHTTPRouteByBackendService and httpRouteBackendServiceIndexKey removed as part of stubbing.
