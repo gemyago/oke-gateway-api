@@ -1162,4 +1162,60 @@ func TestGatewayModelImpl(t *testing.T) {
 			mockResourcesModel.AssertExpectations(t)
 		})
 	})
+
+	t.Run("isProgrammed", func(t *testing.T) {
+		t.Run("should return true when programmed condition is set with correct annotation", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			gateway := newRandomGateway()
+			data := &resolvedGatewayDetails{
+				gateway: *gateway,
+			}
+
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+			mockResourcesModel.EXPECT().isConditionSet(
+				isConditionSetParams{
+					resource:      &data.gateway,
+					conditions:    data.gateway.Status.Conditions,
+					conditionType: string(gatewayv1.GatewayConditionProgrammed),
+					annotations: map[string]string{
+						GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+					},
+				},
+			).Return(true)
+
+			result := model.isProgrammed(t.Context(), data)
+			require.True(t, result)
+
+			mockResourcesModel.AssertExpectations(t)
+		})
+
+		t.Run("should return false when programmed condition is not set", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			gateway := newRandomGateway()
+			data := &resolvedGatewayDetails{
+				gateway: *gateway,
+			}
+
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+			mockResourcesModel.EXPECT().isConditionSet(
+				isConditionSetParams{
+					resource:      &data.gateway,
+					conditions:    data.gateway.Status.Conditions,
+					conditionType: string(gatewayv1.GatewayConditionProgrammed),
+					annotations: map[string]string{
+						GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+					},
+				},
+			).Return(false)
+
+			result := model.isProgrammed(t.Context(), data)
+			require.False(t, result)
+
+			mockResourcesModel.AssertExpectations(t)
+		})
+	})
 }

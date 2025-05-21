@@ -41,6 +41,8 @@ type gatewayModel interface {
 
 	programGateway(ctx context.Context, data *resolvedGatewayDetails) error
 
+	isProgrammed(ctx context.Context, data *resolvedGatewayDetails) bool
+
 	setProgrammed(ctx context.Context, data *resolvedGatewayDetails) error
 }
 
@@ -235,6 +237,17 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 	}
 
 	return nil
+}
+
+func (m *gatewayModelImpl) isProgrammed(_ context.Context, data *resolvedGatewayDetails) bool {
+	return m.resourcesModel.isConditionSet(isConditionSetParams{
+		resource:      &data.gateway,
+		conditions:    data.gateway.Status.Conditions,
+		conditionType: string(gatewayv1.GatewayConditionProgrammed),
+		annotations: map[string]string{
+			GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+		},
+	})
 }
 
 func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGatewayDetails) error {

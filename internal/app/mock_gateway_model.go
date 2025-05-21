@@ -24,6 +24,53 @@ func (_m *MockgatewayModel) EXPECT() *MockgatewayModel_Expecter {
 	return &MockgatewayModel_Expecter{mock: &_m.Mock}
 }
 
+// isProgrammed provides a mock function with given fields: ctx, data
+func (_m *MockgatewayModel) isProgrammed(ctx context.Context, data *resolvedGatewayDetails) bool {
+	ret := _m.Called(ctx, data)
+
+	if len(ret) == 0 {
+		panic("no return value specified for isProgrammed")
+	}
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func(context.Context, *resolvedGatewayDetails) bool); ok {
+		r0 = rf(ctx, data)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
+// MockgatewayModel_isProgrammed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'isProgrammed'
+type MockgatewayModel_isProgrammed_Call struct {
+	*mock.Call
+}
+
+// isProgrammed is a helper method to define mock.On call
+//   - ctx context.Context
+//   - data *resolvedGatewayDetails
+func (_e *MockgatewayModel_Expecter) isProgrammed(ctx interface{}, data interface{}) *MockgatewayModel_isProgrammed_Call {
+	return &MockgatewayModel_isProgrammed_Call{Call: _e.mock.On("isProgrammed", ctx, data)}
+}
+
+func (_c *MockgatewayModel_isProgrammed_Call) Run(run func(ctx context.Context, data *resolvedGatewayDetails)) *MockgatewayModel_isProgrammed_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*resolvedGatewayDetails))
+	})
+	return _c
+}
+
+func (_c *MockgatewayModel_isProgrammed_Call) Return(_a0 bool) *MockgatewayModel_isProgrammed_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockgatewayModel_isProgrammed_Call) RunAndReturn(run func(context.Context, *resolvedGatewayDetails) bool) *MockgatewayModel_isProgrammed_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // programGateway provides a mock function with given fields: ctx, data
 func (_m *MockgatewayModel) programGateway(ctx context.Context, data *resolvedGatewayDetails) error {
 	ret := _m.Called(ctx, data)
