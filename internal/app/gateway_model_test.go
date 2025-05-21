@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1059,4 +1060,66 @@ func TestGatewayModelImpl(t *testing.T) {
 			require.ErrorIs(t, err, wantErr)
 		})
 	})
+
+	t.Run("setProgrammed", func(t *testing.T) {
+		t.Run("should set programmed condition", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			gateway := newRandomGateway()
+			data := &resolvedGatewayDetails{
+				gateway: *gateway,
+			}
+
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+			mockResourcesModel.EXPECT().setCondition(
+				t.Context(),
+				setConditionParams{
+					resource:      &data.gateway,
+					conditions:    &data.gateway.Status.Conditions,
+					conditionType: string(gatewayv1.GatewayConditionProgrammed),
+					status:        metav1.ConditionTrue,
+					reason:        string(gatewayv1.GatewayReasonProgrammed),
+					message:       fmt.Sprintf("Gateway %s programmed by %s", data.gateway.Name, ControllerClassName),
+					annotations: map[string]string{
+						GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+					},
+				},
+			).Return(nil)
+
+			err := model.setProgrammed(t.Context(), data)
+			require.NoError(t, err)
+
+			mockResourcesModel.AssertExpectations(t)
+		})
+
+		t.Run("should return error when setCondition fails", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			gateway := newRandomGateway()
+			data := &resolvedGatewayDetails{
+				gateway: *gateway,
+			}
+
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+			expectedErr := errors.New("setCondition error")
+			mockResourcesModel.EXPECT().setCondition(
+				t.Context(),
+				mock.AnythingOfType("setConditionParams"),
+			).Return(expectedErr)
+
+			err := model.setProgrammed(t.Context(), data)
+			require.Error(t, err)
+			require.ErrorIs(t, err,
+				expectedErr,
+				"expected error to wrap original error")
+
+			mockResourcesModel.AssertExpectations(t)
+		})
+	})
+}
+
+func Test_newGatewayModel(t *testing.T) {
+	// ... existing code ...
 }

@@ -10,6 +10,7 @@ import (
 	"go.uber.org/dig"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -237,6 +238,19 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 }
 
 func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGatewayDetails) error {
+	if err := m.resourcesModel.setCondition(ctx, setConditionParams{
+		resource:      &data.gateway,
+		conditions:    &data.gateway.Status.Conditions,
+		conditionType: string(gatewayv1.GatewayConditionProgrammed),
+		status:        metav1.ConditionTrue,
+		reason:        string(gatewayv1.GatewayReasonProgrammed),
+		message:       fmt.Sprintf("Gateway %s programmed by %s", data.gateway.Name, ControllerClassName),
+		annotations: map[string]string{
+			GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+		},
+	}); err != nil {
+		return fmt.Errorf("failed to set programmed condition for Gateway %s: %w", data.gateway.Name, err)
+	}
 	return nil
 }
 
