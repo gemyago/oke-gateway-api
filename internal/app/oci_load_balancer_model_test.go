@@ -2284,6 +2284,7 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 		name   string
 		params makeOciListenerUpdateDetailsParams
 		want   loadbalancer.UpdateListenerDetails
+		wantOk bool
 	}
 
 	makeSslConfigFromDetails := func(details *loadbalancer.SslConfigurationDetails) *loadbalancer.SslConfiguration {
@@ -2319,6 +2320,7 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 					DefaultBackendSetName: lo.ToPtr(defaultBackendSetName),
 					RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
 				},
+				wantOk: true,
 			}
 		},
 		func() testCase {
@@ -2354,6 +2356,7 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 					RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
 					SslConfiguration:      sslConfig,
 				},
+				wantOk: true,
 			}
 		},
 	}
@@ -2361,8 +2364,9 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 	for _, tc := range tests {
 		tc := tc()
 		t.Run(tc.name, func(t *testing.T) {
-			got, _ := makeOciListenerUpdateDetails(tc.params)
+			got, gotOk := makeOciListenerUpdateDetails(tc.params)
 			assert.Equal(t, tc.want, got)
+			assert.Equal(t, tc.wantOk, gotOk)
 		})
 	}
 }

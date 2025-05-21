@@ -869,14 +869,16 @@ type makeOciListenerUpdateDetailsParams struct {
 	sslConfig             *loadbalancer.SslConfigurationDetails
 }
 
-func makeOciListenerUpdateDetails(params makeOciListenerUpdateDetailsParams) (loadbalancer.UpdateListenerDetails, bool) {
+func makeOciListenerUpdateDetails(
+	params makeOciListenerUpdateDetailsParams,
+) (loadbalancer.UpdateListenerDetails, bool) {
 	return loadbalancer.UpdateListenerDetails{
 		Protocol:              lo.ToPtr("HTTP"),
 		Port:                  lo.ToPtr(int(params.listenerSpec.Port)),
 		DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
 		RoutingPolicyName:     lo.ToPtr(listenerPolicyName(params.listenerName)),
 		SslConfiguration:      params.sslConfig,
-	}, false
+	}, true
 }
 
 type ociLoadBalancerModelDeps struct {
