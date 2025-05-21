@@ -39,6 +39,8 @@ type gatewayModel interface {
 	) (bool, error)
 
 	programGateway(ctx context.Context, data *resolvedGatewayDetails) error
+
+	setProgrammed(ctx context.Context, data *resolvedGatewayDetails) error
 }
 
 type gatewayModelImpl struct {
@@ -46,6 +48,7 @@ type gatewayModelImpl struct {
 	logger               *slog.Logger
 	ociClient            ociLoadBalancerClient
 	ociLoadBalancerModel ociLoadBalancerModel
+	resourcesModel       resourcesModel
 }
 
 func (m *gatewayModelImpl) resolveReconcileRequest(
@@ -233,9 +236,14 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 	return nil
 }
 
+func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGatewayDetails) error {
+	return nil
+}
+
 type gatewayModelDeps struct {
 	dig.In
 
+	ResourcesModel       resourcesModel
 	K8sClient            k8sClient
 	RootLogger           *slog.Logger
 	OciClient            ociLoadBalancerClient
@@ -248,5 +256,6 @@ func newGatewayModel(deps gatewayModelDeps) gatewayModel {
 		logger:               deps.RootLogger.WithGroup("gateway-model"),
 		ociClient:            deps.OciClient,
 		ociLoadBalancerModel: deps.OciLoadBalancerModel,
+		resourcesModel:       deps.ResourcesModel,
 	}
 }

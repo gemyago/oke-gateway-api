@@ -26,6 +26,7 @@ import (
 func TestGatewayModelImpl(t *testing.T) {
 	newMockDeps := func(t *testing.T) gatewayModelDeps {
 		return gatewayModelDeps{
+			ResourcesModel:       NewMockresourcesModel(t),
 			K8sClient:            NewMockk8sClient(t),
 			RootLogger:           diag.RootTestLogger(),
 			OciClient:            NewMockociLoadBalancerClient(t),
