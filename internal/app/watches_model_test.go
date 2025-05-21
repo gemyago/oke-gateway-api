@@ -22,6 +22,13 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
+func withRelevantGatewayClass(gw *gatewayv1.Gateway) {
+	if gw.Annotations == nil {
+		gw.Annotations = make(map[string]string)
+	}
+	gw.Annotations[ControllerClassName] = "true"
+}
+
 func TestWatchesModel(t *testing.T) {
 	makeMockDeps := func(t *testing.T) WatchesModelDeps {
 		return WatchesModelDeps{
@@ -484,13 +491,6 @@ func TestWatchesModel(t *testing.T) {
 	})
 
 	t.Run("indexGatewayByCertificate", func(t *testing.T) {
-		withRelevantGatewayClass := func(gw *gatewayv1.Gateway) {
-			if gw.Annotations == nil {
-				gw.Annotations = make(map[string]string)
-			}
-			gw.Annotations[ControllerClassName] = "true"
-		}
-
 		t.Run("indexes all referenced Secret namespaced names from HTTPS listeners", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
@@ -578,6 +578,131 @@ func TestWatchesModel(t *testing.T) {
 			model := NewWatchesModel(deps)
 			gateway := newRandomGateway() // No controller class set
 			result := model.indexGatewayByCertificateSecrets(t.Context(), gateway)
+			require.Nil(t, result)
+		})
+	})
+
+	t.Run("MapSecretToGateway", func(t *testing.T) {
+		t.Run("finds matching Gateways based on certificate index", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			secret := makeRandomSecret()
+			indexKey := fmt.Sprintf("%v/%v", secret.Namespace, secret.Name)
+
+			wantGateways := []gatewayv1.Gateway{
+				*newRandomGateway(withRelevantGatewayClass),
+				*newRandomGateway(withRelevantGatewayClass),
+			}
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.GatewayList{},
+				client.MatchingFields{gatewayCertificateIndexKey: indexKey},
+			).RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(wantGateways))
+				return nil
+			})
+
+			wantRequests := lo.Map(wantGateways, func(gateway gatewayv1.Gateway, _ int) reconcile.Request {
+				return reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(&gateway),
+				}
+			})
+
+			result := model.MapSecretToGateway(t.Context(), &secret)
+			require.ElementsMatch(t, wantRequests, result)
+		})
+
+		t.Run("ignores Gateways marked for deletion", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			secret := makeRandomSecret()
+			indexKey := fmt.Sprintf("%v/%v", secret.Namespace, secret.Name)
+
+			// One gateway not marked for deletion, one gateway marked for deletion
+			gatewayToDelete := *newRandomGateway(withRelevantGatewayClass)
+			deletionTimestamp := metav1.Now()
+			gatewayToDelete.DeletionTimestamp = &deletionTimestamp
+
+			validGateway := *newRandomGateway(withRelevantGatewayClass)
+
+			allGateways := []gatewayv1.Gateway{
+				validGateway,
+				gatewayToDelete,
+			}
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.GatewayList{},
+				client.MatchingFields{gatewayCertificateIndexKey: indexKey},
+			).RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(allGateways))
+				return nil
+			})
+
+			// Only the validGateway should be reconciled
+			wantRequests := []reconcile.Request{
+				{
+					NamespacedName: client.ObjectKeyFromObject(&validGateway),
+				},
+			}
+
+			result := model.MapSecretToGateway(t.Context(), &secret)
+			require.ElementsMatch(t, wantRequests, result)
+		})
+
+		t.Run("returns nil if k8s client returns error", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			secret := makeRandomSecret()
+			indexKey := fmt.Sprintf("%v/%v", secret.Namespace, secret.Name)
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			wantErr := errors.New(faker.Sentence())
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.GatewayList{},
+				client.MatchingFields{gatewayCertificateIndexKey: indexKey},
+			).Return(wantErr)
+
+			result := model.MapSecretToGateway(t.Context(), &secret)
+			require.Nil(t, result)
+		})
+
+		t.Run("returns nil when no gateways found", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			secret := makeRandomSecret()
+			indexKey := fmt.Sprintf("%v/%v", secret.Namespace, secret.Name)
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.GatewayList{},
+				client.MatchingFields{gatewayCertificateIndexKey: indexKey},
+			).RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				// Ensure Items field is explicitly set to an empty slice
+				reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.Gateway{}))
+				return nil
+			})
+
+			result := model.MapSecretToGateway(t.Context(), &secret)
+			require.Nil(t, result)
+		})
+
+		t.Run("returns nil if object is not a Secret", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			result := model.MapSecretToGateway(t.Context(), &corev1.Service{})
 			require.Nil(t, result)
 		})
 	})

@@ -273,12 +273,54 @@ func (m *WatchesModel) MapSecretToGateway(ctx context.Context, obj client.Object
 		return nil
 	}
 
-	m.logger.DebugContext(ctx, "Received Secret event",
-		slog.String("secret", client.ObjectKeyFromObject(secret).String()),
-	)
+	indexKey := path.Join(secret.Namespace, secret.Name)
 
-	// TODO: Implement mapping from Secret to Gateways
-	return nil
+	var gatewayList gatewayv1.GatewayList
+	if err := m.k8sClient.List(
+		ctx,
+		&gatewayList,
+		client.MatchingFields{gatewayCertificateIndexKey: indexKey},
+	); err != nil {
+		m.logger.ErrorContext(ctx,
+			"Failed to list Gateways for certificate",
+			slog.String("indexKey", indexKey),
+			diag.ErrAttr(err),
+		)
+		return nil
+	}
+
+	if len(gatewayList.Items) == 0 {
+		m.logger.DebugContext(
+			ctx,
+			"No Gateways found for certificate",
+			slog.String("secret", secret.Name),
+			slog.String("indexKey", indexKey),
+		)
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(gatewayList.Items))
+	for _, gateway := range gatewayList.Items {
+		if gateway.DeletionTimestamp != nil {
+			m.logger.DebugContext(ctx,
+				"Skipping Gateway marked for deletion",
+				slog.String("gateway", client.ObjectKeyFromObject(&gateway).String()),
+				slog.String("secret", client.ObjectKeyFromObject(secret).String()),
+				slog.Time("deletionTimestamp", gateway.DeletionTimestamp.Time),
+			)
+			continue
+		}
+		requests = append(requests, reconcile.Request{
+			NamespacedName: client.ObjectKeyFromObject(&gateway),
+		})
+		m.logger.InfoContext(ctx,
+			"Queueing Gateway for reconciliation due to Secret change",
+			slog.String("gateway", client.ObjectKeyFromObject(&gateway).String()),
+			slog.String("secret", client.ObjectKeyFromObject(secret).String()),
+		)
+	}
+
+	return requests
 }
 
 // Note: indexHTTPRouteByBackendService and httpRouteBackendServiceIndexKey removed as part of stubbing.
