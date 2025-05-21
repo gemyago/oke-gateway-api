@@ -73,14 +73,9 @@ func TestGatewayController(t *testing.T) {
 				}).
 				Return(nil).Once()
 
-			mockResourcesModel.EXPECT().
-				isConditionSet(isConditionSetParams{
-					resource:      gateway,
-					conditions:    gateway.Status.Conditions,
-					conditionType: string(gatewayv1.GatewayConditionProgrammed),
-					annotations: map[string]string{
-						GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
-					},
+			mockGatewayModel.EXPECT().
+				isProgrammed(t.Context(), &resolvedGatewayDetails{
+					gateway: *gateway,
 				}).
 				Return(false).Once()
 
@@ -249,14 +244,9 @@ func TestGatewayController(t *testing.T) {
 				}).
 				Return(true).Once()
 
-			mockResourcesModel.EXPECT().
-				isConditionSet(isConditionSetParams{
-					resource:      gateway,
-					conditions:    gateway.Status.Conditions,
-					conditionType: string(gatewayv1.GatewayConditionProgrammed),
-					annotations: map[string]string{
-						GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
-					},
+			mockGatewayModel.EXPECT().
+				isProgrammed(t.Context(), &resolvedGatewayDetails{
+					gateway: *gateway,
 				}).
 				Return(false).Once()
 
@@ -305,14 +295,9 @@ func TestGatewayController(t *testing.T) {
 				}).
 				Return(true).Once()
 
-			mockResourcesModel.EXPECT().
-				isConditionSet(isConditionSetParams{
-					resource:      gateway,
-					conditions:    gateway.Status.Conditions,
-					conditionType: string(gatewayv1.GatewayConditionProgrammed),
-					annotations: map[string]string{
-						GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
-					},
+			mockGatewayModel.EXPECT().
+				isProgrammed(t.Context(), &resolvedGatewayDetails{
+					gateway: *gateway,
 				}).
 				Return(false).Once()
 
@@ -374,14 +359,9 @@ func TestGatewayController(t *testing.T) {
 				}).
 				Return(true).Once()
 
-			mockResourcesModel.EXPECT().
-				isConditionSet(isConditionSetParams{
-					resource:      gateway,
-					conditions:    gateway.Status.Conditions,
-					conditionType: string(gatewayv1.GatewayConditionProgrammed),
-					annotations: map[string]string{
-						GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
-					},
+			mockGatewayModel.EXPECT().
+				isProgrammed(t.Context(), &resolvedGatewayDetails{
+					gateway: *gateway,
 				}).
 				Return(false).Once()
 
@@ -435,14 +415,9 @@ func TestGatewayController(t *testing.T) {
 				}).
 				Return(true).Once()
 
-			mockResourcesModel.EXPECT().
-				isConditionSet(isConditionSetParams{
-					resource:      gateway,
-					conditions:    gateway.Status.Conditions,
-					conditionType: string(gatewayv1.GatewayConditionProgrammed),
-					annotations: map[string]string{
-						GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
-					},
+			mockGatewayModel.EXPECT().
+				isProgrammed(t.Context(), &resolvedGatewayDetails{
+					gateway: *gateway,
 				}).
 				Return(true).Once()
 

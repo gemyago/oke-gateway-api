@@ -102,14 +102,7 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 		}
 	}
 
-	if !r.resourcesModel.isConditionSet(isConditionSetParams{
-		resource:      &data.gateway,
-		conditions:    data.gateway.Status.Conditions,
-		conditionType: string(gatewayv1.GatewayConditionProgrammed),
-		annotations: map[string]string{
-			GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
-		},
-	}) {
+	if !r.gatewayModel.isProgrammed(ctx, &data) {
 		r.logger.DebugContext(ctx, "Programming gateway",
 			slog.Any("req", req),
 			slog.Any("gateway", data.gateway),
