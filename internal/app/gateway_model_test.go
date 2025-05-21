@@ -1119,7 +1119,3 @@ func TestGatewayModelImpl(t *testing.T) {
 		})
 	})
 }
-
-func Test_newGatewayModel(t *testing.T) {
-	// ... existing code ...
-}

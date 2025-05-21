@@ -121,12 +121,8 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 			return r.processResourceError(ctx, err, &data.gateway)
 		}
 
-		// Call the model to set the programmed condition
 		if err = r.gatewayModel.setProgrammed(ctx, &data); err != nil {
-			// If setting programmed condition fails, it might be a transient error or an issue with the gateway itself.
-			// We return an error here, which will cause the request to be re-queued.
-			// The processResourceError function is not used here as it's specific to resource programming errors.
-			return reconcile.Result{}, fmt.Errorf("failed to set programmed condition for Gateway %s: %w", data.gateway.Name, err)
+			return reconcile.Result{}, err
 		}
 
 		r.logger.InfoContext(ctx,
