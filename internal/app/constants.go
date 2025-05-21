@@ -10,7 +10,7 @@ const (
 	GatewayProgrammingRevisionAnnotation = "oke-gateway-api.gemyago.github.io/gateway-programming-revision"
 
 	// For each secret the prefix will be extended with secret full name and value will be a revision of the secret.
-	GatewayUsedSecretsAnnotationPrefix = "oke-gateway-api.gemyago.github.io/secrets"
+	GatewayUsedSecretsAnnotationPrefix = "secrets.oke-gateway-api.gemyago.github.io"
 
 	// HTTPRouteProgrammingRevisionAnnotation is the annotation for the http route programming revision.
 	// The revision may be incremented if additional programming steps are introduced by the controller.

@@ -480,6 +480,7 @@ func makeRandomSecret(opts ...randomSecretOpt) corev1.Secret {
 			Name:            faker.DomainName(),
 			Namespace:       faker.Username(),
 			ResourceVersion: faker.UUIDHyphenated(),
+			UID:             apitypes.UID(faker.UUIDHyphenated()),
 		},
 		Type: corev1.SecretTypeTLS,
 		Data: map[string][]byte{},

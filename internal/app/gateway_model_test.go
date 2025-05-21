@@ -1109,7 +1109,8 @@ func TestGatewayModelImpl(t *testing.T) {
 				secret := makeRandomSecret() // Generate secret with random name/namespace
 				fullName := secret.Namespace + "/" + secret.Name
 				gatewaySecretsMap[fullName] = secret
-				expectedAnnotations[GatewayUsedSecretsAnnotationPrefix+"/"+fullName] = secret.ResourceVersion
+				secretUID := string(secret.UID)
+				expectedAnnotations[GatewayUsedSecretsAnnotationPrefix+"/"+secretUID] = secret.ResourceVersion
 			}
 
 			data := &resolvedGatewayDetails{
@@ -1233,7 +1234,8 @@ func TestGatewayModelImpl(t *testing.T) {
 				secret := makeRandomSecret() // Generate secret with random name/namespace
 				fullName := secret.Namespace + "/" + secret.Name
 				gatewaySecretsMap[fullName] = secret
-				expectedAnnotations[GatewayUsedSecretsAnnotationPrefix+"/"+fullName] = secret.ResourceVersion
+				secretUID := string(secret.UID)
+				expectedAnnotations[GatewayUsedSecretsAnnotationPrefix+"/"+secretUID] = secret.ResourceVersion
 			}
 
 			data := &resolvedGatewayDetails{

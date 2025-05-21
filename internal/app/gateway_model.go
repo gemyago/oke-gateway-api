@@ -246,8 +246,9 @@ func (m *gatewayModelImpl) isProgrammed(_ context.Context, data *resolvedGateway
 
 	// Include secrets annotations in the check
 	if len(data.gatewaySecrets) > 0 {
-		for fullName, secret := range data.gatewaySecrets {
-			annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + fullName
+		for _, secret := range data.gatewaySecrets {
+			secretUID := string(secret.UID)
+			annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + secretUID
 			annotations[annotationKey] = secret.ResourceVersion
 		}
 	}
@@ -266,8 +267,9 @@ func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGate
 	}
 
 	if len(data.gatewaySecrets) > 0 {
-		for fullName, secret := range data.gatewaySecrets {
-			annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + fullName
+		for _, secret := range data.gatewaySecrets {
+			secretUID := string(secret.UID)
+			annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + secretUID
 			annotations[annotationKey] = secret.ResourceVersion
 		}
 	}
