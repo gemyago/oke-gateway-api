@@ -52,6 +52,7 @@ func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditi
 		slog.String("message", params.message),
 		slog.Any("annotations", params.annotations),
 		slog.String("finalizer", params.finalizer),
+		slog.Int64("generation", params.resource.GetGeneration()),
 	)
 
 	generation := params.resource.GetGeneration()
