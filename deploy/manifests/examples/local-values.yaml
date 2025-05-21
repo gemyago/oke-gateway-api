@@ -1,0 +1,4 @@
+# Local environment values
+# Replace these values with your local environment settings
+DOMAIN_NAME=your-domain.com
+EMAIL_ADDRESS=your-email@example.com 

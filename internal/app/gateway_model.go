@@ -238,6 +238,17 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 }
 
 func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGatewayDetails) error {
+	annotations := map[string]string{
+		GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+	}
+
+	if len(data.gatewaySecrets) > 0 {
+		for fullName, secret := range data.gatewaySecrets {
+			annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + fullName
+			annotations[annotationKey] = secret.ResourceVersion
+		}
+	}
+
 	if err := m.resourcesModel.setCondition(ctx, setConditionParams{
 		resource:      &data.gateway,
 		conditions:    &data.gateway.Status.Conditions,
@@ -245,9 +256,7 @@ func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGate
 		status:        metav1.ConditionTrue,
 		reason:        string(gatewayv1.GatewayReasonProgrammed),
 		message:       fmt.Sprintf("Gateway %s programmed by %s", data.gateway.Name, ControllerClassName),
-		annotations: map[string]string{
-			GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
-		},
+		annotations:   annotations,
 	}); err != nil {
 		return fmt.Errorf("failed to set programmed condition for Gateway %s: %w", data.gateway.Name, err)
 	}

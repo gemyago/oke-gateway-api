@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"reflect"
 	"testing"
 
@@ -1084,6 +1085,49 @@ func TestGatewayModelImpl(t *testing.T) {
 					annotations: map[string]string{
 						GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
 					},
+				},
+			).Return(nil)
+
+			err := model.setProgrammed(t.Context(), data)
+			require.NoError(t, err)
+
+			mockResourcesModel.AssertExpectations(t)
+		})
+
+		t.Run("should set programmed condition with secrets", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			gateway := newRandomGateway()
+			numSecrets := 2 + rand.IntN(2) // Generate 2 or 3 secrets
+			gatewaySecretsMap := make(map[string]corev1.Secret)
+			expectedAnnotations := map[string]string{
+				GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+			}
+
+			for range numSecrets {
+				secret := makeRandomSecret() // Generate secret with random name/namespace
+				fullName := secret.Namespace + "/" + secret.Name
+				gatewaySecretsMap[fullName] = secret
+				expectedAnnotations[GatewayUsedSecretsAnnotationPrefix+"/"+fullName] = secret.ResourceVersion
+			}
+
+			data := &resolvedGatewayDetails{
+				gateway:        *gateway,
+				gatewaySecrets: gatewaySecretsMap,
+			}
+
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+			mockResourcesModel.EXPECT().setCondition(
+				t.Context(),
+				setConditionParams{
+					resource:      &data.gateway,
+					conditions:    &data.gateway.Status.Conditions,
+					conditionType: string(gatewayv1.GatewayConditionProgrammed),
+					status:        metav1.ConditionTrue,
+					reason:        string(gatewayv1.GatewayReasonProgrammed),
+					message:       fmt.Sprintf("Gateway %s programmed by %s", data.gateway.Name, ControllerClassName),
+					annotations:   expectedAnnotations,
 				},
 			).Return(nil)
 
