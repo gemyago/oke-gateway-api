@@ -57,7 +57,7 @@ func (m *WatchesModel) RegisterFieldIndexers(ctx context.Context, indexer client
 		&gatewayv1.Gateway{},
 		gatewayCertificateIndexKey,
 		func(o client.Object) []string {
-			return m.indexGatewayByCertificate(ctx, o)
+			return m.indexGatewayByCertificateSecrets(ctx, o)
 		},
 	); err != nil {
 		return fmt.Errorf("failed to index Gateway by certificate: %w", err)
@@ -75,13 +75,14 @@ func (m *WatchesModel) RegisterFieldIndexers(ctx context.Context, indexer client
 // lookup when an EndpointSlice changes.
 func (m *WatchesModel) indexHTTPRouteByBackendService(ctx context.Context, obj client.Object) []string {
 	httpRoute, isRoute := obj.(*gatewayv1.HTTPRoute)
+	logger := m.logger.WithGroup("http-route-backend-service-index")
 	if !isRoute {
-		m.logger.WarnContext(ctx, "Received non-HTTPRoute object", slog.Any("object", obj))
+		logger.WarnContext(ctx, "Received non-HTTPRoute object", slog.Any("object", obj))
 		return nil
 	}
 
 	if httpRoute.DeletionTimestamp != nil {
-		m.logger.DebugContext(ctx, "Ignoring HTTPRoute marked for deletion",
+		logger.DebugContext(ctx, "Ignoring HTTPRoute marked for deletion",
 			slog.String("httpRoute", client.ObjectKeyFromObject(httpRoute).String()),
 			slog.Time("deletionTimestamp", httpRoute.DeletionTimestamp.Time),
 		)
@@ -94,7 +95,7 @@ func (m *WatchesModel) indexHTTPRouteByBackendService(ctx context.Context, obj c
 			return status.ControllerName == ControllerClassName
 		})
 	if !found {
-		m.logger.DebugContext(ctx, "HTTPRoute is not accepted by this controller. Skipping indexing",
+		logger.DebugContext(ctx, "HTTPRoute is not accepted by this controller. Skipping indexing",
 			slog.String("httpRoute", client.ObjectKeyFromObject(httpRoute).String()),
 		)
 		return nil
@@ -107,7 +108,7 @@ func (m *WatchesModel) indexHTTPRouteByBackendService(ctx context.Context, obj c
 		// we should probably create a custom status, bit it is like below for now
 		string(gatewayv1.RouteConditionResolvedRefs),
 	); condition == nil || condition.Status != v1.ConditionTrue {
-		m.logger.DebugContext(ctx, "HTTPRoute is not programmed by this controller. Skipping indexing",
+		logger.DebugContext(ctx, "HTTPRoute is not programmed by this controller. Skipping indexing",
 			slog.String("httpRoute", client.ObjectKeyFromObject(httpRoute).String()),
 		)
 		return nil
@@ -131,7 +132,7 @@ func (m *WatchesModel) indexHTTPRouteByBackendService(ctx context.Context, obj c
 	}
 
 	serviceKeys := lo.Keys(uniqueServiceKeys)
-	m.logger.DebugContext(ctx, "Indexed HTTPRoute by backend service",
+	logger.DebugContext(ctx, "Indexed HTTPRoute by backend service",
 		slog.String("httpRoute", client.ObjectKeyFromObject(httpRoute).String()),
 		slog.String("indexKey", httpRouteBackendServiceIndexKey),
 		slog.Any("serviceKeys", serviceKeys),
@@ -140,12 +141,59 @@ func (m *WatchesModel) indexHTTPRouteByBackendService(ctx context.Context, obj c
 	return serviceKeys
 }
 
-// indexGatewayByCertificate extracts the namespaced names of Secrets referenced
+// indexGatewayByCertificateSecrets extracts the namespaced names of Secrets referenced
 // in a Gateway's listeners for TLS certificates. This is used to create an index
 // for efficient lookup when a Secret changes.
-func (m *WatchesModel) indexGatewayByCertificate(ctx context.Context, obj client.Object) []string {
-	// TODO: Implement certificate indexing
-	return nil
+func (m *WatchesModel) indexGatewayByCertificateSecrets(ctx context.Context, obj client.Object) []string {
+	gateway, isGateway := obj.(*gatewayv1.Gateway)
+	logger := m.logger.WithGroup("gateway-certificate-secret-index")
+
+	if !isGateway {
+		logger.WarnContext(ctx, "Received non-Gateway object", slog.Any("object", obj))
+		return nil
+	}
+
+	if gateway.DeletionTimestamp != nil {
+		logger.DebugContext(ctx, "Ignoring Gateway marked for deletion",
+			slog.String("gateway", client.ObjectKeyFromObject(gateway).String()),
+			slog.Time("deletionTimestamp", gateway.DeletionTimestamp.Time),
+		)
+		return nil
+	}
+
+	if gateway.Annotations == nil || gateway.Annotations[ControllerClassName] != "true" {
+		logger.DebugContext(ctx, "Gateway is not accepted by this controller. Skipping indexing",
+			slog.String("gateway", client.ObjectKeyFromObject(gateway).String()),
+		)
+		return nil
+	}
+
+	uniqueSecretKeys := make(map[string]struct{})
+	for _, listener := range gateway.Spec.Listeners {
+		if listener.Protocol != gatewayv1.HTTPSProtocolType || listener.TLS == nil {
+			continue
+		}
+
+		for _, ref := range listener.TLS.CertificateRefs {
+			ns := gateway.Namespace
+			if ref.Namespace != nil {
+				ns = string(*ref.Namespace)
+			}
+			namespacedName := path.Join(ns, string(ref.Name))
+			if _, ok := uniqueSecretKeys[namespacedName]; !ok {
+				uniqueSecretKeys[namespacedName] = struct{}{}
+			}
+		}
+	}
+
+	secretKeys := lo.Keys(uniqueSecretKeys)
+	logger.DebugContext(ctx, "Indexed Gateway by certificate",
+		slog.String("gateway", client.ObjectKeyFromObject(gateway).String()),
+		slog.String("indexKey", gatewayCertificateIndexKey),
+		slog.Any("secretKeys", secretKeys),
+	)
+
+	return secretKeys
 }
 
 // MapEndpointSliceToHTTPRoute maps EndpointSlice events to HTTPRoute reconcile requests.

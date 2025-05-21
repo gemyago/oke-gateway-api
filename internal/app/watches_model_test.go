@@ -482,4 +482,103 @@ func TestWatchesModel(t *testing.T) {
 			require.Nil(t, result)
 		})
 	})
+
+	t.Run("indexGatewayByCertificate", func(t *testing.T) {
+		withRelevantGatewayClass := func(gw *gatewayv1.Gateway) {
+			if gw.Annotations == nil {
+				gw.Annotations = make(map[string]string)
+			}
+			gw.Annotations[ControllerClassName] = "true"
+		}
+
+		t.Run("indexes all referenced Secret namespaced names from HTTPS listeners", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			// Create HTTPS listeners with random secrets
+			listener1 := makeRandomListener(randomListenerWithHTTPSParamsOpt())
+			listener2 := makeRandomListener(randomListenerWithHTTPSParamsOpt())
+			gateway := newRandomGateway(
+				withRelevantGatewayClass,
+				randomGatewayWithListenersOpt(listener1, listener2),
+			)
+
+			// Collect all referenced secrets
+			var wantIndices []string
+			for _, l := range gateway.Spec.Listeners {
+				if l.TLS != nil {
+					for _, ref := range l.TLS.CertificateRefs {
+						ns := gateway.Namespace
+						if ref.Namespace != nil {
+							ns = string(*ref.Namespace)
+						}
+						wantIndices = append(wantIndices, ns+"/"+string(ref.Name))
+					}
+				}
+			}
+
+			result := model.indexGatewayByCertificateSecrets(t.Context(), gateway)
+			require.ElementsMatch(t, wantIndices, result)
+		})
+
+		t.Run("deduplicates secrets", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			listener1 := makeRandomListener(randomListenerWithHTTPSParamsOpt())
+			listener2 := makeRandomListener(func(l *gatewayv1.Listener) {
+				l.TLS = &gatewayv1.GatewayTLSConfig{
+					CertificateRefs: listener1.TLS.CertificateRefs,
+				}
+			})
+			gateway := newRandomGateway(
+				withRelevantGatewayClass,
+				randomGatewayWithListenersOpt(listener1, listener2),
+			)
+
+			wantIndices := lo.Map(listener1.TLS.CertificateRefs, func(ref gatewayv1.SecretObjectReference, _ int) string {
+				ns := gateway.Namespace
+				if ref.Namespace != nil {
+					ns = string(*ref.Namespace)
+				}
+				return ns + "/" + string(ref.Name)
+			})
+
+			result := model.indexGatewayByCertificateSecrets(t.Context(), gateway)
+			require.ElementsMatch(t, wantIndices, result)
+		})
+
+		t.Run("ignores non-Gateway objects", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			result := model.indexGatewayByCertificateSecrets(t.Context(), &corev1.Service{})
+			require.Nil(t, result)
+		})
+
+		t.Run("ignores Gateways marked for deletion", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			gateway := newRandomGateway(withRelevantGatewayClass)
+			deletionTimestamp := metav1.Now()
+			gateway.DeletionTimestamp = &deletionTimestamp
+			result := model.indexGatewayByCertificateSecrets(t.Context(), gateway)
+			require.Nil(t, result)
+		})
+
+		t.Run("returns empty slice if no HTTPS listeners or no certificate refs", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			gateway := newRandomGateway(withRelevantGatewayClass) // Only HTTP listeners by default
+			result := model.indexGatewayByCertificateSecrets(t.Context(), gateway)
+			require.Empty(t, result)
+		})
+
+		t.Run("ignores Gateways without correct controller class", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			gateway := newRandomGateway() // No controller class set
+			result := model.indexGatewayByCertificateSecrets(t.Context(), gateway)
+			require.Nil(t, result)
+		})
+	})
 }
