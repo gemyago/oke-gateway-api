@@ -369,7 +369,7 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 			slog.String("listenerName", listenerName),
 		)
 
-		updateDetails := makeOciListenerUpdateDetails(makeOciListenerUpdateDetailsParams{
+		updateDetails, _ := makeOciListenerUpdateDetails(makeOciListenerUpdateDetailsParams{
 			existingListenerData:  params.knownListeners[listenerName],
 			listenerName:          listenerName,
 			listenerSpec:          params.listenerSpec,
@@ -869,14 +869,14 @@ type makeOciListenerUpdateDetailsParams struct {
 	sslConfig             *loadbalancer.SslConfigurationDetails
 }
 
-func makeOciListenerUpdateDetails(params makeOciListenerUpdateDetailsParams) loadbalancer.UpdateListenerDetails {
+func makeOciListenerUpdateDetails(params makeOciListenerUpdateDetailsParams) (loadbalancer.UpdateListenerDetails, bool) {
 	return loadbalancer.UpdateListenerDetails{
 		Protocol:              lo.ToPtr("HTTP"),
 		Port:                  lo.ToPtr(int(params.listenerSpec.Port)),
 		DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
 		RoutingPolicyName:     lo.ToPtr(listenerPolicyName(params.listenerName)),
 		SslConfiguration:      params.sslConfig,
-	}
+	}, false
 }
 
 type ociLoadBalancerModelDeps struct {
