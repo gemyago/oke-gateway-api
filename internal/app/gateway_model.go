@@ -178,9 +178,10 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 		return fmt.Errorf("failed to get OCI Load Balancer %s: %w", loadBalancerID, err)
 	}
 
-	m.logger.DebugContext(ctx, "Successfully retrieved OCI Load Balancer details",
-		slog.Any("loadBalancer", response.LoadBalancer),
-	)
+	// This is very verbose, uncomment if needed
+	// m.logger.DebugContext(ctx, "Successfully retrieved OCI Load Balancer details",
+	// 	slog.Any("loadBalancer", response.LoadBalancer),
+	// )
 
 	defaultBackendSet, err := m.ociLoadBalancerModel.reconcileDefaultBackendSet(ctx, reconcileDefaultBackendParams{
 		loadBalancerID:   loadBalancerID,

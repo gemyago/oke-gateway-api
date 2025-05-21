@@ -364,11 +364,6 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 
 	var workRequestID string
 	if _, ok := params.knownListeners[listenerName]; ok {
-		m.logger.DebugContext(ctx, "Listener already exists, updating",
-			slog.String("loadBalancerId", params.loadBalancerID),
-			slog.String("listenerName", listenerName),
-		)
-
 		updateDetails, hasChanges := makeOciListenerUpdateDetails(makeOciListenerUpdateDetailsParams{
 			existingListenerData:  params.knownListeners[listenerName],
 			listenerName:          listenerName,
@@ -383,6 +378,11 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 			)
 			return nil
 		}
+
+		m.logger.DebugContext(ctx, "Updating existing listener",
+			slog.String("loadBalancerId", params.loadBalancerID),
+			slog.String("listenerName", listenerName),
+		)
 
 		updateRes, err := m.ociClient.UpdateListener(ctx, loadbalancer.UpdateListenerRequest{
 			ListenerName:          &listenerName,

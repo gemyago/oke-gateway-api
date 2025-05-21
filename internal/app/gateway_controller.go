@@ -105,8 +105,8 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 	if !r.gatewayModel.isProgrammed(ctx, &data) {
 		r.logger.DebugContext(ctx, "Programming gateway",
 			slog.Any("req", req),
-			slog.Any("gateway", data.gateway),
-			slog.Any("gatewayClass", data.gatewayClass),
+			// slog.Any("gateway", data.gateway), // this is very verbose, uncomment if needed
+			// slog.Any("gatewayClass", data.gatewayClass), // this is very verbose, uncomment if needed
 			slog.Any("config", data.config),
 		)
 
