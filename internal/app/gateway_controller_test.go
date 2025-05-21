@@ -90,17 +90,9 @@ func TestGatewayController(t *testing.T) {
 				}).
 				Return(nil).Once()
 
-			mockResourcesModel.EXPECT().
-				setCondition(t.Context(), setConditionParams{
-					resource:      gateway,
-					conditions:    &gateway.Status.Conditions,
-					conditionType: string(gatewayv1.GatewayConditionProgrammed),
-					status:        metav1.ConditionTrue,
-					reason:        string(gatewayv1.GatewayConditionProgrammed),
-					message:       fmt.Sprintf("Gateway %s programmed by %s", gateway.Name, ControllerClassName),
-					annotations: map[string]string{
-						GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
-					},
+			mockGatewayModel.EXPECT().
+				setProgrammed(t.Context(), &resolvedGatewayDetails{
+					gateway: *gateway,
 				}).
 				Return(nil).Once()
 
@@ -399,8 +391,10 @@ func TestGatewayController(t *testing.T) {
 				programGateway(t.Context(), mock.Anything).
 				Return(nil).Once()
 
-			mockResourcesModel.EXPECT().
-				setCondition(t.Context(), mock.Anything).
+			mockGatewayModel.EXPECT().
+				setProgrammed(t.Context(), &resolvedGatewayDetails{
+					gateway: *gateway,
+				}).
 				Return(wantErr).Once()
 
 			result, err := controller.Reconcile(t.Context(), req)

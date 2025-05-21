@@ -121,18 +121,12 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 			return r.processResourceError(ctx, err, &data.gateway)
 		}
 
-		if err = r.resourcesModel.setCondition(ctx, setConditionParams{
-			resource:      &data.gateway,
-			conditions:    &data.gateway.Status.Conditions,
-			conditionType: string(gatewayv1.GatewayConditionProgrammed),
-			status:        v1.ConditionTrue,
-			reason:        string(gatewayv1.GatewayConditionProgrammed),
-			message:       fmt.Sprintf("Gateway %s programmed by %s", data.gateway.Name, ControllerClassName),
-			annotations: map[string]string{
-				GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
-			},
-		}); err != nil {
-			return reconcile.Result{}, fmt.Errorf("failed to set accepted condition for Gateway %s: %w", req.NamespacedName, err)
+		// Call the model to set the programmed condition
+		if err = r.gatewayModel.setProgrammed(ctx, &data); err != nil {
+			// If setting programmed condition fails, it might be a transient error or an issue with the gateway itself.
+			// We return an error here, which will cause the request to be re-queued.
+			// The processResourceError function is not used here as it's specific to resource programming errors.
+			return reconcile.Result{}, fmt.Errorf("failed to set programmed condition for Gateway %s: %w", data.gateway.Name, err)
 		}
 
 		r.logger.InfoContext(ctx,
