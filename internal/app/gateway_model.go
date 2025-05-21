@@ -103,9 +103,56 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
 		return false, fmt.Errorf("failed to get GatewayConfig %s: %w", configName, err)
 	}
 
+	if err := m.populateGatewaySecrets(ctx, receiver); err != nil {
+		return false, err
+	}
+
 	// TODO: Make sure config is complete
 
 	return true, nil
+}
+
+func (m *gatewayModelImpl) populateGatewaySecrets(ctx context.Context, receiver *resolvedGatewayDetails) error {
+	receiver.gatewaySecrets = make(map[string]corev1.Secret)
+
+	for _, listener := range receiver.gateway.Spec.Listeners {
+		if listener.TLS == nil || len(listener.TLS.CertificateRefs) == 0 {
+			continue
+		}
+
+		for _, certRef := range listener.TLS.CertificateRefs {
+			secretName := string(certRef.Name)
+			secretNamespace := receiver.gateway.Namespace
+			if certRef.Namespace != nil {
+				secretNamespace = string(*certRef.Namespace)
+			}
+
+			fullSecretName := secretNamespace + "/" + secretName
+
+			if _, exists := receiver.gatewaySecrets[fullSecretName]; exists {
+				continue
+			}
+
+			var secret corev1.Secret
+			if err := m.client.Get(ctx, apitypes.NamespacedName{
+				Name:      secretName,
+				Namespace: secretNamespace,
+			}, &secret); err != nil {
+				if apierrors.IsNotFound(err) {
+					return &resourceStatusError{
+						conditionType: string(gatewayv1.GatewayConditionAccepted),
+						reason:        string(gatewayv1.GatewayReasonInvalidParameters),
+						message:       fmt.Sprintf("referenced secret %s not found", fullSecretName),
+					}
+				}
+				return fmt.Errorf("failed to get secret %s: %w", fullSecretName, err)
+			}
+
+			receiver.gatewaySecrets[fullSecretName] = secret
+		}
+	}
+
+	return nil
 }
 
 func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGatewayDetails) error {

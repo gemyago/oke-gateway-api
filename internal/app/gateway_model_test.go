@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
@@ -549,6 +551,285 @@ func TestGatewayModelImpl(t *testing.T) {
 			require.Error(t, err)
 			require.ErrorIs(t, err, wantErr)
 			assert.False(t, resolved)
+		})
+
+		t.Run("gatewaySecretsPopulated", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			// Create gateway with HTTPS listeners that reference secrets
+			gateway := newRandomGateway()
+			gateway.Spec.Infrastructure = &gatewayv1.GatewayInfrastructure{
+				ParametersRef: &gatewayv1.LocalParametersReference{
+					Group: ConfigRefGroup,
+					Kind:  ConfigRefKind,
+					Name:  faker.DomainName(),
+				},
+			}
+
+			// Create two listeners with TLS configurations
+			listener1 := makeRandomListener(randomListenerWithHTTPSParamsOpt())
+			listener2 := makeRandomListener(randomListenerWithHTTPSParamsOpt())
+			gateway.Spec.Listeners = []gatewayv1.Listener{listener1, listener2}
+
+			// Generate secrets corresponding to certificate references
+			secretsMap := make(map[string]corev1.Secret)
+
+			for _, listener := range gateway.Spec.Listeners {
+				if listener.TLS != nil {
+					for _, certRef := range listener.TLS.CertificateRefs {
+						secretName := string(certRef.Name)
+						secretNamespace := gateway.Namespace
+						if certRef.Namespace != nil {
+							secretNamespace = string(*certRef.Namespace)
+						}
+
+						fullName := secretNamespace + "/" + secretName
+						secret := makeRandomSecret(
+							randomSecretWithNameOpt(secretName),
+							randomSecretWithTLSDataOpt(),
+						)
+						// Override namespace since makeRandomSecret generates random one
+						secret.Namespace = secretNamespace
+						secretsMap[fullName] = secret
+					}
+				}
+			}
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: gateway.Namespace,
+					Name:      gateway.Name,
+				},
+			}
+
+			gatewayClass := newRandomGatewayClass(
+				randomGatewayClassWithControllerNameOpt(
+					ControllerClassName,
+				),
+			)
+
+			gatewayConfig := types.GatewayConfig{
+				Spec: types.GatewayConfigSpec{
+					LoadBalancerID: faker.UUIDHyphenated(),
+				},
+			}
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+
+			mockClient.EXPECT().
+				Get(t.Context(), req.NamespacedName, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					_ apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
+					return nil
+				})
+
+			mockClient.EXPECT().
+				Get(t.Context(), apitypes.NamespacedName{
+					Name: string(gateway.Spec.GatewayClassName),
+				}, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					_ apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gatewayClass))
+					return nil
+				})
+
+			wantConfigName := apitypes.NamespacedName{
+				Namespace: gateway.Namespace,
+				Name:      gateway.Spec.Infrastructure.ParametersRef.Name,
+			}
+			mockClient.EXPECT().
+				Get(t.Context(), wantConfigName, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					_ apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(gatewayConfig))
+					return nil
+				})
+
+			// Expect calls to get secrets
+			for _, listener := range gateway.Spec.Listeners {
+				if listener.TLS != nil {
+					for _, certRef := range listener.TLS.CertificateRefs {
+						secretName := string(certRef.Name)
+						secretNamespace := gateway.Namespace
+						if certRef.Namespace != nil {
+							secretNamespace = string(*certRef.Namespace)
+						}
+
+						fullName := secretNamespace + "/" + secretName
+						secretObj := secretsMap[fullName]
+
+						mockClient.EXPECT().
+							Get(t.Context(), apitypes.NamespacedName{
+								Name:      secretName,
+								Namespace: secretNamespace,
+							}, mock.Anything).
+							RunAndReturn(func(
+								_ context.Context,
+								_ apitypes.NamespacedName,
+								receiver client.Object,
+								_ ...client.GetOption,
+							) error {
+								reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(secretObj))
+								return nil
+							})
+					}
+				}
+			}
+
+			var receiver resolvedGatewayDetails
+			relevant, err := model.resolveReconcileRequest(t.Context(), req, &receiver)
+
+			require.NoError(t, err)
+			assert.True(t, relevant)
+
+			// Verify that gatewaySecrets map is populated with all the certificate secrets
+			require.NotNil(t, receiver.gatewaySecrets)
+			for _, listener := range gateway.Spec.Listeners {
+				if listener.TLS != nil {
+					for _, certRef := range listener.TLS.CertificateRefs {
+						secretName := string(certRef.Name)
+						secretNamespace := gateway.Namespace
+						if certRef.Namespace != nil {
+							secretNamespace = string(*certRef.Namespace)
+						}
+
+						fullName := secretNamespace + "/" + secretName
+						secret, exists := receiver.gatewaySecrets[fullName]
+						assert.True(t, exists, "Secret %s should exist in gatewaySecrets", fullName)
+						assert.Equal(t, secretName, secret.Name)
+						assert.Equal(t, secretNamespace, secret.Namespace)
+					}
+				}
+			}
+		})
+
+		t.Run("missingGatewaySecret", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			// Create gateway with HTTPS listener that references a secret
+			gateway := newRandomGateway()
+			gateway.Spec.Infrastructure = &gatewayv1.GatewayInfrastructure{
+				ParametersRef: &gatewayv1.LocalParametersReference{
+					Group: ConfigRefGroup,
+					Kind:  ConfigRefKind,
+					Name:  faker.DomainName(),
+				},
+			}
+
+			// Create a listener with TLS configuration
+			listener := makeRandomListener(randomListenerWithHTTPSParamsOpt())
+			gateway.Spec.Listeners = []gatewayv1.Listener{listener}
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: gateway.Namespace,
+					Name:      gateway.Name,
+				},
+			}
+
+			gatewayClass := newRandomGatewayClass(
+				randomGatewayClassWithControllerNameOpt(
+					ControllerClassName,
+				),
+			)
+
+			gatewayConfig := types.GatewayConfig{
+				Spec: types.GatewayConfigSpec{
+					LoadBalancerID: faker.UUIDHyphenated(),
+				},
+			}
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+
+			mockClient.EXPECT().
+				Get(t.Context(), req.NamespacedName, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					_ apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gateway))
+					return nil
+				})
+
+			mockClient.EXPECT().
+				Get(t.Context(), apitypes.NamespacedName{
+					Name: string(gateway.Spec.GatewayClassName),
+				}, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					_ apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(*gatewayClass))
+					return nil
+				})
+
+			wantConfigName := apitypes.NamespacedName{
+				Namespace: gateway.Namespace,
+				Name:      gateway.Spec.Infrastructure.ParametersRef.Name,
+			}
+			mockClient.EXPECT().
+				Get(t.Context(), wantConfigName, mock.Anything).
+				RunAndReturn(func(
+					_ context.Context,
+					_ apitypes.NamespacedName,
+					receiver client.Object,
+					_ ...client.GetOption,
+				) error {
+					reflect.ValueOf(receiver).Elem().Set(reflect.ValueOf(gatewayConfig))
+					return nil
+				})
+
+			// Make one of the secret fetches fail with NotFound
+			certRef := listener.TLS.CertificateRefs[0]
+			secretName := string(certRef.Name)
+			secretNamespace := gateway.Namespace
+			if certRef.Namespace != nil {
+				secretNamespace = string(*certRef.Namespace)
+			}
+
+			mockClient.EXPECT().
+				Get(t.Context(), apitypes.NamespacedName{
+					Name:      secretName,
+					Namespace: secretNamespace,
+				}, mock.Anything).
+				Return(apierrors.NewNotFound(schema.GroupResource{
+					Group:    "",
+					Resource: "Secret",
+				}, secretName))
+
+			var receiver resolvedGatewayDetails
+			resolved, err := model.resolveReconcileRequest(t.Context(), req, &receiver)
+
+			require.Error(t, err)
+			assert.False(t, resolved)
+
+			var statusErr *resourceStatusError
+			require.ErrorAs(t, err, &statusErr)
+			assert.Equal(t, string(gatewayv1.GatewayConditionAccepted), statusErr.conditionType)
+			assert.Equal(t, string(gatewayv1.GatewayReasonInvalidParameters), statusErr.reason)
+
+			// The full message includes the actual secret name, so we just check that it contains this substring
+			fullSecretName := secretNamespace + "/" + secretName
+			assert.Contains(t, statusErr.message, fmt.Sprintf("referenced secret %s not found", fullSecretName))
 		})
 	})
 
