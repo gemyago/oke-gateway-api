@@ -2286,6 +2286,12 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 		want   loadbalancer.UpdateListenerDetails
 	}
 
+	makeSslConfigFromDetails := func(details *loadbalancer.SslConfigurationDetails) *loadbalancer.SslConfiguration {
+		return &loadbalancer.SslConfiguration{
+			CertificateName: details.CertificateName,
+		}
+	}
+
 	tests := []func() testCase{
 		func() testCase {
 			listenerName := faker.UUIDHyphenated()
@@ -2297,6 +2303,12 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 			return testCase{
 				name: "basic http listener",
 				params: makeOciListenerUpdateDetailsParams{
+					existingListenerData: loadbalancer.Listener{
+						Protocol:              lo.ToPtr("HTTP"),
+						Port:                  lo.ToPtr(int(listenerSpec.Port)),
+						DefaultBackendSetName: lo.ToPtr(defaultBackendSetName),
+						RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
+					},
 					listenerName:          listenerName,
 					listenerSpec:          &listenerSpec,
 					defaultBackendSetName: defaultBackendSetName,
@@ -2323,6 +2335,13 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 			return testCase{
 				name: "https listener with ssl config",
 				params: makeOciListenerUpdateDetailsParams{
+					existingListenerData: loadbalancer.Listener{
+						Protocol:              lo.ToPtr("HTTP"),
+						Port:                  lo.ToPtr(int(listenerSpec.Port)),
+						DefaultBackendSetName: lo.ToPtr(defaultBackendSetName),
+						RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
+						SslConfiguration:      makeSslConfigFromDetails(sslConfig),
+					},
 					listenerName:          listenerName,
 					listenerSpec:          &listenerSpec,
 					defaultBackendSetName: defaultBackendSetName,

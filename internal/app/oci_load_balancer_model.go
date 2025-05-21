@@ -370,6 +370,7 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 		)
 
 		updateDetails := makeOciListenerUpdateDetails(makeOciListenerUpdateDetailsParams{
+			existingListenerData:  params.knownListeners[listenerName],
 			listenerName:          listenerName,
 			listenerSpec:          params.listenerSpec,
 			defaultBackendSetName: params.defaultBackendSetName,
@@ -861,6 +862,7 @@ func ociBackendSetNameFromService(service corev1.Service) string {
 }
 
 type makeOciListenerUpdateDetailsParams struct {
+	existingListenerData  loadbalancer.Listener
 	listenerName          string
 	listenerSpec          *gatewayv1.Listener
 	defaultBackendSetName string
