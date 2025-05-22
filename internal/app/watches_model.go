@@ -190,8 +190,8 @@ func (m *WatchesModel) indexGatewayByCertificateSecrets(ctx context.Context, obj
 	secretKeys := lo.Keys(uniqueSecretKeys)
 	logger.DebugContext(ctx, "Indexed Gateway by certificate",
 		slog.String("gateway", client.ObjectKeyFromObject(gateway).String()),
-		slog.String("resourceVersion", gateway.ResourceVersion),
-		slog.Int64("generation", gateway.Generation),
+		slog.String("gatewayResourceVersion", gateway.ResourceVersion),
+		slog.Int64("gatewayGeneration", gateway.Generation),
 		slog.String("indexKey", gatewayCertificateIndexKey),
 		slog.Any("secretKeys", secretKeys),
 	)
