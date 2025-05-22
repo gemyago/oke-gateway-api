@@ -7,17 +7,6 @@
 
 Project status: **Alpha**
 
-# TODOS
-
-This is a list of tasks to finish in scope of this PR and must be removed prior to merging.
-
-* HTTPS: Handle certificate updates - need to re-trigger reconcile on secret update
-  stragety: resolveReconcileRequest includes all secrets
-  for each secret we will add annotation in form <base-name>/<secret-full-name>/revision
-  and check if resolved secrets are there and have matching revision
-  if not, then we patch secrets only
-* HTTPS: Test with actual prod certificates
-
 ## Getting Started
 
 Install Gateway API CRDs:
