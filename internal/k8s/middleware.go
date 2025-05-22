@@ -8,6 +8,7 @@ import (
 	"github.com/gemyago/oke-gateway-api/internal/app"
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/google/uuid"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -47,6 +48,14 @@ func newErrorHandlingMiddleware(
 							diag.ErrAttr(err),
 						)
 						return reconcile.Result{}, nil // Return nil error to stop reconciliation
+					}
+
+					if apierrors.IsConflict(err) {
+						logger.WarnContext(ctx, "Resource version conflict, requeueing",
+							slog.Any("request", req),
+							diag.ErrAttr(err),
+						)
+						return reconcile.Result{Requeue: true}, nil // Return nil error to stop reconciliation
 					}
 
 					logger.ErrorContext(ctx, "Reconcile failed",
