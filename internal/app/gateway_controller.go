@@ -111,7 +111,7 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 			slog.Int64("generation", data.gateway.Generation),
 			// slog.Any("gateway", data.gateway), // this is very verbose, uncomment if needed
 			// slog.Any("gatewayClass", data.gatewayClass), // this is very verbose, uncomment if needed
-			slog.Any("config", data.config),
+			slog.String("loadBalancerID", data.config.Spec.LoadBalancerID),
 		)
 
 		if err = r.gatewayModel.programGateway(ctx, &data); err != nil {
