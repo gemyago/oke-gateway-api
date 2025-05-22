@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
 
 	"go.uber.org/dig"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -105,6 +104,8 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 	if !r.gatewayModel.isProgrammed(ctx, &data) {
 		r.logger.DebugContext(ctx, "Programming gateway",
 			slog.Any("req", req),
+			slog.String("resourceVersion", data.gateway.ResourceVersion),
+			slog.Int64("generation", data.gateway.Generation),
 			// slog.Any("gateway", data.gateway), // this is very verbose, uncomment if needed
 			// slog.Any("gatewayClass", data.gatewayClass), // this is very verbose, uncomment if needed
 			slog.Any("config", data.config),
@@ -121,12 +122,15 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 		r.logger.InfoContext(ctx,
 			"Successfully set Programmed condition for Gateway",
 			slog.String("gateway", req.NamespacedName.String()),
+			slog.String("resourceVersion", data.gateway.ResourceVersion),
+			slog.Int64("generation", data.gateway.Generation),
 		)
 	} else {
 		r.logger.DebugContext(ctx,
 			"Programmed condition already set for this Gateway generation",
 			slog.String("gateway", req.NamespacedName.String()),
-			slog.String("generation", strconv.FormatInt(data.gateway.Generation, 10)),
+			slog.Int64("generation", data.gateway.Generation),
+			slog.String("resourceVersion", data.gateway.ResourceVersion),
 		)
 	}
 

@@ -190,6 +190,8 @@ func (m *WatchesModel) indexGatewayByCertificateSecrets(ctx context.Context, obj
 	secretKeys := lo.Keys(uniqueSecretKeys)
 	logger.DebugContext(ctx, "Indexed Gateway by certificate",
 		slog.String("gateway", client.ObjectKeyFromObject(gateway).String()),
+		slog.String("resourceVersion", gateway.ResourceVersion),
+		slog.Int64("generation", gateway.Generation),
 		slog.String("indexKey", gatewayCertificateIndexKey),
 		slog.Any("secretKeys", secretKeys),
 	)
@@ -339,6 +341,8 @@ func (m *WatchesModel) MapSecretToGateway(ctx context.Context, obj client.Object
 		m.logger.InfoContext(ctx,
 			"Queueing Gateway for reconciliation due to Secret change",
 			slog.String("gateway", client.ObjectKeyFromObject(&gateway).String()),
+			slog.String("resourceVersion", gateway.ResourceVersion),
+			slog.Int64("generation", gateway.Generation),
 			slog.String("secret", client.ObjectKeyFromObject(secret).String()),
 		)
 	}

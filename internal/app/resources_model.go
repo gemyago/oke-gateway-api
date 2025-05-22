@@ -44,6 +44,7 @@ type resourcesModelImpl struct {
 }
 
 func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditionParams) error {
+	generation := params.resource.GetGeneration()
 	m.logger.DebugContext(ctx,
 		fmt.Sprintf("Setting %s condition", params.conditionType),
 		slog.String("resource", params.resource.GetName()),
@@ -52,10 +53,9 @@ func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditi
 		slog.String("message", params.message),
 		slog.Any("annotations", params.annotations),
 		slog.String("finalizer", params.finalizer),
-		slog.Int64("generation", params.resource.GetGeneration()),
+		slog.Int64("generation", generation),
+		slog.String("resourceVersion", params.resource.GetResourceVersion()),
 	)
-
-	generation := params.resource.GetGeneration()
 
 	acceptedCondition := metav1.Condition{
 		Type:               params.conditionType,
