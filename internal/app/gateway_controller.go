@@ -71,7 +71,6 @@ func (r *GatewayController) processResourceError(
 
 // Reconcile implements the reconcile.Reconciler interface for Gateway resources.
 func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	r.logger.InfoContext(ctx, fmt.Sprintf("Processing reconciliation for Gateway %s", req.NamespacedName))
 	var data resolvedGatewayDetails
 	relevant, err := r.gatewayModel.resolveReconcileRequest(ctx, req, &data)
 	if err != nil {
@@ -80,6 +79,10 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 	if !relevant {
 		return reconcile.Result{}, nil
 	}
+	r.logger.InfoContext(ctx, fmt.Sprintf("Processing reconciliation for Gateway %s", req.NamespacedName),
+		slog.String("resourceVersion", data.gateway.ResourceVersion),
+		slog.Int64("generation", data.gateway.Generation),
+	)
 
 	if !r.resourcesModel.isConditionSet(isConditionSetParams{
 		resource:      &data.gateway,
