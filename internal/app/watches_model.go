@@ -269,6 +269,8 @@ func (m *WatchesModel) MapEndpointSliceToHTTPRoute(ctx context.Context, obj clie
 // MapSecretToGateway maps Secret events to Gateway reconcile requests.
 // Its signature matches handler.MapFunc.
 func (m *WatchesModel) MapSecretToGateway(ctx context.Context, obj client.Object) []reconcile.Request {
+	objectKey := client.ObjectKeyFromObject(obj).String()
+
 	secret, ok := obj.(*corev1.Secret)
 	if !ok {
 		m.logger.WarnContext(ctx, "Received non-Secret object", slog.Any("object", obj))
@@ -278,7 +280,7 @@ func (m *WatchesModel) MapSecretToGateway(ctx context.Context, obj client.Object
 	// Ignore non-TLS secrets
 	if secret.Type != corev1.SecretTypeTLS {
 		m.logger.DebugContext(ctx, "Ignoring non-TLS secret",
-			slog.String("secret", client.ObjectKeyFromObject(secret).String()),
+			slog.String("secret", objectKey),
 			slog.String("type", string(secret.Type)),
 		)
 		return nil
@@ -287,13 +289,13 @@ func (m *WatchesModel) MapSecretToGateway(ctx context.Context, obj client.Object
 	// Verify that the secret has the required TLS data
 	if _, hasCert := secret.Data[corev1.TLSCertKey]; !hasCert {
 		m.logger.DebugContext(ctx, "Ignoring TLS secret without certificate data",
-			slog.String("secret", client.ObjectKeyFromObject(secret).String()),
+			slog.String("secret", objectKey),
 		)
 		return nil
 	}
 	if _, hasKey := secret.Data[corev1.TLSPrivateKeyKey]; !hasKey {
 		m.logger.DebugContext(ctx, "Ignoring TLS secret without private key data",
-			slog.String("secret", client.ObjectKeyFromObject(secret).String()),
+			slog.String("secret", objectKey),
 		)
 		return nil
 	}
@@ -330,7 +332,7 @@ func (m *WatchesModel) MapSecretToGateway(ctx context.Context, obj client.Object
 			m.logger.DebugContext(ctx,
 				"Skipping Gateway marked for deletion",
 				slog.String("gateway", client.ObjectKeyFromObject(&gateway).String()),
-				slog.String("secret", client.ObjectKeyFromObject(secret).String()),
+				slog.String("secret", objectKey),
 				slog.Time("deletionTimestamp", gateway.DeletionTimestamp.Time),
 			)
 			continue
@@ -343,7 +345,9 @@ func (m *WatchesModel) MapSecretToGateway(ctx context.Context, obj client.Object
 			slog.String("gateway", client.ObjectKeyFromObject(&gateway).String()),
 			slog.String("resourceVersion", gateway.ResourceVersion),
 			slog.Int64("generation", gateway.Generation),
-			slog.String("secret", client.ObjectKeyFromObject(secret).String()),
+			slog.String("secret", objectKey),
+			slog.String("secretResourceVersion", secret.ResourceVersion),
+			slog.Int64("secretGeneration", secret.Generation),
 		)
 	}
 
