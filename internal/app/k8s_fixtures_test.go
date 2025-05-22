@@ -156,12 +156,6 @@ func randomListenerWithHTTPProtocolOpt() randomListenerOpt {
 	}
 }
 
-func randomListenerWithHTTPSProtocolOpt() randomListenerOpt {
-	return func(listener *gatewayv1.Listener) {
-		listener.Protocol = gatewayv1.HTTPSProtocolType
-	}
-}
-
 func makeFewRandomListeners() []gatewayv1.Listener {
 	count := 2 + rand.IntN(3)
 	listeners := make([]gatewayv1.Listener, count)
