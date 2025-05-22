@@ -12,6 +12,7 @@ import (
 	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -70,12 +71,28 @@ func StartManager(ctx context.Context, deps StartManagerDeps) error { // coverag
 
 	if deps.ReconcileGateway {
 		if err := builder.ControllerManagedBy(mgr).
-			For(&gatewayv1.Gateway{}).
+			For(
+				&gatewayv1.Gateway{},
+
+				// Applying predicates just on the gateway level. Secrets do not have generation incremented
+				// so secret updates will not trigger a reconciliation.
+				builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})),
+			).
 			Watches(
 				&corev1.Secret{},
 				handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapSecretToGateway),
+				builder.WithPredicates(predicate.And(
+					predicate.Funcs{
+						// We ignore create events. They're also happening when controller starts up
+						// which leads to duplicate reconciliations and just noise.
+						// We don't care when new secrets are created, currently if no secret
+						// the whole gateway reconciliation will fail. We may want to change this
+						// in the future and revisit this predicate.
+						CreateFunc: func(_ event.CreateEvent) bool { return false },
+					},
+					predicate.ResourceVersionChangedPredicate{},
+				)),
 			).
-			WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
 			Complete(wireupReconciler(deps.GatewayCtrl, middlewares...)); err != nil {
 			return fmt.Errorf("failed to setup Gateway controller: %w", err)
 		}
