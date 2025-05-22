@@ -1,0 +1,18 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Linting and testing codebase
+
+## Linting
+* Run `make lint` in a project root
+* If you see any linting errors, attempt to fix them and lint again untill all green
+* Once succeeded, commit fixed files
+* You can work [autonomous.mdc](mdc:.cursor/rules/autonomous.mdc)
+
+## Testing
+* Run `make test` 
+* If you see any failing test, attempt to fix it and then test again
+* Once succeeded, commit fixed files
+* You can work [autonomous.mdc](mdc:.cursor/rules/autonomous.mdc)
