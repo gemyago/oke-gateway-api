@@ -10,6 +10,8 @@ import (
 	"github.com/go-faker/faker/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -72,6 +74,25 @@ func TestErrorHandlingMiddleware(t *testing.T) {
 
 		require.NoError(t, actualErr)
 		assert.Equal(t, reconcile.Result{}, actualResult)
+	})
+
+	t.Run("when next errors with conflict error", func(t *testing.T) {
+		logger := diag.RootTestLogger()
+		dummyReq := reconcile.Request{NamespacedName: types.NamespacedName{Name: faker.Word(), Namespace: faker.Word()}}
+		conflictErr := k8serrors.NewConflict(schema.GroupResource{}, faker.Word(), errors.New("conflict"))
+		next := reconcile.TypedFunc[reconcile.Request](
+			func(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
+				assert.Equal(t, dummyReq, req)
+				return reconcile.Result{}, conflictErr
+			})
+
+		middleware := newErrorHandlingMiddleware(logger)
+		ctrl := middleware(next)
+
+		actualResult, actualErr := ctrl.Reconcile(t.Context(), dummyReq)
+
+		require.NoError(t, actualErr)
+		assert.Equal(t, reconcile.Result{Requeue: true}, actualResult)
 	})
 }
 

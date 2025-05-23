@@ -24,11 +24,17 @@ type ociLoadBalancerClient interface {
 	CreateBackendSet(ctx context.Context, request loadbalancer.CreateBackendSetRequest) (
 		response loadbalancer.CreateBackendSetResponse, err error)
 
+	DeleteBackendSet(ctx context.Context, request loadbalancer.DeleteBackendSetRequest) (
+		response loadbalancer.DeleteBackendSetResponse, err error)
+
 	GetBackendSet(ctx context.Context, request loadbalancer.GetBackendSetRequest) (
 		response loadbalancer.GetBackendSetResponse, err error)
 
 	CreateListener(ctx context.Context, request loadbalancer.CreateListenerRequest) (
 		response loadbalancer.CreateListenerResponse, err error)
+
+	UpdateListener(ctx context.Context, request loadbalancer.UpdateListenerRequest) (
+		response loadbalancer.UpdateListenerResponse, err error)
 
 	CreateHostname(ctx context.Context, request loadbalancer.CreateHostnameRequest) (
 		response loadbalancer.CreateHostnameResponse, err error)
@@ -62,6 +68,12 @@ type ociLoadBalancerClient interface {
 
 	DeleteRoutingPolicy(ctx context.Context, request loadbalancer.DeleteRoutingPolicyRequest) (
 		response loadbalancer.DeleteRoutingPolicyResponse, err error)
+
+	CreateCertificate(ctx context.Context, request loadbalancer.CreateCertificateRequest) (
+		response loadbalancer.CreateCertificateResponse, err error)
+
+	DeleteCertificate(ctx context.Context, request loadbalancer.DeleteCertificateRequest) (
+		response loadbalancer.DeleteCertificateResponse, err error)
 }
 
 type workRequestsWatcher interface {

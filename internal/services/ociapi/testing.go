@@ -62,3 +62,15 @@ func RandomServiceErrorWithStatusCode(statusCode int) RandomServiceErrorOpts {
 		m.statusCode = statusCode
 	}
 }
+
+func RandomServiceErrorWithCode(code string) RandomServiceErrorOpts {
+	return func(m *MockServiceError) {
+		m.code = code
+	}
+}
+
+func RandomServiceErrorWithMessage(message string) RandomServiceErrorOpts {
+	return func(m *MockServiceError) {
+		m.message = message
+	}
+}

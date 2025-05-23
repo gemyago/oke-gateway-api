@@ -10,8 +10,13 @@ make tools
 ## Install example resources
 
 ```sh
-kubectl apply -n oke-gw -f manifests/examples/gatewayclass.yaml
+# Install CRDs directly from the helm chart
+kubectl apply -f helm/controller/templates/gateway-config-crd.yaml
+
+# Actualize load balancer OCID in the gatewayconfig prior to applying
 kubectl apply -n oke-gw -f manifests/examples/gatewayconfig.yaml
+
+kubectl apply -n oke-gw -f manifests/examples/gatewayclass.yaml
 kubectl apply -n oke-gw -f manifests/examples/gateway.yaml
 kubectl apply -n oke-gw -f manifests/examples/serverdeployment.yaml
 kubectl apply -n oke-gw -f manifests/examples/serverroutes.yaml

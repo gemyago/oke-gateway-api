@@ -135,6 +135,22 @@ func randomOCILoadBalancerWithRandomBackendSetsOpt() randomOCILoadBalancerOpt {
 	}
 }
 
+func randomOCILoadBalancerWithRandomPoliciesOpt() randomOCILoadBalancerOpt {
+	return func(lb *loadbalancer.LoadBalancer) {
+		lb.RoutingPolicies = map[string]loadbalancer.RoutingPolicy{}
+		for range lb.RoutingPolicies {
+			policy := makeRandomOCIRoutingPolicy()
+			lb.RoutingPolicies[*policy.Name] = policy
+		}
+	}
+}
+
+func randomOCILoadBalancerWithRandomCertificatesOpt() randomOCILoadBalancerOpt {
+	return func(lb *loadbalancer.LoadBalancer) {
+		lb.Certificates = makeFewRandomOCICertificatesMap()
+	}
+}
+
 type randomOCIRoutingPolicyOpt func(*loadbalancer.RoutingPolicy)
 
 func makeRandomOCIRoutingPolicy(
@@ -160,4 +176,30 @@ func makeRandomOCIRoutingRule() loadbalancer.RoutingRule {
 	return loadbalancer.RoutingRule{
 		Name: lo.ToPtr(faker.UUIDHyphenated() + "-rr." + faker.DomainName()),
 	}
+}
+
+func makeRandomOCICertificate() loadbalancer.Certificate {
+	return loadbalancer.Certificate{
+		CertificateName:   lo.ToPtr(faker.DomainName()),
+		PublicCertificate: lo.ToPtr(faker.UUIDHyphenated()),
+		CaCertificate:     lo.ToPtr(faker.UUIDHyphenated()),
+	}
+}
+
+func makeFewRandomOCICertificates() []loadbalancer.Certificate {
+	count := 2 + rand.IntN(3)
+	certificates := make([]loadbalancer.Certificate, count)
+	for i := range certificates {
+		certificates[i] = makeRandomOCICertificate()
+	}
+	return certificates
+}
+
+func makeFewRandomOCICertificatesMap() map[string]loadbalancer.Certificate {
+	certificates := makeFewRandomOCICertificates()
+	certificatesMap := make(map[string]loadbalancer.Certificate)
+	for _, certificate := range certificates {
+		certificatesMap[*certificate.CertificateName] = certificate
+	}
+	return certificatesMap
 }

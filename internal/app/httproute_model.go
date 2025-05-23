@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
@@ -41,6 +42,13 @@ type programRouteParams struct {
 type programRouteResult struct {
 	// Names of the policy rules that were programmed for this particular route
 	programmedPolicyRules []string
+}
+
+type deprovisionRouteParams struct {
+	gateway          gatewayv1.Gateway
+	config           types.GatewayConfig
+	httpRoute        gatewayv1.HTTPRoute
+	matchedListeners []gatewayv1.Listener
 }
 
 type setProgrammedParams struct {
@@ -87,6 +95,13 @@ type httpRouteModel interface {
 		ctx context.Context,
 		params programRouteParams,
 	) (programRouteResult, error)
+
+	// deprovisionRoute deprovisions a given HTTPRoute, which includes removing any
+	// associated load balancer resources, and object finalizer
+	deprovisionRoute(
+		ctx context.Context,
+		params deprovisionRouteParams,
+	) error
 
 	// setProgrammed marks the route as successfully programmed by updating its status.
 	setProgrammed(
@@ -450,6 +465,73 @@ func (m *httpRouteModelImpl) programRoute(
 	}, nil
 }
 
+func (m *httpRouteModelImpl) deprovisionRoute(
+	ctx context.Context,
+	params deprovisionRouteParams,
+) error {
+	var prevPolicyRules []string
+	if prevPolicyRulesStr, ok := params.httpRoute.Annotations[HTTPRouteProgrammedPolicyRulesAnnotation]; ok {
+		if prevPolicyRulesStr != "" { // Ensure not to split an empty string, which results in [""]
+			prevPolicyRules = strings.Split(prevPolicyRulesStr, ",")
+		}
+	}
+
+	if len(prevPolicyRules) == 0 {
+		m.logger.InfoContext(ctx, "No previous policy rules found in annotation, skipping deprovisioning.",
+			slog.String("route", params.httpRoute.Name),
+			slog.String("annotationKey", HTTPRouteProgrammedPolicyRulesAnnotation),
+		)
+		return nil
+	}
+
+	for _, listener := range params.matchedListeners {
+		m.logger.DebugContext(ctx, "Deprovisioning listener policies for HTTPRoute",
+			slog.String("route", params.httpRoute.Name),
+			slog.String("listener", string(listener.Name)),
+			slog.String("loadBalancerID", params.config.Spec.LoadBalancerID),
+			slog.Any("prevPolicyRules", prevPolicyRules),
+		)
+		err := m.ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
+			loadBalancerID:  params.config.Spec.LoadBalancerID,
+			listenerName:    string(listener.Name),
+			policyRules:     []loadbalancer.RoutingRule{}, // Empty rules for deprovisioning
+			prevPolicyRules: prevPolicyRules,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to deprovision routing policy for listener %s: %w", listener.Name, err)
+		}
+	}
+
+	// TODO: Dedup and filter-out non service refs
+	for _, rule := range params.httpRoute.Spec.Rules {
+		for _, backendRef := range rule.BackendRefs {
+			err := m.ociLoadBalancerModel.deprovisionBackendSet(ctx, deprovisionBackendSetParams{
+				loadBalancerID: params.config.Spec.LoadBalancerID,
+				httpRoute:      params.httpRoute,
+				backendRef:     backendRef,
+			})
+			if err != nil {
+				return fmt.Errorf(
+					"failed to deprovision backend set for rule %s/%s: %w",
+					params.httpRoute.Namespace,
+					params.httpRoute.Name,
+					err,
+				)
+			}
+		}
+	}
+
+	routeToUpdate := params.httpRoute.DeepCopy()
+	controllerutil.RemoveFinalizer(routeToUpdate, HTTPRouteProgrammedFinalizer)
+
+	if err := m.client.Update(ctx, routeToUpdate); err != nil {
+		return fmt.Errorf("failed to update HTTPRoute %s/%s after deprovisioning: %w",
+			routeToUpdate.Namespace, routeToUpdate.Name, err)
+	}
+
+	return nil
+}
+
 func (m *httpRouteModelImpl) isProgrammingRequired(
 	details resolvedRouteDetails,
 ) (bool, error) {
@@ -463,9 +545,16 @@ func (m *httpRouteModelImpl) isProgrammingRequired(
 	}
 
 	return !m.resourcesModel.isConditionSet(isConditionSetParams{
-		resource:      &details.httpRoute,
-		conditions:    parentStatus.Conditions,
+		resource:   &details.httpRoute,
+		conditions: parentStatus.Conditions,
+
+		// This is probably not the best condition type for programmed status
+		// but the spec doesn't define a "programmed" condition for route for some reason
+		// so using resolved refs, and we may want to add a custom condition
+		// This condition is also used by indexer to check if the route is programmed
+		// so update watches model as well
 		conditionType: string(gatewayv1.RouteConditionResolvedRefs),
+
 		annotations: map[string]string{
 			HTTPRouteProgrammingRevisionAnnotation: HTTPRouteProgrammingRevisionValue,
 		},
@@ -504,6 +593,7 @@ func (m *httpRouteModelImpl) setProgrammed(
 			HTTPRouteProgrammingRevisionAnnotation:   HTTPRouteProgrammingRevisionValue,
 			HTTPRouteProgrammedPolicyRulesAnnotation: strings.Join(params.programmedPolicyRules, ","),
 		},
+		finalizer: HTTPRouteProgrammedFinalizer,
 	}); err != nil {
 		return fmt.Errorf("failed to update programmed status for HTTProute %s: %w", httpRoute.Name, err)
 	}

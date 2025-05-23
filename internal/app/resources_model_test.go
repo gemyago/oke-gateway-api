@@ -182,21 +182,11 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 			annotations:   newAnnotations,
 		}
 
-		updateCall := mockClient.EXPECT().
-			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
-				gc, ok := obj.(*gatewayv1.GatewayClass)
-				require.True(t, ok, "Object should be GatewayClass")
-				assert.Equal(t, expectedMergedAnnotations, gc.GetAnnotations(), "Annotations should be merged")
-				return true
-			}), mock.Anything).Return(nil).Once()
-
-		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
-
-		mockStatusWriter.EXPECT().
+		updateStatusCall := mockStatusWriter.EXPECT().
 			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
 				gc, ok := obj.(*gatewayv1.GatewayClass)
 				require.True(t, ok, "Object should be GatewayClass for status update")
-				assert.Equal(t, expectedMergedAnnotations, gc.GetAnnotations(), "Annotations should persist for Status Update")
+				assert.Equal(t, initialAnnotations, gc.GetAnnotations())
 				require.Len(t, gc.Status.Conditions, 1, "Expected one condition in status")
 				cond := meta.FindStatusCondition(gc.Status.Conditions, params.conditionType)
 				require.NotNil(t, cond)
@@ -207,8 +197,17 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 				return true
 			}), mock.Anything).
 			Return(nil).
-			NotBefore(updateCall). // Ensure Status().Update() happens AFTER client.Update()
 			Once()
+
+		mockClient.EXPECT().
+			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				gc, ok := obj.(*gatewayv1.GatewayClass)
+				require.True(t, ok, "Object should be GatewayClass")
+				assert.Equal(t, expectedMergedAnnotations, gc.GetAnnotations(), "Annotations should be merged")
+				return true
+			}), mock.Anything).Return(nil).Once().NotBefore(updateStatusCall)
+
+		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
 
 		err := model.setCondition(t.Context(), params)
 		require.NoError(t, err)
@@ -249,27 +248,25 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 			annotations:   newAnnotations,
 		}
 
-		updateCall := mockClient.EXPECT().
+		updateStatusCall := mockStatusWriter.EXPECT().
+			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				gc, ok := obj.(*gatewayv1.GatewayClass)
+				require.True(t, ok)
+				require.Len(t, gc.Status.Conditions, 1)
+				return true
+			}), mock.Anything).
+			Return(nil).
+			Once()
+
+		mockClient.EXPECT().
 			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
 				gc, ok := obj.(*gatewayv1.GatewayClass)
 				require.True(t, ok)
 				assert.Equal(t, newAnnotations, gc.GetAnnotations(), "Annotations should match the new ones")
 				return true
-			}), mock.Anything).Return(nil).Once()
+			}), mock.Anything).Return(nil).Once().NotBefore(updateStatusCall)
 
 		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
-
-		mockStatusWriter.EXPECT().
-			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
-				gc, ok := obj.(*gatewayv1.GatewayClass)
-				require.True(t, ok)
-				assert.Equal(t, newAnnotations, gc.GetAnnotations(), "Annotations should persist for Status Update")
-				require.Len(t, gc.Status.Conditions, 1)
-				return true
-			}), mock.Anything).
-			Return(nil).
-			NotBefore(updateCall).
-			Once()
 
 		err := model.setCondition(t.Context(), params)
 		require.NoError(t, err)
@@ -302,6 +299,13 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 
 		expectedError := errors.New(faker.Sentence())
 
+		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
+		mockStatusWriter.EXPECT().
+			Update(t.Context(), mock.Anything, mock.Anything).
+			Return(nil).
+			Once()
+
 		mockClient.EXPECT().
 			Update(t.Context(), gatewayClass, mock.Anything).
 			Return(expectedError).Once()
@@ -310,6 +314,195 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 
 		require.Error(t, err, "Expected an error from setCondition due to Update failure")
 		require.ErrorIs(t, err, expectedError, "Returned error should wrap the original Update error")
+	})
+
+	t.Run("HappyPath_AddsFinalizer_NoAnnotations", func(t *testing.T) {
+		deps := newMockDeps(t)
+		model := newResourcesModel(deps)
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+
+		finalizerName := "test-finalizer/" + faker.Word()
+
+		gatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       faker.DomainName(),
+				Generation: rand.Int64(),
+			},
+			Spec:   gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName},
+			Status: gatewayv1.GatewayClassStatus{Conditions: []metav1.Condition{}},
+		}
+
+		params := setConditionParams{
+			resource:      gatewayClass,
+			conditions:    &gatewayClass.Status.Conditions,
+			conditionType: faker.DomainName(),
+			status:        metav1.ConditionTrue,
+			reason:        faker.Word(),
+			message:       faker.Sentence(),
+			finalizer:     finalizerName,
+		}
+
+		// Mock status update
+		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
+		mockStatusWriter.EXPECT().Update(t.Context(), gatewayClass, mock.Anything).Return(nil).Once()
+
+		// Mock resource update (for finalizer)
+		mockClient.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+			gc, ok := obj.(*gatewayv1.GatewayClass)
+			require.True(t, ok)
+			assert.Contains(t, gc.GetFinalizers(), finalizerName, "Finalizer should be added")
+			return true
+		}), mock.Anything).Return(nil).Once()
+
+		err := model.setCondition(t.Context(), params)
+		require.NoError(t, err)
+	})
+
+	t.Run("HappyPath_AddsFinalizer_AndAnnotations_SingleResourceUpdate", func(t *testing.T) {
+		deps := newMockDeps(t)
+		model := newResourcesModel(deps)
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+
+		finalizerName := "test-finalizer/" + faker.Word()
+		newAnnotations := map[string]string{"newKey": faker.Sentence()}
+		initialAnnotations := map[string]string{"initialKey": faker.Sentence()}
+		expectedMergedAnnotations := map[string]string{
+			"initialKey": initialAnnotations["initialKey"],
+			"newKey":     newAnnotations["newKey"],
+		}
+
+		gatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        faker.DomainName(),
+				Generation:  rand.Int64(),
+				Annotations: initialAnnotations,
+			},
+			Spec:   gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName},
+			Status: gatewayv1.GatewayClassStatus{Conditions: []metav1.Condition{}},
+		}
+
+		params := setConditionParams{
+			resource:      gatewayClass,
+			conditions:    &gatewayClass.Status.Conditions,
+			conditionType: faker.DomainName(),
+			status:        metav1.ConditionTrue,
+			reason:        faker.Word(),
+			message:       faker.Sentence(),
+			annotations:   newAnnotations,
+			finalizer:     finalizerName,
+		}
+
+		// Mock status update
+		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
+		statusUpdateCall := mockStatusWriter.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+			gc, ok := obj.(*gatewayv1.GatewayClass)
+			require.True(t, ok)
+			// Annotations should NOT be updated yet, only status conditions
+			assert.Equal(t, initialAnnotations, gc.GetAnnotations())
+			return true
+		}), mock.Anything).Return(nil).Once()
+
+		// Mock resource update (for both finalizer and annotations)
+		// This should be called only ONCE
+		mockClient.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+			gc, ok := obj.(*gatewayv1.GatewayClass)
+			require.True(t, ok)
+			assert.Contains(t, gc.GetFinalizers(), finalizerName, "Finalizer should be added")
+			assert.Equal(t, expectedMergedAnnotations, gc.GetAnnotations(), "Annotations should be merged")
+			return true
+		}), mock.Anything).Return(nil).Once().NotBefore(statusUpdateCall)
+
+		err := model.setCondition(t.Context(), params)
+		require.NoError(t, err)
+	})
+
+	t.Run("ErrorPath_FinalizerUpdateFails", func(t *testing.T) {
+		deps := newMockDeps(t)
+		model := newResourcesModel(deps)
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+
+		finalizerName := "test-finalizer/" + faker.Word()
+		gatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{Name: faker.DomainName(), Generation: rand.Int64()},
+			Spec:       gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName},
+			Status:     gatewayv1.GatewayClassStatus{Conditions: []metav1.Condition{}},
+		}
+
+		params := setConditionParams{
+			resource:      gatewayClass,
+			conditions:    &gatewayClass.Status.Conditions,
+			conditionType: faker.DomainName(),
+			status:        metav1.ConditionTrue,
+			reason:        faker.Word(),
+			message:       faker.Sentence(),
+			finalizer:     finalizerName,
+		}
+
+		expectedError := errors.New("failed to update resource with finalizer")
+
+		// Mock status update
+		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
+		mockStatusWriter.EXPECT().Update(t.Context(), gatewayClass, mock.Anything).Return(nil).Once()
+
+		// Mock resource update to fail
+		mockClient.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+			gc, ok := obj.(*gatewayv1.GatewayClass)
+			require.True(t, ok)
+			// controllerutil.AddFinalizer would have added it in memory already
+			assert.Contains(t, gc.GetFinalizers(), finalizerName)
+			return true
+		}), mock.Anything).Return(expectedError).Once()
+
+		err := model.setCondition(t.Context(), params)
+		require.Error(t, err)
+		require.ErrorIs(t, err, expectedError)
+	})
+
+	t.Run("HappyPath_NoFinalizer_AnnotationsAdded_ResourceUpdateOccurs", func(t *testing.T) {
+		// This test is to ensure that if only annotations are provided (no finalizer),
+		// the resource update for annotations still occurs.
+		deps := newMockDeps(t)
+		model := newResourcesModel(deps)
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+
+		newAnnotations := map[string]string{"newKey": faker.Sentence()}
+
+		gatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       faker.DomainName(),
+				Generation: rand.Int64(),
+			},
+			Spec:   gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName},
+			Status: gatewayv1.GatewayClassStatus{Conditions: []metav1.Condition{}},
+		}
+
+		params := setConditionParams{
+			resource:      gatewayClass,
+			conditions:    &gatewayClass.Status.Conditions,
+			conditionType: faker.DomainName(),
+			status:        metav1.ConditionTrue,
+			reason:        faker.Word(),
+			message:       faker.Sentence(),
+			annotations:   newAnnotations,
+			// finalizer is empty
+		}
+
+		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
+		statusUpdateCall := mockStatusWriter.EXPECT().Update(t.Context(), gatewayClass, mock.Anything).Return(nil).Once()
+
+		mockClient.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+			gc, ok := obj.(*gatewayv1.GatewayClass)
+			require.True(t, ok)
+			assert.Equal(t, newAnnotations, gc.GetAnnotations())
+			return true
+		}), mock.Anything).Return(nil).Once().NotBefore(statusUpdateCall)
+
+		err := model.setCondition(t.Context(), params)
+		require.NoError(t, err)
 	})
 }
 

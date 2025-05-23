@@ -29,6 +29,6 @@ var testOutput = openTestLogFile() //nolint:gochecknoglobals //it's ok for tests
 
 func RootTestLogger() *slog.Logger {
 	return SetupRootLogger(
-		NewRootLoggerOpts().WithOutput(testOutput),
+		NewRootLoggerOpts().WithOutput(testOutput).WithLogLevel(slog.LevelDebug).WithJSONLogs(true),
 	)
 }

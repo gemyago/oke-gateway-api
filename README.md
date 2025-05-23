@@ -5,7 +5,7 @@
 
 [Gateway API](https://gateway-api.sigs.k8s.io/) implementation for [Oracle Kubernetes (OKE)](https://www.oracle.com/cloud/cloud-native/kubernetes-engine/).
 
-Project status: **Alpha**
+Project status: **Beta**
 
 ## Getting Started
 
@@ -23,7 +23,7 @@ tenancy=<tenancy_ocid>
 region=<oci_region>
 key_file=/etc/oci/oci_api_key.pem
 ```
-Note: `key_file` corresponds to the location on pod that will be mounted as a secret, so leave it as is.
+Note: `key_file` corresponds to the location on **pod** that will be mounted as a secret, so leave it as is.
 
 Create a secret with the API key and config file:
 ```sh
@@ -40,10 +40,12 @@ kubectl create secret generic oci-api-key \
 
 Install the OKE Gateway API controller using Helm:
 ```sh
-helm upgrade oke-gateway-api-controller oci://ghcr.io/gemyago/helm-charts/oke-gateway-api-controller \
+helm upgrade oke-gateway-api-controller \
+    oci://ghcr.io/gemyago/helm-charts/oke-gateway-api-controller \
     --install \
     -n oke-gw
 ```
+Give it few minutes to start.
 
 Create a GatewayClass resource:
 ```bash
@@ -57,8 +59,8 @@ spec:
 EOF
 ```
 
-The controller will not automatically create the load balancer. Please create it first.
-Prepare a GatewayConfig resource. You will need to specify the OCID of a previously created OCI Load Balancer.
+The controller will **not** automatically create the load balancer. Please create it first.
+Prepare a GatewayConfig resource. You will need to specify the OCID of the created OCI Load Balancer.
 ```yaml
 cat <<EOF | kubectl -n oke-gw apply -f -
 apiVersion: oke-gateway-api.gemyago.github.io/v1
@@ -71,7 +73,7 @@ spec:
 EOF
 ```
 
-Create a Gateway resource:
+Create Gateway resource:
 ```yaml
 cat <<EOF | kubectl -n oke-gw apply -f -
 apiVersion: gateway.networking.k8s.io/v1
@@ -166,16 +168,6 @@ spec:
 EOF
 ```
 
-You can optionally install all the above examples from the manifests in the `deploy/manifests/examples` folder:
-```bash
-# Using manifests directly from the github
-kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/gatewayclass.yaml
-kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/gatewayconfig.yaml
-kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/gateway.yaml
-kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/serverdeployment.yaml
-kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/echoroutes.yaml
-```
-
 Uninstall example resources:
 ```bash
 kubectl -n oke-gw delete gateway oke-gateway
@@ -185,7 +177,13 @@ kubectl -n oke-gw delete deployment oke-gateway-example-server
 kubectl -n oke-gw delete httproute oke-gateway-example-server
 ```
 
+### HTTPS
+
+Please refer to [https](./docs/https.md) for more details.
+
 ## Contributing
+
+Use this section to setup the development environment.
 
 ### Project Setup
 
@@ -233,9 +231,9 @@ make test
 
 ### Running in a local mode
 
-For local development purposes you can run the controller fully locally pointing on a local k8s cluster and provision the resources in a real OCI tenancy.
+For local development purposes you can run the controller fully locally pointing on OKE cluster and provision the resources in an actual OCI tenancy.
 
-Please follow [OCI SDK CLI Setup](https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm#configfile)
+Please follow [OCI SDK CLI Setup](https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm#configfile) to setup the OCI CLI.
 
 You may want to use alternative SDK config location. In this case please create `.envrc.local` file with the contents similar to below:
 ```bash
@@ -258,7 +256,7 @@ direnv reload
 oci iam user list
 ```
 
-Make sure to have locally running k8s cluster and `kubectl` configured to point to it.
+Make sure to `kubectl` configured to point to a target OKE cluster.
 
 Run the controller locally:
 ```sh

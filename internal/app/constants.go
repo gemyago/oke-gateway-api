@@ -9,6 +9,9 @@ const (
 	// The revision may be incremented if additional programming steps are introduced by the controller.
 	GatewayProgrammingRevisionAnnotation = "oke-gateway-api.gemyago.github.io/gateway-programming-revision"
 
+	// For each secret the prefix will be extended with secret full name and value will be a revision of the secret.
+	GatewayUsedSecretsAnnotationPrefix = "secrets.oke-gateway-api.gemyago.github.io"
+
 	// HTTPRouteProgrammingRevisionAnnotation is the annotation for the http route programming revision.
 	// The revision may be incremented if additional programming steps are introduced by the controller.
 	HTTPRouteProgrammingRevisionAnnotation = "oke-gateway-api.gemyago.github.io/http-route-programming-revision"
@@ -16,6 +19,10 @@ const (
 	// HTTPRouteProgrammedPolicyRulesAnnotation is a comma-separated list of load balancer listener policy rule names.
 	// The value is set by the controller when the http route is programmed.
 	HTTPRouteProgrammedPolicyRulesAnnotation = "oke-gateway-api.gemyago.github.io/http-route-programmed-lb-policy-rules"
+
+	// HTTPRouteProgrammedFinalizer is the finalizer that indicates that the http route has been programmed.
+	// It is used to clean up the resources when the http route is deleted.
+	HTTPRouteProgrammedFinalizer = "oke-gateway-api.gemyago.github.io/http-route-programmed"
 
 	// GatewayProgrammingRevisionValue is the value for the gateway programming revision.
 	// Incremented when the controller programming steps are changed.

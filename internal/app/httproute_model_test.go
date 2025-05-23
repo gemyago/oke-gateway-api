@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -37,29 +36,6 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			OciLBModel:     NewMockociLoadBalancerModel(t),
 			ResourcesModel: NewMockresourcesModel(t),
 		}
-	}
-
-	setupClientGet := func(
-		t *testing.T,
-		cl k8sClient,
-		wantName types.NamespacedName,
-		wantObj interface{},
-	) {
-		mockK8sClient, _ := cl.(*Mockk8sClient)
-		mockK8sClient.EXPECT().Get(
-			t.Context(),
-			wantName,
-			mock.Anything,
-		).RunAndReturn(func(
-			_ context.Context,
-			name types.NamespacedName,
-			obj client.Object,
-			_ ...client.GetOption,
-		) error {
-			assert.Equal(t, wantName, name)
-			reflect.ValueOf(obj).Elem().Set(reflect.ValueOf(wantObj))
-			return nil
-		})
 	}
 
 	t.Run("resolveRequest", func(t *testing.T) {
@@ -109,7 +85,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				mock.Anything,
 			).Return(false, nil)
 
-			wantListeners := makeFewRandomHTTPListeners()
+			wantListeners := makeFewRandomListeners()
 
 			gatewayData := makeRandomAcceptedGatewayDetails(
 				randomResolvedGatewayDetailsWithGatewayOpts(
@@ -180,11 +156,11 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
-			matchingListener := makeRandomHTTPListener(
-				randomHTTPListenerWithNameOpt(wantSectionName),
+			matchingListener := makeRandomListener(
+				randomListenerWithNameOpt(wantSectionName),
 			)
-			otherListener1 := makeRandomHTTPListener()
-			otherListener2 := makeRandomHTTPListener()
+			otherListener1 := makeRandomListener()
+			otherListener2 := makeRandomListener()
 			wantListeners := []gatewayv1.Listener{matchingListener}
 
 			gatewayData := makeRandomAcceptedGatewayDetails(
@@ -273,9 +249,9 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
 			// Define listeners for the gateway
-			listener1 := makeRandomHTTPListener(randomHTTPListenerWithNameOpt(sectionName1))
-			listener2 := makeRandomHTTPListener(randomHTTPListenerWithNameOpt(sectionName2))
-			otherListener := makeRandomHTTPListener() // This one shouldn't be matched
+			listener1 := makeRandomListener(randomListenerWithNameOpt(sectionName1))
+			listener2 := makeRandomListener(randomListenerWithNameOpt(sectionName2))
+			otherListener := makeRandomListener() // This one shouldn't be matched
 			allGatewayListeners := []gatewayv1.Listener{otherListener, listener1, listener2}
 			wantListeners := []gatewayv1.Listener{listener1, listener2} // Only these should be in the final result
 
@@ -364,7 +340,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
-			listener1 := makeRandomHTTPListener()
+			listener1 := makeRandomListener()
 			gatewayData1 := makeRandomAcceptedGatewayDetails(
 				randomResolvedGatewayDetailsWithGatewayOpts(
 					randomGatewayWithNameFromParentRefOpt(refWithNonMatchingSection),
@@ -389,7 +365,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				return true, nil
 			})
 
-			allListeners := makeFewRandomHTTPListeners()
+			allListeners := makeFewRandomListeners()
 			gatewayData2 := makeRandomAcceptedGatewayDetails(
 				randomResolvedGatewayDetailsWithGatewayOpts(
 					randomGatewayWithNameFromParentRefOpt(refWithoutSection),
@@ -459,7 +435,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
-			listener1 := makeRandomHTTPListener()
+			listener1 := makeRandomListener()
 			gatewayData := makeRandomAcceptedGatewayDetails(
 				randomResolvedGatewayDetailsWithGatewayOpts(
 					randomGatewayWithListenersOpt(listener1),
@@ -999,7 +975,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				}.String(), s
 			})
 
-			listeners := makeFewRandomHTTPListeners()
+			listeners := makeFewRandomListeners()
 
 			params := programRouteParams{
 				gateway:          *gateway,
@@ -1076,7 +1052,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				}.String(), s
 			})
 
-			listeners := makeFewRandomHTTPListeners()
+			listeners := makeFewRandomListeners()
 
 			params := programRouteParams{
 				gateway:          *gateway,
@@ -1135,7 +1111,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				"service1": makeRandomService(),
 			}
 			listeners := []gatewayv1.Listener{
-				makeRandomHTTPListener(),
+				makeRandomListener(),
 			}
 
 			params := programRouteParams{
@@ -1175,7 +1151,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				"service1": makeRandomService(),
 			}
 			listeners := []gatewayv1.Listener{
-				makeRandomHTTPListener(),
+				makeRandomListener(),
 			}
 
 			params := programRouteParams{
@@ -1218,7 +1194,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				"service1": makeRandomService(),
 			}
 			listeners := []gatewayv1.Listener{
-				makeRandomHTTPListener(),
+				makeRandomListener(),
 			}
 
 			params := programRouteParams{
@@ -1385,6 +1361,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 					HTTPRouteProgrammingRevisionAnnotation:   HTTPRouteProgrammingRevisionValue,
 					HTTPRouteProgrammedPolicyRulesAnnotation: strings.Join(params.programmedPolicyRules, ","),
 				},
+				finalizer: HTTPRouteProgrammedFinalizer,
 			}).Return(nil)
 
 			// The model receives details by value, so it works on a copy of httpRoute.
@@ -1478,6 +1455,137 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			err := model.setProgrammed(t.Context(), details)
 			require.ErrorIs(t, err, updateErr)
+		})
+	})
+
+	t.Run("deprovisionRoute", func(t *testing.T) {
+		t.Run("successfully deprovisions route with multiple listeners", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			wantBackendRefs := []gatewayv1.HTTPBackendRef{
+				makeRandomBackendRef(),
+				makeRandomBackendRef(),
+				makeRandomBackendRef(),
+			}
+
+			backendResRules := lo.Map(wantBackendRefs, func(br gatewayv1.HTTPBackendRef, _ int) gatewayv1.HTTPRouteRule {
+				return makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(br))
+			})
+
+			config := makeRandomGatewayConfig()
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(backendResRules...),
+			)
+
+			wantPreviousRules := []string{
+				"rule1-" + faker.Word(),
+				"rule2-" + faker.Word(),
+			}
+			annotationValue := strings.Join(wantPreviousRules, ",")
+			httpRoute.Annotations = map[string]string{
+				HTTPRouteProgrammedPolicyRulesAnnotation: annotationValue,
+			}
+			httpRoute.Finalizers = []string{
+				HTTPRouteProgrammedFinalizer,
+				faker.DomainName(),
+			}
+
+			listeners := makeFewRandomListeners()
+
+			params := deprovisionRouteParams{
+				gateway:          *newRandomGateway(),
+				config:           config,
+				httpRoute:        httpRoute,
+				matchedListeners: listeners,
+			}
+
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+
+			var lastCommitCall *mock.Call
+			for _, listener := range listeners {
+				lastCommitCall = ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+					loadBalancerID:  config.Spec.LoadBalancerID,
+					listenerName:    string(listener.Name),
+					policyRules:     []loadbalancer.RoutingRule{}, // Important: No rules to program
+					prevPolicyRules: wantPreviousRules,
+				}).Return(nil).Once()
+			}
+
+			for _, backendRef := range wantBackendRefs {
+				ociLBModel.EXPECT().deprovisionBackendSet(t.Context(), deprovisionBackendSetParams{
+					loadBalancerID: config.Spec.LoadBalancerID,
+					httpRoute:      httpRoute,
+					backendRef:     backendRef,
+				}).Return(nil).Once().NotBefore(lastCommitCall)
+			}
+
+			// Expect client update for finalizer removal
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			var updatedRoute *gatewayv1.HTTPRoute
+			mockK8sClient.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				var ok bool
+				updatedRoute, ok = obj.(*gatewayv1.HTTPRoute)
+
+				assert.NotContains(t, updatedRoute.Finalizers, HTTPRouteProgrammedFinalizer)
+
+				return ok && assert.Equal(t, httpRoute.Name, updatedRoute.Name)
+			})).Return(nil)
+
+			err := model.deprovisionRoute(t.Context(), params)
+			require.NoError(t, err)
+		})
+
+		t.Run("successfully deprovisions route with no previous rules annotation", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			config := makeRandomGatewayConfig()
+			httpRoute := makeRandomHTTPRoute()
+			listeners := makeFewRandomListeners()
+
+			params := deprovisionRouteParams{
+				gateway:          *newRandomGateway(),
+				config:           config,
+				httpRoute:        httpRoute,
+				matchedListeners: listeners,
+			}
+
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			// Expect commitRoutingPolicy NOT to be called
+			ociLBModel.AssertNotCalled(t, "commitRoutingPolicy", mock.Anything, mock.Anything)
+
+			err := model.deprovisionRoute(t.Context(), params)
+			require.NoError(t, err)
+		})
+
+		t.Run("fails when commitRoutingPolicy fails", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			config := makeRandomGatewayConfig()
+			httpRoute := makeRandomHTTPRoute()
+			// Ensure prevPolicyRules annotation is present so the method doesn't return early
+			httpRoute.Annotations = map[string]string{
+				HTTPRouteProgrammedPolicyRulesAnnotation: "rule1,rule2",
+			}
+			listeners := []gatewayv1.Listener{makeRandomListener()} // Just one for simplicity
+
+			params := deprovisionRouteParams{
+				gateway:          *newRandomGateway(),
+				config:           config,
+				httpRoute:        httpRoute,
+				matchedListeners: listeners,
+			}
+
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			wantErr := errors.New(faker.Sentence())
+
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), mock.Anything).Return(wantErr)
+
+			err := model.deprovisionRoute(t.Context(), params)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, wantErr)
 		})
 	})
 }

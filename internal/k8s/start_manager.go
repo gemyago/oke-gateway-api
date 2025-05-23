@@ -8,9 +8,11 @@ import (
 	"github.com/gemyago/oke-gateway-api/internal/app"
 	"github.com/go-logr/logr"
 	"go.uber.org/dig"
+	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -30,6 +32,11 @@ type StartManagerDeps struct {
 	HTTPRouteCtrl    *app.HTTPRouteController
 	WatchesModel     *app.WatchesModel
 	Config           *rest.Config
+
+	// feature flags
+	ReconcileGatewayClass bool `name:"config.features.reconcileGatewayClass"`
+	ReconcileGateway      bool `name:"config.features.reconcileGateway"`
+	ReconcileHTTPRoute    bool `name:"config.features.reconcileHTTPRoute"`
 }
 
 // StartManager starts the controller manager.
@@ -51,29 +58,61 @@ func StartManager(ctx context.Context, deps StartManagerDeps) error { // coverag
 		newErrorHandlingMiddleware(deps.RootLogger),
 	}
 
-	if err := builder.ControllerManagedBy(mgr).
-		For(&gatewayv1.Gateway{}).
-		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
-		Complete(wireupReconciler(deps.GatewayCtrl, middlewares...)); err != nil {
-		return fmt.Errorf("failed to setup Gateway controller: %w", err)
+	if deps.ReconcileGatewayClass {
+		if err := builder.ControllerManagedBy(mgr).
+			For(&gatewayv1.GatewayClass{}).
+			WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
+			Complete(wireupReconciler(deps.GatewayClassCtrl, middlewares...)); err != nil {
+			return fmt.Errorf("failed to setup GatewayClass controller: %w", err)
+		}
+	} else {
+		logger.InfoContext(loggerCtx, "GatewayClass controller is disabled")
 	}
 
-	if err := builder.ControllerManagedBy(mgr).
-		For(&gatewayv1.GatewayClass{}).
-		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
-		Complete(wireupReconciler(deps.GatewayClassCtrl, middlewares...)); err != nil {
-		return fmt.Errorf("failed to setup GatewayClass controller: %w", err)
+	if deps.ReconcileGateway {
+		if err := builder.ControllerManagedBy(mgr).
+			For(
+				&gatewayv1.Gateway{},
+
+				// Applying predicates just on the gateway level. Secrets do not have generation incremented
+				// so secret updates will not trigger a reconciliation.
+				builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})),
+			).
+			Watches(
+				&corev1.Secret{},
+				handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapSecretToGateway),
+				builder.WithPredicates(predicate.And(
+					predicate.Funcs{
+						// We ignore create events. They're also happening when controller starts up
+						// which leads to duplicate reconciliations and just noise.
+						// We don't care when new secrets are created, currently if no secret
+						// the whole gateway reconciliation will fail. We may want to change this
+						// in the future and revisit this predicate.
+						CreateFunc: func(_ event.CreateEvent) bool { return false },
+					},
+					predicate.ResourceVersionChangedPredicate{},
+				)),
+			).
+			Complete(wireupReconciler(deps.GatewayCtrl, middlewares...)); err != nil {
+			return fmt.Errorf("failed to setup Gateway controller: %w", err)
+		}
+	} else {
+		logger.InfoContext(loggerCtx, "Gateway controller is disabled")
 	}
 
-	if err := builder.ControllerManagedBy(mgr).
-		For(&gatewayv1.HTTPRoute{}).
-		Watches(
-			&discoveryv1.EndpointSlice{},
-			handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapEndpointSliceToHTTPRoute),
-		).
-		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
-		Complete(wireupReconciler(deps.HTTPRouteCtrl, middlewares...)); err != nil {
-		return fmt.Errorf("failed to setup HTTPRoute controller: %w", err)
+	if deps.ReconcileHTTPRoute {
+		if err := builder.ControllerManagedBy(mgr).
+			For(&gatewayv1.HTTPRoute{}).
+			Watches(
+				&discoveryv1.EndpointSlice{},
+				handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapEndpointSliceToHTTPRoute),
+			).
+			WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
+			Complete(wireupReconciler(deps.HTTPRouteCtrl, middlewares...)); err != nil {
+			return fmt.Errorf("failed to setup HTTPRoute controller: %w", err)
+		}
+	} else {
+		logger.InfoContext(loggerCtx, "HTTPRoute controller is disabled")
 	}
 
 	logger.InfoContext(loggerCtx, "Starting controller manager")

@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 type setConditionParams struct {
@@ -19,6 +20,7 @@ type setConditionParams struct {
 	reason        string
 	message       string
 	annotations   map[string]string
+	finalizer     string
 }
 
 type isConditionSetParams struct {
@@ -42,32 +44,18 @@ type resourcesModelImpl struct {
 }
 
 func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditionParams) error {
-	if len(params.annotations) > 0 {
-		m.logger.DebugContext(ctx, "Updating resource annotations before setting condition",
-			slog.String("resource", params.resource.GetName()),
-			slog.Any("annotations", params.annotations))
-		currentAnnotations := params.resource.GetAnnotations()
-		if currentAnnotations == nil {
-			currentAnnotations = make(map[string]string)
-		}
-		for k, v := range params.annotations {
-			currentAnnotations[k] = v
-		}
-		params.resource.SetAnnotations(currentAnnotations)
-		if err := m.client.Update(ctx, params.resource); err != nil {
-			return fmt.Errorf("failed to update resource %s with annotations: %w", params.resource.GetName(), err)
-		}
-	}
-
+	generation := params.resource.GetGeneration()
 	m.logger.DebugContext(ctx,
 		fmt.Sprintf("Setting %s condition", params.conditionType),
 		slog.String("resource", params.resource.GetName()),
 		slog.String("status", string(params.status)),
 		slog.String("reason", params.reason),
 		slog.String("message", params.message),
+		slog.Any("annotations", params.annotations),
+		slog.String("finalizer", params.finalizer),
+		slog.Int64("generation", generation),
+		slog.String("resourceVersion", params.resource.GetResourceVersion()),
 	)
-
-	generation := params.resource.GetGeneration()
 
 	acceptedCondition := metav1.Condition{
 		Type:               params.conditionType,
@@ -82,6 +70,29 @@ func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditi
 
 	if err := m.client.Status().Update(ctx, params.resource); err != nil {
 		return fmt.Errorf("failed to update status for %s: %w", params.resource.GetName(), err)
+	}
+
+	needsResourceUpdate := false
+	if params.finalizer != "" {
+		needsResourceUpdate = controllerutil.AddFinalizer(params.resource, params.finalizer)
+	}
+
+	if len(params.annotations) > 0 {
+		currentAnnotations := params.resource.GetAnnotations()
+		if currentAnnotations == nil {
+			currentAnnotations = make(map[string]string)
+		}
+		for k, v := range params.annotations {
+			currentAnnotations[k] = v
+		}
+		params.resource.SetAnnotations(currentAnnotations)
+		needsResourceUpdate = true
+	}
+
+	if needsResourceUpdate {
+		if err := m.client.Update(ctx, params.resource); err != nil {
+			return fmt.Errorf("failed to update resource %s with finalizer/annotations: %w", params.resource.GetName(), err)
+		}
 	}
 
 	return nil

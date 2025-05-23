@@ -172,6 +172,11 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 	params syncRouteBackendRefEndpointsParams,
 ) error {
 	backendRef := params.backendRef
+	backendRefNamespace := lo.Ternary(
+		backendRef.Namespace != nil,
+		string(lo.FromPtr(backendRef.Namespace)),
+		params.httpRoute.Namespace,
+	)
 	backendSetName := ociBackendSetNameFromBackendRef(params.httpRoute, backendRef)
 
 	getResp, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
@@ -187,10 +192,12 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 
 	var endpointSlices discoveryv1.EndpointSliceList
 
-	if err = m.k8sClient.List(ctx, &endpointSlices, client.MatchingLabels{
-		// TODO: Check if namespace is needed
-		discoveryv1.LabelServiceName: string(backendRef.BackendObjectReference.Name),
-	}); err != nil {
+	if err = m.k8sClient.List(ctx, &endpointSlices,
+		client.MatchingLabels{
+			discoveryv1.LabelServiceName: string(backendRef.BackendObjectReference.Name),
+		},
+		client.InNamespace(backendRefNamespace),
+	); err != nil {
 		return fmt.Errorf("failed to list endpoint slices for backend %s: %w", backendRef.BackendObjectReference.Name, err)
 	}
 
@@ -208,6 +215,7 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 			slog.String("backendSetName", backendSetName),
 			slog.String("httpRoute", params.httpRoute.Name),
 			slog.String("backendRefName", string(backendRef.Name)),
+			slog.String("backendRefNamespace", backendRefNamespace),
 		)
 		return nil
 	}
@@ -215,6 +223,7 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 	m.logger.InfoContext(ctx, "Syncing backend endpoints for backendRef",
 		slog.String("httpRoute", params.httpRoute.Name),
 		slog.String("backendRefName", string(backendRef.Name)),
+		slog.String("backendRefNamespace", backendRefNamespace),
 		slog.String("backendSetName", backendSetName),
 		slog.Int("currentBackends", len(existingBackendSet.Backends)),
 		slog.Int("updatedBackends", len(backendsToUpdate.updatedBackends)),

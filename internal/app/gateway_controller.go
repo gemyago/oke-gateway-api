@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
 
 	"go.uber.org/dig"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -72,7 +71,6 @@ func (r *GatewayController) processResourceError(
 
 // Reconcile implements the reconcile.Reconciler interface for Gateway resources.
 func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	r.logger.InfoContext(ctx, fmt.Sprintf("Processing reconciliation for Gateway %s", req.NamespacedName))
 	var data resolvedGatewayDetails
 	relevant, err := r.gatewayModel.resolveReconcileRequest(ctx, req, &data)
 	if err != nil {
@@ -81,6 +79,10 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 	if !relevant {
 		return reconcile.Result{}, nil
 	}
+	r.logger.InfoContext(ctx, fmt.Sprintf("Processing reconciliation for Gateway %s", req.NamespacedName),
+		slog.String("resourceVersion", data.gateway.ResourceVersion),
+		slog.Int64("generation", data.gateway.Generation),
+	)
 
 	if !r.resourcesModel.isConditionSet(isConditionSetParams{
 		resource:      &data.gateway,
@@ -94,53 +96,44 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 			status:        v1.ConditionTrue,
 			reason:        string(gatewayv1.GatewayReasonAccepted),
 			message:       fmt.Sprintf("Gateway %s accepted by %s", data.gateway.Name, ControllerClassName),
+			annotations: map[string]string{
+				ControllerClassName: "true",
+			},
 		}); err != nil {
 			return reconcile.Result{}, fmt.Errorf("failed to set accepted condition for Gateway %s: %w", req.NamespacedName, err)
 		}
 	}
 
-	if !r.resourcesModel.isConditionSet(isConditionSetParams{
-		resource:      &data.gateway,
-		conditions:    data.gateway.Status.Conditions,
-		conditionType: string(gatewayv1.GatewayConditionProgrammed),
-		annotations: map[string]string{
-			GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
-		},
-	}) {
+	if !r.gatewayModel.isProgrammed(ctx, &data) {
 		r.logger.DebugContext(ctx, "Programming gateway",
 			slog.Any("req", req),
-			slog.Any("gateway", data.gateway),
-			slog.Any("gatewayClass", data.gatewayClass),
-			slog.Any("config", data.config),
+			slog.String("resourceVersion", data.gateway.ResourceVersion),
+			slog.Int64("generation", data.gateway.Generation),
+			// slog.Any("gateway", data.gateway), // this is very verbose, uncomment if needed
+			// slog.Any("gatewayClass", data.gatewayClass), // this is very verbose, uncomment if needed
+			slog.String("loadBalancerID", data.config.Spec.LoadBalancerID),
 		)
 
 		if err = r.gatewayModel.programGateway(ctx, &data); err != nil {
 			return r.processResourceError(ctx, err, &data.gateway)
 		}
 
-		if err = r.resourcesModel.setCondition(ctx, setConditionParams{
-			resource:      &data.gateway,
-			conditions:    &data.gateway.Status.Conditions,
-			conditionType: string(gatewayv1.GatewayConditionProgrammed),
-			status:        v1.ConditionTrue,
-			reason:        string(gatewayv1.GatewayConditionProgrammed),
-			message:       fmt.Sprintf("Gateway %s programmed by %s", data.gateway.Name, ControllerClassName),
-			annotations: map[string]string{
-				GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
-			},
-		}); err != nil {
-			return reconcile.Result{}, fmt.Errorf("failed to set accepted condition for Gateway %s: %w", req.NamespacedName, err)
+		if err = r.gatewayModel.setProgrammed(ctx, &data); err != nil {
+			return reconcile.Result{}, err
 		}
 
 		r.logger.InfoContext(ctx,
 			"Successfully set Programmed condition for Gateway",
 			slog.String("gateway", req.NamespacedName.String()),
+			slog.String("resourceVersion", data.gateway.ResourceVersion),
+			slog.Int64("generation", data.gateway.Generation),
 		)
 	} else {
 		r.logger.DebugContext(ctx,
 			"Programmed condition already set for this Gateway generation",
 			slog.String("gateway", req.NamespacedName.String()),
-			slog.String("generation", strconv.FormatInt(data.gateway.Generation, 10)),
+			slog.Int64("generation", data.gateway.Generation),
+			slog.String("resourceVersion", data.gateway.ResourceVersion),
 		)
 	}
 

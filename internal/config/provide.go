@@ -60,5 +60,10 @@ func Provide(container *dig.Container, cfg *viper.Viper) error {
 		provideConfigValue(cfg, "k8sapi.inCluster").asBool(),
 		// ociapi config
 		provideConfigValue(cfg, "ociapi.noop").asBool(),
+
+		// features config
+		provideConfigValue(cfg, "features.reconcileGatewayClass").asBool(),
+		provideConfigValue(cfg, "features.reconcileGateway").asBool(),
+		provideConfigValue(cfg, "features.reconcileHTTPRoute").asBool(),
 	)
 }

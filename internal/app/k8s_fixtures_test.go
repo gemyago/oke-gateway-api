@@ -1,10 +1,15 @@
 package app
 
 import (
+	"context"
 	"math/rand/v2"
+	"reflect"
+	"testing"
 
 	"github.com/go-faker/faker/v4"
 	"github.com/samber/lo"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -81,7 +86,7 @@ func randomGatewayWithRandomListenersOpt() randomGatewayOpt {
 	return func(gw *gatewayv1.Gateway) {
 		gw.Spec.Listeners = make([]gatewayv1.Listener, 2+rand.IntN(3))
 		for i := range gw.Spec.Listeners {
-			gw.Spec.Listeners[i] = makeRandomHTTPListener()
+			gw.Spec.Listeners[i] = makeRandomListener()
 		}
 	}
 }
@@ -103,15 +108,22 @@ func randomGatewayWithNameFromParentRefOpt(ref gatewayv1.ParentReference) random
 	}
 }
 
-type randomHTTPListenerOpt func(*gatewayv1.Listener)
+func randomSecretObjectReference() gatewayv1.SecretObjectReference {
+	return gatewayv1.SecretObjectReference{
+		Name:      gatewayv1.ObjectName("secret-" + faker.DomainName()),
+		Namespace: lo.ToPtr(gatewayv1.Namespace("ns-" + faker.DomainName())),
+	}
+}
 
-func makeRandomHTTPListener(
-	opts ...randomHTTPListenerOpt,
+type randomListenerOpt func(*gatewayv1.Listener)
+
+func makeRandomListener(
+	opts ...randomListenerOpt,
 ) gatewayv1.Listener {
 	listener := gatewayv1.Listener{
 		Name:     gatewayv1.SectionName("listener-" + faker.UUIDHyphenated()),
 		Port:     gatewayv1.PortNumber(rand.Int32N(4000)),
-		Protocol: gatewayv1.HTTPProtocolType,
+		Protocol: gatewayv1.ProtocolType(faker.Word()),
 	}
 
 	for _, opt := range opts {
@@ -121,17 +133,34 @@ func makeRandomHTTPListener(
 	return listener
 }
 
-func randomHTTPListenerWithNameOpt(name gatewayv1.SectionName) randomHTTPListenerOpt {
+func randomListenerWithHTTPSParamsOpt() randomListenerOpt {
+	return func(listener *gatewayv1.Listener) {
+		listener.Protocol = gatewayv1.HTTPSProtocolType
+		listener.TLS = &gatewayv1.GatewayTLSConfig{
+			CertificateRefs: []gatewayv1.SecretObjectReference{
+				randomSecretObjectReference(),
+				randomSecretObjectReference(),
+			},
+		}
+	}
+}
+func randomListenerWithNameOpt(name gatewayv1.SectionName) randomListenerOpt {
 	return func(listener *gatewayv1.Listener) {
 		listener.Name = name
 	}
 }
 
-func makeFewRandomHTTPListeners() []gatewayv1.Listener {
+func randomListenerWithHTTPProtocolOpt() randomListenerOpt {
+	return func(listener *gatewayv1.Listener) {
+		listener.Protocol = gatewayv1.HTTPProtocolType
+	}
+}
+
+func makeFewRandomListeners() []gatewayv1.Listener {
 	count := 2 + rand.IntN(3)
 	listeners := make([]gatewayv1.Listener, count)
 	for i := range listeners {
-		listeners[i] = makeRandomHTTPListener()
+		listeners[i] = makeRandomListener()
 	}
 	return listeners
 }
@@ -351,6 +380,24 @@ func makeRandomRouteParentStatus(
 	return status
 }
 
+func randomRouteParentStatusWithConditionOpt(
+	conditionType string,
+	conditionStatus metav1.ConditionStatus,
+) randomRouteParentStatusOpt {
+	return func(status *gatewayv1.RouteParentStatus) {
+		status.Conditions = append(status.Conditions, metav1.Condition{
+			Type:   conditionType,
+			Status: conditionStatus,
+		})
+	}
+}
+
+func randomRouteParentStatusWithControllerNameOpt(controllerName string) randomRouteParentStatusOpt {
+	return func(status *gatewayv1.RouteParentStatus) {
+		status.ControllerName = gatewayv1.GatewayController(controllerName)
+	}
+}
+
 type randomEndpointSliceOpt func(*discoveryv1.EndpointSlice)
 
 func makeRandomEndpointSlice(
@@ -419,4 +466,63 @@ func makeRandomEndpoint(opts ...randomEndpointOpt) discoveryv1.Endpoint {
 	}
 
 	return ep
+}
+
+func makeRandomSecret(opts ...randomSecretOpt) corev1.Secret {
+	secret := corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            faker.DomainName(),
+			Namespace:       faker.Username(),
+			ResourceVersion: faker.UUIDHyphenated(),
+			UID:             apitypes.UID(faker.UUIDHyphenated()),
+		},
+		Type: corev1.SecretTypeTLS,
+		Data: map[string][]byte{},
+	}
+
+	for _, opt := range opts {
+		opt(&secret)
+	}
+
+	return secret
+}
+
+type randomSecretOpt func(*corev1.Secret)
+
+func randomSecretWithNameOpt(name string) randomSecretOpt {
+	return func(secret *corev1.Secret) {
+		secret.Name = name
+	}
+}
+
+func randomSecretWithTLSDataOpt() randomSecretOpt {
+	return func(secret *corev1.Secret) {
+		secret.Data[corev1.TLSCertKey] = []byte(faker.UUIDHyphenated())
+		secret.Data[corev1.TLSPrivateKeyKey] = []byte(faker.UUIDHyphenated())
+	}
+}
+
+func setupClientGet(
+	t *testing.T,
+	cl k8sClient,
+	wantName apitypes.NamespacedName,
+	wantObj interface{},
+) *mock.Call {
+	mockK8sClient, _ := cl.(*Mockk8sClient)
+	result := mockK8sClient.EXPECT().Get(
+		t.Context(),
+		wantName,
+		mock.Anything,
+	).RunAndReturn(func(
+		_ context.Context,
+		name apitypes.NamespacedName,
+		obj client.Object,
+		_ ...client.GetOption,
+	) error {
+		assert.Equal(t, wantName, name)
+		reflect.ValueOf(obj).Elem().Set(reflect.ValueOf(wantObj))
+		return nil
+	})
+
+	return result.Call
 }
