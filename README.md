@@ -40,7 +40,8 @@ kubectl create secret generic oci-api-key \
 
 Install the OKE Gateway API controller using Helm:
 ```sh
-helm upgrade oke-gateway-api-controller oci://ghcr.io/gemyago/helm-charts/oke-gateway-api-controller \
+helm upgrade oke-gateway-api-controller \
+    oci://ghcr.io/gemyago/helm-charts/oke-gateway-api-controller \
     --install \
     -n oke-gw
 ```
@@ -167,16 +168,6 @@ spec:
 EOF
 ```
 
-You can optionally install all the above examples from the manifests in the `deploy/manifests/examples` folder:
-```bash
-# Using manifests directly from the github
-kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/gatewayclass.yaml
-kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/gatewayconfig.yaml
-kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/gateway.yaml
-kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/serverdeployment.yaml
-kubectl apply -n oke-gw -f https://raw.githubusercontent.com/gemyago/oke-gateway-api/main/deploy/manifests/examples/echoroutes.yaml
-```
-
 Uninstall example resources:
 ```bash
 kubectl -n oke-gw delete gateway oke-gateway
@@ -188,7 +179,7 @@ kubectl -n oke-gw delete httproute oke-gateway-example-server
 
 ### HTTPS
 
-HTTPS listeners are supported. Please refer to [https](./docs/https.md) for more details.
+Please refer to [https](./docs/https.md) for more details.
 
 ## Contributing
 
