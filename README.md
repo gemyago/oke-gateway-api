@@ -231,7 +231,7 @@ make test
 
 ### Running in a local mode
 
-For local development purposes you can run the controller fully locally pointing desired k8s cluster and provision the resources in an actual OCI tenancy.
+For local development purposes you can run the controller fully locally pointing on OKE cluster and provision the resources in an actual OCI tenancy.
 
 Please follow [OCI SDK CLI Setup](https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm#configfile) to setup the OCI CLI.
 
@@ -256,7 +256,7 @@ direnv reload
 oci iam user list
 ```
 
-Make sure to `kubectl` configured to point to a desired k8s cluster.
+Make sure to `kubectl` configured to point to a target OKE cluster.
 
 Run the controller locally:
 ```sh

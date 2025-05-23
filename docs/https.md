@@ -5,13 +5,11 @@ The certificate should be stored in a [TLS secret](https://kubernetes.io/docs/co
 
 The controller will watch for the secret updates and will automatically update the underlying load balancer listener with new certificate when it's renewed.
 
-The most straightforward way to provision certificates is to use [cert-manager](https://cert-manager.io/). Please refer to the [cert-manager documentation](https://cert-manager.io/docs/installation/) for more details on the installation.
-
 ## Using cert-manager
 
-The [cert-manager](https://cert-manager.io/) allows provisioning certificates in a fully automated way. Please install the cert manager in your cluster.
+[cert-manager](https://cert-manager.io/) can be used to automate certificate provisioning. Below is a quick guide on how to use it.
 
-Please keep in mind the following points in mind if you plan to use `http01` solver:
+Please keep in mind the following points if you plan to use `http01` solver:
 * certmanager needs to have gateway api enabled
 * loadbalancer needs to allow inbound HTTP traffic and gateway needs to have http listener enabled.
 * your domain should resolve to load balancer IP address
