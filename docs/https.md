@@ -1,15 +1,23 @@
 # Provisioning HTTPS Listeners
 
 In order to provision HTTPS listeners, you need to have a certificate pre-provisioned in advance.
-The certificate must be stored in a secret and referenced in the listener configuration.
+The certificate should be stored in a [TLS secret](https://kubernetes.io/docs/concepts/configuration/secret/#tls-secrets) and referenced in the listener configuration.
+
+The controller will watch for the secret updates and will automatically update the underlying load balancer listener with new certificate when it's renewed.
+
+The most straightforward way to provision certificates is to use [cert-manager](https://cert-manager.io/). Please refer to the [cert-manager documentation](https://cert-manager.io/docs/installation/) for more details on the installation.
 
 ## Using cert-manager
 
 The [cert-manager](https://cert-manager.io/) allows provisioning certificates in a fully automated way. Please install the cert manager in your cluster.
 
-When installing the cert manager, please keep in mind the following points:
+Please keep in mind the following points in mind if you plan to use `http01` solver:
 * certmanager needs to have gateway api enabled
-* loadbalancer needs to allow inbound traffic for http01 challenges (certmanager requirement)
+* loadbalancer needs to allow inbound HTTP traffic and gateway needs to have http listener enabled.
+* your domain should resolve to load balancer IP address
+* the gateway needs to be provisioned in advance and have http listener enabled.
+
+Above points are only required if you plan to use `http01` solver. The `dns01` solver does not require any of the above.
 
 If installing cert-manager with helm, you can use the below command:
 
@@ -25,9 +33,9 @@ helm install \
 
 Please refer to the [cert-manager documentation](https://cert-manager.io/docs/installation/) for more details on the installation.
 
-## Provisioning a certificate
+### Provisioning Issuer
 
-Configure issuer as per the [cert-manager documentation](https://cert-manager.io/docs/configuration/). For example:
+Configure issuer as per the [cert-manager documentation](https://cert-manager.io/docs/configuration/). For example using `http01` solver with letsencrypt:
 
 ```yaml
 cat <<EOF | kubectl -n oke-gw apply -f -
@@ -62,4 +70,85 @@ EOF
 **Notes**:
 * Make sure to replace the email address with your own.
 * If using letsencrypt, prefer testing against staging
-* If using http01 solver, make sure to allow inbound traffic for http01 challenges and have http listener on the gateway
+
+### Provisioning Certificate
+
+Create a certificate resource as per the [cert-manager documentation](https://cert-manager.io/docs/configuration/). For example:
+
+```yaml
+cat <<EOF | kubectl -n oke-gw apply -f -
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: oke-gw-example-https-cert
+  namespace: oke-gw
+spec:
+  secretName: oke-gw-example-https-cert
+  issuerRef:
+    name: oke-gw-example-issuer
+
+  # Make sure to specify your domain here
+  # If using http01 challenge, the domain should be accessible
+  # from the internet and should point to the load balancer ip
+  dnsNames:
+  - example.com
+```
+
+Make sure to use your domains. Once created, make sure the certificate is in `Ready` state. You wait for the ready state as follows:
+
+```bash
+kubectl -n oke-gw wait --for=condition=Ready certificate oke-gw-example-https-cert
+```
+
+### Using the certificate
+
+Once the certificate is ready, you can use it to provision HTTPS listener. Full gateway manifest example:
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: oke-gateway
+spec:
+  gatewayClassName: oke-gateway-api
+  infrastructure:
+    parametersRef:
+      group: oke-gateway-api.gemyago.github.io
+      kind: GatewayConfig
+      name: oke-gateway-config
+  listeners:
+    # If you want to use http01 challenge, you have to have the http listener
+    # enabled. The certmanager will use it to attach verification routes.
+    - name: http
+      port: 80
+      protocol: HTTP
+
+    # Certificate must be provisioned prior to creating the gateway with
+    # https config. You may need to comment this section out while provisioning
+    # the certificate with http01 verification challenge and then re-enable it.
+    - name: https
+      port: 443
+      protocol: HTTPS
+      tls:
+        certificateRefs:
+          - name: oke-gw-example-https-cert
+```
+
+## Manually Creating TLS Secret
+
+A TLS secret secret can be created manually. For example:
+
+```yaml
+cat <<EOF | kubectl -n oke-gw apply -f -
+apiVersion: v1
+kind: Secret
+metadata:
+  name: oke-gw-example-https-cert
+  namespace: oke-gw
+type: kubernetes.io/tls
+data:
+  tls.crt: <base64 encoded certificate>
+  tls.key: <base64 encoded private key>
+```
+
+Once created, you can reference the secret in the gateway manifest as per earlier examples.
