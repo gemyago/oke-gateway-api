@@ -21,7 +21,7 @@ user=<user_ocid>
 fingerprint=<key_fingerprint>
 tenancy=<tenancy_ocid>
 region=<oci_region>
-key_file=/etc/oci/oci_api_key.pem
+key_file=/etc/oci/key.pem
 ```
 Note: `key_file` corresponds to the location on **pod** that will be mounted as a secret, so leave it as is.
 
