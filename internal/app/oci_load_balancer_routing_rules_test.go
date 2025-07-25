@@ -88,8 +88,9 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 						},
 					},
 					want: fmt.Sprintf(
-						`http.request.headers['%s'] eq '%s' and http.request.headers['%s'] eq '%s'`,
-						headerName1, headerValue1, headerName2, headerValue2,
+						`(%s and %s)`,
+						fmt.Sprintf(`http.request.headers['%s'] eq '%s'`, headerName1, headerValue1),
+						fmt.Sprintf(`http.request.headers['%s'] eq '%s'`, headerName2, headerValue2),
 					),
 				}
 			},
@@ -113,8 +114,9 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 						},
 					},
 					want: fmt.Sprintf(
-						`http.request.url.path eq '%s' and http.request.headers['%s'] eq '%s'`,
-						pathValue, headerName, headerValue,
+						`(%s and %s)`,
+						fmt.Sprintf(`http.request.url.path eq '%s'`, pathValue),
+						fmt.Sprintf(`http.request.headers['%s'] eq '%s'`, headerName, headerValue),
 					),
 				}
 			},
@@ -142,11 +144,10 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 						},
 					},
 					want: fmt.Sprintf(
-						`http.request.url.path sw '/api/v1' and `+
-							`http.request.headers['Authorization'] eq '%s' and `+
-							`http.request.headers['X-Request-ID'] eq '%s'`,
-						authValue,
-						requestID,
+						`(%s and %s and %s)`,
+						`http.request.url.path sw '/api/v1'`,
+						fmt.Sprintf(`http.request.headers['Authorization'] eq '%s'`, authValue),
+						fmt.Sprintf(`http.request.headers['X-Request-ID'] eq '%s'`, requestID),
 					),
 				}
 			},
@@ -491,6 +492,27 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 					name:    "empty matches slice",
 					matches: []gatewayv1.HTTPRouteMatch{},
 					want:    "",
+				}
+			},
+			func() testCase {
+				return testCase{
+					name: "multiple conditions in a match are wrapped in parentheses in any()",
+					matches: []gatewayv1.HTTPRouteMatch{
+						{
+							Path: &gatewayv1.HTTPPathMatch{
+								Type:  lo.ToPtr(gatewayv1.PathMatchPathPrefix),
+								Value: lo.ToPtr("/"),
+							},
+							Headers: []gatewayv1.HTTPHeaderMatch{
+								{
+									Type:  lo.ToPtr(gatewayv1.HeaderMatchRegularExpression),
+									Name:  "host",
+									Value: "^argocd-",
+								},
+							},
+						},
+					},
+					want: "any((http.request.url.path sw '/' and http.request.headers['host'] sw 'argocd-'))",
 				}
 			},
 		}

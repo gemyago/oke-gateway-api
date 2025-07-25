@@ -144,7 +144,13 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchToCondition(
 	}
 
 	// --- Combine conditions ---
-	return strings.Join(conditions, " and "), nil
+	if len(conditions) == 0 {
+		return "", nil
+	}
+	if len(conditions) == 1 {
+		return conditions[0], nil
+	}
+	return "(" + strings.Join(conditions, " and ") + ")", nil
 }
 
 func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchesToCondition(
