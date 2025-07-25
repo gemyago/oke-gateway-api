@@ -1,0 +1,6 @@
+# Instruction to squash-merge Pull Review
+
+Please run the below command to squash-merge the pull request:
+```bash
+gh pr merge --squash --delete-branch --auto <PR number>
+```
