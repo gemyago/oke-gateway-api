@@ -1398,7 +1398,7 @@ func (m *gatewayModelImpl) isProgrammed(_ context.Context, data *resolvedGateway
 
         // Include secrets annotations in the check
         if len(data.gatewaySecrets) &gt; 0 </span><span class="cov1" title="1">{
-                for _, secret := range data.gatewaySecrets </span><span class="cov3" title="2">{
+                for _, secret := range data.gatewaySecrets </span><span class="cov4" title="3">{
                         secretUID := string(secret.UID)
                         annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + secretUID
                         annotations[annotationKey] = secret.ResourceVersion
@@ -1419,7 +1419,7 @@ func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGate
         }
 
         if len(data.gatewaySecrets) &gt; 0 </span><span class="cov1" title="1">{
-                for _, secret := range data.gatewaySecrets </span><span class="cov4" title="3">{
+                for _, secret := range data.gatewaySecrets </span><span class="cov3" title="2">{
                         secretUID := string(secret.UID)
                         annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + secretUID
                         annotations[annotationKey] = secret.ResourceVersion
@@ -1677,22 +1677,22 @@ func (m *httpBackendModelImpl) identifyBackendsToUpdate(
         var drainingCount int
 
         for _, slice := range params.endpointSlices </span><span class="cov7" title="8">{
-                for _, endpoint := range slice.Endpoints </span><span class="cov8" title="13">{
+                for _, endpoint := range slice.Endpoints </span><span class="cov9" title="15">{
                         if endpoint.Conditions.Ready != nil &amp;&amp; !*endpoint.Conditions.Ready </span><span class="cov3" title="2">{
                                 continue</span>
                         }
-                        <span class="cov8" title="11">if len(endpoint.Addresses) == 0 </span><span class="cov1" title="1">{
+                        <span class="cov8" title="13">if len(endpoint.Addresses) == 0 </span><span class="cov1" title="1">{
                                 m.logger.WarnContext(ctx, "Endpoint has no addresses", slog.Any("endpoint", endpoint))
                                 continue</span>
                         }
-                        <span class="cov8" title="10">ipAddress := endpoint.Addresses[0]
+                        <span class="cov8" title="12">ipAddress := endpoint.Addresses[0]
                         isDraining := endpoint.Conditions.Terminating != nil &amp;&amp; *endpoint.Conditions.Terminating
 
                         if isDraining </span><span class="cov3" title="2">{
                                 drainingCount++
                         }</span>
 
-                        <span class="cov8" title="10">desiredBackendsMap[ipAddress] = loadbalancer.BackendDetails{
+                        <span class="cov8" title="12">desiredBackendsMap[ipAddress] = loadbalancer.BackendDetails{
                                 Port:      lo.ToPtr(int(params.endpointPort)),
                                 IpAddress: &amp;ipAddress,
                                 Drain:     lo.ToPtr(isDraining),
@@ -2167,7 +2167,7 @@ type httpRouteModel interface {
 
 // parentRefSameTarget checks if two parent references target the same resource.
 // It ignores the section name and port.
-func parentRefSameTarget(a, b gatewayv1.ParentReference) bool <span class="cov7" title="12">{
+func parentRefSameTarget(a, b gatewayv1.ParentReference) bool <span class="cov7" title="13">{
         return a.Name == b.Name &amp;&amp;
                 lo.FromPtr(a.Namespace) == lo.FromPtr(b.Namespace) &amp;&amp;
                 lo.FromPtr(a.Kind) == lo.FromPtr(b.Kind) &amp;&amp;
@@ -2624,7 +2624,7 @@ func (m *httpRouteModelImpl) setProgrammed(
 
         _, statusIndex, found := lo.FindIndexOf(
                 httpRoute.Status.Parents,
-                func(s gatewayv1.RouteParentStatus) bool </span><span class="cov5" title="5">{
+                func(s gatewayv1.RouteParentStatus) bool </span><span class="cov5" title="6">{
                         return s.ControllerName == params.gatewayClass.Spec.ControllerName &amp;&amp;
                                 parentRefSameTarget(s.ParentRef, params.matchedRef)
                 }</span>,
@@ -6031,7 +6031,7 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 
                 <span class="cov6" title="10">listenerName := string(listenerSpec.Name)
 
-                for _, ref := range listenerSpec.TLS.CertificateRefs </span><span class="cov7" title="20">{
+                for _, ref := range listenerSpec.TLS.CertificateRefs </span><span class="cov8" title="20">{
                         secret := corev1.Secret{}
                         ns := lo.Ternary(ref.Namespace != nil, string(lo.FromPtr(ref.Namespace)), params.gateway.Namespace)
                         err := m.k8sClient.Get(ctx, types.NamespacedName{
@@ -6042,7 +6042,7 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
                                 return reconcileListenersCertificatesResult{}, fmt.Errorf("failed to get secret %s: %w", ref.Name, err)
                         }</span>
 
-                        <span class="cov7" title="20">certName := ociCertificateNameFromSecret(secret)
+                        <span class="cov8" title="20">certName := ociCertificateNameFromSecret(secret)
                         if cert, ok := resultingCertificates[certName]; ok </span><span class="cov7" title="14">{
                                 m.logger.DebugContext(ctx, "Certificate already exists, skipping",
                                         slog.String("loadBalancerId", params.loadBalancerID),
@@ -6527,16 +6527,16 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
         <span class="cov4" title="4">mergedRules := lo.Values(currentRulesByName)
 
         // Sort the rules: defaultCatchAllRuleName should be at the end
-        sort.Slice(mergedRules, func(i, j int) bool </span><span class="cov10" title="52">{
+        sort.Slice(mergedRules, func(i, j int) bool </span><span class="cov9" title="40">{
                 ruleI := lo.FromPtr(mergedRules[i].Name)
                 ruleJ := lo.FromPtr(mergedRules[j].Name)
-                if ruleI == defaultCatchAllRuleName </span><span class="cov2" title="2">{
+                if ruleI == defaultCatchAllRuleName </span><span class="cov1" title="1">{
                         return false
                 }</span>
-                <span class="cov9" title="50">if ruleJ == defaultCatchAllRuleName </span><span class="cov5" title="8">{
+                <span class="cov9" title="39">if ruleJ == defaultCatchAllRuleName </span><span class="cov7" title="13">{
                         return true
                 }</span>
-                <span class="cov9" title="42">return ruleI &lt; ruleJ</span>
+                <span class="cov8" title="26">return ruleI &lt; ruleJ</span>
         })
 
         <span class="cov4" title="4">updateRes, err := m.ociClient.UpdateRoutingPolicy(ctx, loadbalancer.UpdateRoutingPolicyRequest{
@@ -6625,7 +6625,7 @@ func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
         <span class="cov4" title="4">return nil</span>
 }
 
-func listenerPolicyName(listenerName string) string <span class="cov9" title="45">{
+func listenerPolicyName(listenerName string) string <span class="cov10" title="45">{
         // TODO: Sanitize the name, investigate docs for allowed characters
         return listenerName + "_policy"
 }</span>
@@ -9314,7 +9314,7 @@ func NewTestShutdownHooks() *ShutdownHooks <span class="cov1" title="1">{
 func RandomString(length int) string <span class="cov8" title="8">{
         segmentsCount := math.Ceil(float64(length) / 32)
         segments := make([]string, int(segmentsCount))
-        for i := range segments </span><span class="cov10" title="12">{
+        for i := range segments </span><span class="cov10" title="11">{
                 segments[i] = faker.UUIDDigit()
         }</span>
         <span class="cov8" title="8">return strings.Join(segments, "")[:length]</span>
