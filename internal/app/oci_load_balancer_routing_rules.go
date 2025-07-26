@@ -115,20 +115,20 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchToCondition(
 			// Assuming case-sensitive match for now based on Gateway API spec.
 			conditions = append(
 				conditions,
-				fmt.Sprintf(`http.request.headers['%s'] eq '%s'`, headerMatch.Name, headerMatch.Value),
+				fmt.Sprintf(`http.request.headers[(i '%s')] eq (i '%s')`, headerMatch.Name, headerMatch.Value),
 			)
 		case gatewayv1.HeaderMatchRegularExpression:
 			// Try to parse as starts-with pattern
 			if prefix, swMatched := parseRegexForStartsWith(headerMatch.Value); swMatched {
 				conditions = append(
 					conditions,
-					fmt.Sprintf(`http.request.headers['%s'] sw '%s'`, headerMatch.Name, prefix),
+					fmt.Sprintf(`http.request.headers[(i '%s')][0] sw (i '%s')`, headerMatch.Name, prefix),
 				)
 			} else if suffix, ewMatched := parseRegexForEndsWith(headerMatch.Value); ewMatched {
 				// Try to parse as ends-with pattern
 				conditions = append(
 					conditions,
-					fmt.Sprintf(`http.request.headers['%s'] ew '%s'`, headerMatch.Name, suffix),
+					fmt.Sprintf(`http.request.headers[(i '%s')][0] ew (i '%s')`, headerMatch.Name, suffix),
 				)
 			} else {
 				// Unsupported regex pattern
@@ -150,7 +150,7 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchToCondition(
 	if len(conditions) == 1 {
 		return conditions[0], nil
 	}
-	return "(" + strings.Join(conditions, " and ") + ")", nil
+	return "all(" + strings.Join(conditions, ", ") + ")", nil
 }
 
 func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchesToCondition(

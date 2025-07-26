@@ -14,9 +14,10 @@ Please also apply [general.mdc](mdc:.cursor/rules/general.mdc) rules
 - define tests in same package
 - prefer single top-level function per component and do multiple nested run blocks
 - makeMockDeps should be used to initialize dependencies
-- when implementing multiple test cases, iterate on each case separately untill it's green
+- when implementing multiple test cases, iterate on each case separately until it's green
 - use require.Error or require.ErrorIs when asserting errors
 - use faker (github.com/go-faker/faker/v4) to generate random texts
 - when tests ready show command to run tests in form and offer to run it: 
   `go test -v ./<package path> --run <test name>`
+  **Note**: `<package path>` is a path containing the test file, not the test file itself
 - Use mockery to create mocks for dependencies, read [mockery.mdc](mdc:.cursor/rules/mockery.mdc) prior to using it

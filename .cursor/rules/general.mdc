@@ -8,5 +8,4 @@ alwaysApply: true
 
 - Do not install any dependencies without confirmation
 - Do not include a useless comments describing every line
-- When implementation is done - remove useless comments
 - In the end of implementation - offer to commit updated files

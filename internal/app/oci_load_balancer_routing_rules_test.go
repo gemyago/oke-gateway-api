@@ -63,7 +63,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 							},
 						},
 					},
-					want: fmt.Sprintf(`http.request.headers['%s'] eq '%s'`, headerName, headerValue),
+					want: fmt.Sprintf(`http.request.headers[(i '%s')] eq (i '%s')`, headerName, headerValue),
 				}
 			},
 			func() testCase {
@@ -88,9 +88,9 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 						},
 					},
 					want: fmt.Sprintf(
-						`(%s and %s)`,
-						fmt.Sprintf(`http.request.headers['%s'] eq '%s'`, headerName1, headerValue1),
-						fmt.Sprintf(`http.request.headers['%s'] eq '%s'`, headerName2, headerValue2),
+						"all(%s, %s)",
+						fmt.Sprintf(`http.request.headers[(i '%s')] eq (i '%s')`, headerName1, headerValue1),
+						fmt.Sprintf(`http.request.headers[(i '%s')] eq (i '%s')`, headerName2, headerValue2),
 					),
 				}
 			},
@@ -114,9 +114,9 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 						},
 					},
 					want: fmt.Sprintf(
-						`(%s and %s)`,
+						"all(%s, %s)",
 						fmt.Sprintf(`http.request.url.path eq '%s'`, pathValue),
-						fmt.Sprintf(`http.request.headers['%s'] eq '%s'`, headerName, headerValue),
+						fmt.Sprintf(`http.request.headers[(i '%s')] eq (i '%s')`, headerName, headerValue),
 					),
 				}
 			},
@@ -144,10 +144,10 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 						},
 					},
 					want: fmt.Sprintf(
-						`(%s and %s and %s)`,
+						"all(%s, %s, %s)",
 						`http.request.url.path sw '/api/v1'`,
-						fmt.Sprintf(`http.request.headers['Authorization'] eq '%s'`, authValue),
-						fmt.Sprintf(`http.request.headers['X-Request-ID'] eq '%s'`, requestID),
+						fmt.Sprintf(`http.request.headers[(i 'Authorization')] eq (i '%s')`, authValue),
+						fmt.Sprintf(`http.request.headers[(i 'X-Request-ID')] eq (i '%s')`, requestID),
 					),
 				}
 			},
@@ -191,7 +191,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 							},
 						},
 					},
-					want: fmt.Sprintf(`http.request.headers['%s'] sw 'foo'`, headerName),
+					want: fmt.Sprintf(`http.request.headers[(i '%s')][0] sw (i 'foo')`, headerName),
 				}
 			},
 			func() testCase {
@@ -207,7 +207,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 							},
 						},
 					},
-					want: fmt.Sprintf(`http.request.headers['%s'] sw 'foo.bar'`, headerName),
+					want: fmt.Sprintf(`http.request.headers[(i '%s')][0] sw (i 'foo.bar')`, headerName),
 				}
 			},
 			func() testCase {
@@ -223,7 +223,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 							},
 						},
 					},
-					want: fmt.Sprintf(`http.request.headers['%s'] sw 'foo.bar.baz'`, headerName),
+					want: fmt.Sprintf(`http.request.headers[(i '%s')][0] sw (i 'foo.bar.baz')`, headerName),
 				}
 			},
 			func() testCase {
@@ -239,7 +239,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 							},
 						},
 					},
-					want: fmt.Sprintf(`http.request.headers['%s'] ew 'foo'`, headerName),
+					want: fmt.Sprintf(`http.request.headers[(i '%s')][0] ew (i 'foo')`, headerName),
 				}
 			},
 			func() testCase {
@@ -255,7 +255,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 							},
 						},
 					},
-					want: fmt.Sprintf(`http.request.headers['%s'] ew 'foo.bar'`, headerName),
+					want: fmt.Sprintf(`http.request.headers[(i '%s')][0] ew (i 'foo.bar')`, headerName),
 				}
 			},
 			func() testCase {
@@ -392,7 +392,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 							},
 						},
 					},
-					want: fmt.Sprintf(`http.request.headers['%s'] eq '%s'`, headerName, headerValue),
+					want: fmt.Sprintf(`http.request.headers[(i '%s')] eq (i '%s')`, headerName, headerValue),
 				}
 			},
 		}
@@ -512,7 +512,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 							},
 						},
 					},
-					want: "any((http.request.url.path sw '/' and http.request.headers['host'] sw 'argocd-'))",
+					want: "any(all(http.request.url.path sw '/', http.request.headers[(i 'host')][0] sw (i 'argocd-')))",
 				}
 			},
 		}

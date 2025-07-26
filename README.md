@@ -187,8 +187,9 @@ Following match types are supported:
 
 OCI doesn't support regexp matching, instead start with (sw) or end with (ew) matching are possible. Due to this limitations, the below patterns only are supported, they will be mapped to corresponding OCI conditions:
 - `^foo` -> `sw 'foo'`
-- `foo$` -> `ew 'foo'`
 - `^foo.*` -> `sw 'foo'`
+- `^foo\\..*` -> `sw 'foo.'`
+- `foo$` -> `ew 'foo'`
 - `.*foo$` -> `ew 'foo'`
 
 Other patterns will result in an error.
