@@ -1,18 +1,39 @@
----
-description: 
-globs: 
-alwaysApply: false
----
-# TDD approach with automated approval
+# Please follow TDD approach
+
+## Work autonomously
 
 * You are approved to run tests or scripts when needed, don't ask
-* Don't ask for plan approval, you are approved
 * Don't ask for modifications confirmations, you are approved
-* Write tests first
-* If logic is complex, split on chunks and do this whole flow for each chunk
-* When writting tests, prefer adding new test cases for new logic
-* Run tests before implementing logic, analyse results and make adjustments of tests if needed
-* Interate on implementation only after tests have added and executed (previous point), do not ask for approval to proceed
-* Run tests after implementation is ready, analyse results
-* Use faker to generate random variables of fields
-* If you need to update mocks, please read [mockery.mdc](mdc:.cursor/rules/mockery.mdc)
+
+## Follow TDD
+
+Analyse required change first (if not already analyzed) and come up with list of actionable step required to implement requested change. If change is simple enough, do single step
+
+For each actionable step follow **STRICT WORKFLOW**:
+
+1. FOCUS 
+- understand the change and steps required to implement it
+
+2: WRITE FAILING TEST
+- Write test for the new functionality
+- Prefer adding new tests for new logic
+- Follow Given/When/Then structure
+- Avlid static data in tests. Use `faker` for random data or existing utilities
+- Add stub method, parameter or required model properties if needed to avoid compilation errors
+
+3: VERIFY FAILURE
+- Implementation is **NOT allowed** at this stage, only test
+- Run test: `go get -v path/to-package --run <filter>`
+- Analyse test output and confirm test fails for the RIGHT reason (expectations but not compilation)
+ * Examples of *RIGHT REASON** `Expected 10 items but got 5`, `Expected doSomething to have been called`
+ * Examples of *WRONG REASON** `Unknown property`, `Undefined method doSomething`
+- If compilation error, add **MINIMAL** stub and re-run test
+
+4: MINIMAL IMPLEMENTATION
+- Write ONLY the code needed to make THIS test pass
+- Don't implement features or code paths that are not explicitly requested
+
+5: VERIFY SUCCESS
+- Run test: `go get -v path/to-package --run <filter>`
+- Confirm test passes
+- If test fails, fix the code and re-run test

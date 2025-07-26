@@ -177,6 +177,23 @@ kubectl -n oke-gw delete deployment oke-gateway-example-server
 kubectl -n oke-gw delete httproute oke-gateway-example-server
 ```
 
+## HTTPRoute matching
+
+Following match types are supported:
+- path: `PathPrefix` and `Exact`
+- header: `Exact` and `RegularExpression`
+
+### Notes on **RegularExpression**
+
+OCI doesn't support regexp matching, instead start with (sw) or end with (ew) matching are possible. Due to this limitations, the below patterns only are supported, they will be mapped to corresponding OCI conditions:
+- `^foo` -> `sw 'foo'`
+- `^foo.*` -> `sw 'foo'`
+- `^foo\\..*` -> `sw 'foo.'`
+- `foo$` -> `ew 'foo'`
+- `.*foo$` -> `ew 'foo'`
+
+Other patterns will result in an error.
+
 ### HTTPS
 
 Please refer to [https](./docs/https.md) for more details.

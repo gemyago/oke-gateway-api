@@ -63,7 +63,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 							},
 						},
 					},
-					want: fmt.Sprintf(`http.request.headers['%s'] eq '%s'`, headerName, headerValue),
+					want: fmt.Sprintf(`http.request.headers[(i '%s')] eq (i '%s')`, headerName, headerValue),
 				}
 			},
 			func() testCase {
@@ -88,8 +88,9 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 						},
 					},
 					want: fmt.Sprintf(
-						`http.request.headers['%s'] eq '%s' and http.request.headers['%s'] eq '%s'`,
-						headerName1, headerValue1, headerName2, headerValue2,
+						"all(%s, %s)",
+						fmt.Sprintf(`http.request.headers[(i '%s')] eq (i '%s')`, headerName1, headerValue1),
+						fmt.Sprintf(`http.request.headers[(i '%s')] eq (i '%s')`, headerName2, headerValue2),
 					),
 				}
 			},
@@ -113,8 +114,9 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 						},
 					},
 					want: fmt.Sprintf(
-						`http.request.url.path eq '%s' and http.request.headers['%s'] eq '%s'`,
-						pathValue, headerName, headerValue,
+						"all(%s, %s)",
+						fmt.Sprintf(`http.request.url.path eq '%s'`, pathValue),
+						fmt.Sprintf(`http.request.headers[(i '%s')] eq (i '%s')`, headerName, headerValue),
 					),
 				}
 			},
@@ -142,11 +144,10 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 						},
 					},
 					want: fmt.Sprintf(
-						`http.request.url.path sw '/api/v1' and `+
-							`http.request.headers['Authorization'] eq '%s' and `+
-							`http.request.headers['X-Request-ID'] eq '%s'`,
-						authValue,
-						requestID,
+						"all(%s, %s, %s)",
+						`http.request.url.path sw '/api/v1'`,
+						fmt.Sprintf(`http.request.headers[(i 'Authorization')] eq (i '%s')`, authValue),
+						fmt.Sprintf(`http.request.headers[(i 'X-Request-ID')] eq (i '%s')`, requestID),
 					),
 				}
 			},
@@ -171,6 +172,150 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 								Type:  lo.ToPtr(gatewayv1.HeaderMatchRegularExpression),
 								Name:  "X-User-ID",
 								Value: "^[a-z]+$",
+							},
+						},
+					},
+					wantErrIs: errUnsupportedMatch,
+				}
+			},
+			func() testCase {
+				headerName := "X-" + faker.Word()
+				return testCase{
+					name: "regex header match - starts with simple prefix",
+					match: gatewayv1.HTTPRouteMatch{
+						Headers: []gatewayv1.HTTPHeaderMatch{
+							{
+								Type:  lo.ToPtr(gatewayv1.HeaderMatchRegularExpression),
+								Name:  gatewayv1.HTTPHeaderName(headerName),
+								Value: "^foo",
+							},
+						},
+					},
+					want: fmt.Sprintf(`http.request.headers[(i '%s')][0] sw (i 'foo')`, headerName),
+				}
+			},
+			func() testCase {
+				headerName := "Content-Type"
+				return testCase{
+					name: "regex header match - starts with dotted prefix",
+					match: gatewayv1.HTTPRouteMatch{
+						Headers: []gatewayv1.HTTPHeaderMatch{
+							{
+								Type:  lo.ToPtr(gatewayv1.HeaderMatchRegularExpression),
+								Name:  gatewayv1.HTTPHeaderName(headerName),
+								Value: "^foo\\.bar",
+							},
+						},
+					},
+					want: fmt.Sprintf(`http.request.headers[(i '%s')][0] sw (i 'foo.bar')`, headerName),
+				}
+			},
+			func() testCase {
+				headerName := "Authorization"
+				return testCase{
+					name: "regex header match - starts with complex prefix",
+					match: gatewayv1.HTTPRouteMatch{
+						Headers: []gatewayv1.HTTPHeaderMatch{
+							{
+								Type:  lo.ToPtr(gatewayv1.HeaderMatchRegularExpression),
+								Name:  gatewayv1.HTTPHeaderName(headerName),
+								Value: "^foo\\.bar\\.baz.*",
+							},
+						},
+					},
+					want: fmt.Sprintf(`http.request.headers[(i '%s')][0] sw (i 'foo.bar.baz')`, headerName),
+				}
+			},
+			func() testCase {
+				headerName := "X-" + faker.Word()
+				return testCase{
+					name: "regex header match - ends with simple suffix",
+					match: gatewayv1.HTTPRouteMatch{
+						Headers: []gatewayv1.HTTPHeaderMatch{
+							{
+								Type:  lo.ToPtr(gatewayv1.HeaderMatchRegularExpression),
+								Name:  gatewayv1.HTTPHeaderName(headerName),
+								Value: "foo$",
+							},
+						},
+					},
+					want: fmt.Sprintf(`http.request.headers[(i '%s')][0] ew (i 'foo')`, headerName),
+				}
+			},
+			func() testCase {
+				headerName := "X-" + faker.Word()
+				return testCase{
+					name: "regex header match - ends with dotted suffix",
+					match: gatewayv1.HTTPRouteMatch{
+						Headers: []gatewayv1.HTTPHeaderMatch{
+							{
+								Type:  lo.ToPtr(gatewayv1.HeaderMatchRegularExpression),
+								Name:  gatewayv1.HTTPHeaderName(headerName),
+								Value: "foo\\.bar$",
+							},
+						},
+					},
+					want: fmt.Sprintf(`http.request.headers[(i '%s')][0] ew (i 'foo.bar')`, headerName),
+				}
+			},
+			func() testCase {
+				headerName := "X-" + faker.Word()
+				return testCase{
+					name: "regex header match - unsupported complex regex",
+					match: gatewayv1.HTTPRouteMatch{
+						Headers: []gatewayv1.HTTPHeaderMatch{
+							{
+								Type:  lo.ToPtr(gatewayv1.HeaderMatchRegularExpression),
+								Name:  gatewayv1.HTTPHeaderName(headerName),
+								Value: "^[a-z]+$",
+							},
+						},
+					},
+					wantErrIs: errUnsupportedMatch,
+				}
+			},
+			func() testCase {
+				headerName := "X-" + faker.Word()
+				return testCase{
+					name: "regex header match - starts with no anchor",
+					match: gatewayv1.HTTPRouteMatch{
+						Headers: []gatewayv1.HTTPHeaderMatch{
+							{
+								Type:  lo.ToPtr(gatewayv1.HeaderMatchRegularExpression),
+								Name:  gatewayv1.HTTPHeaderName(headerName),
+								Value: "foo.*",
+							},
+						},
+					},
+					wantErrIs: errUnsupportedMatch,
+				}
+			},
+			func() testCase {
+				headerName := "X-" + faker.Word()
+				return testCase{
+					name: "regex header match - ends with no anchor",
+					match: gatewayv1.HTTPRouteMatch{
+						Headers: []gatewayv1.HTTPHeaderMatch{
+							{
+								Type:  lo.ToPtr(gatewayv1.HeaderMatchRegularExpression),
+								Name:  gatewayv1.HTTPHeaderName(headerName),
+								Value: ".*foo",
+							},
+						},
+					},
+					wantErrIs: errUnsupportedMatch,
+				}
+			},
+			func() testCase {
+				headerName := "X-" + faker.Word()
+				return testCase{
+					name: "regex header match - both anchors unsupported",
+					match: gatewayv1.HTTPRouteMatch{
+						Headers: []gatewayv1.HTTPHeaderMatch{
+							{
+								Type:  lo.ToPtr(gatewayv1.HeaderMatchRegularExpression),
+								Name:  gatewayv1.HTTPHeaderName(headerName),
+								Value: "^foo.*bar$",
 							},
 						},
 					},
@@ -247,7 +392,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 							},
 						},
 					},
-					want: fmt.Sprintf(`http.request.headers['%s'] eq '%s'`, headerName, headerValue),
+					want: fmt.Sprintf(`http.request.headers[(i '%s')] eq (i '%s')`, headerName, headerValue),
 				}
 			},
 		}
@@ -347,6 +492,27 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 					name:    "empty matches slice",
 					matches: []gatewayv1.HTTPRouteMatch{},
 					want:    "",
+				}
+			},
+			func() testCase {
+				return testCase{
+					name: "multiple conditions in a match are wrapped in parentheses in any()",
+					matches: []gatewayv1.HTTPRouteMatch{
+						{
+							Path: &gatewayv1.HTTPPathMatch{
+								Type:  lo.ToPtr(gatewayv1.PathMatchPathPrefix),
+								Value: lo.ToPtr("/"),
+							},
+							Headers: []gatewayv1.HTTPHeaderMatch{
+								{
+									Type:  lo.ToPtr(gatewayv1.HeaderMatchRegularExpression),
+									Name:  "host",
+									Value: "^argocd-",
+								},
+							},
+						},
+					},
+					want: "any(all(http.request.url.path sw '/', http.request.headers[(i 'host')][0] sw (i 'argocd-')))",
 				}
 			},
 		}

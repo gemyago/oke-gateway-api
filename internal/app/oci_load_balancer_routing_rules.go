@@ -3,12 +3,45 @@ package app
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 var errUnsupportedMatch = errors.New("unsupported match type")
+
+// Allow alphanumeric characters, hyphens, underscores, and escaped dots.
+var startsWithExpression = regexp.MustCompile(`^\^([a-zA-Z0-9\-_\\\.]+?)(?:\.\*)?$`)
+
+// Allow alphanumeric characters, hyphens, underscores, and escaped dots.
+var endsWithExpression = regexp.MustCompile(`^([a-zA-Z0-9\-_\\\.]+?)\$$`)
+
+const expectedMatchesLength = 2
+
+// Returns the prefix and true if it matches, empty string and false otherwise.
+func parseRegexForStartsWith(pattern string) (string, bool) {
+	matches := startsWithExpression.FindStringSubmatch(pattern)
+	if len(matches) != expectedMatchesLength {
+		return "", false
+	}
+
+	// Unescape dots in the prefix
+	prefix := strings.ReplaceAll(matches[1], "\\.", ".")
+	return prefix, true
+}
+
+// Returns the suffix and true if it matches, empty string and false otherwise.
+func parseRegexForEndsWith(pattern string) (string, bool) {
+	matches := endsWithExpression.FindStringSubmatch(pattern)
+	if len(matches) != expectedMatchesLength {
+		return "", false
+	}
+
+	// Unescape dots in the suffix
+	suffix := strings.ReplaceAll(matches[1], "\\.", ".")
+	return suffix, true
+}
 
 type ociLoadBalancerRoutingRulesMapper interface {
 	// mapHTTPRouteMatchToCondition translates a Gateway API HTTPRouteMatch
@@ -82,10 +115,25 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchToCondition(
 			// Assuming case-sensitive match for now based on Gateway API spec.
 			conditions = append(
 				conditions,
-				fmt.Sprintf(`http.request.headers['%s'] eq '%s'`, headerMatch.Name, headerMatch.Value),
+				fmt.Sprintf(`http.request.headers[(i '%s')] eq (i '%s')`, headerMatch.Name, headerMatch.Value),
 			)
 		case gatewayv1.HeaderMatchRegularExpression:
-			return "", fmt.Errorf("%w: regex header matching for header '%s'", errUnsupportedMatch, headerMatch.Name)
+			// Try to parse as starts-with pattern
+			if prefix, swMatched := parseRegexForStartsWith(headerMatch.Value); swMatched {
+				conditions = append(
+					conditions,
+					fmt.Sprintf(`http.request.headers[(i '%s')][0] sw (i '%s')`, headerMatch.Name, prefix),
+				)
+			} else if suffix, ewMatched := parseRegexForEndsWith(headerMatch.Value); ewMatched {
+				// Try to parse as ends-with pattern
+				conditions = append(
+					conditions,
+					fmt.Sprintf(`http.request.headers[(i '%s')][0] ew (i '%s')`, headerMatch.Name, suffix),
+				)
+			} else {
+				// Unsupported regex pattern
+				return "", fmt.Errorf("%w: regex header matching for header '%s'", errUnsupportedMatch, headerMatch.Name)
+			}
 		default:
 			return "", fmt.Errorf("%w: unknown header match type '%s' for header '%s'",
 				errUnsupportedMatch,
@@ -96,7 +144,13 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchToCondition(
 	}
 
 	// --- Combine conditions ---
-	return strings.Join(conditions, " and "), nil
+	if len(conditions) == 0 {
+		return "", nil
+	}
+	if len(conditions) == 1 {
+		return conditions[0], nil
+	}
+	return "all(" + strings.Join(conditions, ", ") + ")", nil
 }
 
 func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchesToCondition(
