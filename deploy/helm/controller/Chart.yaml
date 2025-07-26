@@ -6,7 +6,7 @@ type: application
 
 # Patch version is incremented automatically with each release.
 # Versions are expected to follow Semantic Versioning (https://semver.org/)
-version: "0.0.3"
+version: "0.0.4"
 
 # Set automatically to the release version by release tool.
-appVersion: "v0.1.0-beta"
+appVersion: "v0.2.0"
