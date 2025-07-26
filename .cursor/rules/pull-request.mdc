@@ -19,7 +19,7 @@ git log <base branch>...HEAD --oneline | cat
   * Short change description 1
   * Short change description 2
   * ...
-4. Show PR title and description to the user in the following format:
+4. Prepare PR title and description in the following format:
   ```md
   **PR title**: 
   <PR title>
@@ -27,22 +27,10 @@ git log <base branch>...HEAD --oneline | cat
   **PR description**: 
   <PR description>
   ```
-  Do not present anything else. Ask for confirmation.
-5. One confirmed. Push pending changes and create a PR with a command below:
+5. Push pending changes and create a PR with a command below:
 ```bash
 git push origin <current branch> --set-upstream
 
 gh pr create --title "<PR title>" --body "<PR description>" --base <base branch> --head <current branch>
 ```
 6. Show the PR to the user as a URL so user can click it, as well as full URL for copying.
-
-7. Offer the user to watch for PR status. Wait for confirmation. If confirmed with yes or go, run command below and wait for success or failure result of any step
-```bash
-gh pr checks --watch
-```
-
-Once checks are either succeeded or any of them failed, use command similar below to notify the user:
-```bash
-say "Cursor speaking. Checks for PR in <project> are <status>"
-```
-Replace <project> with current github repo name and status with actual status of checks.
