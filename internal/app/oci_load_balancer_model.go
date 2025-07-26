@@ -451,9 +451,17 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 		return nil
 	}
 
+	healthCheckerPort := params.service.Spec.Ports[0].TargetPort.IntValue()
+	if healthCheckerPort == 0 {
+		// Not the best option. Potentially have to be refactored to use
+		// port from the backend ref. Some research is needed.
+		healthCheckerPort = int(params.service.Spec.Ports[0].Port)
+	}
+
 	m.logger.InfoContext(ctx, "Backend set not found, creating",
 		slog.String("loadBalancerId", params.loadBalancerID),
 		slog.String("backendSetName", backendSetName),
+		slog.Int("healthCheckerPort", healthCheckerPort),
 	)
 
 	createRes, err := m.ociClient.CreateBackendSet(ctx, loadbalancer.CreateBackendSetRequest{
@@ -463,7 +471,7 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 			Policy: lo.ToPtr("ROUND_ROBIN"),
 			HealthChecker: &loadbalancer.HealthCheckerDetails{
 				Protocol: lo.ToPtr("TCP"),
-				Port:     lo.ToPtr(int(params.service.Spec.Ports[0].Port)),
+				Port:     lo.ToPtr(healthCheckerPort),
 			},
 		},
 	})

@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -957,6 +958,54 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 			service := makeRandomService()
+
+			params := reconcileBackendSetParams{
+				loadBalancerID: faker.UUIDHyphenated(),
+				service:        service,
+			}
+
+			wantBsName := ociBackendSetNameFromService(service)
+
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+			workRequestID := faker.UUIDHyphenated()
+
+			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
+				BackendSetName: &wantBsName,
+				LoadBalancerId: &params.loadBalancerID,
+			}).Return(
+				loadbalancer.GetBackendSetResponse{},
+				ociapi.NewRandomServiceError(ociapi.RandomServiceErrorWithStatusCode(404)),
+			).Once()
+
+			ociLoadBalancerClient.EXPECT().CreateBackendSet(t.Context(), loadbalancer.CreateBackendSetRequest{
+				LoadBalancerId: &params.loadBalancerID,
+				CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
+					Name: &wantBsName,
+					HealthChecker: &loadbalancer.HealthCheckerDetails{
+						Protocol: lo.ToPtr("TCP"),
+						Port:     lo.ToPtr(service.Spec.Ports[0].TargetPort.IntValue()),
+					},
+					Policy: lo.ToPtr("ROUND_ROBIN"),
+				},
+			}).Return(loadbalancer.CreateBackendSetResponse{
+				OpcWorkRequestId: &workRequestID,
+			}, nil)
+
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
+
+			err := model.reconcileBackendSet(t.Context(), params)
+			require.NoError(t, err)
+		})
+		t.Run("create new backend set with no target port", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			service := makeRandomService(
+				func(s *corev1.Service) {
+					s.Spec.Ports[0].TargetPort = intstr.FromInt(0)
+				},
+			)
 
 			params := reconcileBackendSetParams{
 				loadBalancerID: faker.UUIDHyphenated(),
