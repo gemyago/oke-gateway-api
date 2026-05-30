@@ -16,4 +16,4 @@ test.log
 .opencode/
 
 # We don't yet commit OpenSpec to the repo.
-.openspec/
+openspec/
