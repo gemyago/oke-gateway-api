@@ -83,8 +83,8 @@ func NewSomeServiceSelector(params SomeServiceParams) *SomeServiceSelector {
 
 More detail is in **Testing best practices** below. Common points:
 
-- Use random data in tests. Use faker (`github.com/jaswdr/faker/v2`) for variable test data, this is a **MUST**. It may only justified to use fixed literals that are explicitly present in the actual code, otherwise all inputs must be randomized.
-- Faker flakiness guard: never assume `fake.Lorem().Word()` (or similar single faker outputs) are unique or length-safe. When you need multiple distinct random strings, add deterministic disambiguation (e.g. `"case1-" + fake.Lorem().Word()`, `"case2-" + fake.Lorem().Word()"`) or enforce uniqueness/length explicitly.
+- Use random data in tests. Use faker (`github.com/go-faker/faker/v4`) for variable test data, this is a **MUST**. It may only justified to use fixed literals that are explicitly present in the actual code, otherwise all inputs must be randomized.
+- Faker flakiness guard: never assume `faker.Word()` (or similar single faker outputs) are unique or length-safe. When you need multiple distinct random strings, add deterministic disambiguation (e.g. `"case1-" + faker.Word()`, `"case2-" + faker.Word()"`) or enforce uniqueness/length explicitly.
 - Tests in the **same package** as production code (or `_test` package if the project prefers that for black-box tests).
 - Use **one top-level test function per unit** with **nested `t.Run`** for methods and scenarios.
 - Avoid explicit **static/shared state** across tests (e.g mutable/immutable variables, explicitly mutable structs e.t.c)
