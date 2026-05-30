@@ -1020,7 +1020,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
-		t.Run("program with previously programmed annotations", func(t *testing.T) {
+		t.Run("program with previously programmed annotations passes stale rules for cleanup", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
@@ -1030,15 +1030,16 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			// Create HTTP route with multiple rules
 			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithNamespaceOpt(fmt.Sprintf("ns_%d", rand.IntN(1000))),
+				randomHTTPRouteWithNameOpt(fmt.Sprintf("rt_%d", rand.IntN(1000))),
 				randomHTTPRouteWithRulesOpt(
 					makeRandomHTTPRouteRule(),
 					makeRandomHTTPRouteRule(),
 				),
 			)
 			wantPreviousRules := []string{
-				"rule1-" + faker.Word(),
-				"rule2-" + faker.Word(),
-				"rule3-" + faker.Word(),
+				fmt.Sprintf("p0000_%s", httpRoute.Name),
+				fmt.Sprintf("p0001_%s", httpRoute.Name),
 			}
 			httpRoute.Annotations = map[string]string{
 				HTTPRouteProgrammedPolicyRulesAnnotation: strings.Join(wantPreviousRules, ","),
@@ -1076,6 +1077,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			expectedRules := make([]loadbalancer.RoutingRule, 0, len(httpRoute.Spec.Rules))
 			for i := range httpRoute.Spec.Rules {
 				rule := makeRandomOCIRoutingRule()
+				rule.Name = lo.ToPtr(ociListerPolicyRuleName(httpRoute, i))
 				expectedRules = append(expectedRules, rule)
 
 				ociLBModel.EXPECT().makeRoutingRule(t.Context(), makeRoutingRuleParams{
