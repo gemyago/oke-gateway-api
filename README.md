@@ -202,6 +202,13 @@ Please refer to [https](./docs/https.md) for more details.
 
 Use this section to setup the development environment.
 
+We optionally use OpenSpec, we don't yet commit it to the repo.
+```bash
+npm install -g @fission-ai/openspec@latest
+
+openspec init
+```
+
 ### Project Setup
 
 Please have the following tools installed: 

@@ -7,3 +7,13 @@ tmp
 test.log
 .venv
 .envrc.local
+
+# We ignore vendor specific harnesses for now.
+# We have unified AI stuff under .agents
+# Relevant stuff is symlinked into the harnesses.
+.cursor/
+.codex/
+.opencode/
+
+# We don't yet commit OpenSpec to the repo.
+.openspec/
