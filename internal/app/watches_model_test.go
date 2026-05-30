@@ -7,9 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/gemyago/oke-gateway-api/internal/diag"
-	"github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -20,6 +18,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	"github.com/gemyago/oke-gateway-api/internal/diag"
+	"github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
 )
 
 func withRelevantGatewayClass(gw *gatewayv1.Gateway) {
@@ -67,7 +68,7 @@ func TestWatchesModel(t *testing.T) {
 			model := NewWatchesModel(deps)
 
 			mockIndexer := k8sapi.NewMockFieldIndexer(t)
-			wantErr := errors.New(faker.Sentence())
+			wantErr := errors.New(faker.New().Lorem().Sentence(10))
 			mockIndexer.EXPECT().IndexField(
 				t.Context(),
 				&gatewayv1.HTTPRoute{},
@@ -92,7 +93,7 @@ func TestWatchesModel(t *testing.T) {
 				mock.AnythingOfType("client.IndexerFunc"),
 			).Return(nil)
 
-			wantErr := errors.New(faker.Sentence())
+			wantErr := errors.New(faker.New().Lorem().Sentence(10))
 			mockIndexer.EXPECT().IndexField(
 				t.Context(),
 				&gatewayv1.Gateway{},
@@ -332,8 +333,8 @@ func TestWatchesModel(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 
-			svcName := faker.DomainName()
-			ns := faker.Username()
+			svcName := faker.New().Internet().Domain()
+			ns := faker.New().Internet().Slug()
 			indexKey := fmt.Sprintf("%v/%v", ns, svcName)
 
 			endpointSlice := makeRandomEndpointSlice(
@@ -374,8 +375,8 @@ func TestWatchesModel(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 
-			svcName := faker.DomainName()
-			ns := faker.Username()
+			svcName := faker.New().Internet().Domain()
+			ns := faker.New().Internet().Slug()
 			indexKey := fmt.Sprintf("%v/%v", ns, svcName)
 
 			endpointSlice := makeRandomEndpointSlice(
@@ -424,8 +425,8 @@ func TestWatchesModel(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 
-			svcName := faker.DomainName()
-			ns := faker.Username()
+			svcName := faker.New().Internet().Domain()
+			ns := faker.New().Internet().Slug()
 			indexKey := fmt.Sprintf("%v/%v", ns, svcName)
 
 			endpointSlice := makeRandomEndpointSlice(
@@ -434,7 +435,7 @@ func TestWatchesModel(t *testing.T) {
 			)
 
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			wantErr := errors.New(faker.Sentence())
+			wantErr := errors.New(faker.New().Lorem().Sentence(10))
 			mockK8sClient.EXPECT().List(
 				t.Context(),
 				&gatewayv1.HTTPRouteList{},
@@ -449,8 +450,8 @@ func TestWatchesModel(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 
-			svcName := faker.DomainName()
-			ns := faker.Username()
+			svcName := faker.New().Internet().Domain()
+			ns := faker.New().Internet().Slug()
 			indexKey := fmt.Sprintf("%v/%v", ns, svcName)
 
 			endpointSlice := makeRandomEndpointSlice(
@@ -536,13 +537,16 @@ func TestWatchesModel(t *testing.T) {
 				randomGatewayWithListenersOpt(listener1, listener2),
 			)
 
-			wantIndices := lo.Map(listener1.TLS.CertificateRefs, func(ref gatewayv1.SecretObjectReference, _ int) string {
-				ns := gateway.Namespace
-				if ref.Namespace != nil {
-					ns = string(*ref.Namespace)
-				}
-				return ns + "/" + string(ref.Name)
-			})
+			wantIndices := lo.Map(
+				listener1.TLS.CertificateRefs,
+				func(ref gatewayv1.SecretObjectReference, _ int) string {
+					ns := gateway.Namespace
+					if ref.Namespace != nil {
+						ns = string(*ref.Namespace)
+					}
+					return ns + "/" + string(ref.Name)
+				},
+			)
 
 			result := model.indexGatewayByCertificateSecrets(t.Context(), gateway)
 			require.ElementsMatch(t, wantIndices, result)
@@ -707,7 +711,7 @@ func TestWatchesModel(t *testing.T) {
 			indexKey := fmt.Sprintf("%v/%v", secret.Namespace, secret.Name)
 
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			wantErr := errors.New(faker.Sentence())
+			wantErr := errors.New(faker.New().Lorem().Sentence(10))
 			mockK8sClient.EXPECT().List(
 				t.Context(),
 				&gatewayv1.GatewayList{},

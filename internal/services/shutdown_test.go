@@ -7,16 +7,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gemyago/oke-gateway-api/internal/diag"
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/gemyago/oke-gateway-api/internal/diag"
 )
 
 type mockShutdownHook struct {
-	name string
 	mock.Mock
+
+	name string
 }
 
 func (m *mockShutdownHook) shutdown(ctx context.Context) error {
@@ -41,12 +43,12 @@ func TestShutdownHooks(t *testing.T) {
 		t.Run("should return true if such hook has been registered", func(t *testing.T) {
 			deps := makeMockDeps()
 			registry := NewShutdownHooks(deps)
-			hookName := faker.Word()
+			hookName := faker.New().Lorem().Word()
 			fn := func(_ context.Context) error { return nil }
 			assert.False(t, registry.HasHook(hookName, fn))
 			registry.Register(hookName, fn)
 			require.True(t, registry.HasHook(hookName, fn))
-			assert.False(t, registry.HasHook(faker.Word(), func(_ context.Context) error { return nil }))
+			assert.False(t, registry.HasHook(faker.New().Lorem().Word(), func(_ context.Context) error { return nil }))
 		})
 	})
 
@@ -56,9 +58,9 @@ func TestShutdownHooks(t *testing.T) {
 			registry := NewShutdownHooks(deps)
 
 			hooks := []*mockShutdownHook{
-				{name: faker.Word()},
-				{name: faker.Word()},
-				{name: faker.Word()},
+				{name: faker.New().Lorem().Word()},
+				{name: faker.New().Lorem().Word()},
+				{name: faker.New().Lorem().Word()},
 			}
 
 			ctx := t.Context()
@@ -81,9 +83,9 @@ func TestShutdownHooks(t *testing.T) {
 			registry := NewShutdownHooks(deps)
 
 			hooks := []*mockShutdownHook{
-				{name: faker.Word()},
-				{name: faker.Word()},
-				{name: faker.Word()},
+				{name: faker.New().Lorem().Word()},
+				{name: faker.New().Lorem().Word()},
+				{name: faker.New().Lorem().Word()},
 			}
 
 			ctx := t.Context()
@@ -106,14 +108,14 @@ func TestShutdownHooks(t *testing.T) {
 			registry := NewShutdownHooks(deps)
 
 			hooks := []*mockShutdownHook{
-				{name: faker.Word()},
-				{name: faker.Word()},
-				{name: "should-fail-" + faker.Word()},
+				{name: faker.New().Lorem().Word()},
+				{name: faker.New().Lorem().Word()},
+				{name: "should-fail-" + faker.New().Lorem().Word()},
 			}
 
 			ctx := t.Context()
 
-			wantErr := errors.New(faker.Sentence())
+			wantErr := errors.New(faker.New().Lorem().Sentence(10))
 			lastHook := hooks[len(hooks)-1]
 			lastHook.On("shutdown", mock.AnythingOfType("*context.timerCtx")).Return(wantErr)
 			registry.Register(lastHook.name, lastHook.shutdown)

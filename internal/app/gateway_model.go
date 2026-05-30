@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"sort"
 
-	"github.com/gemyago/oke-gateway-api/internal/types"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"go.uber.org/dig"
 	corev1 "k8s.io/api/core/v1"
@@ -15,6 +14,8 @@ import (
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	"github.com/gemyago/oke-gateway-api/internal/types"
 )
 
 type resolvedGatewayDetails struct {
@@ -337,7 +338,7 @@ type gatewayModelDeps struct {
 	OciLoadBalancerModel ociLoadBalancerModel
 }
 
-func newGatewayModel(deps gatewayModelDeps) gatewayModel {
+func newGatewayModel(deps gatewayModelDeps) *gatewayModelImpl {
 	return &gatewayModelImpl{
 		client:               deps.K8sClient,
 		logger:               deps.RootLogger.WithGroup("gateway-model"),

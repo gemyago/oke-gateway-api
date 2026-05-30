@@ -6,12 +6,13 @@ type TimeProvider interface {
 	Now() time.Time
 }
 
-type timeProviderFn func() time.Time
+// TimeProviderFn adapts a function into a TimeProvider.
+type TimeProviderFn func() time.Time
 
-func (fn timeProviderFn) Now() time.Time {
-	return fn()
+func NewTimeProvider() TimeProviderFn {
+	return TimeProviderFn(time.Now)
 }
 
-func NewTimeProvider() TimeProvider {
-	return timeProviderFn(time.Now)
+func (fn TimeProviderFn) Now() time.Time {
+	return fn()
 }

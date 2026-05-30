@@ -67,6 +67,12 @@ type RootLoggerOpts struct {
 	logLevel slog.Level
 }
 
+func NewRootLoggerOpts() *RootLoggerOpts {
+	return &RootLoggerOpts{
+		output: os.Stdout,
+	}
+}
+
 func (opts *RootLoggerOpts) WithJSONLogs(value bool) *RootLoggerOpts {
 	opts.jsonLogs = value
 	return opts
@@ -86,18 +92,12 @@ func (opts *RootLoggerOpts) WithOptionalOutputFile(outputFile string) *RootLogge
 	if outputFile == "" {
 		return opts
 	}
-	f, err := os.OpenFile(outputFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o666)
+	f, err := os.OpenFile(outputFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		panic(err)
 	}
 	opts.output = f
 	return opts
-}
-
-func NewRootLoggerOpts() *RootLoggerOpts {
-	return &RootLoggerOpts{
-		output: os.Stdout,
-	}
 }
 
 func SetupRootLogger(opts *RootLoggerOpts) *slog.Logger {

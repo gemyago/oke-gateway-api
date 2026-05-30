@@ -1,8 +1,9 @@
 package k8sapi
 
 import (
-	"github.com/gemyago/oke-gateway-api/internal/di"
 	"go.uber.org/dig"
+
+	"github.com/gemyago/oke-gateway-api/internal/di"
 )
 
 func Register(container *dig.Container) error {

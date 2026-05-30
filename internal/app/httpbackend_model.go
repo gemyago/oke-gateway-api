@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/gemyago/oke-gateway-api/internal/types"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
 	"go.uber.org/dig"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	client "sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	"github.com/gemyago/oke-gateway-api/internal/types"
 )
 
 type syncRouteEndpointsParams struct {
@@ -128,9 +129,9 @@ func (m *httpBackendModelImpl) identifyBackendsToUpdate(
 			}
 
 			desiredBackendsMap[ipAddress] = loadbalancer.BackendDetails{
-				Port:      lo.ToPtr(int(params.endpointPort)),
+				Port:      new(int(params.endpointPort)),
 				IpAddress: &ipAddress,
-				Drain:     lo.ToPtr(isDraining),
+				Drain:     new(isDraining),
 				// Weight, MaxConnections, Backup, Offline are not managed here
 			}
 		}
@@ -198,7 +199,11 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 		},
 		client.InNamespace(backendRefNamespace),
 	); err != nil {
-		return fmt.Errorf("failed to list endpoint slices for backend %s: %w", backendRef.BackendObjectReference.Name, err)
+		return fmt.Errorf(
+			"failed to list endpoint slices for backend %s: %w",
+			backendRef.BackendObjectReference.Name,
+			err,
+		)
 	}
 
 	backendsToUpdate, err := m.self.identifyBackendsToUpdate(ctx, identifyBackendsToUpdateParams{
@@ -305,7 +310,7 @@ type httpBackendModelDeps struct {
 }
 
 // newHTTPBackendModel creates a new HTTPBackendModel.
-func newHTTPBackendModel(deps httpBackendModelDeps) httpBackendModel {
+func newHTTPBackendModel(deps httpBackendModelDeps) *httpBackendModelImpl {
 	model := &httpBackendModelImpl{
 		logger:              deps.RootLogger.WithGroup("http-backend-model"),
 		k8sClient:           deps.K8sClient,

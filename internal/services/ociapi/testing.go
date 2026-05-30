@@ -4,10 +4,15 @@ package ociapi
 
 import (
 	"fmt"
-	"math/rand/v2"
 
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/oracle/oci-go-sdk/v65/common"
+)
+
+const (
+	randomServiceErrorSentenceWords = 10
+	minServiceErrorStatusCode       = 100
+	maxServiceErrorStatusCode       = 498
 )
 
 type MockServiceError struct {
@@ -15,6 +20,24 @@ type MockServiceError struct {
 	message      string
 	code         string
 	opcRequestID string
+}
+
+type RandomServiceErrorOpts func(*MockServiceError)
+
+func NewRandomServiceError(opts ...RandomServiceErrorOpts) *MockServiceError {
+	fake := faker.New()
+	res := &MockServiceError{
+		statusCode:   fake.IntBetween(minServiceErrorStatusCode, maxServiceErrorStatusCode),
+		message:      fake.Lorem().Sentence(randomServiceErrorSentenceWords),
+		code:         fake.Lorem().Word(),
+		opcRequestID: fake.UUID().V4(),
+	}
+
+	for _, opt := range opts {
+		opt(res)
+	}
+
+	return res
 }
 
 func (m *MockServiceError) GetHTTPStatusCode() int {
@@ -39,23 +62,6 @@ func (m *MockServiceError) Error() string {
 
 var _ common.ServiceError = &MockServiceError{}
 var _ error = &MockServiceError{}
-
-type RandomServiceErrorOpts func(*MockServiceError)
-
-func NewRandomServiceError(opts ...RandomServiceErrorOpts) *MockServiceError {
-	res := &MockServiceError{
-		statusCode:   rand.IntN(399) + 100,
-		message:      faker.Sentence(),
-		code:         faker.Word(),
-		opcRequestID: faker.UUIDHyphenated(),
-	}
-
-	for _, opt := range opts {
-		opt(res)
-	}
-
-	return res
-}
 
 func RandomServiceErrorWithStatusCode(statusCode int) RandomServiceErrorOpts {
 	return func(m *MockServiceError) {

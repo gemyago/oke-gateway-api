@@ -7,23 +7,24 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/spf13/cobra"
+	"go.uber.org/dig"
+	"golang.org/x/sys/unix"
+
 	"github.com/gemyago/oke-gateway-api/internal/api/http"
 	"github.com/gemyago/oke-gateway-api/internal/api/http/server"
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/gemyago/oke-gateway-api/internal/services"
-	"github.com/spf13/cobra"
-	"go.uber.org/dig"
-	"golang.org/x/sys/unix"
 )
 
 type startServerParams struct {
 	dig.In `ignore-unexported:"true"`
 
+	*services.ShutdownHooks
+
 	RootLogger *slog.Logger
 
 	HTTPServer *server.HTTPServer
-
-	*services.ShutdownHooks
 
 	noop bool
 }

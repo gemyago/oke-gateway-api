@@ -4,8 +4,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/gofrs/uuid/v5"
+
+	"github.com/gemyago/oke-gateway-api/internal/diag"
 )
 
 type TracingMiddlewareCfg struct {

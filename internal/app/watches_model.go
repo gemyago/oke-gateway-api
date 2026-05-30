@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"path"
 
-	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/samber/lo"
 	"go.uber.org/dig"
 	corev1 "k8s.io/api/core/v1"
@@ -16,6 +15,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	"github.com/gemyago/oke-gateway-api/internal/diag"
 )
 
 const httpRouteBackendServiceIndexKey = ".metadata.backendRefs.serviceName" // Virtual field name, indexed

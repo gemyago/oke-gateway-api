@@ -3,9 +3,8 @@ package app
 import (
 	"math/rand/v2"
 
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
-	"github.com/samber/lo"
 )
 
 type randomOCIBackendSetOpt func(*loadbalancer.BackendSet)
@@ -20,23 +19,23 @@ func makeRandomOCIBackendSet(
 		"STICKY_SESSION",
 	}
 	bs := loadbalancer.BackendSet{
-		Name: lo.ToPtr(faker.DomainName()),
+		Name: new(faker.New().Internet().Domain()),
 		HealthChecker: &loadbalancer.HealthChecker{
-			Protocol:   lo.ToPtr("HTTP"),
-			Port:       lo.ToPtr(rand.IntN(65535)),
-			UrlPath:    lo.ToPtr("/" + faker.Word()),
-			ReturnCode: lo.ToPtr(200),
+			Protocol:   new("HTTP"),
+			Port:       new(rand.IntN(65535)),
+			UrlPath:    new("/" + faker.New().Lorem().Word()),
+			ReturnCode: new(200),
 		},
-		Policy:                lo.ToPtr(knownPolicies[rand.IntN(len(knownPolicies))]),
-		BackendMaxConnections: lo.ToPtr(rand.IntN(1000)),
+		Policy:                new(knownPolicies[rand.IntN(len(knownPolicies))]),
+		BackendMaxConnections: new(rand.IntN(1000)),
 		SslConfiguration: &loadbalancer.SslConfiguration{
-			CertificateName: lo.ToPtr(faker.DomainName()),
+			CertificateName: new(faker.New().Internet().Domain()),
 		},
 		SessionPersistenceConfiguration: &loadbalancer.SessionPersistenceConfigurationDetails{
-			CookieName: lo.ToPtr(faker.DomainName()),
+			CookieName: new(faker.New().Internet().Domain()),
 		},
 		LbCookieSessionPersistenceConfiguration: &loadbalancer.LbCookieSessionPersistenceConfigurationDetails{
-			CookieName: lo.ToPtr(faker.DomainName()),
+			CookieName: new(faker.New().Internet().Domain()),
 		},
 	}
 
@@ -49,7 +48,7 @@ func makeRandomOCIBackendSet(
 
 func randomOCIBackendSetWithNameOpt(name string) randomOCIBackendSetOpt {
 	return func(bs *loadbalancer.BackendSet) {
-		bs.Name = lo.ToPtr(name)
+		bs.Name = new(name)
 	}
 }
 
@@ -61,9 +60,9 @@ func randomOCIBackendSetWithBackendsOpt(backends []loadbalancer.Backend) randomO
 
 func makeRandomOCIBackend() loadbalancer.Backend {
 	return loadbalancer.Backend{
-		Name:      lo.ToPtr(faker.DomainName()),
-		Port:      lo.ToPtr(rand.IntN(65535)),
-		IpAddress: lo.ToPtr(faker.IPv4()),
+		Name:      new(faker.New().Internet().Domain()),
+		Port:      new(rand.IntN(65535)),
+		IpAddress: new(faker.New().Internet().Ipv4()),
 	}
 }
 
@@ -78,8 +77,8 @@ func makeFewRandomOCIBackends() []loadbalancer.Backend {
 
 func makeRandomOCIBackendDetails() loadbalancer.BackendDetails {
 	return loadbalancer.BackendDetails{
-		Port:      lo.ToPtr(rand.IntN(65535)),
-		IpAddress: lo.ToPtr(faker.IPv4()),
+		Port:      new(rand.IntN(65535)),
+		IpAddress: new(faker.New().Internet().Ipv4()),
 	}
 }
 
@@ -98,7 +97,7 @@ func makeRandomOCIListener(
 	opts ...randomOCIListenerOpt,
 ) loadbalancer.Listener {
 	listener := loadbalancer.Listener{
-		Name: lo.ToPtr(faker.DomainName()),
+		Name: new(faker.New().Internet().Domain()),
 	}
 
 	for _, opt := range opts {
@@ -114,7 +113,7 @@ func makeRandomOCILoadBalancer(
 	opts ...randomOCILoadBalancerOpt,
 ) loadbalancer.LoadBalancer {
 	lb := loadbalancer.LoadBalancer{
-		Id:        lo.ToPtr(faker.UUIDHyphenated()),
+		Id:        new(faker.New().UUID().V4()),
 		Listeners: map[string]loadbalancer.Listener{},
 	}
 
@@ -157,7 +156,7 @@ func makeRandomOCIRoutingPolicy(
 	opts ...randomOCIRoutingPolicyOpt,
 ) loadbalancer.RoutingPolicy {
 	policy := loadbalancer.RoutingPolicy{
-		Name:                     lo.ToPtr(faker.DomainName()),
+		Name:                     new(faker.New().Internet().Domain()),
 		ConditionLanguageVersion: loadbalancer.RoutingPolicyConditionLanguageVersionV1,
 		Rules: []loadbalancer.RoutingRule{
 			makeRandomOCIRoutingRule(),
@@ -174,15 +173,15 @@ func makeRandomOCIRoutingPolicy(
 
 func makeRandomOCIRoutingRule() loadbalancer.RoutingRule {
 	return loadbalancer.RoutingRule{
-		Name: lo.ToPtr(faker.UUIDHyphenated() + "-rr." + faker.DomainName()),
+		Name: new(faker.New().UUID().V4() + "-rr." + faker.New().Internet().Domain()),
 	}
 }
 
 func makeRandomOCICertificate() loadbalancer.Certificate {
 	return loadbalancer.Certificate{
-		CertificateName:   lo.ToPtr(faker.DomainName()),
-		PublicCertificate: lo.ToPtr(faker.UUIDHyphenated()),
-		CaCertificate:     lo.ToPtr(faker.UUIDHyphenated()),
+		CertificateName:   new(faker.New().Internet().Domain()),
+		PublicCertificate: new(faker.New().UUID().V4()),
+		CaCertificate:     new(faker.New().UUID().V4()),
 	}
 }
 

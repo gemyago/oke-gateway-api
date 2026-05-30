@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gemyago/oke-gateway-api/internal/diag"
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/stretchr/testify/require"
+
+	"github.com/gemyago/oke-gateway-api/internal/diag"
 )
 
 func TestWorkRequestsWatcher(t *testing.T) {
@@ -36,7 +37,7 @@ func TestWorkRequestsWatcher(t *testing.T) {
 			deps := newMockDeps(t)
 			w := NewWorkRequestsWatcher(deps)
 
-			workRequestID := faker.UUIDHyphenated()
+			workRequestID := faker.New().UUID().V4()
 
 			responses := []loadbalancer.GetWorkRequestResponse{
 				makeMockWorkRequestResponse(loadbalancer.WorkRequestLifecycleStateAccepted),
@@ -69,7 +70,7 @@ func TestWorkRequestsWatcher(t *testing.T) {
 				deps := newMockDeps(t)
 				w := NewWorkRequestsWatcher(deps)
 
-				workRequestID := faker.UUIDHyphenated()
+				workRequestID := faker.New().UUID().V4()
 
 				responses := []loadbalancer.GetWorkRequestResponse{
 					makeMockWorkRequestResponse(loadbalancer.WorkRequestLifecycleStateAccepted),
@@ -101,7 +102,7 @@ func TestWorkRequestsWatcher(t *testing.T) {
 			deps.pollInterval = 1 * time.Minute
 			w := NewWorkRequestsWatcher(deps)
 
-			workRequestID := faker.UUIDHyphenated()
+			workRequestID := faker.New().UUID().V4()
 
 			responses := []loadbalancer.GetWorkRequestResponse{
 				makeMockWorkRequestResponse(loadbalancer.WorkRequestLifecycleStateAccepted),
@@ -131,7 +132,7 @@ func TestWorkRequestsWatcher(t *testing.T) {
 			deps.maxPollDuration = 1 * time.Millisecond
 			w := NewWorkRequestsWatcher(deps)
 
-			workRequestID := faker.UUIDHyphenated()
+			workRequestID := faker.New().UUID().V4()
 
 			responses := []loadbalancer.GetWorkRequestResponse{
 				makeMockWorkRequestResponse(loadbalancer.WorkRequestLifecycleStateAccepted),

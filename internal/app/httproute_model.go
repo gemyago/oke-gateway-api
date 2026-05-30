@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/gemyago/oke-gateway-api/internal/types"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
 	"go.uber.org/dig"
@@ -18,6 +17,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	"github.com/gemyago/oke-gateway-api/internal/types"
 )
 
 type resolvedRouteDetails struct {
@@ -195,9 +196,12 @@ func (m *httpRouteModelImpl) resolveRouteParentRefData(
 
 	if parentRef.SectionName != nil {
 		sectionName := *parentRef.SectionName
-		matchingListeners := lo.Filter(resolvedGatewayData.gateway.Spec.Listeners, func(l gatewayv1.Listener, _ int) bool {
-			return l.Name == sectionName
-		})
+		matchingListeners := lo.Filter(
+			resolvedGatewayData.gateway.Spec.Listeners,
+			func(l gatewayv1.Listener, _ int) bool {
+				return l.Name == sectionName
+			},
+		)
 
 		if len(matchingListeners) == 0 {
 			m.logger.DebugContext(ctx, "Gateway resolved, but no listener matched section name",
@@ -411,6 +415,7 @@ func (m *httpRouteModelImpl) resolveBackendRefs(
 	return resolvedBackendRefs, nil
 }
 
+//nolint:unparam // The result is consumed through the httpRouteModel interface.
 func (m *httpRouteModelImpl) programRoute(
 	ctx context.Context,
 	params programRouteParams,
@@ -456,7 +461,11 @@ func (m *httpRouteModelImpl) programRoute(
 			prevPolicyRules: prevPolicyRules,
 		})
 		if err != nil {
-			return programRouteResult{}, fmt.Errorf("failed to commit routing policy for listener %s: %w", listener.Name, err)
+			return programRouteResult{}, fmt.Errorf(
+				"failed to commit routing policy for listener %s: %w",
+				listener.Name,
+				err,
+			)
 		}
 	}
 
@@ -532,6 +541,7 @@ func (m *httpRouteModelImpl) deprovisionRoute(
 	return nil
 }
 
+//nolint:unparam // The error return is part of the interface contract used by controller tests.
 func (m *httpRouteModelImpl) isProgrammingRequired(
 	details resolvedRouteDetails,
 ) (bool, error) {
@@ -613,7 +623,7 @@ type httpRouteModelDeps struct {
 }
 
 // newHTTPRouteModel creates a new instance of httpRouteModel.
-func newHTTPRouteModel(deps httpRouteModelDeps) httpRouteModel {
+func newHTTPRouteModel(deps httpRouteModelDeps) *httpRouteModelImpl {
 	return &httpRouteModelImpl{
 		client:               deps.K8sClient,
 		logger:               deps.RootLogger.WithGroup("httproute-model"),

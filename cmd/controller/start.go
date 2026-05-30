@@ -7,22 +7,23 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/spf13/cobra"
+	"go.uber.org/dig"
+	"golang.org/x/sys/unix"
+
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/gemyago/oke-gateway-api/internal/k8s"
 	"github.com/gemyago/oke-gateway-api/internal/services"
 	"github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
 	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
-	"github.com/spf13/cobra"
-	"go.uber.org/dig"
-	"golang.org/x/sys/unix"
 )
 
 type startServerParams struct {
 	dig.In `ignore-unexported:"true"`
 
-	RootLogger *slog.Logger
-
 	*services.ShutdownHooks
+
+	RootLogger *slog.Logger
 
 	ManagerDeps k8s.StartManagerDeps
 

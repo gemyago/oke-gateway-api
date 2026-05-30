@@ -9,12 +9,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     # Required for multi-platform builds
     # https://docs.docker.com/build/building/multi-platform/#prerequisites
     - name: Set up Docker
-      uses: docker/setup-docker-action@v4
+      uses: docker/setup-docker-action@v5
       with:
         daemon-config: |
           {
@@ -23,7 +23,7 @@ jobs:
             }
           }
 
-    - uses: actions/download-artifact@v4
+    - uses: actions/download-artifact@v8
       with:
         name: build-artifacts-pr-${{ github.event.pull_request.node_id }}
         path: build
@@ -45,7 +45,7 @@ jobs:
         GIT_REF: ${{ github.event.pull_request.head.ref }}
 
     - name: Upload docker artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: docker-artifacts-pr-${{ github.event.pull_request.node_id }}
         path: build/docker-artifacts.tar.bz2

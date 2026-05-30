@@ -5,13 +5,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gemyago/oke-gateway-api/internal/di"
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/samber/lo"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/dig"
+
+	"github.com/gemyago/oke-gateway-api/internal/di"
 )
 
 func Test_provideConfigValue(t *testing.T) {
@@ -25,6 +26,7 @@ func Test_provideConfigValue(t *testing.T) {
 
 		type configReceiver struct {
 			dig.In
+
 			IntVal   int   `name:"config.int-cfg-key"`
 			Int32Val int32 `name:"config.int-32-cfg-key"`
 		}
@@ -44,10 +46,11 @@ func Test_provideConfigValue(t *testing.T) {
 	t.Run("should provide config value as string", func(t *testing.T) {
 		cfg := viper.New()
 		configKey := "string-cfg"
-		cfg.Set(configKey, faker.Sentence())
+		cfg.Set(configKey, faker.New().Lorem().Sentence(10))
 
 		type configReceiver struct {
 			dig.In
+
 			Value string `name:"config.string-cfg"`
 		}
 		container := dig.New()
@@ -63,6 +66,7 @@ func Test_provideConfigValue(t *testing.T) {
 		cfg.Set(configKey, lo.If(rand.IntN(2) == 1, true).Else(false))
 		type configReceiver struct {
 			dig.In
+
 			Value bool `name:"config.bool-cfg"`
 		}
 		container := dig.New()
@@ -78,6 +82,7 @@ func Test_provideConfigValue(t *testing.T) {
 		cfg.Set(configKey, rand.IntN(1000))
 		type configReceiver struct {
 			dig.In
+
 			Value time.Duration `name:"config.duration-cfg"`
 		}
 		container := dig.New()

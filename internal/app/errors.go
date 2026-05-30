@@ -24,17 +24,6 @@ type ReconcileError struct {
 	cause     error
 }
 
-func (e ReconcileError) Error() string {
-	if e.cause != nil {
-		return fmt.Sprintf("reconcileError: retriable=%t, message=%s, cause=%s", e.retriable, e.message, e.cause)
-	}
-	return fmt.Sprintf("reconcileError: retriable=%t, message=%s", e.retriable, e.message)
-}
-
-func (e ReconcileError) IsRetriable() bool {
-	return e.retriable
-}
-
 func NewReconcileError(message string, retriable bool) *ReconcileError {
 	return &ReconcileError{
 		retriable: retriable,
@@ -48,4 +37,15 @@ func NewReconcileErrorWithCause(message string, retriable bool, cause error) *Re
 		message:   message,
 		cause:     cause,
 	}
+}
+
+func (e ReconcileError) Error() string {
+	if e.cause != nil {
+		return fmt.Sprintf("reconcileError: retriable=%t, message=%s, cause=%s", e.retriable, e.message, e.cause)
+	}
+	return fmt.Sprintf("reconcileError: retriable=%t, message=%s", e.retriable, e.message)
+}
+
+func (e ReconcileError) IsRetriable() bool {
+	return e.retriable
 }

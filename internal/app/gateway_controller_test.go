@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/gemyago/oke-gateway-api/internal/diag"
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -14,6 +13,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	"github.com/gemyago/oke-gateway-api/internal/diag"
 )
 
 func TestGatewayController(t *testing.T) {
@@ -112,7 +113,7 @@ func TestGatewayController(t *testing.T) {
 
 			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
-			wantErr := errors.New(faker.Sentence())
+			wantErr := errors.New(faker.New().Lorem().Sentence(10))
 			mockGatewayModel.EXPECT().
 				resolveReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *resolvedGatewayDetails) bool {
 					receiver.gateway = *gateway
@@ -145,8 +146,8 @@ func TestGatewayController(t *testing.T) {
 
 			wantErr := &resourceStatusError{
 				conditionType: string(gatewayv1.GatewayConditionAccepted),
-				reason:        faker.Word(),
-				message:       faker.Sentence(),
+				reason:        faker.New().Lorem().Word(),
+				message:       faker.New().Lorem().Sentence(10),
 			}
 
 			mockGatewayModel.EXPECT().
@@ -191,8 +192,8 @@ func TestGatewayController(t *testing.T) {
 
 			wantErr := &resourceStatusError{
 				conditionType: string(gatewayv1.GatewayConditionAccepted),
-				reason:        faker.Word(),
-				message:       faker.Sentence(),
+				reason:        faker.New().Lorem().Word(),
+				message:       faker.New().Lorem().Sentence(10),
 			}
 
 			mockGatewayModel.EXPECT().
@@ -250,7 +251,7 @@ func TestGatewayController(t *testing.T) {
 				}).
 				Return(false).Once()
 
-			wantErr := errors.New(faker.Sentence())
+			wantErr := errors.New(faker.New().Lorem().Sentence(10))
 
 			mockGatewayModel.EXPECT().
 				programGateway(t.Context(), mock.Anything).
@@ -303,8 +304,8 @@ func TestGatewayController(t *testing.T) {
 
 			wantErr := &resourceStatusError{
 				conditionType: string(gatewayv1.GatewayConditionProgrammed),
-				reason:        faker.Word(),
-				message:       faker.Sentence(),
+				reason:        faker.New().Lorem().Word(),
+				message:       faker.New().Lorem().Sentence(10),
 			}
 
 			mockGatewayModel.EXPECT().
@@ -365,7 +366,7 @@ func TestGatewayController(t *testing.T) {
 				}).
 				Return(false).Once()
 
-			wantErr := errors.New(faker.Sentence())
+			wantErr := errors.New(faker.New().Lorem().Sentence(10))
 
 			mockGatewayModel.EXPECT().
 				programGateway(t.Context(), mock.Anything).

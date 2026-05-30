@@ -5,22 +5,23 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/gemyago/oke-gateway-api/internal/app"
-	"github.com/gemyago/oke-gateway-api/internal/diag"
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/gemyago/oke-gateway-api/internal/app"
+	"github.com/gemyago/oke-gateway-api/internal/diag"
 )
 
 func TestErrorHandlingMiddleware(t *testing.T) {
 	t.Run("when next succeeds", func(t *testing.T) {
 		logger := diag.RootTestLogger()
 		wantResult := reconcile.Result{Requeue: true}
-		dummyReq := reconcile.Request{NamespacedName: types.NamespacedName{Name: faker.Word()}}
+		dummyReq := reconcile.Request{NamespacedName: types.NamespacedName{Name: faker.New().Lorem().Word()}}
 		next := reconcile.TypedFunc[reconcile.Request](
 			func(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
 				assert.Equal(t, dummyReq, req)
@@ -40,7 +41,12 @@ func TestErrorHandlingMiddleware(t *testing.T) {
 		logger := diag.RootTestLogger()
 		wantResult := reconcile.Result{RequeueAfter: 1}
 		wantErr := errors.New("reconcile error")
-		dummyReq := reconcile.Request{NamespacedName: types.NamespacedName{Name: faker.Word(), Namespace: faker.Word()}}
+		dummyReq := reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      faker.New().Lorem().Word(),
+				Namespace: faker.New().Lorem().Word(),
+			},
+		}
 		next := reconcile.TypedFunc[reconcile.Request](
 			func(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
 				assert.Equal(t, dummyReq, req)
@@ -59,8 +65,13 @@ func TestErrorHandlingMiddleware(t *testing.T) {
 
 	t.Run("when next errors with non-retriable app.ReconcileError", func(t *testing.T) {
 		logger := diag.RootTestLogger()
-		dummyErr := app.NewReconcileError(faker.Sentence(), false)
-		dummyReq := reconcile.Request{NamespacedName: types.NamespacedName{Name: faker.Word(), Namespace: faker.Word()}}
+		dummyErr := app.NewReconcileError(faker.New().Lorem().Sentence(10), false)
+		dummyReq := reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      faker.New().Lorem().Word(),
+				Namespace: faker.New().Lorem().Word(),
+			},
+		}
 		next := reconcile.TypedFunc[reconcile.Request](
 			func(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
 				assert.Equal(t, dummyReq, req)
@@ -78,8 +89,13 @@ func TestErrorHandlingMiddleware(t *testing.T) {
 
 	t.Run("when next errors with conflict error", func(t *testing.T) {
 		logger := diag.RootTestLogger()
-		dummyReq := reconcile.Request{NamespacedName: types.NamespacedName{Name: faker.Word(), Namespace: faker.Word()}}
-		conflictErr := k8serrors.NewConflict(schema.GroupResource{}, faker.Word(), errors.New("conflict"))
+		dummyReq := reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      faker.New().Lorem().Word(),
+				Namespace: faker.New().Lorem().Word(),
+			},
+		}
+		conflictErr := k8serrors.NewConflict(schema.GroupResource{}, faker.New().Lorem().Word(), errors.New("conflict"))
 		next := reconcile.TypedFunc[reconcile.Request](
 			func(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
 				assert.Equal(t, dummyReq, req)
@@ -100,7 +116,7 @@ func TestTracingMiddleware(t *testing.T) {
 	t.Run("should inject correlation ID and call next", func(t *testing.T) {
 		wantResult := reconcile.Result{Requeue: true}
 		wantErr := errors.New("dummy error")
-		dummyReq := reconcile.Request{NamespacedName: types.NamespacedName{Name: faker.Word()}}
+		dummyReq := reconcile.Request{NamespacedName: types.NamespacedName{Name: faker.New().Lorem().Word()}}
 		next := reconcile.TypedFunc[reconcile.Request](
 			func(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 				require.NotNil(t, ctx)
@@ -126,7 +142,7 @@ func TestTracingMiddleware(t *testing.T) {
 func TestWireupReconciler(t *testing.T) {
 	t.Run("should apply middlewares in order", func(t *testing.T) {
 		callOrder := []string{}
-		dummyReq := reconcile.Request{NamespacedName: types.NamespacedName{Name: faker.Word()}}
+		dummyReq := reconcile.Request{NamespacedName: types.NamespacedName{Name: faker.New().Lorem().Word()}}
 		wantResult := reconcile.Result{Requeue: true}
 		wantErr := errors.New("final error")
 
@@ -173,7 +189,7 @@ func TestWireupReconciler(t *testing.T) {
 
 	t.Run("should work with no middlewares", func(t *testing.T) {
 		called := false
-		dummyReq := reconcile.Request{NamespacedName: types.NamespacedName{Name: faker.Word()}}
+		dummyReq := reconcile.Request{NamespacedName: types.NamespacedName{Name: faker.New().Lorem().Word()}}
 		wantResult := reconcile.Result{Requeue: false}
 		wantErr := errors.New("no mw error")
 

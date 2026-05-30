@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +19,7 @@ func TestGetLogAttributesFromContext(t *testing.T) {
 		assert.Equal(t, LogAttributes{}, got)
 	})
 	t.Run("return actual value", func(t *testing.T) {
-		want := LogAttributes{CorrelationID: slog.StringValue(faker.UUIDHyphenated())}
+		want := LogAttributes{CorrelationID: slog.StringValue(faker.New().UUID().V4())}
 		ctx := context.WithValue(t.Context(), contextDiagAttrs, want)
 		got := GetLogAttributesFromContext(ctx)
 		assert.Equal(t, want, got)
@@ -27,7 +27,7 @@ func TestGetLogAttributesFromContext(t *testing.T) {
 }
 
 func TestSetLogAttributesToContext(t *testing.T) {
-	want := LogAttributes{CorrelationID: slog.StringValue(faker.UUIDHyphenated())}
+	want := LogAttributes{CorrelationID: slog.StringValue(faker.New().UUID().V4())}
 	ctx := SetLogAttributesToContext(t.Context(), want)
 	got := GetLogAttributesFromContext(ctx)
 	assert.Equal(t, want, got)
@@ -39,7 +39,7 @@ func TestDiagSlogHandler(t *testing.T) {
 			target := NewMockSlogHandler(t)
 			mockResult := NewMockSlogHandler(t)
 			handler := diagLogHandler{target: target}
-			attrs := []slog.Attr{slog.String(faker.Word(), faker.Word())}
+			attrs := []slog.Attr{slog.String(faker.New().Lorem().Word(), faker.New().Lorem().Word())}
 
 			target.EXPECT().WithAttrs(attrs).Return(mockResult)
 			got, ok := handler.WithAttrs(attrs).(*diagLogHandler)
@@ -53,7 +53,7 @@ func TestDiagSlogHandler(t *testing.T) {
 			target := NewMockSlogHandler(t)
 			handler := diagLogHandler{target: target}
 			ctx := t.Context()
-			originalRec := slog.NewRecord(time.Now(), slog.LevelInfo, faker.Sentence(), 0)
+			originalRec := slog.NewRecord(time.Now(), slog.LevelInfo, faker.New().Lorem().Sentence(10), 0)
 			target.EXPECT().Handle(ctx, originalRec).Return(nil)
 			assert.NoError(t, handler.Handle(ctx, originalRec))
 		})
@@ -62,9 +62,9 @@ func TestDiagSlogHandler(t *testing.T) {
 
 			handler := diagLogHandler{target: target}
 			attrs := LogAttributes{
-				CorrelationID: slog.StringValue(faker.UUIDHyphenated()),
+				CorrelationID: slog.StringValue(faker.New().UUID().V4()),
 			}
-			originalRec := slog.NewRecord(time.Now(), slog.LevelInfo, faker.Sentence(), 0)
+			originalRec := slog.NewRecord(time.Now(), slog.LevelInfo, faker.New().Lorem().Sentence(10), 0)
 			ctx := SetLogAttributesToContext(t.Context(), attrs)
 			wantRec := originalRec.Clone()
 			wantRec.AddAttrs(slog.Attr{Key: "correlationId", Value: attrs.CorrelationID})
@@ -88,7 +88,7 @@ func TestDiagSlogHandler(t *testing.T) {
 		t.Run("should ignore optional output file", func(t *testing.T) {
 			testOutput := bytes.Buffer{}
 			logger := SetupRootLogger(NewRootLoggerOpts().WithOutput(&testOutput).WithOptionalOutputFile(""))
-			logger.InfoContext(t.Context(), faker.Sentence())
+			logger.InfoContext(t.Context(), faker.New().Lorem().Sentence(10))
 			assert.NotEmpty(t, testOutput.String())
 		})
 	})
@@ -96,7 +96,7 @@ func TestDiagSlogHandler(t *testing.T) {
 
 func TestAttributes(t *testing.T) {
 	t.Run("ErrAttr should create a standard error attribute", func(t *testing.T) {
-		err := errors.New(faker.Sentence())
+		err := errors.New(faker.New().Lorem().Sentence(10))
 		got := ErrAttr(err)
 		assert.Equal(t, slog.Any("err", err), got)
 	})

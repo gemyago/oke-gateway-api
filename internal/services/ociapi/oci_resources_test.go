@@ -7,10 +7,11 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/gemyago/oke-gateway-api/internal/services"
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/gemyago/oke-gateway-api/internal/services"
 )
 
 func TestConstructOCIResourceName(t *testing.T) {
@@ -25,7 +26,7 @@ func TestConstructOCIResourceName(t *testing.T) {
 		t.Run("no limit with sanitize", func(t *testing.T) {
 			inputLength := 15 + rand.IntN(30)
 			input := services.RandomString(inputLength)
-			wantSanitizedName := faker.UUIDDigit()
+			wantSanitizedName := faker.New().Numerify("################################")
 			sanitizeCalled := false
 			wantPattern := regexp.MustCompile(`[^a-zA-Z0-9]+`)
 			got := ConstructOCIResourceName(input, OCIResourceNameConfig{
@@ -176,7 +177,12 @@ func TestConstructOCIResourceName(t *testing.T) {
 						},
 					})
 					require.Equal(t, tc.want, got)
-					assert.GreaterOrEqual(t, len(tc.input), tc.limit, "input length should be greater or equal to limit")
+					assert.GreaterOrEqual(
+						t,
+						len(tc.input),
+						tc.limit,
+						"input length should be greater or equal to limit",
+					)
 					assert.Len(t, got, tc.limit, "got length should be equal to limit")
 				})
 			}
@@ -199,7 +205,7 @@ func TestConstructOCIResourceName(t *testing.T) {
 		})
 
 		t.Run("pattern", func(t *testing.T) {
-			input := faker.UUIDHyphenated()
+			input := faker.New().UUID().V4()
 			wantPattern := regexp.MustCompile(`[^a-zA-Z0-9]+`)
 			got := defaultSanitizeFunc(input, wantPattern)
 			require.Equal(t, wantPattern.ReplaceAllString(input, "_"), got)

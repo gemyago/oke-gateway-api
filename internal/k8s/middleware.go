@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 
-	"github.com/gemyago/oke-gateway-api/internal/app"
-	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/google/uuid"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/gemyago/oke-gateway-api/internal/app"
+	"github.com/gemyago/oke-gateway-api/internal/diag"
 )
 
 type controllerMiddleware[request comparable] func(
@@ -72,8 +74,8 @@ func wireupReconciler(
 	ctrl reconcile.TypedReconciler[reconcile.Request],
 	middlewares ...controllerMiddleware[reconcile.Request],
 ) reconcile.TypedReconciler[reconcile.Request] {
-	for i := len(middlewares) - 1; i >= 0; i-- {
-		ctrl = middlewares[i](ctrl)
+	for _, v := range slices.Backward(middlewares) {
+		ctrl = v(ctrl)
 	}
 	return ctrl
 }

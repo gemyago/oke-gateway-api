@@ -9,10 +9,10 @@ import (
 // GatewayConfig is the Schema for the gatewayconfigs API.
 type GatewayConfig struct {
 	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	metav1.ObjectMeta `json:"metadata"`
 
 	Spec   GatewayConfigSpec   `json:"spec"`
-	Status GatewayConfigStatus `json:"status,omitempty"`
+	Status GatewayConfigStatus `json:"status,omitzero"`
 }
 
 // GatewayConfigSpec defines the desired state of GatewayConfig.
@@ -34,6 +34,7 @@ type GatewayConfigStatus struct {
 // GatewayConfigList contains a list of GatewayConfig.
 type GatewayConfigList struct {
 	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []GatewayConfig `json:"items"`
+	metav1.ListMeta `json:"metadata"`
+
+	Items []GatewayConfig `json:"items"`
 }

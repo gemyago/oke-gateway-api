@@ -13,8 +13,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gemyago/oke-gateway-api/internal/diag"
-	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
@@ -22,6 +20,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	"github.com/gemyago/oke-gateway-api/internal/diag"
+	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
 )
 
 const defaultBackendSetPort = 80
@@ -172,10 +173,10 @@ func (m *ociLoadBalancerModelImpl) reconcileDefaultBackendSet(
 		LoadBalancerId: &params.loadBalancerID,
 		CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
 			Name:   &defaultBackendSetName,
-			Policy: lo.ToPtr("ROUND_ROBIN"),
+			Policy: new("ROUND_ROBIN"),
 			HealthChecker: &loadbalancer.HealthCheckerDetails{
-				Protocol: lo.ToPtr("TCP"),
-				Port:     lo.ToPtr(int(defaultBackendSetPort)),
+				Protocol: new("TCP"),
+				Port:     new(int(defaultBackendSetPort)),
 			},
 		},
 	})
@@ -194,10 +195,14 @@ func (m *ociLoadBalancerModelImpl) reconcileDefaultBackendSet(
 
 	res, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
 		BackendSetName: &defaultBackendSetName,
-		LoadBalancerId: lo.ToPtr(params.loadBalancerID),
+		LoadBalancerId: new(params.loadBalancerID),
 	})
 	if err != nil {
-		return loadbalancer.BackendSet{}, fmt.Errorf("failed to get default backend set %s: %w", defaultBackendSetName, err)
+		return loadbalancer.BackendSet{}, fmt.Errorf(
+			"failed to get default backend set %s: %w",
+			defaultBackendSetName,
+			err,
+		)
 	}
 
 	return res.BackendSet, nil
@@ -258,19 +263,27 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 
 			certCreateDetails := loadbalancer.CreateCertificateDetails{
 				CertificateName:   &certName,
-				PublicCertificate: lo.ToPtr(string(secret.Data[corev1.TLSCertKey])),
-				PrivateKey:        lo.ToPtr(string(secret.Data[corev1.TLSPrivateKeyKey])),
+				PublicCertificate: new(string(secret.Data[corev1.TLSCertKey])),
+				PrivateKey:        new(string(secret.Data[corev1.TLSPrivateKeyKey])),
 			}
 			createRes, err := m.ociClient.CreateCertificate(ctx, loadbalancer.CreateCertificateRequest{
 				LoadBalancerId:           &params.loadBalancerID,
 				CreateCertificateDetails: certCreateDetails,
 			})
 			if err != nil {
-				return reconcileListenersCertificatesResult{}, fmt.Errorf("failed to create certificate %s: %w", certName, err)
+				return reconcileListenersCertificatesResult{}, fmt.Errorf(
+					"failed to create certificate %s: %w",
+					certName,
+					err,
+				)
 			}
 
 			if err = m.workRequestsWatcher.WaitFor(ctx, *createRes.OpcWorkRequestId); err != nil {
-				return reconcileListenersCertificatesResult{}, fmt.Errorf("failed to wait for certificate %s: %w", certName, err)
+				return reconcileListenersCertificatesResult{}, fmt.Errorf(
+					"failed to wait for certificate %s: %w",
+					certName,
+					err,
+				)
 			}
 
 			cert := loadbalancer.Certificate{
@@ -305,7 +318,7 @@ func (m *ociLoadBalancerModelImpl) reconcileListenerRoutingPolicy(
 		createRoutingPolicyRes, err := m.ociClient.CreateRoutingPolicy(ctx, loadbalancer.CreateRoutingPolicyRequest{
 			LoadBalancerId: &params.loadBalancerID,
 			CreateRoutingPolicyDetails: loadbalancer.CreateRoutingPolicyDetails{
-				Name:                     lo.ToPtr(routingPolicyName),
+				Name:                     new(routingPolicyName),
 				ConditionLanguageVersion: loadbalancer.CreateRoutingPolicyDetailsConditionLanguageVersionV1,
 				Rules: []loadbalancer.RoutingRule{
 					// We're creating routing policy to have it available when reconciling routes
@@ -313,11 +326,11 @@ func (m *ociLoadBalancerModelImpl) reconcileListenerRoutingPolicy(
 					// Alternative could be to create and attach routing policy when reconciling routes, but
 					// it may be a bit more complex on the route reconciler side.
 					{
-						Name:      lo.ToPtr(defaultCatchAllRuleName),
-						Condition: lo.ToPtr("any(http.request.url.path sw '/')"),
+						Name:      new(defaultCatchAllRuleName),
+						Condition: new("any(http.request.url.path sw '/')"),
 						Actions: []loadbalancer.Action{
 							loadbalancer.ForwardToBackendSet{
-								BackendSetName: lo.ToPtr(params.defaultBackendSetName),
+								BackendSetName: new(params.defaultBackendSetName),
 							},
 						},
 					},
@@ -405,11 +418,11 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 		createRes, err := m.ociClient.CreateListener(ctx, loadbalancer.CreateListenerRequest{
 			LoadBalancerId: &params.loadBalancerID,
 			CreateListenerDetails: loadbalancer.CreateListenerDetails{
-				Name:                  lo.ToPtr(listenerName),
-				DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
-				Port:                  lo.ToPtr(int(params.listenerSpec.Port)),
-				Protocol:              lo.ToPtr("HTTP"),
-				RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
+				Name:                  new(listenerName),
+				DefaultBackendSetName: new(params.defaultBackendSetName),
+				Port:                  new(int(params.listenerSpec.Port)),
+				Protocol:              new("HTTP"),
+				RoutingPolicyName:     new(listenerPolicyName(listenerName)),
 				SslConfiguration:      sslConfig,
 			},
 		})
@@ -470,10 +483,10 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 		LoadBalancerId: &params.loadBalancerID,
 		CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
 			Name:   &backendSetName,
-			Policy: lo.ToPtr("ROUND_ROBIN"),
+			Policy: new("ROUND_ROBIN"),
 			HealthChecker: &loadbalancer.HealthCheckerDetails{
-				Protocol: lo.ToPtr("TCP"),
-				Port:     lo.ToPtr(healthCheckerPort),
+				Protocol: new("TCP"),
+				Port:     new(healthCheckerPort),
 			},
 		},
 	})
@@ -567,11 +580,11 @@ func (m *ociLoadBalancerModelImpl) makeRoutingRule(
 	)
 
 	return loadbalancer.RoutingRule{
-		Name:      lo.ToPtr(ruleName),
-		Condition: lo.ToPtr(condition),
+		Name:      new(ruleName),
+		Condition: new(condition),
 		Actions: lo.Map(targetBackends, func(backendSetName string, _ int) loadbalancer.Action {
 			return loadbalancer.ForwardToBackendSet{
-				BackendSetName: lo.ToPtr(backendSetName),
+				BackendSetName: new(backendSetName),
 			}
 		}),
 	}, nil
@@ -764,6 +777,7 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 	return nil
 }
 
+//nolint:unparam // The error return is part of the ociLoadBalancerModel interface contract.
 func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
 	ctx context.Context,
 	params removeUnusedCertificatesParams,
@@ -858,7 +872,7 @@ func ociListenerPolicyRuleIdentity(ruleIndex int, nameParts ...string) string {
 	var result strings.Builder
 	result.WriteString(strconv.Itoa(ruleIndex))
 	for _, part := range nameParts {
-		result.WriteString(fmt.Sprintf(":%d:%s", len(part), part))
+		fmt.Fprintf(&result, ":%d:%s", len(part), part)
 	}
 	return result.String()
 }
@@ -899,11 +913,7 @@ type makeOciListenerUpdateDetailsParams struct {
 func makeOciListenerUpdateDetails(
 	params makeOciListenerUpdateDetailsParams,
 ) (loadbalancer.UpdateListenerDetails, bool) {
-	hasChanges := false
-
-	if params.existingListenerData.Protocol == nil || *params.existingListenerData.Protocol != "HTTP" {
-		hasChanges = true
-	}
+	hasChanges := params.existingListenerData.Protocol == nil || *params.existingListenerData.Protocol != "HTTP"
 
 	if params.existingListenerData.Port == nil || *params.existingListenerData.Port != int(params.listenerSpec.Port) {
 		hasChanges = true
@@ -938,10 +948,10 @@ func makeOciListenerUpdateDetails(
 	}
 
 	return loadbalancer.UpdateListenerDetails{
-		Protocol:              lo.ToPtr("HTTP"),
-		Port:                  lo.ToPtr(int(params.listenerSpec.Port)),
-		DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
-		RoutingPolicyName:     lo.ToPtr(expectedPolicyName),
+		Protocol:              new("HTTP"),
+		Port:                  new(int(params.listenerSpec.Port)),
+		DefaultBackendSetName: new(params.defaultBackendSetName),
+		RoutingPolicyName:     new(expectedPolicyName),
 		SslConfiguration:      params.sslConfig,
 	}, true
 }
@@ -956,7 +966,7 @@ type ociLoadBalancerModelDeps struct {
 	RoutingRulesMapper  ociLoadBalancerRoutingRulesMapper
 }
 
-func newOciLoadBalancerModel(deps ociLoadBalancerModelDeps) ociLoadBalancerModel {
+func newOciLoadBalancerModel(deps ociLoadBalancerModelDeps) *ociLoadBalancerModelImpl {
 	return &ociLoadBalancerModelImpl{
 		logger:              deps.RootLogger.WithGroup("oci-load-balancer-model"),
 		ociClient:           deps.OciClient,

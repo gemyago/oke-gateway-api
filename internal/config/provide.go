@@ -3,9 +3,10 @@ package config
 import (
 	"fmt"
 
-	"github.com/gemyago/oke-gateway-api/internal/di"
 	"github.com/spf13/viper"
 	"go.uber.org/dig"
+
+	"github.com/gemyago/oke-gateway-api/internal/di"
 )
 
 type configValueProvider struct {
