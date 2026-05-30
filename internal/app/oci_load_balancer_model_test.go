@@ -2167,11 +2167,17 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 				randomHTTPRouteWithNameOpt("rt_"+faker.Word()),
 				randomHTTPRouteWithRulesOpt(fewRules...),
 			)
+			unsanitizedInput := fmt.Sprintf("p%04d_%s_%s", index, route.Name, ruleName)
+			want := ociapi.ConstructOCIResourceName(unsanitizedInput, ociapi.OCIResourceNameConfig{
+				MaxLength:           32,
+				InvalidCharsPattern: invalidCharsForPolicyNamePattern,
+			})
+
 			return testCase{
 				name:      "named rule",
 				route:     route,
 				ruleIndex: index,
-				want:      fmt.Sprintf("p%04d_%s_%s", index, route.Name, ruleName),
+				want:      want,
 			}
 		},
 		func() testCase {
