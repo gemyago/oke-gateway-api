@@ -19,11 +19,12 @@ func TestRecover(t *testing.T) {
 	rootLogger := diag.RootTestLogger()
 
 	t.Run("should call next", func(t *testing.T) {
+		fake := faker.New()
 		nextCalled := true
 		wantNextStatus := 200 + rand.Intn(399)
 		wantRes := map[string]any{
-			"key1": faker.New().UUID().V4(),
-			"key2": faker.New().UUID().V4(),
+			"key1": fake.UUID().V4(),
+			"key2": fake.UUID().V4(),
 		}
 		next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			nextCalled = true

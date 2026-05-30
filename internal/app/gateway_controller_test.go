@@ -99,6 +99,7 @@ func TestGatewayController(t *testing.T) {
 		})
 
 		t.Run("handle regular accept errors", func(t *testing.T) {
+			fake := faker.New()
 			gateway := newRandomGateway()
 
 			req := reconcile.Request{
@@ -113,7 +114,7 @@ func TestGatewayController(t *testing.T) {
 
 			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
-			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			wantErr := errors.New(fake.Lorem().Sentence(10))
 			mockGatewayModel.EXPECT().
 				resolveReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *resolvedGatewayDetails) bool {
 					receiver.gateway = *gateway
@@ -129,6 +130,7 @@ func TestGatewayController(t *testing.T) {
 		})
 
 		t.Run("handle resource status accept errors", func(t *testing.T) {
+			fake := faker.New()
 			gateway := newRandomGateway()
 
 			req := reconcile.Request{
@@ -146,8 +148,8 @@ func TestGatewayController(t *testing.T) {
 
 			wantErr := &resourceStatusError{
 				conditionType: string(gatewayv1.GatewayConditionAccepted),
-				reason:        faker.New().Lorem().Word(),
-				message:       faker.New().Lorem().Sentence(10),
+				reason:        fake.Lorem().Word(),
+				message:       fake.Lorem().Sentence(10),
 			}
 
 			mockGatewayModel.EXPECT().
@@ -175,6 +177,7 @@ func TestGatewayController(t *testing.T) {
 		})
 
 		t.Run("handle condition update error when processing resource status accept errors", func(t *testing.T) {
+			fake := faker.New()
 			gateway := newRandomGateway()
 
 			req := reconcile.Request{
@@ -192,8 +195,8 @@ func TestGatewayController(t *testing.T) {
 
 			wantErr := &resourceStatusError{
 				conditionType: string(gatewayv1.GatewayConditionAccepted),
-				reason:        faker.New().Lorem().Word(),
-				message:       faker.New().Lorem().Sentence(10),
+				reason:        fake.Lorem().Word(),
+				message:       fake.Lorem().Sentence(10),
 			}
 
 			mockGatewayModel.EXPECT().
@@ -215,6 +218,7 @@ func TestGatewayController(t *testing.T) {
 		})
 
 		t.Run("handle porgramGateway errors", func(t *testing.T) {
+			fake := faker.New()
 			gateway := newRandomGateway()
 
 			req := reconcile.Request{
@@ -251,7 +255,7 @@ func TestGatewayController(t *testing.T) {
 				}).
 				Return(false).Once()
 
-			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			wantErr := errors.New(fake.Lorem().Sentence(10))
 
 			mockGatewayModel.EXPECT().
 				programGateway(t.Context(), mock.Anything).
@@ -266,6 +270,7 @@ func TestGatewayController(t *testing.T) {
 
 		// if error is resourceStatusError then set status to details from the error
 		t.Run("handle program resourceStatusError", func(t *testing.T) {
+			fake := faker.New()
 			gateway := newRandomGateway()
 
 			req := reconcile.Request{
@@ -304,8 +309,8 @@ func TestGatewayController(t *testing.T) {
 
 			wantErr := &resourceStatusError{
 				conditionType: string(gatewayv1.GatewayConditionProgrammed),
-				reason:        faker.New().Lorem().Word(),
-				message:       faker.New().Lorem().Sentence(10),
+				reason:        fake.Lorem().Word(),
+				message:       fake.Lorem().Sentence(10),
 			}
 
 			mockGatewayModel.EXPECT().
@@ -330,6 +335,7 @@ func TestGatewayController(t *testing.T) {
 		})
 
 		t.Run("handle set programmed condition error", func(t *testing.T) {
+			fake := faker.New()
 			gateway := newRandomGateway()
 
 			req := reconcile.Request{
@@ -366,7 +372,7 @@ func TestGatewayController(t *testing.T) {
 				}).
 				Return(false).Once()
 
-			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			wantErr := errors.New(fake.Lorem().Sentence(10))
 
 			mockGatewayModel.EXPECT().
 				programGateway(t.Context(), mock.Anything).

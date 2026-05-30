@@ -32,13 +32,14 @@ func TestGatewayClassController(t *testing.T) {
 	}
 
 	t.Run("Reconcile", func(t *testing.T) {
+		fake := faker.New()
 		gatewayClass := newRandomGatewayClass(
 			randomGatewayClassWithControllerNameOpt(ControllerClassName),
 		)
 
 		req := reconcile.Request{
 			NamespacedName: client.ObjectKey{
-				Namespace: faker.New().Internet().Domain(),
+				Namespace: fake.Internet().Domain(),
 				Name:      gatewayClass.Name,
 			},
 		}
@@ -83,9 +84,10 @@ func TestGatewayClassController(t *testing.T) {
 	})
 
 	t.Run("NotFound", func(t *testing.T) {
+		fake := faker.New()
 		req := reconcile.Request{
 			NamespacedName: client.ObjectKey{
-				Name: faker.New().Internet().Domain(),
+				Name: fake.Internet().Domain(),
 			},
 		}
 
@@ -108,9 +110,10 @@ func TestGatewayClassController(t *testing.T) {
 	})
 
 	t.Run("GetError", func(t *testing.T) {
+		fake := faker.New()
 		req := reconcile.Request{
 			NamespacedName: client.ObjectKey{
-				Name: faker.New().Internet().Domain(),
+				Name: fake.Internet().Domain(),
 			},
 		}
 
@@ -120,7 +123,7 @@ func TestGatewayClassController(t *testing.T) {
 		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 
 		// Simulate client returning a generic error
-		getErr := errors.New(faker.New().Lorem().Sentence(10))
+		getErr := errors.New(fake.Lorem().Sentence(10))
 		mockClient.EXPECT().
 			Get(t.Context(), req.NamespacedName, mock.AnythingOfType("*v1.GatewayClass")).
 			Return(getErr)
@@ -137,6 +140,8 @@ func TestGatewayClassController(t *testing.T) {
 	})
 
 	t.Run("StatusUpdateError", func(t *testing.T) {
+		fake := faker.New()
+
 		// Create a test GatewayClass
 		gatewayClass := newRandomGatewayClass(
 			randomGatewayClassWithControllerNameOpt(ControllerClassName),
@@ -170,7 +175,7 @@ func TestGatewayClassController(t *testing.T) {
 			Return(false)
 
 		// Simulate Status Update error
-		statusUpdateErr := errors.New(faker.New().Lorem().Sentence(10))
+		statusUpdateErr := errors.New(fake.Lorem().Sentence(10))
 		mockResourcesModel.EXPECT().
 			setCondition(t.Context(), mock.Anything).
 			Return(statusUpdateErr)
@@ -184,9 +189,11 @@ func TestGatewayClassController(t *testing.T) {
 	})
 
 	t.Run("WrongControllerName", func(t *testing.T) {
+		fake := faker.New()
+
 		// Create a GatewayClass with a controller name this controller shouldn't manage
 		gatewayClass := newRandomGatewayClass(
-			randomGatewayClassWithControllerNameOpt(gatewayv1.GatewayController(faker.New().Internet().Domain())),
+			randomGatewayClassWithControllerNameOpt(gatewayv1.GatewayController(fake.Internet().Domain())),
 		)
 
 		req := reconcile.Request{

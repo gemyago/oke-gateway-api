@@ -66,12 +66,13 @@ func TestRootHandler(t *testing.T) {
 	}
 
 	t.Run("should respond with details", func(t *testing.T) {
-		requestPath := "/path1/" + faker.New().Lorem().Word() + "/path2"
+		fake := faker.New()
+		requestPath := "/path1/" + fake.Lorem().Word() + "/path2"
 
 		queryValues := url.Values{}
-		queryValues.Set("key1-"+faker.New().Lorem().Word(), faker.New().Lorem().Word())
-		queryValues.Set("key2-"+faker.New().Lorem().Word(), faker.New().Lorem().Word())
-		wantBody := faker.New().Lorem().Sentence(10)
+		queryValues.Set("key1-"+fake.Lorem().Word(), fake.Lorem().Word())
+		queryValues.Set("key2-"+fake.Lorem().Word(), fake.Lorem().Word())
+		wantBody := fake.Lorem().Sentence(10)
 		req := httptest.NewRequest(
 			http.MethodPost,
 			requestPath+"?"+queryValues.Encode(),

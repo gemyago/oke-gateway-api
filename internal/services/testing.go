@@ -21,8 +21,9 @@ type MockNow struct {
 var _ TimeProvider = &MockNow{}
 
 func NewMockNow() *MockNow {
+	fake := faker.New()
 	return &MockNow{
-		value: time.UnixMilli(faker.New().Time().Unix(time.Now())),
+		value: time.UnixMilli(fake.Time().Unix(time.Now())),
 	}
 }
 
@@ -52,10 +53,11 @@ func NewTestShutdownHooks() *ShutdownHooks {
 }
 
 func RandomString(length int) string {
+	fake := faker.New()
 	segmentsCount := math.Ceil(float64(length) / randomStringSegmentLength)
 	segments := make([]string, int(segmentsCount))
 	for i := range segments {
-		segments[i] = faker.New().Numerify("################################")
+		segments[i] = fake.Numerify("################################")
 	}
 	return strings.Join(segments, "")[:length]
 }

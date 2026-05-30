@@ -34,10 +34,11 @@ func TestWorkRequestsWatcher(t *testing.T) {
 
 	t.Run("WaitFor", func(t *testing.T) {
 		t.Run("success_completes_eventually", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			w := NewWorkRequestsWatcher(deps)
 
-			workRequestID := faker.New().UUID().V4()
+			workRequestID := fake.UUID().V4()
 
 			responses := []loadbalancer.GetWorkRequestResponse{
 				makeMockWorkRequestResponse(loadbalancer.WorkRequestLifecycleStateAccepted),
@@ -67,10 +68,11 @@ func TestWorkRequestsWatcher(t *testing.T) {
 
 		for _, state := range errorStates {
 			t.Run(fmt.Sprintf("fail if %s state", state), func(t *testing.T) {
+				fake := faker.New()
 				deps := newMockDeps(t)
 				w := NewWorkRequestsWatcher(deps)
 
-				workRequestID := faker.New().UUID().V4()
+				workRequestID := fake.UUID().V4()
 
 				responses := []loadbalancer.GetWorkRequestResponse{
 					makeMockWorkRequestResponse(loadbalancer.WorkRequestLifecycleStateAccepted),
@@ -98,11 +100,12 @@ func TestWorkRequestsWatcher(t *testing.T) {
 		}
 
 		t.Run("fail if context is cancelled", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			deps.pollInterval = 1 * time.Minute
 			w := NewWorkRequestsWatcher(deps)
 
-			workRequestID := faker.New().UUID().V4()
+			workRequestID := fake.UUID().V4()
 
 			responses := []loadbalancer.GetWorkRequestResponse{
 				makeMockWorkRequestResponse(loadbalancer.WorkRequestLifecycleStateAccepted),
@@ -127,12 +130,13 @@ func TestWorkRequestsWatcher(t *testing.T) {
 		})
 
 		t.Run("fail if max poll duration is exceeded", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			deps.pollInterval = 2 * time.Second
 			deps.maxPollDuration = 1 * time.Millisecond
 			w := NewWorkRequestsWatcher(deps)
 
-			workRequestID := faker.New().UUID().V4()
+			workRequestID := fake.UUID().V4()
 
 			responses := []loadbalancer.GetWorkRequestResponse{
 				makeMockWorkRequestResponse(loadbalancer.WorkRequestLifecycleStateAccepted),

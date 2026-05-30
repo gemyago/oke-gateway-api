@@ -12,6 +12,7 @@ type randomOCIBackendSetOpt func(*loadbalancer.BackendSet)
 func makeRandomOCIBackendSet(
 	opts ...randomOCIBackendSetOpt,
 ) loadbalancer.BackendSet {
+	fake := faker.New()
 	var knownPolicies = []string{
 		"ROUND_ROBIN",
 		"LEAST_CONNECTIONS",
@@ -19,23 +20,23 @@ func makeRandomOCIBackendSet(
 		"STICKY_SESSION",
 	}
 	bs := loadbalancer.BackendSet{
-		Name: new(faker.New().Internet().Domain()),
+		Name: new(fake.Internet().Domain()),
 		HealthChecker: &loadbalancer.HealthChecker{
 			Protocol:   new("HTTP"),
 			Port:       new(rand.IntN(65535)),
-			UrlPath:    new("/" + faker.New().Lorem().Word()),
+			UrlPath:    new("/" + fake.Lorem().Word()),
 			ReturnCode: new(200),
 		},
 		Policy:                new(knownPolicies[rand.IntN(len(knownPolicies))]),
 		BackendMaxConnections: new(rand.IntN(1000)),
 		SslConfiguration: &loadbalancer.SslConfiguration{
-			CertificateName: new(faker.New().Internet().Domain()),
+			CertificateName: new(fake.Internet().Domain()),
 		},
 		SessionPersistenceConfiguration: &loadbalancer.SessionPersistenceConfigurationDetails{
-			CookieName: new(faker.New().Internet().Domain()),
+			CookieName: new(fake.Internet().Domain()),
 		},
 		LbCookieSessionPersistenceConfiguration: &loadbalancer.LbCookieSessionPersistenceConfigurationDetails{
-			CookieName: new(faker.New().Internet().Domain()),
+			CookieName: new(fake.Internet().Domain()),
 		},
 	}
 
@@ -59,10 +60,11 @@ func randomOCIBackendSetWithBackendsOpt(backends []loadbalancer.Backend) randomO
 }
 
 func makeRandomOCIBackend() loadbalancer.Backend {
+	fake := faker.New()
 	return loadbalancer.Backend{
-		Name:      new(faker.New().Internet().Domain()),
+		Name:      new(fake.Internet().Domain()),
 		Port:      new(rand.IntN(65535)),
-		IpAddress: new(faker.New().Internet().Ipv4()),
+		IpAddress: new(fake.Internet().Ipv4()),
 	}
 }
 
@@ -76,9 +78,10 @@ func makeFewRandomOCIBackends() []loadbalancer.Backend {
 }
 
 func makeRandomOCIBackendDetails() loadbalancer.BackendDetails {
+	fake := faker.New()
 	return loadbalancer.BackendDetails{
 		Port:      new(rand.IntN(65535)),
-		IpAddress: new(faker.New().Internet().Ipv4()),
+		IpAddress: new(fake.Internet().Ipv4()),
 	}
 }
 
@@ -96,8 +99,9 @@ type randomOCIListenerOpt func(*loadbalancer.Listener)
 func makeRandomOCIListener(
 	opts ...randomOCIListenerOpt,
 ) loadbalancer.Listener {
+	fake := faker.New()
 	listener := loadbalancer.Listener{
-		Name: new(faker.New().Internet().Domain()),
+		Name: new(fake.Internet().Domain()),
 	}
 
 	for _, opt := range opts {
@@ -112,8 +116,9 @@ type randomOCILoadBalancerOpt func(*loadbalancer.LoadBalancer)
 func makeRandomOCILoadBalancer(
 	opts ...randomOCILoadBalancerOpt,
 ) loadbalancer.LoadBalancer {
+	fake := faker.New()
 	lb := loadbalancer.LoadBalancer{
-		Id:        new(faker.New().UUID().V4()),
+		Id:        new(fake.UUID().V4()),
 		Listeners: map[string]loadbalancer.Listener{},
 	}
 
@@ -155,8 +160,9 @@ type randomOCIRoutingPolicyOpt func(*loadbalancer.RoutingPolicy)
 func makeRandomOCIRoutingPolicy(
 	opts ...randomOCIRoutingPolicyOpt,
 ) loadbalancer.RoutingPolicy {
+	fake := faker.New()
 	policy := loadbalancer.RoutingPolicy{
-		Name:                     new(faker.New().Internet().Domain()),
+		Name:                     new(fake.Internet().Domain()),
 		ConditionLanguageVersion: loadbalancer.RoutingPolicyConditionLanguageVersionV1,
 		Rules: []loadbalancer.RoutingRule{
 			makeRandomOCIRoutingRule(),
@@ -172,16 +178,18 @@ func makeRandomOCIRoutingPolicy(
 }
 
 func makeRandomOCIRoutingRule() loadbalancer.RoutingRule {
+	fake := faker.New()
 	return loadbalancer.RoutingRule{
-		Name: new(faker.New().UUID().V4() + "-rr." + faker.New().Internet().Domain()),
+		Name: new(fake.UUID().V4() + "-rr." + fake.Internet().Domain()),
 	}
 }
 
 func makeRandomOCICertificate() loadbalancer.Certificate {
+	fake := faker.New()
 	return loadbalancer.Certificate{
-		CertificateName:   new(faker.New().Internet().Domain()),
-		PublicCertificate: new(faker.New().UUID().V4()),
-		CaCertificate:     new(faker.New().UUID().V4()),
+		CertificateName:   new(fake.Internet().Domain()),
+		PublicCertificate: new(fake.UUID().V4()),
+		CaCertificate:     new(fake.UUID().V4()),
 	}
 }
 

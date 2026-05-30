@@ -7,9 +7,10 @@ import (
 )
 
 func makeRandomGatewayConfig() types.GatewayConfig {
+	fake := faker.New()
 	return types.GatewayConfig{
 		Spec: types.GatewayConfigSpec{
-			LoadBalancerID: faker.New().UUID().V4(),
+			LoadBalancerID: fake.UUID().V4(),
 		},
 	}
 }

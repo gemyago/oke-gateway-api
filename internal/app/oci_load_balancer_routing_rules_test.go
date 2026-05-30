@@ -24,7 +24,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 
 		tests := []func() testCase{
 			func() testCase {
-				pathValue := "/" + faker.New().Lorem().Word() + "/" + faker.New().Lorem().Word()
+				fake := faker.New()
+				pathValue := "/" + fake.Lorem().Word() + "/" + fake.Lorem().Word()
 				return testCase{
 					name: "exact path match",
 					match: gatewayv1.HTTPRouteMatch{
@@ -37,7 +38,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				pathPrefix := "/" + faker.New().Lorem().Word() + "/" + faker.New().Lorem().Word()
+				fake := faker.New()
+				pathPrefix := "/" + fake.Lorem().Word() + "/" + fake.Lorem().Word()
 				return testCase{
 					name: "prefix path match",
 					match: gatewayv1.HTTPRouteMatch{
@@ -50,8 +52,9 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				headerName := "X-" + faker.New().Lorem().Word()
-				headerValue := faker.New().UUID().V4()
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
+				headerValue := fake.UUID().V4()
 				return testCase{
 					name: "exact header match",
 					match: gatewayv1.HTTPRouteMatch{
@@ -67,10 +70,11 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				headerName1 := "X-" + faker.New().Lorem().Word() + "-1"
-				headerValue1 := faker.New().Lorem().Word()
-				headerName2 := "X-" + faker.New().Lorem().Word() + "-2"
-				headerValue2 := faker.New().UUID().V4()
+				fake := faker.New()
+				headerName1 := "X-" + fake.Lorem().Word() + "-1"
+				headerValue1 := fake.Lorem().Word()
+				headerName2 := "X-" + fake.Lorem().Word() + "-2"
+				headerValue2 := fake.UUID().V4()
 				return testCase{
 					name: "multiple exact header matches",
 					match: gatewayv1.HTTPRouteMatch{
@@ -95,9 +99,10 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				pathValue := "/" + faker.New().Lorem().Word() + "/" + faker.New().Lorem().Word()
+				fake := faker.New()
+				pathValue := "/" + fake.Lorem().Word() + "/" + fake.Lorem().Word()
 				headerName := "Content-Type"
-				headerValue := "application/" + faker.New().Lorem().Word()
+				headerValue := "application/" + fake.Lorem().Word()
 				return testCase{
 					name: "exact path and exact header match",
 					match: gatewayv1.HTTPRouteMatch{
@@ -121,8 +126,9 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				authValue := "Bearer " + faker.New().UUID().V4()
-				requestID := faker.New().UUID().V4()
+				fake := faker.New()
+				authValue := "Bearer " + fake.UUID().V4()
+				requestID := fake.UUID().V4()
 				return testCase{
 					name: "prefix path and multiple exact header matches",
 					match: gatewayv1.HTTPRouteMatch{
@@ -179,7 +185,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				headerName := "X-" + faker.New().Lorem().Word()
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
 				return testCase{
 					name: "regex header match - starts with simple prefix",
 					match: gatewayv1.HTTPRouteMatch{
@@ -227,7 +234,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				headerName := "X-" + faker.New().Lorem().Word()
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
 				return testCase{
 					name: "regex header match - ends with simple suffix",
 					match: gatewayv1.HTTPRouteMatch{
@@ -243,7 +251,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				headerName := "X-" + faker.New().Lorem().Word()
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
 				return testCase{
 					name: "regex header match - ends with dotted suffix",
 					match: gatewayv1.HTTPRouteMatch{
@@ -259,7 +268,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				headerName := "X-" + faker.New().Lorem().Word()
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
 				return testCase{
 					name: "regex header match - unsupported complex regex",
 					match: gatewayv1.HTTPRouteMatch{
@@ -275,7 +285,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				headerName := "X-" + faker.New().Lorem().Word()
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
 				return testCase{
 					name: "regex header match - starts with no anchor",
 					match: gatewayv1.HTTPRouteMatch{
@@ -291,7 +302,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				headerName := "X-" + faker.New().Lorem().Word()
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
 				return testCase{
 					name: "regex header match - ends with no anchor",
 					match: gatewayv1.HTTPRouteMatch{
@@ -307,7 +319,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				headerName := "X-" + faker.New().Lorem().Word()
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
 				return testCase{
 					name: "regex header match - both anchors unsupported",
 					match: gatewayv1.HTTPRouteMatch{
@@ -366,7 +379,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				pathValue := "/" + faker.New().Lorem().Word() + "/" + faker.New().Lorem().Word()
+				fake := faker.New()
+				pathValue := "/" + fake.Lorem().Word() + "/" + fake.Lorem().Word()
 				return testCase{
 					name: "nil path type",
 					match: gatewayv1.HTTPRouteMatch{
@@ -379,8 +393,9 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				headerName := "X-" + faker.New().Lorem().Word()
-				headerValue := faker.New().Lorem().Word()
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
+				headerValue := fake.Lorem().Word()
 				return testCase{
 					name: "nil header type",
 					match: gatewayv1.HTTPRouteMatch{
@@ -431,7 +446,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 
 		tests := []func() testCase{
 			func() testCase {
-				pathValue1 := "/" + faker.New().Lorem().Word()
+				fake := faker.New()
+				pathValue1 := "/" + fake.Lorem().Word()
 				return testCase{
 					name: "single match",
 					matches: []gatewayv1.HTTPRouteMatch{
@@ -449,8 +465,9 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				pathValue1 := "/" + faker.New().Lorem().Word()
-				pathValue2 := "/" + faker.New().Lorem().Word() + "/" + faker.New().Lorem().Word()
+				fake := faker.New()
+				pathValue1 := "/" + fake.Lorem().Word()
+				pathValue2 := "/" + fake.Lorem().Word() + "/" + fake.Lorem().Word()
 				return testCase{
 					name: "multiple matches",
 					matches: []gatewayv1.HTTPRouteMatch{
@@ -474,7 +491,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				pathValue := "/" + faker.New().Lorem().Word()
+				fake := faker.New()
+				pathValue := "/" + fake.Lorem().Word()
 				return testCase{
 					name: "one unsupported match among others",
 					matches: []gatewayv1.HTTPRouteMatch{

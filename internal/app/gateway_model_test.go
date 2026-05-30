@@ -39,6 +39,7 @@ func TestGatewayModelImpl(t *testing.T) {
 
 	t.Run("resolveReconcileRequest", func(t *testing.T) {
 		t.Run("valid gateway", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)
 
@@ -53,12 +54,12 @@ func TestGatewayModelImpl(t *testing.T) {
 				ParametersRef: &gatewayv1.LocalParametersReference{
 					Group: ConfigRefGroup,
 					Kind:  ConfigRefKind,
-					Name:  faker.New().Internet().Domain(),
+					Name:  fake.Internet().Domain(),
 				},
 			}
 			gatewayConfig := types.GatewayConfig{
 				Spec: types.GatewayConfigSpec{
-					LoadBalancerID: faker.New().UUID().V4(),
+					LoadBalancerID: fake.UUID().V4(),
 				},
 			}
 			req := reconcile.Request{
@@ -159,6 +160,7 @@ func TestGatewayModelImpl(t *testing.T) {
 		})
 
 		t.Run("handle get gateway error", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)
 			gateway := newRandomGateway()
@@ -172,7 +174,7 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 
-			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			wantErr := errors.New(fake.Lorem().Sentence(10))
 			mockClient.EXPECT().
 				Get(t.Context(), req.NamespacedName, mock.Anything).
 				RunAndReturn(func(
@@ -243,6 +245,7 @@ func TestGatewayModelImpl(t *testing.T) {
 		})
 
 		t.Run("handle get gatewayClass error", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)
 			gateway := newRandomGateway()
@@ -269,7 +272,7 @@ func TestGatewayModelImpl(t *testing.T) {
 					return nil
 				})
 
-			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			wantErr := errors.New(fake.Lorem().Sentence(10))
 			mockClient.EXPECT().
 				Get(t.Context(), apitypes.NamespacedName{
 					Name: string(gateway.Spec.GatewayClassName),
@@ -292,6 +295,7 @@ func TestGatewayModelImpl(t *testing.T) {
 		})
 
 		t.Run("irrelevantGatewayClass", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)
 			gateway := newRandomGateway()
@@ -299,12 +303,12 @@ func TestGatewayModelImpl(t *testing.T) {
 				ParametersRef: &gatewayv1.LocalParametersReference{
 					Group: ConfigRefGroup,
 					Kind:  ConfigRefKind,
-					Name:  faker.New().Internet().Domain(),
+					Name:  fake.Internet().Domain(),
 				},
 			}
 
 			gatewayClass := newRandomGatewayClass()
-			gatewayClass.Spec.ControllerName = gatewayv1.GatewayController(faker.New().Internet().Domain())
+			gatewayClass.Spec.ControllerName = gatewayv1.GatewayController(fake.Internet().Domain())
 
 			req := reconcile.Request{
 				NamespacedName: client.ObjectKey{
@@ -412,6 +416,7 @@ func TestGatewayModelImpl(t *testing.T) {
 		})
 
 		t.Run("not existing GatewayConfig", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)
 			gateway := newRandomGateway()
@@ -419,7 +424,7 @@ func TestGatewayModelImpl(t *testing.T) {
 				ParametersRef: &gatewayv1.LocalParametersReference{
 					Group: ConfigRefGroup,
 					Kind:  ConfigRefKind,
-					Name:  faker.New().Internet().Domain(),
+					Name:  fake.Internet().Domain(),
 				},
 			}
 
@@ -489,6 +494,7 @@ func TestGatewayModelImpl(t *testing.T) {
 		})
 
 		t.Run("error getting GatewayConfig", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)
 			gateway := newRandomGateway()
@@ -496,7 +502,7 @@ func TestGatewayModelImpl(t *testing.T) {
 				ParametersRef: &gatewayv1.LocalParametersReference{
 					Group: ConfigRefGroup,
 					Kind:  ConfigRefKind,
-					Name:  faker.New().Internet().Domain(),
+					Name:  fake.Internet().Domain(),
 				},
 			}
 
@@ -540,7 +546,7 @@ func TestGatewayModelImpl(t *testing.T) {
 					return nil
 				})
 
-			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			wantErr := errors.New(fake.Lorem().Sentence(10))
 			wantConfigName := apitypes.NamespacedName{
 				Namespace: gateway.Namespace,
 				Name:      gateway.Spec.Infrastructure.ParametersRef.Name,
@@ -558,6 +564,7 @@ func TestGatewayModelImpl(t *testing.T) {
 		})
 
 		t.Run("gatewaySecretsPopulated", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)
 
@@ -567,7 +574,7 @@ func TestGatewayModelImpl(t *testing.T) {
 				ParametersRef: &gatewayv1.LocalParametersReference{
 					Group: ConfigRefGroup,
 					Kind:  ConfigRefKind,
-					Name:  faker.New().Internet().Domain(),
+					Name:  fake.Internet().Domain(),
 				},
 			}
 
@@ -615,7 +622,7 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			gatewayConfig := types.GatewayConfig{
 				Spec: types.GatewayConfigSpec{
-					LoadBalancerID: faker.New().UUID().V4(),
+					LoadBalancerID: fake.UUID().V4(),
 				},
 			}
 
@@ -722,6 +729,7 @@ func TestGatewayModelImpl(t *testing.T) {
 		})
 
 		t.Run("missingGatewaySecret", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)
 
@@ -731,7 +739,7 @@ func TestGatewayModelImpl(t *testing.T) {
 				ParametersRef: &gatewayv1.LocalParametersReference{
 					Group: ConfigRefGroup,
 					Kind:  ConfigRefKind,
-					Name:  faker.New().Internet().Domain(),
+					Name:  fake.Internet().Domain(),
 				},
 			}
 
@@ -754,7 +762,7 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			gatewayConfig := types.GatewayConfig{
 				Spec: types.GatewayConfigSpec{
-					LoadBalancerID: faker.New().UUID().V4(),
+					LoadBalancerID: fake.UUID().V4(),
 				},
 			}
 
@@ -934,6 +942,7 @@ func TestGatewayModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 		t.Run("failed to get OCI Load Balancer", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)
 
@@ -949,7 +958,7 @@ func TestGatewayModelImpl(t *testing.T) {
 				loadBalancer.Listeners[string(listener.Name)] = makeRandomOCIListener()
 			}
 
-			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			wantErr := errors.New(fake.Lorem().Sentence(10))
 			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 			mockOciClient.EXPECT().
 				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
@@ -965,6 +974,7 @@ func TestGatewayModelImpl(t *testing.T) {
 			require.ErrorIs(t, err, wantErr)
 		})
 		t.Run("failed to reconcile default backend set", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)
 
@@ -989,7 +999,7 @@ func TestGatewayModelImpl(t *testing.T) {
 					LoadBalancer: loadBalancer,
 				}, nil)
 
-			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			wantErr := errors.New(fake.Lorem().Sentence(10))
 			loadBalancerModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
 			loadBalancerModel.EXPECT().
 				reconcileDefaultBackendSet(t.Context(), mock.Anything).
@@ -1004,6 +1014,7 @@ func TestGatewayModelImpl(t *testing.T) {
 			require.ErrorIs(t, err, wantErr)
 		})
 		t.Run("failed to reconcile listener", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)
 
@@ -1047,7 +1058,7 @@ func TestGatewayModelImpl(t *testing.T) {
 				reconcileDefaultBackendSet(t.Context(), mock.Anything).
 				Return(defaultBackendSet, nil)
 
-			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			wantErr := errors.New(fake.Lorem().Sentence(10))
 			loadBalancerModel.EXPECT().
 				reconcileHTTPListener(t.Context(), mock.Anything).
 				Return(wantErr).

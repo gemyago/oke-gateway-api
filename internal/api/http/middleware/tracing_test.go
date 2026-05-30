@@ -25,7 +25,9 @@ func TestTracingMiddleware(t *testing.T) {
 		assert.True(t, nextCalled)
 	})
 	t.Run("use existing correlation id", func(t *testing.T) {
-		wantCorrelationID := faker.New().UUID().V4()
+		fake := faker.New()
+
+		wantCorrelationID := fake.UUID().V4()
 		req := httptest.NewRequest(http.MethodGet, "/something", http.NoBody)
 		req.Header.Add("X-Correlation-ID", wantCorrelationID)
 		res := httptest.NewRecorder()

@@ -24,9 +24,10 @@ func TestConstructOCIResourceName(t *testing.T) {
 		})
 
 		t.Run("no limit with sanitize", func(t *testing.T) {
+			fake := faker.New()
 			inputLength := 15 + rand.IntN(30)
 			input := services.RandomString(inputLength)
-			wantSanitizedName := faker.New().Numerify("################################")
+			wantSanitizedName := fake.Numerify("################################")
 			sanitizeCalled := false
 			wantPattern := regexp.MustCompile(`[^a-zA-Z0-9]+`)
 			got := ConstructOCIResourceName(input, OCIResourceNameConfig{
@@ -205,7 +206,8 @@ func TestConstructOCIResourceName(t *testing.T) {
 		})
 
 		t.Run("pattern", func(t *testing.T) {
-			input := faker.New().UUID().V4()
+			fake := faker.New()
+			input := fake.UUID().V4()
 			wantPattern := regexp.MustCompile(`[^a-zA-Z0-9]+`)
 			got := defaultSanitizeFunc(input, wantPattern)
 			require.Equal(t, wantPattern.ReplaceAllString(input, "_"), got)

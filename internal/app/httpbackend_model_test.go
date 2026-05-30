@@ -80,12 +80,13 @@ func TestHTTPBackendModel(t *testing.T) {
 			assert.NoError(t, err)
 		})
 		t.Run("deduplicate backend refs", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPBackendModel(deps)
 
-			routeNs := faker.New().Internet().Domain() + "-route-ns"
-			sameRefName := faker.New().Internet().Domain() + "-same-name"
-			sameNameDefaultNs := faker.New().Internet().Domain() + "-same-name-default-ns"
+			routeNs := fake.Internet().Domain() + "-route-ns"
+			sameRefName := fake.Internet().Domain() + "-same-name"
+			sameNameDefaultNs := fake.Internet().Domain() + "-same-name-default-ns"
 
 			uniqueRefs := []gatewayv1.HTTPBackendRef{
 				// fully unique
@@ -156,6 +157,7 @@ func TestHTTPBackendModel(t *testing.T) {
 		})
 
 		t.Run("propagate rule sync error", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPBackendModel(deps)
 
@@ -176,7 +178,7 @@ func TestHTTPBackendModel(t *testing.T) {
 
 			mockSelf, _ := deps.self.(*MockhttpBackendModel)
 
-			expectedErr := errors.New(faker.New().Lorem().Sentence(10))
+			expectedErr := errors.New(fake.Lorem().Sentence(10))
 
 			// First rule sync succeeds
 			mockSelf.EXPECT().syncRouteBackendRefEndpoints(
@@ -210,6 +212,7 @@ func TestHTTPBackendModel(t *testing.T) {
 
 	t.Run("syncRouteBackendRefEndpoints", func(t *testing.T) {
 		t.Run("update backend set", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPBackendModel(deps)
 
@@ -272,7 +275,7 @@ func TestHTTPBackendModel(t *testing.T) {
 				},
 			).Return(loadbalancer.GetBackendSetResponse{BackendSet: sampleBackendSet}, nil).Once()
 
-			wantOperationID := faker.New().UUID().V4()
+			wantOperationID := fake.UUID().V4()
 			mockOciLoadBalancerClient.EXPECT().UpdateBackendSet(
 				t.Context(),
 				mock.MatchedBy(func(req loadbalancer.UpdateBackendSetRequest) bool {
@@ -325,6 +328,7 @@ func TestHTTPBackendModel(t *testing.T) {
 		})
 
 		t.Run("update backend without explicit namespace", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPBackendModel(deps)
 
@@ -380,7 +384,7 @@ func TestHTTPBackendModel(t *testing.T) {
 				mock.Anything,
 			).Return(loadbalancer.GetBackendSetResponse{BackendSet: sampleBackendSet}, nil).Once()
 
-			wantOperationID := faker.New().UUID().V4()
+			wantOperationID := fake.UUID().V4()
 			mockOciLoadBalancerClient.EXPECT().UpdateBackendSet(
 				t.Context(),
 				mock.Anything,
@@ -470,6 +474,7 @@ func TestHTTPBackendModel(t *testing.T) {
 
 	t.Run("identifyBackendsToUpdate", func(t *testing.T) {
 		t.Run("happy path - add new backends", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPBackendModel(deps)
 			refPort := int32(rand.IntN(65534) + 1)
@@ -485,11 +490,11 @@ func TestHTTPBackendModel(t *testing.T) {
 
 			// Distribute endpoints into multiple slices and lists
 			slice1 := discoveryv1.EndpointSlice{
-				ObjectMeta: metav1.ObjectMeta{Name: faker.New().UUID().V4()},
+				ObjectMeta: metav1.ObjectMeta{Name: fake.UUID().V4()},
 				Endpoints:  endpoints[:numEndpoints/2], // First half
 			}
 			slice2 := discoveryv1.EndpointSlice{
-				ObjectMeta: metav1.ObjectMeta{Name: faker.New().UUID().V4()},
+				ObjectMeta: metav1.ObjectMeta{Name: fake.UUID().V4()},
 				Endpoints:  endpoints[numEndpoints/2:], // Second half
 			}
 
@@ -577,13 +582,14 @@ func TestHTTPBackendModel(t *testing.T) {
 		})
 
 		t.Run("drain status update - start draining", func(t *testing.T) {
+			fake := faker.New()
 			model := newHTTPBackendModel(newMockDeps(t))
 			refPort := int32(rand.IntN(65534) + 1)
 
 			initialEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(new(true), new(false)))
 			currentBackends := []loadbalancer.Backend{
 				{
-					Name:      new(faker.New().Lorem().Word()),
+					Name:      new(fake.Lorem().Word()),
 					IpAddress: &initialEndpoint.Addresses[0],
 					Port:      new(int(refPort)),
 					Drain:     new(false),
@@ -623,13 +629,14 @@ func TestHTTPBackendModel(t *testing.T) {
 		})
 
 		t.Run("drain status update - stop draining", func(t *testing.T) {
+			fake := faker.New()
 			model := newHTTPBackendModel(newMockDeps(t))
 			refPort := int32(rand.IntN(65534) + 1)
 
 			initialEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(new(true), new(true)))
 			currentBackends := []loadbalancer.Backend{
 				{
-					Name:      new(faker.New().Lorem().Word()),
+					Name:      new(fake.Lorem().Word()),
 					IpAddress: &initialEndpoint.Addresses[0],
 					Port:      new(int(refPort)),
 					Drain:     new(true),

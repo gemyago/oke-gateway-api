@@ -44,9 +44,11 @@ func Test_provideConfigValue(t *testing.T) {
 	})
 
 	t.Run("should provide config value as string", func(t *testing.T) {
+		fake := faker.New()
+
 		cfg := viper.New()
 		configKey := "string-cfg"
-		cfg.Set(configKey, faker.New().Lorem().Sentence(10))
+		cfg.Set(configKey, fake.Lorem().Sentence(10))
 
 		type configReceiver struct {
 			dig.In

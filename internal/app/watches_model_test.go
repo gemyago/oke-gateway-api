@@ -64,11 +64,12 @@ func TestWatchesModel(t *testing.T) {
 		})
 
 		t.Run("returns error if HTTPRoute indexer registration fails", func(t *testing.T) {
+			fake := faker.New()
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 
 			mockIndexer := k8sapi.NewMockFieldIndexer(t)
-			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			wantErr := errors.New(fake.Lorem().Sentence(10))
 			mockIndexer.EXPECT().IndexField(
 				t.Context(),
 				&gatewayv1.HTTPRoute{},
@@ -81,6 +82,7 @@ func TestWatchesModel(t *testing.T) {
 		})
 
 		t.Run("returns error if Gateway certificate indexer registration fails", func(t *testing.T) {
+			fake := faker.New()
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 
@@ -93,7 +95,7 @@ func TestWatchesModel(t *testing.T) {
 				mock.AnythingOfType("client.IndexerFunc"),
 			).Return(nil)
 
-			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			wantErr := errors.New(fake.Lorem().Sentence(10))
 			mockIndexer.EXPECT().IndexField(
 				t.Context(),
 				&gatewayv1.Gateway{},
@@ -330,11 +332,12 @@ func TestWatchesModel(t *testing.T) {
 
 	t.Run("MapEndpointSliceToHTTPRoute", func(t *testing.T) {
 		t.Run("finds matching HTTPRoutes based on service index", func(t *testing.T) {
+			fake := faker.New()
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 
-			svcName := faker.New().Internet().Domain()
-			ns := faker.New().Internet().Slug()
+			svcName := fake.Internet().Domain()
+			ns := fake.Internet().Slug()
 			indexKey := fmt.Sprintf("%v/%v", ns, svcName)
 
 			endpointSlice := makeRandomEndpointSlice(
@@ -372,11 +375,12 @@ func TestWatchesModel(t *testing.T) {
 		})
 
 		t.Run("ignores HTTPRoutes marked for deletion", func(t *testing.T) {
+			fake := faker.New()
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 
-			svcName := faker.New().Internet().Domain()
-			ns := faker.New().Internet().Slug()
+			svcName := fake.Internet().Domain()
+			ns := fake.Internet().Slug()
 			indexKey := fmt.Sprintf("%v/%v", ns, svcName)
 
 			endpointSlice := makeRandomEndpointSlice(
@@ -422,11 +426,12 @@ func TestWatchesModel(t *testing.T) {
 		})
 
 		t.Run("returns nil if k8s client returns error", func(t *testing.T) {
+			fake := faker.New()
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 
-			svcName := faker.New().Internet().Domain()
-			ns := faker.New().Internet().Slug()
+			svcName := fake.Internet().Domain()
+			ns := fake.Internet().Slug()
 			indexKey := fmt.Sprintf("%v/%v", ns, svcName)
 
 			endpointSlice := makeRandomEndpointSlice(
@@ -435,7 +440,7 @@ func TestWatchesModel(t *testing.T) {
 			)
 
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			wantErr := errors.New(fake.Lorem().Sentence(10))
 			mockK8sClient.EXPECT().List(
 				t.Context(),
 				&gatewayv1.HTTPRouteList{},
@@ -447,11 +452,12 @@ func TestWatchesModel(t *testing.T) {
 		})
 
 		t.Run("returns nil when no routes found", func(t *testing.T) {
+			fake := faker.New()
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 
-			svcName := faker.New().Internet().Domain()
-			ns := faker.New().Internet().Slug()
+			svcName := fake.Internet().Domain()
+			ns := fake.Internet().Slug()
 			indexKey := fmt.Sprintf("%v/%v", ns, svcName)
 
 			endpointSlice := makeRandomEndpointSlice(
@@ -704,6 +710,7 @@ func TestWatchesModel(t *testing.T) {
 		})
 
 		t.Run("returns nil if k8s client returns error", func(t *testing.T) {
+			fake := faker.New()
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 
@@ -711,7 +718,7 @@ func TestWatchesModel(t *testing.T) {
 			indexKey := fmt.Sprintf("%v/%v", secret.Namespace, secret.Name)
 
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			wantErr := errors.New(fake.Lorem().Sentence(10))
 			mockK8sClient.EXPECT().List(
 				t.Context(),
 				&gatewayv1.GatewayList{},

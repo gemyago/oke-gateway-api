@@ -24,16 +24,17 @@ type randomGatewayClassOpt func(*gatewayv1.GatewayClass)
 func newRandomGatewayClass(
 	opts ...randomGatewayClassOpt,
 ) *gatewayv1.GatewayClass {
+	fake := faker.New()
 	gc := &gatewayv1.GatewayClass{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:            faker.New().Internet().Domain(),
+			Name:            fake.Internet().Domain(),
 			Generation:      rand.Int64(),
-			UID:             apitypes.UID(faker.New().UUID().V4()), // Add UID for potential future use
-			ResourceVersion: faker.New().Lorem().Word(),            // Add RV for potential future use
+			UID:             apitypes.UID(fake.UUID().V4()), // Add UID for potential future use
+			ResourceVersion: fake.Lorem().Word(),            // Add RV for potential future use
 		},
 		Spec: gatewayv1.GatewayClassSpec{
 			ControllerName: gatewayv1.GatewayController(
-				faker.New().UUID().V4() + "." + faker.New().Internet().Domain(),
+				fake.UUID().V4() + "." + fake.Internet().Domain(),
 			),
 		},
 	}
@@ -56,14 +57,15 @@ type randomGatewayOpt func(*gatewayv1.Gateway)
 func newRandomGateway(
 	opts ...randomGatewayOpt,
 ) *gatewayv1.Gateway {
+	fake := faker.New()
 	gw := gatewayv1.Gateway{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:       faker.New().Internet().Domain(),
-			Namespace:  faker.New().Internet().Slug(), // Gateways are namespaced
+			Name:       fake.Internet().Domain(),
+			Namespace:  fake.Internet().Slug(), // Gateways are namespaced
 			Generation: rand.Int64(),
 		},
 		Spec: gatewayv1.GatewaySpec{
-			GatewayClassName: gatewayv1.ObjectName(faker.New().Internet().Domain()),
+			GatewayClassName: gatewayv1.ObjectName(fake.Internet().Domain()),
 			Listeners: []gatewayv1.Listener{
 				{
 					Name:     "http",
@@ -111,9 +113,10 @@ func randomGatewayWithNameFromParentRefOpt(ref gatewayv1.ParentReference) random
 }
 
 func randomSecretObjectReference() gatewayv1.SecretObjectReference {
+	fake := faker.New()
 	return gatewayv1.SecretObjectReference{
-		Name:      gatewayv1.ObjectName("secret-" + faker.New().Internet().Domain()),
-		Namespace: new(gatewayv1.Namespace("ns-" + faker.New().Internet().Domain())),
+		Name:      gatewayv1.ObjectName("secret-" + fake.Internet().Domain()),
+		Namespace: new(gatewayv1.Namespace("ns-" + fake.Internet().Domain())),
 	}
 }
 
@@ -122,10 +125,11 @@ type randomListenerOpt func(*gatewayv1.Listener)
 func makeRandomListener(
 	opts ...randomListenerOpt,
 ) gatewayv1.Listener {
+	fake := faker.New()
 	listener := gatewayv1.Listener{
-		Name:     gatewayv1.SectionName("listener-" + faker.New().UUID().V4()),
+		Name:     gatewayv1.SectionName("listener-" + fake.UUID().V4()),
 		Port:     gatewayv1.PortNumber(rand.Int32N(4000)),
-		Protocol: gatewayv1.ProtocolType(faker.New().Lorem().Word()),
+		Protocol: gatewayv1.ProtocolType(fake.Lorem().Word()),
 	}
 
 	for _, opt := range opts {
@@ -172,10 +176,11 @@ type randomHTTPRouteOpt func(*gatewayv1.HTTPRoute)
 func makeRandomHTTPRoute(
 	opts ...randomHTTPRouteOpt,
 ) gatewayv1.HTTPRoute {
+	fake := faker.New()
 	route := gatewayv1.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:       faker.New().Internet().Domain(),
-			Namespace:  faker.New().Internet().Slug(),
+			Name:       fake.Internet().Domain(),
+			Namespace:  fake.Internet().Slug(),
 			Generation: rand.Int64(),
 		},
 		Spec: gatewayv1.HTTPRouteSpec{},
@@ -247,11 +252,12 @@ type randomBackendRefOpt func(*gatewayv1.HTTPBackendRef)
 func makeRandomBackendRef(
 	opts ...randomBackendRefOpt,
 ) gatewayv1.HTTPBackendRef {
+	fake := faker.New()
 	ref := gatewayv1.HTTPBackendRef{
 		BackendRef: gatewayv1.BackendRef{
 			BackendObjectReference: gatewayv1.BackendObjectReference{
-				Name:      gatewayv1.ObjectName(faker.New().Internet().Domain()),
-				Namespace: new(gatewayv1.Namespace(faker.New().Internet().Domain())),
+				Name:      gatewayv1.ObjectName(fake.Internet().Domain()),
+				Namespace: new(gatewayv1.Namespace(fake.Internet().Domain())),
 				Port:      new(gatewayv1.PortNumber(rand.Int32N(65535))),
 			},
 		},
@@ -287,16 +293,17 @@ type randomServiceOpt func(*corev1.Service)
 func makeRandomService(
 	opts ...randomServiceOpt,
 ) corev1.Service {
+	fake := faker.New()
 	svc := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      faker.New().Internet().Domain(),
-			Namespace: faker.New().Internet().Slug(),
+			Name:      fake.Internet().Domain(),
+			Namespace: fake.Internet().Slug(),
 		},
 		Spec: corev1.ServiceSpec{
 			Selector: map[string]string{
-				"app": faker.New().Internet().Domain(),
+				"app": fake.Internet().Domain(),
 			},
-			ClusterIP: faker.New().Internet().Ipv4(),
+			ClusterIP: fake.Internet().Ipv4(),
 			Ports: []corev1.ServicePort{
 				{
 					Port:       rand.Int32N(65535),
@@ -341,9 +348,10 @@ type randomParentRefOpt func(*gatewayv1.ParentReference)
 func makeRandomParentRef(
 	opts ...randomParentRefOpt,
 ) gatewayv1.ParentReference {
+	fake := faker.New()
 	ref := gatewayv1.ParentReference{
-		Name:      gatewayv1.ObjectName(faker.New().Internet().Domain()),
-		Namespace: new(gatewayv1.Namespace(faker.New().Internet().Domain())),
+		Name:      gatewayv1.ObjectName(fake.Internet().Domain()),
+		Namespace: new(gatewayv1.Namespace(fake.Internet().Domain())),
 	}
 
 	for _, opt := range opts {
@@ -355,7 +363,8 @@ func makeRandomParentRef(
 
 func randomParentRefWithRandomSectionNameOpt() randomParentRefOpt {
 	return func(ref *gatewayv1.ParentReference) {
-		ref.SectionName = new(gatewayv1.SectionName(faker.New().Internet().Domain()))
+		fake := faker.New()
+		ref.SectionName = new(gatewayv1.SectionName(fake.Internet().Domain()))
 	}
 }
 
@@ -370,9 +379,10 @@ type randomRouteParentStatusOpt func(*gatewayv1.RouteParentStatus)
 func makeRandomRouteParentStatus(
 	opts ...randomRouteParentStatusOpt,
 ) gatewayv1.RouteParentStatus {
+	fake := faker.New()
 	status := gatewayv1.RouteParentStatus{
 		ParentRef:      makeRandomParentRef(),
-		ControllerName: gatewayv1.GatewayController(faker.New().Lorem().Word() + "." + faker.New().Internet().Domain()),
+		ControllerName: gatewayv1.GatewayController(fake.Lorem().Word() + "." + fake.Internet().Domain()),
 	}
 
 	for _, opt := range opts {
@@ -405,11 +415,12 @@ type randomEndpointSliceOpt func(*discoveryv1.EndpointSlice)
 func makeRandomEndpointSlice(
 	opts ...randomEndpointSliceOpt,
 ) discoveryv1.EndpointSlice {
-	svcName := faker.New().Lorem().Word() + "." + faker.New().Internet().Domain()
+	fake := faker.New()
+	svcName := fake.Lorem().Word() + "." + fake.Internet().Domain()
 	epSlice := discoveryv1.EndpointSlice{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      faker.New().Internet().Domain(),
-			Namespace: faker.New().Internet().Slug(),
+			Name:      fake.Internet().Domain(),
+			Namespace: fake.Internet().Slug(),
 			Labels: map[string]string{
 				discoveryv1.LabelServiceName: svcName,
 			},
@@ -458,8 +469,9 @@ func randomEndpointWithConditionsOpt(ready *bool, terminating *bool) randomEndpo
 }
 
 func makeRandomEndpoint(opts ...randomEndpointOpt) discoveryv1.Endpoint {
+	fake := faker.New()
 	ep := discoveryv1.Endpoint{
-		Addresses: []string{faker.New().Internet().Ipv4()},
+		Addresses: []string{fake.Internet().Ipv4()},
 		// Conditions are left nil by default, specific tests should set them.
 	}
 
@@ -471,12 +483,13 @@ func makeRandomEndpoint(opts ...randomEndpointOpt) discoveryv1.Endpoint {
 }
 
 func makeRandomSecret(opts ...randomSecretOpt) corev1.Secret {
+	fake := faker.New()
 	secret := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:            faker.New().Internet().Domain(),
-			Namespace:       faker.New().Internet().Slug(),
-			ResourceVersion: faker.New().UUID().V4(),
-			UID:             apitypes.UID(faker.New().UUID().V4()),
+			Name:            fake.Internet().Domain(),
+			Namespace:       fake.Internet().Slug(),
+			ResourceVersion: fake.UUID().V4(),
+			UID:             apitypes.UID(fake.UUID().V4()),
 		},
 		Type: corev1.SecretTypeTLS,
 		Data: map[string][]byte{},
@@ -499,8 +512,9 @@ func randomSecretWithNameOpt(name string) randomSecretOpt {
 
 func randomSecretWithTLSDataOpt() randomSecretOpt {
 	return func(secret *corev1.Secret) {
-		secret.Data[corev1.TLSCertKey] = []byte(faker.New().UUID().V4())
-		secret.Data[corev1.TLSPrivateKeyKey] = []byte(faker.New().UUID().V4())
+		fake := faker.New()
+		secret.Data[corev1.TLSCertKey] = []byte(fake.UUID().V4())
+		secret.Data[corev1.TLSPrivateKeyKey] = []byte(fake.UUID().V4())
 	}
 }
 
