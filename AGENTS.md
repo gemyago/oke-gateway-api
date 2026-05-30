@@ -28,7 +28,7 @@ Environment notes:
 - `.envrc` sets `GOPATH` under `../go/<go-version>` and adds local `bin` to `PATH`
 - optional local overrides live in `.envrc.local`
 
-**Important**: Due to harness shell configuration, all shell commands should be run with `direnv exec . <command>`.
+**Important**: Due to harness shell configuration, project related shell commands should be run with `direnv exec . <command>`.
 
 ## Common Commands
 

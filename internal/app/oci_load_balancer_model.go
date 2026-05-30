@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"log/slog"
 	"maps"
 	"net/http"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -833,18 +835,32 @@ var invalidCharsForPolicyNamePattern = regexp.MustCompile(`[^a-zA-Z0-9_]`)
 // Names should also be sortable, so we're using a 4 digit index.
 func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string {
 	rule := route.Spec.Rules[ruleIndex]
+	nameParts := []string{route.Namespace, route.Name}
 
-	var resultingName string
 	if rule.Name != nil {
-		resultingName = fmt.Sprintf("p%04d_%s_%s_%s", ruleIndex, route.Namespace, route.Name, string(*rule.Name))
-	} else {
-		resultingName = fmt.Sprintf("p%04d_%s_%s", ruleIndex, route.Namespace, route.Name)
+		nameParts = append(nameParts, string(*rule.Name))
 	}
+
+	resultingName := fmt.Sprintf(
+		"p%04d_%08x_%s",
+		ruleIndex,
+		crc32.ChecksumIEEE([]byte(ociListenerPolicyRuleIdentity(ruleIndex, nameParts...))),
+		strings.Join(nameParts, "_"),
+	)
 
 	return ociapi.ConstructOCIResourceName(resultingName, ociapi.OCIResourceNameConfig{
 		MaxLength:           maxListenerPolicyNameLength,
 		InvalidCharsPattern: invalidCharsForPolicyNamePattern,
 	})
+}
+
+func ociListenerPolicyRuleIdentity(ruleIndex int, nameParts ...string) string {
+	var result strings.Builder
+	result.WriteString(strconv.Itoa(ruleIndex))
+	for _, part := range nameParts {
+		result.WriteString(fmt.Sprintf(":%d:%s", len(part), part))
+	}
+	return result.String()
 }
 
 // ociBackendSetName returns the name of the backend set for the route.

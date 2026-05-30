@@ -3,9 +3,11 @@ package app
 import (
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"maps"
 	"math/rand/v2"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -2099,6 +2101,19 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 }
 
 func Test_ociListerPolicyRuleName(t *testing.T) {
+	makeExpectedName := func(ruleIndex int, nameParts ...string) string {
+		unsanitizedInput := fmt.Sprintf(
+			"p%04d_%08x_%s",
+			ruleIndex,
+			crc32.ChecksumIEEE([]byte(ociListenerPolicyRuleIdentity(ruleIndex, nameParts...))),
+			strings.Join(nameParts, "_"),
+		)
+		return ociapi.ConstructOCIResourceName(unsanitizedInput, ociapi.OCIResourceNameConfig{
+			MaxLength:           maxListenerPolicyNameLength,
+			InvalidCharsPattern: invalidCharsForPolicyNamePattern,
+		})
+	}
+
 	type testCase struct {
 		name      string
 		route     gatewayv1.HTTPRoute
@@ -2127,7 +2142,7 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 				name:      "unnamed rule",
 				route:     route,
 				ruleIndex: index,
-				want:      fmt.Sprintf("p%04d_%s_%s", index, route.Namespace, route.Name),
+				want:      makeExpectedName(index, route.Namespace, route.Name),
 			}
 		},
 		func() testCase {
@@ -2141,17 +2156,11 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 				randomHTTPRouteWithNamespaceOpt(unsanitizedNamespace),
 				randomHTTPRouteWithNameOpt(unsanitizedParentName),
 			)
-			unsanitizedInput := fmt.Sprintf("p%04d_%s_%s", index, unsanitizedNamespace, unsanitizedParentName)
-			want := ociapi.ConstructOCIResourceName(unsanitizedInput, ociapi.OCIResourceNameConfig{
-				MaxLength:           32,
-				InvalidCharsPattern: invalidCharsForPolicyNamePattern,
-			})
-
 			return testCase{
 				name:      "sanitized unnamed rule",
 				route:     route,
 				ruleIndex: index,
-				want:      want,
+				want:      makeExpectedName(index, unsanitizedNamespace, unsanitizedParentName),
 			}
 		},
 		func() testCase {
@@ -2175,7 +2184,7 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 				name:      "named rule",
 				route:     route,
 				ruleIndex: index,
-				want:      fmt.Sprintf("p%04d_%s_%s_%s", index, route.Namespace, route.Name, ruleName),
+				want:      makeExpectedName(index, route.Namespace, route.Name, ruleName),
 			}
 		},
 		func() testCase {
@@ -2192,18 +2201,11 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 				randomHTTPRouteWithNamespaceOpt(unsanitizedNamespace),
 				randomHTTPRouteWithNameOpt(unsanitizedParentName),
 			)
-			unsanitizedInput := fmt.Sprintf("p%04d_%s_%s_%s",
-				index, unsanitizedNamespace, unsanitizedParentName, unsanitizedRuleName)
-			want := ociapi.ConstructOCIResourceName(unsanitizedInput, ociapi.OCIResourceNameConfig{
-				MaxLength:           32,
-				InvalidCharsPattern: invalidCharsForPolicyNamePattern,
-			})
-
 			return testCase{
 				name:      "sanitized named rule",
 				route:     route,
 				ruleIndex: index,
-				want:      want,
+				want:      makeExpectedName(index, unsanitizedNamespace, unsanitizedParentName, unsanitizedRuleName),
 			}
 		},
 	}
@@ -2234,6 +2236,30 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 		otherRoute := makeRandomHTTPRoute(
 			randomHTTPRouteWithNamespaceOpt(otherNamespace),
 			randomHTTPRouteWithNameOpt(routeName),
+			randomHTTPRouteWithRulesOpt(rule),
+		)
+
+		assert.NotEqual(t,
+			ociListerPolicyRuleName(route, index),
+			ociListerPolicyRuleName(otherRoute, index),
+		)
+	})
+
+	t.Run("sanitized namespace and route name boundaries remain unique", func(t *testing.T) {
+		rule := makeRandomHTTPRouteRule()
+		index := 0
+		namePartA := faker.Word()
+		namePartB := faker.Word()
+		namePartC := faker.Word()
+
+		route := makeRandomHTTPRoute(
+			randomHTTPRouteWithNamespaceOpt(fmt.Sprintf("%s-%s", namePartA, namePartB)),
+			randomHTTPRouteWithNameOpt(namePartC),
+			randomHTTPRouteWithRulesOpt(rule),
+		)
+		otherRoute := makeRandomHTTPRoute(
+			randomHTTPRouteWithNamespaceOpt(namePartA),
+			randomHTTPRouteWithNameOpt(fmt.Sprintf("%s-%s", namePartB, namePartC)),
 			randomHTTPRouteWithRulesOpt(rule),
 		)
 
