@@ -1,17 +1,17 @@
----
-description: Use this rule when need to create a pull request
-globs: 
-alwaysApply: false
----
 # Use this instruction to create pull request
 
-1. Look on a commit history between a base (if not mentioned otherwise, use **main**). You will need to run command like below 
+The fact that AI has this instruction in the context means AI must **automatically** start executing it.
+
+1. Look on a commit history between a base (if not mentioned otherwise, use **main**). You will need to run command like below
 ```bash
-#  to get current branch, you will use it in step 5
+# Make sure remote is up to date
+git fetch origin
+
+# to get current branch, you will use it in step 5
 git branch
 
 # git log
-git log <base branch>...HEAD --oneline | cat
+git log origin/<base branch>...HEAD --oneline | cat
 ```
 
 2. Review commit history and come up with a sensible PR title
@@ -21,10 +21,10 @@ git log <base branch>...HEAD --oneline | cat
   * ...
 4. Prepare PR title and description in the following format:
   ```md
-  **PR title**: 
+  **PR title**:
   <PR title>
   ---
-  **PR description**: 
+  **PR description**:
   <PR description>
   ```
 5. Push pending changes and create a PR with a command below:
@@ -33,4 +33,4 @@ git push origin <current branch> --set-upstream
 
 gh pr create --title "<PR title>" --body "<PR description>" --base <base branch> --head <current branch>
 ```
-6. Show the PR to the user as a clickable URL so user can click it, as well as full URL for copying.
+6. Show the PR to the user as a URL so user can click it, as well as full URL for copying.
