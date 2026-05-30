@@ -832,18 +832,13 @@ var invalidCharsForPolicyNamePattern = regexp.MustCompile(`[^a-zA-Z0-9_]`)
 // It's expected that the rule name is unique within the listener policy for every route.
 // Names should also be sortable, so we're using a 4 digit index.
 func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string {
-	// TODO: This may probably need to have namespace
-	// Also check if namespace is populated in the route if it's not in the spec
-	// Also mention in docs that policy is per listener and rules for different
-	// services best to have something unique like host matching
-
 	rule := route.Spec.Rules[ruleIndex]
 
 	var resultingName string
 	if rule.Name != nil {
-		resultingName = fmt.Sprintf("p%04d_%s_%s", ruleIndex, route.Name, string(*rule.Name))
+		resultingName = fmt.Sprintf("p%04d_%s_%s_%s", ruleIndex, route.Namespace, route.Name, string(*rule.Name))
 	} else {
-		resultingName = fmt.Sprintf("p%04d_%s", ruleIndex, route.Name)
+		resultingName = fmt.Sprintf("p%04d_%s_%s", ruleIndex, route.Namespace, route.Name)
 	}
 
 	return ociapi.ConstructOCIResourceName(resultingName, ociapi.OCIResourceNameConfig{

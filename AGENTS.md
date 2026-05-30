@@ -28,6 +28,8 @@ Environment notes:
 - `.envrc` sets `GOPATH` under `../go/<go-version>` and adds local `bin` to `PATH`
 - optional local overrides live in `.envrc.local`
 
+**Important**: Due to harness shell configuration, all shell commands should be run with `direnv exec . <command>`.
+
 ## Common Commands
 
 - Lint: `make lint`
@@ -85,14 +87,6 @@ Examples:
 - Linting is strict; avoid adding `//nolint` unless it is justified
 - Wrap errors with context, usually `fmt.Errorf("...: %w", err)`
 - Do not hardcode secrets, tenancy data, kubeconfigs, or OCI credentials
-- Prefer updating the smallest relevant config or package instead of duplicating behavior
-
-## Validation Before Finish
-
-For Go, config, Helm, Docker, or workflow changes, run the checks that match the files you touched:
-- Default: `make lint` and `make test`
-- If `build/scripts` changed: also run `make -C build test`
-- If only documentation changed: no code validation is required
 
 ## References
 
@@ -100,3 +94,25 @@ For Go, config, Helm, Docker, or workflow changes, run the checks that match the
 - Build details: `build/README.md`
 - Deploy details: `deploy/README.md`
 - HTTPS notes: `docs/https.md`
+
+## Task Completion Protocol
+
+### Coding Task Completion Protocol
+
+Apply this when any Go, YAML, config, or other code-related files changed.
+
+Always do all of the following before reporting completion:
+1. Run `direnv exec . make lint` and confirm no errors.
+2. Run `direnv exec . make test` and confirm all tests pass.
+3. Update this file if commands, workflows, or architecture changed.
+
+Report completion status:
+- Lint: ✓ no errors
+- Tests: ✓ all passing, coverage XX.XX%
+- AGENTS.md: ✓ updated / no changes needed
+
+### Non-Coding Task Completion Protocol
+
+For investigation or documentation-only work:
+- Summarize findings or actions taken.
+- Confirm any deliverables produced.
