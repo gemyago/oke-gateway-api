@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 
 	"github.com/gemyago/oke-gateway-api/internal/types"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -25,6 +26,8 @@ type resolvedGatewayDetails struct {
 	gatewaySecrets map[string]corev1.Secret
 
 	config types.GatewayConfig
+
+	loadBalancer *loadbalancer.LoadBalancer
 }
 
 type gatewayModel interface {
@@ -177,6 +180,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 	if err != nil {
 		return fmt.Errorf("failed to get OCI Load Balancer %s: %w", loadBalancerID, err)
 	}
+	data.loadBalancer = &response.LoadBalancer
 
 	// This is very verbose, uncomment if needed
 	// m.logger.DebugContext(ctx, "Successfully retrieved OCI Load Balancer details",
@@ -240,6 +244,39 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 	return nil
 }
 
+func gatewayStatusAddressesFromLoadBalancer(lb *loadbalancer.LoadBalancer) []gatewayv1.GatewayStatusAddress {
+	if lb == nil || len(lb.IpAddresses) == 0 {
+		return nil
+	}
+
+	addressType := gatewayv1.IPAddressType
+	addressesByValue := make(map[string]gatewayv1.GatewayStatusAddress, len(lb.IpAddresses))
+	for _, ipAddress := range lb.IpAddresses {
+		if ipAddress.IpAddress == nil || *ipAddress.IpAddress == "" {
+			continue
+		}
+		addressesByValue[*ipAddress.IpAddress] = gatewayv1.GatewayStatusAddress{
+			Type:  &addressType,
+			Value: *ipAddress.IpAddress,
+		}
+	}
+	if len(addressesByValue) == 0 {
+		return nil
+	}
+
+	values := make([]string, 0, len(addressesByValue))
+	for value := range addressesByValue {
+		values = append(values, value)
+	}
+	sort.Strings(values)
+
+	addresses := make([]gatewayv1.GatewayStatusAddress, 0, len(values))
+	for _, value := range values {
+		addresses = append(addresses, addressesByValue[value])
+	}
+	return addresses
+}
+
 func (m *gatewayModelImpl) isProgrammed(_ context.Context, data *resolvedGatewayDetails) bool {
 	annotations := map[string]string{
 		GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
@@ -275,6 +312,7 @@ func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGate
 		}
 	}
 
+	data.gateway.Status.Addresses = gatewayStatusAddressesFromLoadBalancer(data.loadBalancer)
 	if err := m.resourcesModel.setCondition(ctx, setConditionParams{
 		resource:      &data.gateway,
 		conditions:    &data.gateway.Status.Conditions,

@@ -12,6 +12,7 @@ import (
 	"github.com/gemyago/oke-gateway-api/internal/types"
 	"github.com/go-faker/faker/v4"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -1070,6 +1071,15 @@ func TestGatewayModelImpl(t *testing.T) {
 			gateway := newRandomGateway()
 			data := &resolvedGatewayDetails{
 				gateway: *gateway,
+				loadBalancer: &loadbalancer.LoadBalancer{
+					IpAddresses: []loadbalancer.IpAddress{
+						{IpAddress: lo.ToPtr("10.0.0.12")},
+						{IpAddress: lo.ToPtr("129.146.10.20")},
+						{IpAddress: lo.ToPtr("10.0.0.12")},
+						{},
+						{IpAddress: lo.ToPtr("")},
+					},
+				},
 			}
 
 			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
@@ -1090,6 +1100,11 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			err := model.setProgrammed(t.Context(), data)
 			require.NoError(t, err)
+			addressType := gatewayv1.IPAddressType
+			assert.Equal(t, []gatewayv1.GatewayStatusAddress{
+				{Type: &addressType, Value: "10.0.0.12"},
+				{Type: &addressType, Value: "129.146.10.20"},
+			}, data.gateway.Status.Addresses)
 
 			mockResourcesModel.AssertExpectations(t)
 		})

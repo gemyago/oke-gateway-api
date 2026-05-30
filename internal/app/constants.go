@@ -26,7 +26,7 @@ const (
 
 	// GatewayProgrammingRevisionValue is the value for the gateway programming revision.
 	// Incremented when the controller programming steps are changed.
-	GatewayProgrammingRevisionValue = "1"
+	GatewayProgrammingRevisionValue = "2"
 
 	// HTTPRouteProgrammingRevisionValue is the value for the http route programming revision.
 	// Incremented when the controller programming steps are changed.
