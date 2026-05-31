@@ -61,6 +61,10 @@ func ConstructOCIResourceName(originalName string, config OCIResourceNameConfig)
 		}
 		originalLength := len(resultingName)
 		hashStarts := originalLength/ociResourceNameHashPartDivider - len(hash)/ociResourceNameHashPartDivider
+		maxHashStart := config.MaxLength - len(hash)
+		if hashStarts > maxHashStart {
+			hashStarts = (maxHashStart + 1) / ociResourceNameHashPartDivider
+		}
 		hashEnds := hashStarts + len(hash)
 		remainingLength := config.MaxLength - hashEnds
 		resultingName = resultingName[:hashStarts] + hash + resultingName[originalLength-remainingLength:]
