@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -13,10 +13,11 @@ import (
 func TestErrors(t *testing.T) {
 	t.Run("resourceStatusError", func(t *testing.T) {
 		t.Run("Error() without cause", func(t *testing.T) {
+			fake := faker.New()
 			err := resourceStatusError{
-				conditionType: faker.Word(),
-				reason:        faker.Sentence(),
-				message:       faker.Paragraph(),
+				conditionType: fake.Lorem().Word(),
+				reason:        fake.Lorem().Sentence(10),
+				message:       fake.Lorem().Paragraph(3),
 			}
 			expected := fmt.Sprintf(
 				"resourceStatusError: type=%s, reason=%s, message=%s",
@@ -28,12 +29,13 @@ func TestErrors(t *testing.T) {
 		})
 
 		t.Run("Error() with cause", func(t *testing.T) {
-			causeMsg := faker.Sentence()
+			fake := faker.New()
+			causeMsg := fake.Lorem().Sentence(10)
 			cause := errors.New(causeMsg)
 			err := resourceStatusError{
-				conditionType: faker.Word(),
-				reason:        faker.Sentence(),
-				message:       faker.Paragraph(),
+				conditionType: fake.Lorem().Word(),
+				reason:        fake.Lorem().Sentence(10),
+				message:       fake.Lorem().Paragraph(3),
 				cause:         cause,
 			}
 			expected := fmt.Sprintf(
@@ -49,10 +51,9 @@ func TestErrors(t *testing.T) {
 
 	t.Run("ReconcileError", func(t *testing.T) {
 		t.Run("NewReconcileError", func(t *testing.T) {
-			message := faker.Sentence()
-			randInt, fakerErr := faker.RandomInt(0, 1)
-			require.NoError(t, fakerErr)
-			retriable := randInt[0] == 1 // Randomly true or false
+			fake := faker.New()
+			message := fake.Lorem().Sentence(10)
+			retriable := fake.IntBetween(0, 1) == 1
 
 			err := NewReconcileError(message, retriable)
 
@@ -66,11 +67,10 @@ func TestErrors(t *testing.T) {
 		})
 
 		t.Run("NewReconcileErrorWithCause", func(t *testing.T) {
-			message := faker.Sentence()
-			randInt, fakerErr := faker.RandomInt(0, 1)
-			require.NoError(t, fakerErr)
-			retriable := randInt[0] == 1 // Randomly true or false
-			causeMsg := faker.Sentence()
+			fake := faker.New()
+			message := fake.Lorem().Sentence(10)
+			retriable := fake.IntBetween(0, 1) == 1
+			causeMsg := fake.Lorem().Sentence(10)
 			cause := errors.New(causeMsg)
 
 			err := NewReconcileErrorWithCause(message, retriable, cause)
@@ -86,19 +86,27 @@ func TestErrors(t *testing.T) {
 
 		t.Run("IsRetriable", func(t *testing.T) {
 			t.Run("when true", func(t *testing.T) {
-				err := NewReconcileError(faker.Sentence(), true)
+				fake := faker.New()
+				err := NewReconcileError(fake.Lorem().Sentence(10), true)
 				assert.True(t, err.IsRetriable())
 			})
 			t.Run("when false", func(t *testing.T) {
-				err := NewReconcileError(faker.Sentence(), false)
+				fake := faker.New()
+				err := NewReconcileError(fake.Lorem().Sentence(10), false)
 				assert.False(t, err.IsRetriable())
 			})
 			t.Run("with cause when true", func(t *testing.T) {
-				err := NewReconcileErrorWithCause(faker.Sentence(), true, errors.New(faker.Sentence()))
+				fake := faker.New()
+				message := fake.Lorem().Sentence(10)
+				cause := errors.New(fake.Lorem().Sentence(10))
+				err := NewReconcileErrorWithCause(message, true, cause)
 				assert.True(t, err.IsRetriable())
 			})
 			t.Run("with cause when false", func(t *testing.T) {
-				err := NewReconcileErrorWithCause(faker.Sentence(), false, errors.New(faker.Sentence()))
+				fake := faker.New()
+				message := fake.Lorem().Sentence(10)
+				cause := errors.New(fake.Lorem().Sentence(10))
+				err := NewReconcileErrorWithCause(message, false, cause)
 				assert.False(t, err.IsRetriable())
 			})
 		})

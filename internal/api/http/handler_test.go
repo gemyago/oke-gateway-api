@@ -10,20 +10,21 @@ import (
 
 	"errors"
 
-	"github.com/gemyago/oke-gateway-api/internal/diag"
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/gemyago/oke-gateway-api/internal/diag"
 )
 
-// mockErrorReader simulates an io.Reader that returns an error.
+// mockErrorReader simulates an [io.Reader] that returns an error.
 type mockErrorReader struct{}
 
 func (m *mockErrorReader) Read(_ []byte) (int, error) {
 	return 0, errors.New("forced read error")
 }
 
-// mockResponseWriter simulates an http.ResponseWriter whose Write method fails.
+// mockResponseWriter simulates an [http.ResponseWriter] whose Write method fails.
 type mockResponseWriter struct {
 	headers    http.Header
 	statusCode int
@@ -65,13 +66,18 @@ func TestRootHandler(t *testing.T) {
 	}
 
 	t.Run("should respond with details", func(t *testing.T) {
-		requestPath := "/path1/" + faker.Word() + "/path2"
+		fake := faker.New()
+		requestPath := "/path1/" + fake.Lorem().Word() + "/path2"
 
 		queryValues := url.Values{}
-		queryValues.Set("key1-"+faker.Word(), faker.Word())
-		queryValues.Set("key2-"+faker.Word(), faker.Word())
-		wantBody := faker.Sentence()
-		req := httptest.NewRequest(http.MethodPost, requestPath+"?"+queryValues.Encode(), bytes.NewBufferString(wantBody))
+		queryValues.Set("key1-"+fake.Lorem().Word(), fake.Lorem().Word())
+		queryValues.Set("key2-"+fake.Lorem().Word(), fake.Lorem().Word())
+		wantBody := fake.Lorem().Sentence(10)
+		req := httptest.NewRequest(
+			http.MethodPost,
+			requestPath+"?"+queryValues.Encode(),
+			bytes.NewBufferString(wantBody),
+		)
 		w := httptest.NewRecorder()
 		deps := makeMockDeps()
 		rootHandler := NewRootHandler(deps)
@@ -100,7 +106,7 @@ func TestRootHandler(t *testing.T) {
 		rootHandler.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusNotFound, w.Code)
-		assert.Equal(t, "", w.Body.String())
+		assert.Empty(t, w.Body.String())
 	})
 
 	t.Run("should return 500 on body read error", func(t *testing.T) {

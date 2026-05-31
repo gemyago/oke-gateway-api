@@ -31,18 +31,18 @@ type LoadOpts struct {
 	defaultConfigFileName string
 }
 
-func (opts *LoadOpts) WithEnv(val string) *LoadOpts {
-	if val != "" {
-		opts.env = val
-	}
-	return opts
-}
-
 func NewLoadOpts() *LoadOpts {
 	return &LoadOpts{
 		env:                   "local",
 		defaultConfigFileName: "default.json",
 	}
+}
+
+func (opts *LoadOpts) WithEnv(val string) *LoadOpts {
+	if val != "" {
+		opts.env = val
+	}
+	return opts
 }
 
 func New() *viper.Viper {

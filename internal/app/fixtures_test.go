@@ -1,14 +1,16 @@
 package app
 
 import (
+	"github.com/jaswdr/faker/v2"
+
 	"github.com/gemyago/oke-gateway-api/internal/types"
-	"github.com/go-faker/faker/v4"
 )
 
 func makeRandomGatewayConfig() types.GatewayConfig {
+	fake := faker.New()
 	return types.GatewayConfig{
 		Spec: types.GatewayConfigSpec{
-			LoadBalancerID: faker.UUIDHyphenated(),
+			LoadBalancerID: fake.UUID().V4(),
 		},
 	}
 }

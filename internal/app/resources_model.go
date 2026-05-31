@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 
 	"go.uber.org/dig"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -82,16 +83,18 @@ func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditi
 		if currentAnnotations == nil {
 			currentAnnotations = make(map[string]string)
 		}
-		for k, v := range params.annotations {
-			currentAnnotations[k] = v
-		}
+		maps.Copy(currentAnnotations, params.annotations)
 		params.resource.SetAnnotations(currentAnnotations)
 		needsResourceUpdate = true
 	}
 
 	if needsResourceUpdate {
 		if err := m.client.Update(ctx, params.resource); err != nil {
-			return fmt.Errorf("failed to update resource %s with finalizer/annotations: %w", params.resource.GetName(), err)
+			return fmt.Errorf(
+				"failed to update resource %s with finalizer/annotations: %w",
+				params.resource.GetName(),
+				err,
+			)
 		}
 	}
 
@@ -127,7 +130,7 @@ type resourcesModelDeps struct {
 	RootLogger *slog.Logger
 }
 
-func newResourcesModel(deps resourcesModelDeps) resourcesModel {
+func newResourcesModel(deps resourcesModelDeps) *resourcesModelImpl {
 	return &resourcesModelImpl{
 		client: deps.K8sClient,
 		logger: deps.RootLogger.WithGroup("resources-model"),

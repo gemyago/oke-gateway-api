@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event.release.tag_name }}
 
@@ -18,7 +18,7 @@ jobs:
         run: echo "version=v$(cat deploy/.helm-version)" >> $GITHUB_OUTPUT
 
       - name: Set up Helm
-        uses: azure/setup-helm@v3
+        uses: azure/setup-helm@v5
         with:
           version: ${{ steps.helm-version.outputs.version }}
 
@@ -43,4 +43,3 @@ jobs:
         working-directory: deploy
         run: |
           helm push tmp/oke-gateway-api-controller-${{ steps.chart.outputs.version }}.tgz oci://ghcr.io/gemyago/helm-charts
-

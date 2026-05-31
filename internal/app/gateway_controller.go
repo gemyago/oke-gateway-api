@@ -100,7 +100,11 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 				ControllerClassName: "true",
 			},
 		}); err != nil {
-			return reconcile.Result{}, fmt.Errorf("failed to set accepted condition for Gateway %s: %w", req.NamespacedName, err)
+			return reconcile.Result{}, fmt.Errorf(
+				"failed to set accepted condition for Gateway %s: %w",
+				req.NamespacedName,
+				err,
+			)
 		}
 	}
 

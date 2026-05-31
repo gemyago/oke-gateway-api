@@ -5,9 +5,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gemyago/oke-gateway-api/internal/diag"
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/gemyago/oke-gateway-api/internal/diag"
 )
 
 func TestTracingMiddleware(t *testing.T) {
@@ -24,7 +25,9 @@ func TestTracingMiddleware(t *testing.T) {
 		assert.True(t, nextCalled)
 	})
 	t.Run("use existing correlation id", func(t *testing.T) {
-		wantCorrelationID := faker.UUIDHyphenated()
+		fake := faker.New()
+
+		wantCorrelationID := fake.UUID().V4()
 		req := httptest.NewRequest(http.MethodGet, "/something", http.NoBody)
 		req.Header.Add("X-Correlation-ID", wantCorrelationID)
 		res := httptest.NewRecorder()

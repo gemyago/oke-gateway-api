@@ -5,8 +5,7 @@ import (
 	"math/rand/v2"
 	"testing"
 
-	"github.com/gemyago/oke-gateway-api/internal/diag"
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -14,6 +13,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	"github.com/gemyago/oke-gateway-api/internal/diag"
 
 	k8sapi "github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
 )
@@ -27,12 +28,13 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 	}
 
 	t.Run("HappyPath_AddNewCondition", func(t *testing.T) {
+		fake := faker.New()
 		deps := newMockDeps(t)
 		model := newResourcesModel(deps)
 
 		gatewayClass := &gatewayv1.GatewayClass{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:       faker.DomainName(),
+				Name:       fake.Internet().Domain(),
 				Generation: rand.Int64(),
 			},
 			Spec: gatewayv1.GatewayClassSpec{
@@ -43,13 +45,13 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 			},
 		}
 
-		message := faker.Sentence()
+		message := fake.Lorem().Sentence(10)
 		params := setConditionParams{
 			resource:      gatewayClass,
 			conditions:    &gatewayClass.Status.Conditions,
-			conditionType: faker.DomainName(),
+			conditionType: fake.Internet().Domain(),
 			status:        metav1.ConditionTrue,
-			reason:        faker.Sentence(),
+			reason:        fake.Lorem().Sentence(10),
 			message:       message,
 		}
 
@@ -78,10 +80,15 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 
 				assert.False(t, acceptedCondition.LastTransitionTime.IsZero(), "LastTransitionTime should be set")
 
-				assert.True(t,
+				assert.True(
+					t,
 					!acceptedCondition.LastTransitionTime.Before(&timeBeforeAct) &&
 						!acceptedCondition.LastTransitionTime.Time.After(timeAfterAct.Time),
-					"Expected LTT between %v and %v, got %v", timeBeforeAct, timeAfterAct, acceptedCondition.LastTransitionTime)
+					"Expected LTT between %v and %v, got %v",
+					timeBeforeAct,
+					timeAfterAct,
+					acceptedCondition.LastTransitionTime,
+				)
 
 				return assert.Same(t, gc, gatewayClass)
 			}), mock.Anything).
@@ -92,6 +99,7 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 	})
 
 	t.Run("ErrorPath_StatusUpdateFails", func(t *testing.T) {
+		fake := faker.New()
 		deps := newMockDeps(t)
 		model := newResourcesModel(deps)
 		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
@@ -99,7 +107,7 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 
 		gatewayClass := &gatewayv1.GatewayClass{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:       faker.DomainName(),
+				Name:       fake.Internet().Domain(),
 				Generation: 1,
 			},
 			Spec: gatewayv1.GatewayClassSpec{
@@ -110,14 +118,14 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 			},
 		}
 
-		message := faker.Sentence()
+		message := fake.Lorem().Sentence(10)
 		params := setConditionParams{
 			resource:   gatewayClass,
 			conditions: &gatewayClass.Status.Conditions,
 			message:    message,
 		}
 
-		expectedError := errors.New(faker.Sentence())
+		expectedError := errors.New(fake.Lorem().Sentence(10))
 
 		mockClient.EXPECT().Status().Return(mockStatusWriter)
 		mockStatusWriter.EXPECT().
@@ -131,18 +139,19 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 	})
 
 	t.Run("HappyPath_AddsAnnotations", func(t *testing.T) {
+		fake := faker.New()
 		deps := newMockDeps(t)
 		model := newResourcesModel(deps)
 		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
 
-		key1 := "key1-" + faker.Word()
-		keyShared := "shared-" + faker.Word()
-		key2 := "key2-" + faker.Word()
-		val1 := faker.Sentence()
-		valInitialShared := faker.Sentence()
-		val2 := faker.Sentence()
-		valNewShared := faker.Sentence()
+		key1 := "key1-" + fake.Lorem().Word()
+		keyShared := "shared-" + fake.Lorem().Word()
+		key2 := "key2-" + fake.Lorem().Word()
+		val1 := fake.Lorem().Sentence(10)
+		valInitialShared := fake.Lorem().Sentence(10)
+		val2 := fake.Lorem().Sentence(10)
+		valNewShared := fake.Lorem().Sentence(10)
 
 		initialAnnotations := map[string]string{
 			key1:      val1,
@@ -160,7 +169,7 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 
 		gatewayClass := &gatewayv1.GatewayClass{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:        faker.DomainName(),
+				Name:        fake.Internet().Domain(),
 				Generation:  rand.Int64(),
 				Annotations: initialAnnotations,
 			},
@@ -175,10 +184,10 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 		params := setConditionParams{
 			resource:      gatewayClass,
 			conditions:    &gatewayClass.Status.Conditions,
-			conditionType: faker.DomainName(),
+			conditionType: fake.Internet().Domain(),
 			status:        metav1.ConditionTrue,
-			reason:        faker.Word(),
-			message:       faker.Sentence(),
+			reason:        fake.Lorem().Word(),
+			message:       fake.Lorem().Sentence(10),
 			annotations:   newAnnotations,
 		}
 
@@ -214,19 +223,20 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 	})
 
 	t.Run("HappyPath_AddsAnnotations_NoInitial", func(t *testing.T) {
+		fake := faker.New()
 		deps := newMockDeps(t)
 		model := newResourcesModel(deps)
 		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
 
 		newAnnotations := map[string]string{
-			"keyA": faker.Sentence(),
-			"keyB": faker.Sentence(),
+			"keyA": fake.Lorem().Sentence(10),
+			"keyB": fake.Lorem().Sentence(10),
 		}
 
 		gatewayClass := &gatewayv1.GatewayClass{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:        faker.DomainName(),
+				Name:        fake.Internet().Domain(),
 				Generation:  rand.Int64(),
 				Annotations: nil,
 			},
@@ -241,10 +251,10 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 		params := setConditionParams{
 			resource:      gatewayClass,
 			conditions:    &gatewayClass.Status.Conditions,
-			conditionType: faker.DomainName(),
+			conditionType: fake.Internet().Domain(),
 			status:        metav1.ConditionTrue,
-			reason:        faker.Word(),
-			message:       faker.Sentence(),
+			reason:        fake.Lorem().Word(),
+			message:       fake.Lorem().Sentence(10),
 			annotations:   newAnnotations,
 		}
 
@@ -273,15 +283,16 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 	})
 
 	t.Run("ErrorPath_AnnotationUpdateFails", func(t *testing.T) {
+		fake := faker.New()
 		deps := newMockDeps(t)
 		model := newResourcesModel(deps)
 		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 
 		gatewayClass := &gatewayv1.GatewayClass{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:        faker.DomainName(),
+				Name:        fake.Internet().Domain(),
 				Generation:  rand.Int64(),
-				Annotations: map[string]string{"initial": faker.Word()},
+				Annotations: map[string]string{"initial": fake.Lorem().Word()},
 			},
 			Spec:   gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName},
 			Status: gatewayv1.GatewayClassStatus{Conditions: []metav1.Condition{}},
@@ -290,14 +301,14 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 		params := setConditionParams{
 			resource:      gatewayClass,
 			conditions:    &gatewayClass.Status.Conditions,
-			conditionType: faker.DomainName(),
+			conditionType: fake.Internet().Domain(),
 			status:        metav1.ConditionTrue,
-			reason:        faker.Word(),
-			message:       faker.Sentence(),
-			annotations:   map[string]string{"new": faker.Word()},
+			reason:        fake.Lorem().Word(),
+			message:       fake.Lorem().Sentence(10),
+			annotations:   map[string]string{"new": fake.Lorem().Word()},
 		}
 
-		expectedError := errors.New(faker.Sentence())
+		expectedError := errors.New(fake.Lorem().Sentence(10))
 
 		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
 		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
@@ -317,16 +328,17 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 	})
 
 	t.Run("HappyPath_AddsFinalizer_NoAnnotations", func(t *testing.T) {
+		fake := faker.New()
 		deps := newMockDeps(t)
 		model := newResourcesModel(deps)
 		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
 
-		finalizerName := "test-finalizer/" + faker.Word()
+		finalizerName := "test-finalizer/" + fake.Lorem().Word()
 
 		gatewayClass := &gatewayv1.GatewayClass{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:       faker.DomainName(),
+				Name:       fake.Internet().Domain(),
 				Generation: rand.Int64(),
 			},
 			Spec:   gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName},
@@ -336,10 +348,10 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 		params := setConditionParams{
 			resource:      gatewayClass,
 			conditions:    &gatewayClass.Status.Conditions,
-			conditionType: faker.DomainName(),
+			conditionType: fake.Internet().Domain(),
 			status:        metav1.ConditionTrue,
-			reason:        faker.Word(),
-			message:       faker.Sentence(),
+			reason:        fake.Lorem().Word(),
+			message:       fake.Lorem().Sentence(10),
 			finalizer:     finalizerName,
 		}
 
@@ -360,14 +372,15 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 	})
 
 	t.Run("HappyPath_AddsFinalizer_AndAnnotations_SingleResourceUpdate", func(t *testing.T) {
+		fake := faker.New()
 		deps := newMockDeps(t)
 		model := newResourcesModel(deps)
 		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
 
-		finalizerName := "test-finalizer/" + faker.Word()
-		newAnnotations := map[string]string{"newKey": faker.Sentence()}
-		initialAnnotations := map[string]string{"initialKey": faker.Sentence()}
+		finalizerName := "test-finalizer/" + fake.Lorem().Word()
+		newAnnotations := map[string]string{"newKey": fake.Lorem().Sentence(10)}
+		initialAnnotations := map[string]string{"initialKey": fake.Lorem().Sentence(10)}
 		expectedMergedAnnotations := map[string]string{
 			"initialKey": initialAnnotations["initialKey"],
 			"newKey":     newAnnotations["newKey"],
@@ -375,7 +388,7 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 
 		gatewayClass := &gatewayv1.GatewayClass{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:        faker.DomainName(),
+				Name:        fake.Internet().Domain(),
 				Generation:  rand.Int64(),
 				Annotations: initialAnnotations,
 			},
@@ -386,10 +399,10 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 		params := setConditionParams{
 			resource:      gatewayClass,
 			conditions:    &gatewayClass.Status.Conditions,
-			conditionType: faker.DomainName(),
+			conditionType: fake.Internet().Domain(),
 			status:        metav1.ConditionTrue,
-			reason:        faker.Word(),
-			message:       faker.Sentence(),
+			reason:        fake.Lorem().Word(),
+			message:       fake.Lorem().Sentence(10),
 			annotations:   newAnnotations,
 			finalizer:     finalizerName,
 		}
@@ -419,14 +432,15 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 	})
 
 	t.Run("ErrorPath_FinalizerUpdateFails", func(t *testing.T) {
+		fake := faker.New()
 		deps := newMockDeps(t)
 		model := newResourcesModel(deps)
 		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
 
-		finalizerName := "test-finalizer/" + faker.Word()
+		finalizerName := "test-finalizer/" + fake.Lorem().Word()
 		gatewayClass := &gatewayv1.GatewayClass{
-			ObjectMeta: metav1.ObjectMeta{Name: faker.DomainName(), Generation: rand.Int64()},
+			ObjectMeta: metav1.ObjectMeta{Name: fake.Internet().Domain(), Generation: rand.Int64()},
 			Spec:       gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName},
 			Status:     gatewayv1.GatewayClassStatus{Conditions: []metav1.Condition{}},
 		}
@@ -434,10 +448,10 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 		params := setConditionParams{
 			resource:      gatewayClass,
 			conditions:    &gatewayClass.Status.Conditions,
-			conditionType: faker.DomainName(),
+			conditionType: fake.Internet().Domain(),
 			status:        metav1.ConditionTrue,
-			reason:        faker.Word(),
-			message:       faker.Sentence(),
+			reason:        fake.Lorem().Word(),
+			message:       fake.Lorem().Sentence(10),
 			finalizer:     finalizerName,
 		}
 
@@ -462,6 +476,8 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 	})
 
 	t.Run("HappyPath_NoFinalizer_AnnotationsAdded_ResourceUpdateOccurs", func(t *testing.T) {
+		fake := faker.New()
+
 		// This test is to ensure that if only annotations are provided (no finalizer),
 		// the resource update for annotations still occurs.
 		deps := newMockDeps(t)
@@ -469,11 +485,11 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
 		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
 
-		newAnnotations := map[string]string{"newKey": faker.Sentence()}
+		newAnnotations := map[string]string{"newKey": fake.Lorem().Sentence(10)}
 
 		gatewayClass := &gatewayv1.GatewayClass{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:       faker.DomainName(),
+				Name:       fake.Internet().Domain(),
 				Generation: rand.Int64(),
 			},
 			Spec:   gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName},
@@ -483,16 +499,19 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 		params := setConditionParams{
 			resource:      gatewayClass,
 			conditions:    &gatewayClass.Status.Conditions,
-			conditionType: faker.DomainName(),
+			conditionType: fake.Internet().Domain(),
 			status:        metav1.ConditionTrue,
-			reason:        faker.Word(),
-			message:       faker.Sentence(),
+			reason:        fake.Lorem().Word(),
+			message:       fake.Lorem().Sentence(10),
 			annotations:   newAnnotations,
 			// finalizer is empty
 		}
 
 		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
-		statusUpdateCall := mockStatusWriter.EXPECT().Update(t.Context(), gatewayClass, mock.Anything).Return(nil).Once()
+		statusUpdateCall := mockStatusWriter.EXPECT().
+			Update(t.Context(), gatewayClass, mock.Anything).
+			Return(nil).
+			Once()
 
 		mockClient.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
 			gc, ok := obj.(*gatewayv1.GatewayClass)
@@ -516,9 +535,10 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 
 	type randomResourceOpt func(*gatewayv1.GatewayClass)
 	newRandomResource := func(opts ...randomResourceOpt) *gatewayv1.GatewayClass {
+		fake := faker.New()
 		resource := &gatewayv1.GatewayClass{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:       faker.DomainName(), // Use faker for name
+				Name:       fake.Internet().Domain(), // Use faker for name
 				Generation: rand.Int64(),
 			},
 		}
@@ -549,10 +569,11 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 	type randomConditionsOpt func(*metav1.Condition)
 
 	newRandomConditions := func(opts ...randomConditionsOpt) []metav1.Condition {
+		fake := faker.New()
 		condition := metav1.Condition{
-			Type:               faker.DomainName(),
+			Type:               fake.Internet().Domain(),
 			Status:             metav1.ConditionTrue,
-			Reason:             faker.Word(),
+			Reason:             fake.Lorem().Word(),
 			ObservedGeneration: rand.Int64(),
 		}
 		for _, opt := range opts {
@@ -574,8 +595,9 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 	}
 
 	t.Run("ConditionSetAndMatches", func(t *testing.T) {
+		fake := faker.New()
 		model := newResourcesModel(newMockDeps(t))
-		conditionType := faker.DomainName()
+		conditionType := fake.Internet().Domain()
 		generation := rand.Int64()
 		gatewayClass := newRandomResource(
 			randomResourceWithGeneration(generation),
@@ -596,8 +618,9 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 	})
 
 	t.Run("ConditionNotSet", func(t *testing.T) {
+		fake := faker.New()
 		model := newResourcesModel(newMockDeps(t))
-		conditionType := faker.DomainName()
+		conditionType := fake.Internet().Domain()
 		gatewayClass := newRandomResource()
 
 		params := isConditionSetParams{
@@ -610,8 +633,9 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 	})
 
 	t.Run("ConditionSet_WrongType", func(t *testing.T) {
+		fake := faker.New()
 		model := newResourcesModel(newMockDeps(t))
-		conditionType := faker.DomainName()
+		conditionType := fake.Internet().Domain()
 		gatewayClass := newRandomResource(
 			randomResourceWithConditions(
 				newRandomConditions(),
@@ -627,8 +651,9 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 	})
 
 	t.Run("ConditionSet_WrongGeneration", func(t *testing.T) {
+		fake := faker.New()
 		model := newResourcesModel(newMockDeps(t))
-		conditionType := faker.DomainName()
+		conditionType := fake.Internet().Domain()
 		generation := rand.Int64()
 		gatewayClass := newRandomResource(
 			randomResourceWithGeneration(generation),
@@ -649,14 +674,15 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 	})
 
 	t.Run("ConditionSetAndMatches_WithMatchingAnnotations", func(t *testing.T) {
+		fake := faker.New()
 		model := newResourcesModel(newMockDeps(t))
-		conditionType := faker.DomainName()
+		conditionType := fake.Internet().Domain()
 		generation := rand.Int64()
 
-		key1 := "key1-" + faker.Word()
-		key2 := "key2-" + faker.Word()
-		val1 := faker.Sentence()
-		val2 := faker.Sentence()
+		key1 := "key1-" + fake.Lorem().Word()
+		key2 := "key2-" + fake.Lorem().Word()
+		val1 := fake.Lorem().Sentence(10)
+		val2 := fake.Lorem().Sentence(10)
 
 		resourceAnnotations := map[string]string{
 			key1: val1,
@@ -687,8 +713,9 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 	})
 
 	t.Run("ConditionSetAndMatches_WithMissingAnnotation", func(t *testing.T) {
+		fake := faker.New()
 		model := newResourcesModel(newMockDeps(t))
-		conditionType := faker.DomainName()
+		conditionType := fake.Internet().Domain()
 		generation := rand.Int64()
 		gatewayClass := newRandomResource(
 			randomResourceWithGeneration(generation),
@@ -699,8 +726,8 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 			conditions:    gatewayClass.Status.Conditions,
 			conditionType: conditionType,
 			annotations: map[string]string{
-				"key1-" + faker.Word(): faker.Sentence(),
-				"key2-" + faker.Word(): faker.Sentence(),
+				"key1-" + fake.Lorem().Word(): fake.Lorem().Sentence(10),
+				"key2-" + fake.Lorem().Word(): fake.Lorem().Sentence(10),
 			},
 		}
 		result := model.isConditionSet(params)
@@ -708,36 +735,38 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 	})
 
 	t.Run("ConditionSetAndMatches_WithMismatchedAnnotationValue", func(t *testing.T) {
+		fake := faker.New()
 		model := newResourcesModel(newMockDeps(t))
-		conditionType := faker.DomainName()
+		conditionType := fake.Internet().Domain()
 		generation := rand.Int64()
-		key := "key-" + faker.Word()
+		key := "key-" + fake.Lorem().Word()
 		gatewayClass := newRandomResource(
 			randomResourceWithGeneration(generation),
-			randomResourceWithAnnotations(map[string]string{key: faker.Sentence()}),
+			randomResourceWithAnnotations(map[string]string{key: fake.Lorem().Sentence(10)}),
 		)
 		params := isConditionSetParams{
 			resource:      gatewayClass,
 			conditions:    gatewayClass.Status.Conditions,
 			conditionType: conditionType,
-			annotations:   map[string]string{key: "other-" + faker.Sentence()},
+			annotations:   map[string]string{key: "other-" + fake.Lorem().Sentence(10)},
 		}
 		result := model.isConditionSet(params)
 		assert.False(t, result, "Expected false when a requested annotation value mismatches")
 	})
 
 	t.Run("ConditionSetAndMatches_WithExtraResourceAnnotation", func(t *testing.T) {
+		fake := faker.New()
 		model := newResourcesModel(newMockDeps(t))
-		conditionType := faker.DomainName()
+		conditionType := fake.Internet().Domain()
 		generation := rand.Int64()
-		key := "key-" + faker.Word()
-		val := faker.Sentence()
+		key := "key-" + fake.Lorem().Word()
+		val := fake.Lorem().Sentence(10)
 		gatewayClass := newRandomResource(
 			randomResourceWithGeneration(generation),
 			randomResourceWithAnnotations(map[string]string{
 				key:      val,
-				"extra1": faker.Sentence(),
-				"extra2": faker.Sentence(),
+				"extra1": fake.Lorem().Sentence(10),
+				"extra2": fake.Lorem().Sentence(10),
 			}),
 			randomResourceWithConditions(
 				newRandomConditions(

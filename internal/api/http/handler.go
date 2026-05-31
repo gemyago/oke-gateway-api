@@ -6,8 +6,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"go.uber.org/dig"
+
+	"github.com/gemyago/oke-gateway-api/internal/diag"
 )
 
 type EchoResponse struct {
@@ -54,7 +55,7 @@ func NewRootHandler(deps RootHandlerDeps) http.Handler {
 		})
 		if err != nil {
 			// We can just log at this point, as we've already written a response
-			logger.Error("failed to encode response", diag.ErrAttr(err))
+			logger.ErrorContext(r.Context(), "failed to encode response", diag.ErrAttr(err))
 			return
 		}
 	})

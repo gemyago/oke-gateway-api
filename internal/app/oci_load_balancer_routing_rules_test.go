@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,34 +24,37 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 
 		tests := []func() testCase{
 			func() testCase {
-				pathValue := "/" + faker.Word() + "/" + faker.Word()
+				fake := faker.New()
+				pathValue := "/" + fake.Lorem().Word() + "/" + fake.Lorem().Word()
 				return testCase{
 					name: "exact path match",
 					match: gatewayv1.HTTPRouteMatch{
 						Path: &gatewayv1.HTTPPathMatch{
 							Type:  lo.ToPtr(gatewayv1.PathMatchExact),
-							Value: lo.ToPtr(pathValue),
+							Value: new(pathValue),
 						},
 					},
 					want: fmt.Sprintf(`http.request.url.path eq '%s'`, pathValue),
 				}
 			},
 			func() testCase {
-				pathPrefix := "/" + faker.Word() + "/" + faker.Word()
+				fake := faker.New()
+				pathPrefix := "/" + fake.Lorem().Word() + "/" + fake.Lorem().Word()
 				return testCase{
 					name: "prefix path match",
 					match: gatewayv1.HTTPRouteMatch{
 						Path: &gatewayv1.HTTPPathMatch{
 							Type:  lo.ToPtr(gatewayv1.PathMatchPathPrefix),
-							Value: lo.ToPtr(pathPrefix),
+							Value: new(pathPrefix),
 						},
 					},
 					want: fmt.Sprintf(`http.request.url.path sw '%s'`, pathPrefix),
 				}
 			},
 			func() testCase {
-				headerName := "X-" + faker.Word()
-				headerValue := faker.UUIDHyphenated()
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
+				headerValue := fake.UUID().V4()
 				return testCase{
 					name: "exact header match",
 					match: gatewayv1.HTTPRouteMatch{
@@ -67,10 +70,11 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				headerName1 := "X-" + faker.Word() + "-1"
-				headerValue1 := faker.Word()
-				headerName2 := "X-" + faker.Word() + "-2"
-				headerValue2 := faker.UUIDHyphenated()
+				fake := faker.New()
+				headerName1 := "X-" + fake.Lorem().Word() + "-1"
+				headerValue1 := fake.Lorem().Word()
+				headerName2 := "X-" + fake.Lorem().Word() + "-2"
+				headerValue2 := fake.UUID().V4()
 				return testCase{
 					name: "multiple exact header matches",
 					match: gatewayv1.HTTPRouteMatch{
@@ -95,15 +99,16 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				pathValue := "/" + faker.Word() + "/" + faker.Word()
+				fake := faker.New()
+				pathValue := "/" + fake.Lorem().Word() + "/" + fake.Lorem().Word()
 				headerName := "Content-Type"
-				headerValue := "application/" + faker.Word()
+				headerValue := "application/" + fake.Lorem().Word()
 				return testCase{
 					name: "exact path and exact header match",
 					match: gatewayv1.HTTPRouteMatch{
 						Path: &gatewayv1.HTTPPathMatch{
 							Type:  lo.ToPtr(gatewayv1.PathMatchExact),
-							Value: lo.ToPtr(pathValue),
+							Value: new(pathValue),
 						},
 						Headers: []gatewayv1.HTTPHeaderMatch{
 							{
@@ -121,14 +126,15 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				authValue := "Bearer " + faker.Jwt()
-				requestID := faker.UUIDHyphenated()
+				fake := faker.New()
+				authValue := "Bearer " + fake.UUID().V4()
+				requestID := fake.UUID().V4()
 				return testCase{
 					name: "prefix path and multiple exact header matches",
 					match: gatewayv1.HTTPRouteMatch{
 						Path: &gatewayv1.HTTPPathMatch{
 							Type:  lo.ToPtr(gatewayv1.PathMatchPathPrefix),
-							Value: lo.ToPtr("/api/v1"),
+							Value: new("/api/v1"),
 						},
 						Headers: []gatewayv1.HTTPHeaderMatch{
 							{
@@ -157,7 +163,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 					match: gatewayv1.HTTPRouteMatch{
 						Path: &gatewayv1.HTTPPathMatch{
 							Type:  lo.ToPtr(gatewayv1.PathMatchRegularExpression),
-							Value: lo.ToPtr("/users/[0-9]+"),
+							Value: new("/users/[0-9]+"),
 						},
 					},
 					wantErrIs: errUnsupportedMatch,
@@ -179,7 +185,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				headerName := "X-" + faker.Word()
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
 				return testCase{
 					name: "regex header match - starts with simple prefix",
 					match: gatewayv1.HTTPRouteMatch{
@@ -227,7 +234,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				headerName := "X-" + faker.Word()
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
 				return testCase{
 					name: "regex header match - ends with simple suffix",
 					match: gatewayv1.HTTPRouteMatch{
@@ -243,7 +251,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				headerName := "X-" + faker.Word()
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
 				return testCase{
 					name: "regex header match - ends with dotted suffix",
 					match: gatewayv1.HTTPRouteMatch{
@@ -259,7 +268,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				headerName := "X-" + faker.Word()
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
 				return testCase{
 					name: "regex header match - unsupported complex regex",
 					match: gatewayv1.HTTPRouteMatch{
@@ -275,7 +285,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				headerName := "X-" + faker.Word()
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
 				return testCase{
 					name: "regex header match - starts with no anchor",
 					match: gatewayv1.HTTPRouteMatch{
@@ -291,7 +302,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				headerName := "X-" + faker.Word()
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
 				return testCase{
 					name: "regex header match - ends with no anchor",
 					match: gatewayv1.HTTPRouteMatch{
@@ -307,7 +319,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				headerName := "X-" + faker.Word()
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
 				return testCase{
 					name: "regex header match - both anchors unsupported",
 					match: gatewayv1.HTTPRouteMatch{
@@ -366,21 +379,23 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				pathValue := "/" + faker.Word() + "/" + faker.Word()
+				fake := faker.New()
+				pathValue := "/" + fake.Lorem().Word() + "/" + fake.Lorem().Word()
 				return testCase{
 					name: "nil path type",
 					match: gatewayv1.HTTPRouteMatch{
 						Path: &gatewayv1.HTTPPathMatch{
 							Type:  nil, // Invalid config
-							Value: lo.ToPtr(pathValue),
+							Value: new(pathValue),
 						},
 					},
 					want: fmt.Sprintf(`http.request.url.path sw '%s'`, pathValue),
 				}
 			},
 			func() testCase {
-				headerName := "X-" + faker.Word()
-				headerValue := faker.Word()
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
+				headerValue := fake.Lorem().Word()
 				return testCase{
 					name: "nil header type",
 					match: gatewayv1.HTTPRouteMatch{
@@ -410,7 +425,11 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 					require.ErrorContains(t, err, tc.wantErrText)
 				default:
 					require.NoError(t, err)
-					assert.Equal(t, strings.Join(strings.Fields(tc.want), " "), strings.Join(strings.Fields(actual), " "))
+					assert.Equal(
+						t,
+						strings.Join(strings.Fields(tc.want), " "),
+						strings.Join(strings.Fields(actual), " "),
+					)
 				}
 			})
 		}
@@ -427,14 +446,15 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 
 		tests := []func() testCase{
 			func() testCase {
-				pathValue1 := "/" + faker.Word()
+				fake := faker.New()
+				pathValue1 := "/" + fake.Lorem().Word()
 				return testCase{
 					name: "single match",
 					matches: []gatewayv1.HTTPRouteMatch{
 						{
 							Path: &gatewayv1.HTTPPathMatch{
 								Type:  lo.ToPtr(gatewayv1.PathMatchExact),
-								Value: lo.ToPtr(pathValue1),
+								Value: new(pathValue1),
 							},
 						},
 					},
@@ -445,21 +465,22 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				pathValue1 := "/" + faker.Word()
-				pathValue2 := "/" + faker.Word() + "/" + faker.Word()
+				fake := faker.New()
+				pathValue1 := "/" + fake.Lorem().Word()
+				pathValue2 := "/" + fake.Lorem().Word() + "/" + fake.Lorem().Word()
 				return testCase{
 					name: "multiple matches",
 					matches: []gatewayv1.HTTPRouteMatch{
 						{
 							Path: &gatewayv1.HTTPPathMatch{
 								Type:  lo.ToPtr(gatewayv1.PathMatchExact),
-								Value: lo.ToPtr(pathValue1),
+								Value: new(pathValue1),
 							},
 						},
 						{
 							Path: &gatewayv1.HTTPPathMatch{
 								Type:  lo.ToPtr(gatewayv1.PathMatchPathPrefix),
-								Value: lo.ToPtr(pathValue2),
+								Value: new(pathValue2),
 							},
 						},
 					},
@@ -470,14 +491,15 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
-				pathValue := "/" + faker.Word()
+				fake := faker.New()
+				pathValue := "/" + fake.Lorem().Word()
 				return testCase{
 					name: "one unsupported match among others",
 					matches: []gatewayv1.HTTPRouteMatch{
 						{
 							Path: &gatewayv1.HTTPPathMatch{
 								Type:  lo.ToPtr(gatewayv1.PathMatchExact),
-								Value: lo.ToPtr(pathValue),
+								Value: new(pathValue),
 							},
 						},
 						{
@@ -501,7 +523,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 						{
 							Path: &gatewayv1.HTTPPathMatch{
 								Type:  lo.ToPtr(gatewayv1.PathMatchPathPrefix),
-								Value: lo.ToPtr("/"),
+								Value: new("/"),
 							},
 							Headers: []gatewayv1.HTTPHeaderMatch{
 								{
@@ -530,7 +552,11 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 					require.ErrorContains(t, err, tc.wantErrText)
 				default:
 					require.NoError(t, err)
-					assert.Equal(t, strings.Join(strings.Fields(tc.want), " "), strings.Join(strings.Fields(actual), " "))
+					assert.Equal(
+						t,
+						strings.Join(strings.Fields(tc.want), " "),
+						strings.Join(strings.Fields(actual), " "),
+					)
 				}
 			})
 		}

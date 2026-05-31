@@ -11,11 +11,11 @@ import (
 // we are not creating any abstraction over it, but we do have a set of tools to make it easier to use
 
 type ConstructorWithOpts struct {
-	Constructor interface{}
+	Constructor any
 	Options     []dig.ProvideOption
 }
 
-func ProvideAll(container *dig.Container, providers ...interface{}) error {
+func ProvideAll(container *dig.Container, providers ...any) error {
 	for i, provider := range providers {
 		switch p := provider.(type) {
 		case ConstructorWithOpts:
@@ -71,6 +71,8 @@ func ProvideWithArgErr[
 
 // ProvideAs is used to provide one type as another, typically
 // used to provide implementation struct as particular interface.
+//
+//nolint:ireturn // This DI adapter intentionally returns the requested target interface.
 func ProvideAs[TSource any, TTarget any](source TSource) (TTarget, error) {
 	target, ok := any(source).(TTarget)
 	if !ok {
@@ -79,4 +81,16 @@ func ProvideAs[TSource any, TTarget any](source TSource) (TTarget, error) {
 		return target, fmt.Errorf("failed to cast %s to %s", reflect.TypeOf(src), reflect.TypeOf(tgt))
 	}
 	return target, nil
+}
+
+// ProvideFactoryAs allows injecting implementation of a particular interface.
+// Functionally equivalent to injecting the factory first and then use ProvideAs.
+func ProvideFactoryAs[
+	TTarget any,
+	TSource any,
+	TTSourceDeps any,
+](srcFactory func(TTSourceDeps) TSource) func(deps TTSourceDeps) (TTarget, error) {
+	return func(deps TTSourceDeps) (TTarget, error) {
+		return ProvideAs[TSource, TTarget](srcFactory(deps))
+	}
 }

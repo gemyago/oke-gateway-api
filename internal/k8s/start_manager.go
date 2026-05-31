@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/gemyago/oke-gateway-api/internal/app"
 	"github.com/go-logr/logr"
 	"go.uber.org/dig"
 	corev1 "k8s.io/api/core/v1"
@@ -19,6 +18,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	"github.com/gemyago/oke-gateway-api/internal/app"
 )
 
 // StartManagerDeps contains the dependencies for the controller manager.

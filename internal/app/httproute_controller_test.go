@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/gemyago/oke-gateway-api/internal/diag"
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -14,6 +13,8 @@ import (
 	types "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client" // Import client for ObjectKey
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/gemyago/oke-gateway-api/internal/diag"
 )
 
 func TestHTTPRouteController(t *testing.T) {
@@ -27,13 +28,14 @@ func TestHTTPRouteController(t *testing.T) {
 
 	t.Run("Reconcile", func(t *testing.T) {
 		t.Run("RelevantRoute", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			controller := NewHTTPRouteController(deps)
 
 			req := reconcile.Request{
 				NamespacedName: client.ObjectKey{
-					Namespace: faker.DomainName(), // Use faker for random namespace
-					Name:      faker.Word(),       // Use faker for random name
+					Namespace: fake.Internet().Domain(), // Use faker for random namespace
+					Name:      fake.Lorem().Word(),      // Use faker for random name
 				},
 			}
 
@@ -80,9 +82,9 @@ func TestHTTPRouteController(t *testing.T) {
 			).Return(wantBackends, nil)
 
 			programmedPolicyRules := []string{
-				"policy1-" + faker.Word(),
-				"policy2-" + faker.Word(),
-				"policy3-" + faker.Word(),
+				"policy1-" + fake.Lorem().Word(),
+				"policy2-" + fake.Lorem().Word(),
+				"policy3-" + fake.Lorem().Word(),
 			}
 
 			mockModel.EXPECT().programRoute(
@@ -124,13 +126,14 @@ func TestHTTPRouteController(t *testing.T) {
 		})
 
 		t.Run("IrrelevantRoute", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			controller := NewHTTPRouteController(deps)
 
 			req := reconcile.Request{
 				NamespacedName: client.ObjectKey{
-					Namespace: faker.DomainName(),
-					Name:      faker.Word(),
+					Namespace: fake.Internet().Domain(),
+					Name:      fake.Lorem().Word(),
 				},
 			}
 
@@ -147,13 +150,14 @@ func TestHTTPRouteController(t *testing.T) {
 		})
 
 		t.Run("RelevantRouteDeleted", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			controller := NewHTTPRouteController(deps)
 
 			req := reconcile.Request{
 				NamespacedName: client.ObjectKey{
-					Namespace: faker.DomainName(),
-					Name:      faker.Word(),
+					Namespace: fake.Internet().Domain(),
+					Name:      fake.Lorem().Word(),
 				},
 			}
 
@@ -201,18 +205,19 @@ func TestHTTPRouteController(t *testing.T) {
 		})
 
 		t.Run("ResolveRequestError", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			controller := NewHTTPRouteController(deps)
 
 			req := reconcile.Request{
 				NamespacedName: client.ObjectKey{
-					Namespace: faker.DomainName(),
-					Name:      faker.Word(),
+					Namespace: fake.Internet().Domain(),
+					Name:      fake.Lorem().Word(),
 				},
 			}
 
 			mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
-			wantErr := fmt.Errorf("resolve error: %s", faker.Sentence())
+			wantErr := fmt.Errorf("resolve error: %s", fake.Lorem().Sentence(10))
 			mockModel.EXPECT().resolveRequest(
 				t.Context(),
 				req,
@@ -225,13 +230,14 @@ func TestHTTPRouteController(t *testing.T) {
 		})
 
 		t.Run("AcceptRouteError", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			controller := NewHTTPRouteController(deps)
 
 			req := reconcile.Request{
 				NamespacedName: client.ObjectKey{
-					Namespace: faker.DomainName(),
-					Name:      faker.Word(),
+					Namespace: fake.Internet().Domain(),
+					Name:      fake.Lorem().Word(),
 				},
 			}
 
@@ -253,7 +259,7 @@ func TestHTTPRouteController(t *testing.T) {
 
 			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
 
-			wantErr := fmt.Errorf("accept error: %s", faker.Sentence())
+			wantErr := fmt.Errorf("accept error: %s", fake.Lorem().Sentence(10))
 			mockModel.EXPECT().acceptRoute(
 				t.Context(),
 				wantResolvedData,
@@ -266,13 +272,14 @@ func TestHTTPRouteController(t *testing.T) {
 		})
 
 		t.Run("ResolveBackendRefsError", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			controller := NewHTTPRouteController(deps)
 
 			req := reconcile.Request{
 				NamespacedName: client.ObjectKey{
-					Namespace: faker.DomainName(),
-					Name:      faker.Word(),
+					Namespace: fake.Internet().Domain(),
+					Name:      fake.Lorem().Word(),
 				},
 			}
 
@@ -300,7 +307,7 @@ func TestHTTPRouteController(t *testing.T) {
 				wantResolvedData,
 			).Return(&wantAcceptedRoute, nil)
 
-			wantErr := fmt.Errorf("resolve backend refs error: %s", faker.Sentence())
+			wantErr := fmt.Errorf("resolve backend refs error: %s", fake.Lorem().Sentence(10))
 			mockModel.EXPECT().resolveBackendRefs(
 				t.Context(),
 				resolveBackendRefsParams{
@@ -315,13 +322,14 @@ func TestHTTPRouteController(t *testing.T) {
 		})
 
 		t.Run("ProgramRouteError", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			controller := NewHTTPRouteController(deps)
 
 			req := reconcile.Request{
 				NamespacedName: client.ObjectKey{
-					Namespace: faker.DomainName(),
-					Name:      faker.Word(),
+					Namespace: fake.Internet().Domain(),
+					Name:      fake.Lorem().Word(),
 				},
 			}
 
@@ -366,7 +374,7 @@ func TestHTTPRouteController(t *testing.T) {
 				},
 			).Return(wantBackendRefs, nil)
 
-			wantErr := fmt.Errorf("program route error: %s", faker.Sentence())
+			wantErr := fmt.Errorf("program route error: %s", fake.Lorem().Sentence(10))
 			mockModel.EXPECT().programRoute(
 				t.Context(),
 				programRouteParams{
@@ -384,13 +392,14 @@ func TestHTTPRouteController(t *testing.T) {
 		})
 
 		t.Run("ProgrammingNotRequired", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			controller := NewHTTPRouteController(deps)
 
 			req := reconcile.Request{
 				NamespacedName: client.ObjectKey{
-					Namespace: faker.DomainName(),
-					Name:      faker.Word(),
+					Namespace: fake.Internet().Domain(),
+					Name:      fake.Lorem().Word(),
 				},
 			}
 
@@ -432,13 +441,14 @@ func TestHTTPRouteController(t *testing.T) {
 		})
 
 		t.Run("SetProgrammedError", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			controller := NewHTTPRouteController(deps)
 
 			req := reconcile.Request{
 				NamespacedName: client.ObjectKey{
-					Namespace: faker.DomainName(), // Use faker for random namespace
-					Name:      faker.Word(),       // Use faker for random name
+					Namespace: fake.Internet().Domain(), // Use faker for random namespace
+					Name:      fake.Lorem().Word(),      // Use faker for random name
 				},
 			}
 
@@ -494,7 +504,7 @@ func TestHTTPRouteController(t *testing.T) {
 				},
 			).Return(programRouteResult{}, nil)
 
-			wantErr := fmt.Errorf("set programmed error: %s", faker.Sentence())
+			wantErr := fmt.Errorf("set programmed error: %s", fake.Lorem().Sentence(10))
 			mockModel.EXPECT().setProgrammed(
 				t.Context(),
 				setProgrammedParams{
@@ -512,13 +522,14 @@ func TestHTTPRouteController(t *testing.T) {
 		})
 
 		t.Run("IsProgrammingRequiredError", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			controller := NewHTTPRouteController(deps)
 
 			req := reconcile.Request{
 				NamespacedName: client.ObjectKey{
-					Namespace: faker.DomainName(),
-					Name:      faker.Word(),
+					Namespace: fake.Internet().Domain(),
+					Name:      fake.Lorem().Word(),
 				},
 			}
 
@@ -538,7 +549,7 @@ func TestHTTPRouteController(t *testing.T) {
 				req.NamespacedName: wantResolvedData,
 			}, (error)(nil))
 
-			wantErr := fmt.Errorf("is programming required error: %s", faker.Sentence())
+			wantErr := fmt.Errorf("is programming required error: %s", fake.Lorem().Sentence(10))
 			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, wantErr)
 
 			result, err := controller.Reconcile(t.Context(), req)
@@ -548,13 +559,14 @@ func TestHTTPRouteController(t *testing.T) {
 		})
 
 		t.Run("syncRouteEndpError", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			controller := NewHTTPRouteController(deps)
 
 			req := reconcile.Request{
 				NamespacedName: client.ObjectKey{
-					Namespace: faker.DomainName(),
-					Name:      faker.Word(),
+					Namespace: fake.Internet().Domain(),
+					Name:      fake.Lorem().Word(),
 				},
 			}
 
@@ -578,7 +590,7 @@ func TestHTTPRouteController(t *testing.T) {
 			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, nil)
 
 			mockBackendModel, _ := deps.HTTPBackendModel.(*MockhttpBackendModel)
-			wantErr := fmt.Errorf("sync error: %s", faker.Sentence())
+			wantErr := fmt.Errorf("sync error: %s", fake.Lorem().Sentence(10))
 			mockBackendModel.EXPECT().syncRouteEndpoints(
 				t.Context(),
 				syncRouteEndpointsParams{
@@ -594,13 +606,14 @@ func TestHTTPRouteController(t *testing.T) {
 		})
 
 		t.Run("deprovisionRouteError", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			controller := NewHTTPRouteController(deps)
 
 			req := reconcile.Request{
 				NamespacedName: client.ObjectKey{
-					Namespace: faker.DomainName(),
-					Name:      faker.Word(),
+					Namespace: fake.Internet().Domain(),
+					Name:      fake.Lorem().Word(),
 				},
 			}
 
@@ -624,7 +637,7 @@ func TestHTTPRouteController(t *testing.T) {
 				req.NamespacedName: wantResolvedData,
 			}, (error)(nil))
 
-			wantErr := fmt.Errorf("deprovision error: %s", faker.Sentence())
+			wantErr := fmt.Errorf("deprovision error: %s", fake.Lorem().Sentence(10))
 			mockModel.EXPECT().deprovisionRoute(
 				t.Context(),
 				deprovisionRouteParams{ // Assuming deprovisionRouteParams is the correct type

@@ -58,7 +58,7 @@ type ociLoadBalancerRoutingRulesMapper interface {
 
 type ociLoadBalancerRoutingRulesMapperImpl struct{}
 
-func newOciLoadBalancerRoutingRulesMapper() ociLoadBalancerRoutingRulesMapper {
+func newOciLoadBalancerRoutingRulesMapper() *ociLoadBalancerRoutingRulesMapperImpl {
 	return &ociLoadBalancerRoutingRulesMapperImpl{}
 }
 
@@ -78,69 +78,20 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchToCondition(
 
 	// --- Path Matching ---
 	if match.Path != nil {
-		if match.Path.Value == nil {
-			return "", errors.New("path match value cannot be nil")
+		condition, err := mapPathMatchToCondition(*match.Path)
+		if err != nil {
+			return "", err
 		}
-		pathValue := *match.Path.Value
-		pathType := gatewayv1.PathMatchPathPrefix // Default type if not specified
-		if match.Path.Type != nil {
-			pathType = *match.Path.Type
-		}
-
-		switch pathType {
-		case gatewayv1.PathMatchExact:
-			// TODO: Handle escaping single quotes in pathValue if necessary
-			conditions = append(conditions, fmt.Sprintf(`http.request.url.path eq '%s'`, pathValue))
-		case gatewayv1.PathMatchPathPrefix:
-			// TODO: Handle escaping single quotes in pathValue if necessary
-			conditions = append(conditions, fmt.Sprintf(`http.request.url.path sw '%s'`, pathValue))
-		case gatewayv1.PathMatchRegularExpression:
-			return "", fmt.Errorf("%w: regex path matching", errUnsupportedMatch)
-		default:
-			return "", fmt.Errorf("%w: unknown path match type '%s'", errUnsupportedMatch, pathType)
-		}
+		conditions = append(conditions, condition)
 	}
 
 	// --- Header Matching ---
 	for _, headerMatch := range match.Headers {
-		headerType := gatewayv1.HeaderMatchExact // Default type
-		if headerMatch.Type != nil {
-			headerType = *headerMatch.Type
+		condition, err := mapHeaderMatchToCondition(headerMatch)
+		if err != nil {
+			return "", err
 		}
-
-		switch headerType {
-		case gatewayv1.HeaderMatchExact:
-			// TODO: Handle escaping single quotes in headerMatch.Value if necessary
-			// Header names are case-insensitive in HTTP, but OCI conditions might be case-sensitive.
-			// Assuming case-sensitive match for now based on Gateway API spec.
-			conditions = append(
-				conditions,
-				fmt.Sprintf(`http.request.headers[(i '%s')] eq (i '%s')`, headerMatch.Name, headerMatch.Value),
-			)
-		case gatewayv1.HeaderMatchRegularExpression:
-			// Try to parse as starts-with pattern
-			if prefix, swMatched := parseRegexForStartsWith(headerMatch.Value); swMatched {
-				conditions = append(
-					conditions,
-					fmt.Sprintf(`http.request.headers[(i '%s')][0] sw (i '%s')`, headerMatch.Name, prefix),
-				)
-			} else if suffix, ewMatched := parseRegexForEndsWith(headerMatch.Value); ewMatched {
-				// Try to parse as ends-with pattern
-				conditions = append(
-					conditions,
-					fmt.Sprintf(`http.request.headers[(i '%s')][0] ew (i '%s')`, headerMatch.Name, suffix),
-				)
-			} else {
-				// Unsupported regex pattern
-				return "", fmt.Errorf("%w: regex header matching for header '%s'", errUnsupportedMatch, headerMatch.Name)
-			}
-		default:
-			return "", fmt.Errorf("%w: unknown header match type '%s' for header '%s'",
-				errUnsupportedMatch,
-				headerType,
-				headerMatch.Name,
-			)
-		}
+		conditions = append(conditions, condition)
 	}
 
 	// --- Combine conditions ---
@@ -151,6 +102,67 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchToCondition(
 		return conditions[0], nil
 	}
 	return "all(" + strings.Join(conditions, ", ") + ")", nil
+}
+
+func mapPathMatchToCondition(pathMatch gatewayv1.HTTPPathMatch) (string, error) {
+	if pathMatch.Value == nil {
+		return "", errors.New("path match value cannot be nil")
+	}
+	pathValue := *pathMatch.Value
+	pathType := gatewayv1.PathMatchPathPrefix // Default type if not specified
+	if pathMatch.Type != nil {
+		pathType = *pathMatch.Type
+	}
+
+	switch pathType {
+	case gatewayv1.PathMatchExact:
+		// TODO: Handle escaping single quotes in pathValue if necessary
+		return fmt.Sprintf(`http.request.url.path eq '%s'`, pathValue), nil
+	case gatewayv1.PathMatchPathPrefix:
+		// TODO: Handle escaping single quotes in pathValue if necessary
+		return fmt.Sprintf(`http.request.url.path sw '%s'`, pathValue), nil
+	case gatewayv1.PathMatchRegularExpression:
+		return "", fmt.Errorf("%w: regex path matching", errUnsupportedMatch)
+	default:
+		return "", fmt.Errorf("%w: unknown path match type '%s'", errUnsupportedMatch, pathType)
+	}
+}
+
+func mapHeaderMatchToCondition(headerMatch gatewayv1.HTTPHeaderMatch) (string, error) {
+	headerType := gatewayv1.HeaderMatchExact // Default type
+	if headerMatch.Type != nil {
+		headerType = *headerMatch.Type
+	}
+
+	switch headerType {
+	case gatewayv1.HeaderMatchExact:
+		// TODO: Handle escaping single quotes in headerMatch.Value if necessary
+		// Header names are case-insensitive in HTTP, but OCI conditions might be case-sensitive.
+		// Assuming case-sensitive match for now based on Gateway API spec.
+		return fmt.Sprintf(`http.request.headers[(i '%s')] eq (i '%s')`, headerMatch.Name, headerMatch.Value), nil
+	case gatewayv1.HeaderMatchRegularExpression:
+		return mapRegexHeaderMatchToCondition(headerMatch)
+	default:
+		return "", fmt.Errorf("%w: unknown header match type '%s' for header '%s'",
+			errUnsupportedMatch,
+			headerType,
+			headerMatch.Name,
+		)
+	}
+}
+
+func mapRegexHeaderMatchToCondition(headerMatch gatewayv1.HTTPHeaderMatch) (string, error) {
+	if prefix, swMatched := parseRegexForStartsWith(headerMatch.Value); swMatched {
+		return fmt.Sprintf(`http.request.headers[(i '%s')][0] sw (i '%s')`, headerMatch.Name, prefix), nil
+	}
+	if suffix, ewMatched := parseRegexForEndsWith(headerMatch.Value); ewMatched {
+		return fmt.Sprintf(`http.request.headers[(i '%s')][0] ew (i '%s')`, headerMatch.Name, suffix), nil
+	}
+	return "", fmt.Errorf(
+		"%w: regex header matching for header '%s'",
+		errUnsupportedMatch,
+		headerMatch.Name,
+	)
 }
 
 func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchesToCondition(

@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/gemyago/oke-gateway-api/internal/types"
 	"go.uber.org/dig"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -18,6 +17,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	"github.com/gemyago/oke-gateway-api/internal/types"
 )
 
 type ConfigDeps struct {
@@ -55,6 +56,7 @@ func newConfig(deps ConfigDeps) (*rest.Config, error) {
 	return clientcmd.BuildConfigFromFlags("", kubeconfig)
 }
 
+//nolint:ireturn // controller-runtime constructs managers behind an interface.
 func newManager(config *rest.Config) (manager.Manager, error) {
 	scheme := runtime.NewScheme()
 
@@ -75,6 +77,7 @@ func newManager(config *rest.Config) (manager.Manager, error) {
 	})
 }
 
+//nolint:ireturn // controller-runtime exposes clients through an interface.
 func newClient(manager manager.Manager) (client.Client, error) {
 	return manager.GetClient(), nil
 }

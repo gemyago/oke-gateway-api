@@ -13,7 +13,7 @@ const (
 	Version = "v1"
 )
 
-// Adds the list of known types to Scheme.
+// AddKnownTypes adds the list of known types to Scheme.
 func AddKnownTypes(scheme *runtime.Scheme) error {
 	groupVersion := schema.GroupVersion{Group: GroupName, Version: Version}
 	scheme.AddKnownTypes(groupVersion,

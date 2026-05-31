@@ -3,9 +3,8 @@ package app
 import (
 	"math/rand/v2"
 
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
-	"github.com/samber/lo"
 )
 
 type randomOCIBackendSetOpt func(*loadbalancer.BackendSet)
@@ -13,6 +12,7 @@ type randomOCIBackendSetOpt func(*loadbalancer.BackendSet)
 func makeRandomOCIBackendSet(
 	opts ...randomOCIBackendSetOpt,
 ) loadbalancer.BackendSet {
+	fake := faker.New()
 	var knownPolicies = []string{
 		"ROUND_ROBIN",
 		"LEAST_CONNECTIONS",
@@ -20,23 +20,23 @@ func makeRandomOCIBackendSet(
 		"STICKY_SESSION",
 	}
 	bs := loadbalancer.BackendSet{
-		Name: lo.ToPtr(faker.DomainName()),
+		Name: new(fake.Internet().Domain()),
 		HealthChecker: &loadbalancer.HealthChecker{
-			Protocol:   lo.ToPtr("HTTP"),
-			Port:       lo.ToPtr(rand.IntN(65535)),
-			UrlPath:    lo.ToPtr("/" + faker.Word()),
-			ReturnCode: lo.ToPtr(200),
+			Protocol:   new("HTTP"),
+			Port:       new(rand.IntN(65535)),
+			UrlPath:    new("/" + fake.Lorem().Word()),
+			ReturnCode: new(200),
 		},
-		Policy:                lo.ToPtr(knownPolicies[rand.IntN(len(knownPolicies))]),
-		BackendMaxConnections: lo.ToPtr(rand.IntN(1000)),
+		Policy:                new(knownPolicies[rand.IntN(len(knownPolicies))]),
+		BackendMaxConnections: new(rand.IntN(1000)),
 		SslConfiguration: &loadbalancer.SslConfiguration{
-			CertificateName: lo.ToPtr(faker.DomainName()),
+			CertificateName: new(fake.Internet().Domain()),
 		},
 		SessionPersistenceConfiguration: &loadbalancer.SessionPersistenceConfigurationDetails{
-			CookieName: lo.ToPtr(faker.DomainName()),
+			CookieName: new(fake.Internet().Domain()),
 		},
 		LbCookieSessionPersistenceConfiguration: &loadbalancer.LbCookieSessionPersistenceConfigurationDetails{
-			CookieName: lo.ToPtr(faker.DomainName()),
+			CookieName: new(fake.Internet().Domain()),
 		},
 	}
 
@@ -49,7 +49,7 @@ func makeRandomOCIBackendSet(
 
 func randomOCIBackendSetWithNameOpt(name string) randomOCIBackendSetOpt {
 	return func(bs *loadbalancer.BackendSet) {
-		bs.Name = lo.ToPtr(name)
+		bs.Name = new(name)
 	}
 }
 
@@ -60,10 +60,11 @@ func randomOCIBackendSetWithBackendsOpt(backends []loadbalancer.Backend) randomO
 }
 
 func makeRandomOCIBackend() loadbalancer.Backend {
+	fake := faker.New()
 	return loadbalancer.Backend{
-		Name:      lo.ToPtr(faker.DomainName()),
-		Port:      lo.ToPtr(rand.IntN(65535)),
-		IpAddress: lo.ToPtr(faker.IPv4()),
+		Name:      new(fake.Internet().Domain()),
+		Port:      new(rand.IntN(65535)),
+		IpAddress: new(fake.Internet().Ipv4()),
 	}
 }
 
@@ -77,9 +78,10 @@ func makeFewRandomOCIBackends() []loadbalancer.Backend {
 }
 
 func makeRandomOCIBackendDetails() loadbalancer.BackendDetails {
+	fake := faker.New()
 	return loadbalancer.BackendDetails{
-		Port:      lo.ToPtr(rand.IntN(65535)),
-		IpAddress: lo.ToPtr(faker.IPv4()),
+		Port:      new(rand.IntN(65535)),
+		IpAddress: new(fake.Internet().Ipv4()),
 	}
 }
 
@@ -97,8 +99,9 @@ type randomOCIListenerOpt func(*loadbalancer.Listener)
 func makeRandomOCIListener(
 	opts ...randomOCIListenerOpt,
 ) loadbalancer.Listener {
+	fake := faker.New()
 	listener := loadbalancer.Listener{
-		Name: lo.ToPtr(faker.DomainName()),
+		Name: new(fake.Internet().Domain()),
 	}
 
 	for _, opt := range opts {
@@ -113,8 +116,9 @@ type randomOCILoadBalancerOpt func(*loadbalancer.LoadBalancer)
 func makeRandomOCILoadBalancer(
 	opts ...randomOCILoadBalancerOpt,
 ) loadbalancer.LoadBalancer {
+	fake := faker.New()
 	lb := loadbalancer.LoadBalancer{
-		Id:        lo.ToPtr(faker.UUIDHyphenated()),
+		Id:        new(fake.UUID().V4()),
 		Listeners: map[string]loadbalancer.Listener{},
 	}
 
@@ -156,8 +160,9 @@ type randomOCIRoutingPolicyOpt func(*loadbalancer.RoutingPolicy)
 func makeRandomOCIRoutingPolicy(
 	opts ...randomOCIRoutingPolicyOpt,
 ) loadbalancer.RoutingPolicy {
+	fake := faker.New()
 	policy := loadbalancer.RoutingPolicy{
-		Name:                     lo.ToPtr(faker.DomainName()),
+		Name:                     new(fake.Internet().Domain()),
 		ConditionLanguageVersion: loadbalancer.RoutingPolicyConditionLanguageVersionV1,
 		Rules: []loadbalancer.RoutingRule{
 			makeRandomOCIRoutingRule(),
@@ -173,16 +178,18 @@ func makeRandomOCIRoutingPolicy(
 }
 
 func makeRandomOCIRoutingRule() loadbalancer.RoutingRule {
+	fake := faker.New()
 	return loadbalancer.RoutingRule{
-		Name: lo.ToPtr(faker.UUIDHyphenated() + "-rr." + faker.DomainName()),
+		Name: new(fake.UUID().V4() + "-rr." + fake.Internet().Domain()),
 	}
 }
 
 func makeRandomOCICertificate() loadbalancer.Certificate {
+	fake := faker.New()
 	return loadbalancer.Certificate{
-		CertificateName:   lo.ToPtr(faker.DomainName()),
-		PublicCertificate: lo.ToPtr(faker.UUIDHyphenated()),
-		CaCertificate:     lo.ToPtr(faker.UUIDHyphenated()),
+		CertificateName:   new(fake.Internet().Domain()),
+		PublicCertificate: new(fake.UUID().V4()),
+		CaCertificate:     new(fake.UUID().V4()),
 	}
 }
 

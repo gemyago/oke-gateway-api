@@ -8,21 +8,23 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gemyago/oke-gateway-api/internal/diag"
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/gemyago/oke-gateway-api/internal/diag"
 )
 
 func TestRecover(t *testing.T) {
 	rootLogger := diag.RootTestLogger()
 
 	t.Run("should call next", func(t *testing.T) {
+		fake := faker.New()
 		nextCalled := true
 		wantNextStatus := 200 + rand.Intn(399)
-		wantRes := map[string]interface{}{
-			"key1": faker.UUIDHyphenated(),
-			"key2": faker.UUIDHyphenated(),
+		wantRes := map[string]any{
+			"key1": fake.UUID().V4(),
+			"key2": fake.UUID().V4(),
 		}
 		next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			nextCalled = true
@@ -37,7 +39,7 @@ func TestRecover(t *testing.T) {
 		assert.True(t, nextCalled)
 		assert.Equal(t, wantNextStatus, w.Code)
 
-		var gotRes map[string]interface{}
+		var gotRes map[string]any
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&gotRes))
 		assert.Equal(t, wantRes, gotRes)
 	})

@@ -1,11 +1,12 @@
 package app
 
 import (
-	"github.com/gemyago/oke-gateway-api/internal/di"
-	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"go.uber.org/dig"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/gemyago/oke-gateway-api/internal/di"
+	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
 )
 
 func Register(container *dig.Container) error {
@@ -16,12 +17,13 @@ func Register(container *dig.Container) error {
 		NewGatewayClassController,
 		NewGatewayController,
 		NewHTTPRouteController,
-		newResourcesModel,
-		newGatewayModel,
-		newHTTPRouteModel,
-		newOciLoadBalancerModel,
+		di.ProvideFactoryAs[resourcesModel](newResourcesModel),
+		di.ProvideFactoryAs[gatewayModel](newGatewayModel),
+		di.ProvideFactoryAs[httpRouteModel](newHTTPRouteModel),
+		di.ProvideFactoryAs[ociLoadBalancerModel](newOciLoadBalancerModel),
 		newOciLoadBalancerRoutingRulesMapper,
-		newHTTPBackendModel,
+		di.ProvideAs[*ociLoadBalancerRoutingRulesMapperImpl, ociLoadBalancerRoutingRulesMapper],
+		di.ProvideFactoryAs[httpBackendModel](newHTTPBackendModel),
 		NewWatchesModel,
 	)
 }

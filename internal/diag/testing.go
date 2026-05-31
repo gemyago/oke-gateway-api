@@ -17,7 +17,7 @@ import (
 func openTestLogFile() *os.File {
 	_, filename, _, _ := runtime.Caller(0) // Will be current file
 	testFilePath := filepath.Join(filename, "..", "..", "..", "test.log")
-	f, err := os.OpenFile(testFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o666)
+	f, err := os.OpenFile(testFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		err = fmt.Errorf("fail to open log file %q for test logging: %w", testFilePath, err)
 		panic(err)

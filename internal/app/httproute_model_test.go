@@ -8,9 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gemyago/oke-gateway-api/internal/diag"
-	k8sapi "github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
@@ -25,6 +23,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	"github.com/gemyago/oke-gateway-api/internal/diag"
+	k8sapi "github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
 )
 
 func TestHTTPRouteModelImpl(t *testing.T) {
@@ -40,13 +41,14 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 	t.Run("resolveRequest", func(t *testing.T) {
 		t.Run("relevant parent", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
-					Namespace: faker.Word(),
-					Name:      faker.Word(),
+					Namespace: fake.Lorem().Word(),
+					Name:      fake.Lorem().Word(),
 				},
 			}
 			otherRef1 := makeRandomParentRef()
@@ -134,16 +136,17 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 
 		t.Run("relevant parent with section name", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
-					Namespace: faker.Word(),
-					Name:      faker.Word(),
+					Namespace: fake.Lorem().Word(),
+					Name:      fake.Lorem().Word(),
 				},
 			}
-			wantSectionName := gatewayv1.SectionName(faker.Word())
+			wantSectionName := gatewayv1.SectionName(fake.Lorem().Word())
 			workingRef := makeRandomParentRef(
 				func(p *gatewayv1.ParentReference) { p.SectionName = &wantSectionName },
 			)
@@ -212,17 +215,18 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 
 		t.Run("relevant parent with multiple sections", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
-					Namespace: faker.Word(),
-					Name:      faker.Word(),
+					Namespace: fake.Lorem().Word(),
+					Name:      fake.Lorem().Word(),
 				},
 			}
-			sectionName1 := gatewayv1.SectionName(faker.Word())
-			sectionName2 := gatewayv1.SectionName(faker.Word())
+			sectionName1 := gatewayv1.SectionName(fake.Lorem().Word())
+			sectionName2 := gatewayv1.SectionName(fake.Lorem().Word())
 			require.NotEqual(t, sectionName1, sectionName2) // Ensure different sections
 
 			// Two refs pointing to the same gateway, but different sections
@@ -317,16 +321,17 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 
 		t.Run("relevant parent with non-matching section name", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
-					Namespace: faker.Word(),
-					Name:      faker.Word(),
+					Namespace: fake.Lorem().Word(),
+					Name:      fake.Lorem().Word(),
 				},
 			}
-			nonMatchingSectionName := gatewayv1.SectionName(faker.Word())
+			nonMatchingSectionName := gatewayv1.SectionName(fake.Lorem().Word())
 			refWithNonMatchingSection := makeRandomParentRef(
 				func(p *gatewayv1.ParentReference) { p.SectionName = &nonMatchingSectionName },
 			)
@@ -413,16 +418,17 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 
 		t.Run("no relevant parent when section name does not match", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
-					Namespace: faker.Word(),
-					Name:      faker.Word(),
+					Namespace: fake.Lorem().Word(),
+					Name:      fake.Lorem().Word(),
 				},
 			}
-			nonMatchingSectionName := gatewayv1.SectionName(faker.Word())
+			nonMatchingSectionName := gatewayv1.SectionName(fake.Lorem().Word())
 			workingRef := makeRandomParentRef(
 				func(p *gatewayv1.ParentReference) { p.SectionName = &nonMatchingSectionName },
 			)
@@ -467,13 +473,14 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 
 		t.Run("no relevant parent", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
-					Namespace: faker.Word(),
-					Name:      faker.Word(),
+					Namespace: fake.Lorem().Word(),
+					Name:      fake.Lorem().Word(),
 				},
 			}
 			otherRef1 := makeRandomParentRef()
@@ -517,13 +524,14 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 
 		t.Run("no such route", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
-					Namespace: faker.Word(),
-					Name:      faker.Word(),
+					Namespace: fake.Lorem().Word(),
+					Name:      fake.Lorem().Word(),
 				},
 			}
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
@@ -541,17 +549,18 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 
 		t.Run("client get error", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
-					Namespace: faker.Word(),
-					Name:      faker.Word(),
+					Namespace: fake.Lorem().Word(),
+					Name:      fake.Lorem().Word(),
 				},
 			}
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			expectedErr := errors.New(faker.Sentence())
+			expectedErr := errors.New(fake.Lorem().Sentence(10))
 			mockK8sClient.EXPECT().Get(t.Context(), req.NamespacedName, mock.Anything).Return(expectedErr)
 
 			results, err := model.resolveRequest(t.Context(), req)
@@ -562,13 +571,14 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 
 		t.Run("gateway resolve error", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
-					Namespace: faker.Word(),
-					Name:      faker.Word(),
+					Namespace: fake.Lorem().Word(),
+					Name:      fake.Lorem().Word(),
 				},
 			}
 			workingRef := makeRandomParentRef()
@@ -579,7 +589,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			setupClientGet(t, deps.K8sClient, req.NamespacedName, route)
 
 			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
-			expectedErr := errors.New(faker.Sentence())
+			expectedErr := errors.New(fake.Lorem().Sentence(10))
 			gatewayModel.EXPECT().resolveReconcileRequest(
 				t.Context(),
 				reconcile.Request{
@@ -601,6 +611,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 	t.Run("acceptRoute", func(t *testing.T) {
 		t.Run("add new accepted parent", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
@@ -612,7 +623,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				gatewayDetails: resolvedGatewayDetails{
 					gateway: *newRandomGateway(),
 					gatewayClass: *newRandomGatewayClass(
-						randomGatewayClassWithControllerNameOpt(gatewayv1.GatewayController(faker.Word())),
+						randomGatewayClassWithControllerNameOpt(gatewayv1.GatewayController(fake.Lorem().Word())),
 					),
 				},
 				httpRoute: makeRandomHTTPRoute(),
@@ -649,7 +660,10 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				acceptedParent.ControllerName,
 			)
 
-			gotCondition := meta.FindStatusCondition(acceptedParent.Conditions, string(gatewayv1.RouteConditionAccepted))
+			gotCondition := meta.FindStatusCondition(
+				acceptedParent.Conditions,
+				string(gatewayv1.RouteConditionAccepted),
+			)
 			require.NotNil(t, gotCondition)
 			assert.False(t, gotCondition.LastTransitionTime.IsZero())
 			assert.Equal(t, &metav1.Condition{
@@ -722,7 +736,10 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			})
 			require.True(t, found)
 
-			gotCondition := meta.FindStatusCondition(acceptedParent.Conditions, string(gatewayv1.RouteConditionAccepted))
+			gotCondition := meta.FindStatusCondition(
+				acceptedParent.Conditions,
+				string(gatewayv1.RouteConditionAccepted),
+			)
 			require.NotNil(t, gotCondition)
 			assert.False(t, gotCondition.LastTransitionTime.IsZero())
 			assert.Equal(t, &metav1.Condition{
@@ -833,7 +850,10 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			})
 			require.True(t, found)
 
-			gotCondition := meta.FindStatusCondition(acceptedParent.Conditions, string(gatewayv1.RouteConditionAccepted))
+			gotCondition := meta.FindStatusCondition(
+				acceptedParent.Conditions,
+				string(gatewayv1.RouteConditionAccepted),
+			)
 			require.NotNil(t, gotCondition)
 			assert.Equal(t, routeData.httpRoute.Generation, gotCondition.ObservedGeneration)
 			assert.Equal(t, metav1.ConditionTrue, gotCondition.Status)
@@ -841,6 +861,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 
 		t.Run("client status update error", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
@@ -853,7 +874,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			}
 
 			mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
-			expectedErr := errors.New(faker.Sentence())
+			expectedErr := errors.New(fake.Lorem().Sentence(10))
 
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
 			mockK8sClient.EXPECT().Status().Return(mockStatusWriter)
@@ -925,6 +946,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 
 		t.Run("backend service get error", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
@@ -938,7 +960,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			)
 
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			expectedErr := errors.New(faker.Sentence())
+			expectedErr := errors.New(fake.Lorem().Sentence(10))
 			mockK8sClient.EXPECT().Get(t.Context(), mock.Anything, mock.Anything).Return(expectedErr)
 
 			_, err := model.resolveBackendRefs(t.Context(), resolveBackendRefsParams{
@@ -1077,7 +1099,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			expectedRules := make([]loadbalancer.RoutingRule, 0, len(httpRoute.Spec.Rules))
 			for i := range httpRoute.Spec.Rules {
 				rule := makeRandomOCIRoutingRule()
-				rule.Name = lo.ToPtr(ociListerPolicyRuleName(httpRoute, i))
+				rule.Name = new(ociListerPolicyRuleName(httpRoute, i))
 				expectedRules = append(expectedRules, rule)
 
 				ociLBModel.EXPECT().makeRoutingRule(t.Context(), makeRoutingRuleParams{
@@ -1101,6 +1123,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 
 		t.Run("fails when reconcile backend set fails", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
@@ -1126,7 +1149,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
 
-			wantErr := errors.New(faker.Sentence())
+			wantErr := errors.New(fake.Lorem().Sentence(10))
 
 			// First service reconciliation fails
 			ociLBModel.EXPECT().reconcileBackendSet(t.Context(), mock.Anything).Return(wantErr)
@@ -1137,6 +1160,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 
 		t.Run("fails when makeRoutingRule fails", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
@@ -1169,7 +1193,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			// Backend set reconciliation succeeds
 			ociLBModel.EXPECT().reconcileBackendSet(t.Context(), mock.Anything).Return(nil)
 
-			wantErr := errors.New(faker.Sentence())
+			wantErr := errors.New(fake.Lorem().Sentence(10))
 
 			// Making routing rule fails
 			ociLBModel.EXPECT().makeRoutingRule(t.Context(), mock.Anything).Return(loadbalancer.RoutingRule{}, wantErr)
@@ -1180,6 +1204,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 
 		t.Run("fails when commitRoutingPolicyV2 fails", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
@@ -1216,7 +1241,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			rule := makeRandomOCIRoutingRule()
 			ociLBModel.EXPECT().makeRoutingRule(t.Context(), mock.Anything).Return(rule, nil)
 
-			wantErr := errors.New(faker.Sentence())
+			wantErr := errors.New(fake.Lorem().Sentence(10))
 
 			// Committing policy fails
 			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), mock.Anything).Return(wantErr)
@@ -1230,7 +1255,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 	t.Run("isProgrammingRequired", func(t *testing.T) {
 		// Helper to create base details for isProgrammingRequired tests
 		newIsProgrammingRequiredDetails := func() (gatewayv1.GatewayController, resolvedRouteDetails) {
-			controllerName := gatewayv1.GatewayController(faker.DomainName())
+			fake := faker.New()
+			controllerName := gatewayv1.GatewayController(fake.Internet().Domain())
 			route := makeRandomHTTPRoute()
 			route.Generation = rand.Int64N(10000) + 1 // Start with a random generation
 			details := resolvedRouteDetails{
@@ -1241,20 +1267,21 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 					config:       makeRandomGatewayConfig(),
 				},
 				matchedRef: gatewayv1.ParentReference{
-					Namespace: lo.ToPtr(gatewayv1.Namespace(route.Namespace)),
-					Name:      gatewayv1.ObjectName(faker.Word()),
+					Namespace: new(gatewayv1.Namespace(route.Namespace)),
+					Name:      gatewayv1.ObjectName(fake.Lorem().Word()),
 				},
 			}
 			return controllerName, details
 		}
 
 		t.Run("ProgrammingRequired/NoMatchingParentStatus", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 			_, details := newIsProgrammingRequiredDetails()
 
 			details.httpRoute.Status.Parents = []gatewayv1.RouteParentStatus{
-				{ControllerName: gatewayv1.GatewayController(faker.Word())}, // Different controller
+				{ControllerName: gatewayv1.GatewayController(fake.Lorem().Word())}, // Different controller
 			}
 
 			required, err := model.isProgrammingRequired(details)
@@ -1297,12 +1324,13 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 
 		t.Run("ProgrammingRequired/ParentRefMismatch", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 			controllerName, details := newIsProgrammingRequiredDetails()
 
 			mismatchedParentRef := details.matchedRef
-			mismatchedParentRef.Name = gatewayv1.ObjectName(faker.Word()) // Different name
+			mismatchedParentRef.Name = gatewayv1.ObjectName(fake.Lorem().Word()) // Different name
 
 			details.httpRoute.Status.Parents = []gatewayv1.RouteParentStatus{
 				{
@@ -1319,6 +1347,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 	t.Run("setProgrammed", func(t *testing.T) {
 		t.Run("success", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
@@ -1345,9 +1374,9 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				gateway:      gatewayData.gateway,
 				matchedRef:   matchedRef,
 				programmedPolicyRules: []string{
-					"rule1-" + faker.Word(),
-					"rule2-" + faker.Word(),
-					"rule3-" + faker.Word(),
+					"rule1-" + fake.Lorem().Word(),
+					"rule2-" + fake.Lorem().Word(),
+					"rule3-" + fake.Lorem().Word(),
 				},
 			}
 
@@ -1372,6 +1401,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 
 		t.Run("parent status not found (wrong controller)", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
@@ -1383,7 +1413,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			route.Status.Parents = []gatewayv1.RouteParentStatus{
 				{
 					ParentRef:      matchedRef,
-					ControllerName: gatewayv1.GatewayController(faker.DomainName()),
+					ControllerName: gatewayv1.GatewayController(fake.Internet().Domain()),
 				},
 			}
 
@@ -1429,6 +1459,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 
 		t.Run("update fails", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
@@ -1451,7 +1482,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				matchedRef:   matchedRef,
 			}
 
-			updateErr := errors.New(faker.Sentence())
+			updateErr := errors.New(fake.Lorem().Sentence(10))
 			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
 			mockResourcesModel.EXPECT().setCondition(t.Context(), mock.Anything).Return(updateErr)
 
@@ -1462,6 +1493,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 	t.Run("deprovisionRoute", func(t *testing.T) {
 		t.Run("successfully deprovisions route with multiple listeners", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
@@ -1471,9 +1503,12 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				makeRandomBackendRef(),
 			}
 
-			backendResRules := lo.Map(wantBackendRefs, func(br gatewayv1.HTTPBackendRef, _ int) gatewayv1.HTTPRouteRule {
-				return makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(br))
-			})
+			backendResRules := lo.Map(
+				wantBackendRefs,
+				func(br gatewayv1.HTTPBackendRef, _ int) gatewayv1.HTTPRouteRule {
+					return makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(br))
+				},
+			)
 
 			config := makeRandomGatewayConfig()
 			httpRoute := makeRandomHTTPRoute(
@@ -1481,8 +1516,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			)
 
 			wantPreviousRules := []string{
-				"rule1-" + faker.Word(),
-				"rule2-" + faker.Word(),
+				"rule1-" + fake.Lorem().Word(),
+				"rule2-" + fake.Lorem().Word(),
 			}
 			annotationValue := strings.Join(wantPreviousRules, ",")
 			httpRoute.Annotations = map[string]string{
@@ -1490,7 +1525,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			}
 			httpRoute.Finalizers = []string{
 				HTTPRouteProgrammedFinalizer,
-				faker.DomainName(),
+				fake.Internet().Domain(),
 			}
 
 			listeners := makeFewRandomListeners()
@@ -1562,6 +1597,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 
 		t.Run("fails when commitRoutingPolicy fails", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 
@@ -1581,7 +1617,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			}
 
 			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
-			wantErr := errors.New(faker.Sentence())
+			wantErr := errors.New(fake.Lorem().Sentence(10))
 
 			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), mock.Anything).Return(wantErr)
 

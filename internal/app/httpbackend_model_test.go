@@ -7,8 +7,7 @@ import (
 	"math/rand/v2"
 	"testing"
 
-	"github.com/gemyago/oke-gateway-api/internal/diag"
-	"github.com/go-faker/faker/v4"
+	"github.com/jaswdr/faker/v2"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
@@ -18,6 +17,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	"github.com/gemyago/oke-gateway-api/internal/diag"
 )
 
 func TestHTTPBackendModel(t *testing.T) {
@@ -79,12 +80,13 @@ func TestHTTPBackendModel(t *testing.T) {
 			assert.NoError(t, err)
 		})
 		t.Run("deduplicate backend refs", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPBackendModel(deps)
 
-			routeNs := faker.DomainName() + "-route-ns"
-			sameRefName := faker.DomainName() + "-same-name"
-			sameNameDefaultNs := faker.DomainName() + "-same-name-default-ns"
+			routeNs := fake.Internet().Domain() + "-route-ns"
+			sameRefName := fake.Internet().Domain() + "-same-name"
+			sameNameDefaultNs := fake.Internet().Domain() + "-same-name-default-ns"
 
 			uniqueRefs := []gatewayv1.HTTPBackendRef{
 				// fully unique
@@ -155,6 +157,7 @@ func TestHTTPBackendModel(t *testing.T) {
 		})
 
 		t.Run("propagate rule sync error", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPBackendModel(deps)
 
@@ -175,7 +178,7 @@ func TestHTTPBackendModel(t *testing.T) {
 
 			mockSelf, _ := deps.self.(*MockhttpBackendModel)
 
-			expectedErr := errors.New(faker.Sentence())
+			expectedErr := errors.New(fake.Lorem().Sentence(10))
 
 			// First rule sync succeeds
 			mockSelf.EXPECT().syncRouteBackendRefEndpoints(
@@ -209,6 +212,7 @@ func TestHTTPBackendModel(t *testing.T) {
 
 	t.Run("syncRouteBackendRefEndpoints", func(t *testing.T) {
 		t.Run("update backend set", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPBackendModel(deps)
 
@@ -271,7 +275,7 @@ func TestHTTPBackendModel(t *testing.T) {
 				},
 			).Return(loadbalancer.GetBackendSetResponse{BackendSet: sampleBackendSet}, nil).Once()
 
-			wantOperationID := faker.UUIDHyphenated()
+			wantOperationID := fake.UUID().V4()
 			mockOciLoadBalancerClient.EXPECT().UpdateBackendSet(
 				t.Context(),
 				mock.MatchedBy(func(req loadbalancer.UpdateBackendSetRequest) bool {
@@ -285,12 +289,20 @@ func TestHTTPBackendModel(t *testing.T) {
 							assert.Equal(t, sampleBackendSet.HealthChecker.Port, req.HealthChecker.Port),
 							assert.Equal(t, sampleBackendSet.HealthChecker.UrlPath, req.HealthChecker.UrlPath),
 							assert.Equal(t, sampleBackendSet.HealthChecker.ReturnCode, req.HealthChecker.ReturnCode),
-							assert.Equal(t, sampleBackendSet.SessionPersistenceConfiguration, req.SessionPersistenceConfiguration),
+							assert.Equal(
+								t,
+								sampleBackendSet.SessionPersistenceConfiguration,
+								req.SessionPersistenceConfiguration,
+							),
 							assert.Equal(t,
 								sampleBackendSet.LbCookieSessionPersistenceConfiguration,
 								req.LbCookieSessionPersistenceConfiguration,
 							),
-							assert.Equal(t, sampleBackendSet.SslConfiguration.CertificateName, req.SslConfiguration.CertificateName),
+							assert.Equal(
+								t,
+								sampleBackendSet.SslConfiguration.CertificateName,
+								req.SslConfiguration.CertificateName,
+							),
 							assert.Equal(t,
 								sampleBackendSet.SslConfiguration.TrustedCertificateAuthorityIds,
 								req.SslConfiguration.TrustedCertificateAuthorityIds,
@@ -316,6 +328,7 @@ func TestHTTPBackendModel(t *testing.T) {
 		})
 
 		t.Run("update backend without explicit namespace", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPBackendModel(deps)
 
@@ -371,7 +384,7 @@ func TestHTTPBackendModel(t *testing.T) {
 				mock.Anything,
 			).Return(loadbalancer.GetBackendSetResponse{BackendSet: sampleBackendSet}, nil).Once()
 
-			wantOperationID := faker.UUIDHyphenated()
+			wantOperationID := fake.UUID().V4()
 			mockOciLoadBalancerClient.EXPECT().UpdateBackendSet(
 				t.Context(),
 				mock.Anything,
@@ -461,6 +474,7 @@ func TestHTTPBackendModel(t *testing.T) {
 
 	t.Run("identifyBackendsToUpdate", func(t *testing.T) {
 		t.Run("happy path - add new backends", func(t *testing.T) {
+			fake := faker.New()
 			deps := newMockDeps(t)
 			model := newHTTPBackendModel(deps)
 			refPort := int32(rand.IntN(65534) + 1)
@@ -471,16 +485,16 @@ func TestHTTPBackendModel(t *testing.T) {
 			numEndpoints := 3 + rand.IntN(3) // 3 to 5 endpoints
 			endpoints := makeFewRandomEndpoints(
 				numEndpoints,
-				randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)), // All ready, not terminating
+				randomEndpointWithConditionsOpt(new(true), new(false)), // All ready, not terminating
 			)
 
 			// Distribute endpoints into multiple slices and lists
 			slice1 := discoveryv1.EndpointSlice{
-				ObjectMeta: metav1.ObjectMeta{Name: faker.UUIDHyphenated()},
+				ObjectMeta: metav1.ObjectMeta{Name: fake.UUID().V4()},
 				Endpoints:  endpoints[:numEndpoints/2], // First half
 			}
 			slice2 := discoveryv1.EndpointSlice{
-				ObjectMeta: metav1.ObjectMeta{Name: faker.UUIDHyphenated()},
+				ObjectMeta: metav1.ObjectMeta{Name: fake.UUID().V4()},
 				Endpoints:  endpoints[numEndpoints/2:], // Second half
 			}
 
@@ -497,8 +511,8 @@ func TestHTTPBackendModel(t *testing.T) {
 			for _, endpoint := range endpoints {
 				expectedUpdatedBackends = append(expectedUpdatedBackends, loadbalancer.BackendDetails{
 					IpAddress: &endpoint.Addresses[0],
-					Port:      lo.ToPtr(int(refPort)),
-					Drain:     lo.ToPtr(false),
+					Port:      new(int(refPort)),
+					Drain:     new(false),
 				})
 			}
 
@@ -522,13 +536,13 @@ func TestHTTPBackendModel(t *testing.T) {
 			model := newHTTPBackendModel(newMockDeps(t))
 			refPort := int32(rand.IntN(65534) + 1)
 
-			initialEndpoints := makeFewRandomEndpoints(3, randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
+			initialEndpoints := makeFewRandomEndpoints(3, randomEndpointWithConditionsOpt(new(true), new(false)))
 			currentBackends := lo.Map(initialEndpoints, func(ep discoveryv1.Endpoint, i int) loadbalancer.Backend {
 				return loadbalancer.Backend{
-					Name:      lo.ToPtr(fmt.Sprintf("backend-%d", i)),
+					Name:      new(fmt.Sprintf("backend-%d", i)),
 					IpAddress: &ep.Addresses[0],
-					Port:      lo.ToPtr(int(refPort)),
-					Drain:     lo.ToPtr(false),
+					Port:      new(int(refPort)),
+					Drain:     new(false),
 				}
 			})
 
@@ -550,8 +564,8 @@ func TestHTTPBackendModel(t *testing.T) {
 				func(ep discoveryv1.Endpoint, _ int) loadbalancer.BackendDetails {
 					return loadbalancer.BackendDetails{
 						IpAddress: &ep.Addresses[0],
-						Port:      lo.ToPtr(int(refPort)),
-						Drain:     lo.ToPtr(false),
+						Port:      new(int(refPort)),
+						Drain:     new(false),
 					}
 				})
 			expectedResult := identifyBackendsToUpdateResult{
@@ -568,21 +582,22 @@ func TestHTTPBackendModel(t *testing.T) {
 		})
 
 		t.Run("drain status update - start draining", func(t *testing.T) {
+			fake := faker.New()
 			model := newHTTPBackendModel(newMockDeps(t))
 			refPort := int32(rand.IntN(65534) + 1)
 
-			initialEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
+			initialEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(new(true), new(false)))
 			currentBackends := []loadbalancer.Backend{
 				{
-					Name:      lo.ToPtr(faker.Word()),
+					Name:      new(fake.Lorem().Word()),
 					IpAddress: &initialEndpoint.Addresses[0],
-					Port:      lo.ToPtr(int(refPort)),
-					Drain:     lo.ToPtr(false),
+					Port:      new(int(refPort)),
+					Drain:     new(false),
 				},
 			}
 
 			drainingEndpoint := initialEndpoint
-			drainingEndpoint.Conditions.Terminating = lo.ToPtr(true)
+			drainingEndpoint.Conditions.Terminating = new(true)
 			endpointSlices := []discoveryv1.EndpointSlice{
 				{Endpoints: []discoveryv1.Endpoint{drainingEndpoint}},
 			}
@@ -596,8 +611,8 @@ func TestHTTPBackendModel(t *testing.T) {
 			expectedUpdatedBackends := []loadbalancer.BackendDetails{
 				{
 					IpAddress: &initialEndpoint.Addresses[0],
-					Port:      lo.ToPtr(int(refPort)),
-					Drain:     lo.ToPtr(true),
+					Port:      new(int(refPort)),
+					Drain:     new(true),
 				},
 			}
 			expectedResult := identifyBackendsToUpdateResult{
@@ -614,21 +629,22 @@ func TestHTTPBackendModel(t *testing.T) {
 		})
 
 		t.Run("drain status update - stop draining", func(t *testing.T) {
+			fake := faker.New()
 			model := newHTTPBackendModel(newMockDeps(t))
 			refPort := int32(rand.IntN(65534) + 1)
 
-			initialEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(true)))
+			initialEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(new(true), new(true)))
 			currentBackends := []loadbalancer.Backend{
 				{
-					Name:      lo.ToPtr(faker.Word()),
+					Name:      new(fake.Lorem().Word()),
 					IpAddress: &initialEndpoint.Addresses[0],
-					Port:      lo.ToPtr(int(refPort)),
-					Drain:     lo.ToPtr(true),
+					Port:      new(int(refPort)),
+					Drain:     new(true),
 				},
 			}
 
 			notDrainingEndpoint := initialEndpoint
-			notDrainingEndpoint.Conditions.Terminating = lo.ToPtr(false)
+			notDrainingEndpoint.Conditions.Terminating = new(false)
 			endpointSlices := []discoveryv1.EndpointSlice{
 				{Endpoints: []discoveryv1.Endpoint{notDrainingEndpoint}},
 			}
@@ -642,8 +658,8 @@ func TestHTTPBackendModel(t *testing.T) {
 			expectedUpdatedBackends := []loadbalancer.BackendDetails{
 				{
 					IpAddress: &initialEndpoint.Addresses[0],
-					Port:      lo.ToPtr(int(refPort)),
-					Drain:     lo.ToPtr(false),
+					Port:      new(int(refPort)),
+					Drain:     new(false),
 				},
 			}
 			expectedResult := identifyBackendsToUpdateResult{
@@ -663,14 +679,14 @@ func TestHTTPBackendModel(t *testing.T) {
 			model := newHTTPBackendModel(newMockDeps(t))
 			refPort := int32(rand.IntN(65534) + 1)
 
-			ep1 := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
-			ep2 := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(true)))
+			ep1 := makeRandomEndpoint(randomEndpointWithConditionsOpt(new(true), new(false)))
+			ep2 := makeRandomEndpoint(randomEndpointWithConditionsOpt(new(true), new(true)))
 			initialEndpoints := []discoveryv1.Endpoint{ep1, ep2}
 			currentBackends := lo.Map(initialEndpoints, func(ep discoveryv1.Endpoint, i int) loadbalancer.Backend {
 				return loadbalancer.Backend{
-					Name:      lo.ToPtr(fmt.Sprintf("backend-%d", i)),
+					Name:      new(fmt.Sprintf("backend-%d", i)),
 					IpAddress: &ep.Addresses[0],
-					Port:      lo.ToPtr(int(refPort)),
+					Port:      new(int(refPort)),
 					Drain:     ep.Conditions.Terminating,
 				}
 			})
@@ -687,13 +703,16 @@ func TestHTTPBackendModel(t *testing.T) {
 
 			expectedResult := identifyBackendsToUpdateResult{
 				updateRequired: false,
-				updatedBackends: lo.Map(currentBackends, func(b loadbalancer.Backend, _ int) loadbalancer.BackendDetails {
-					return loadbalancer.BackendDetails{
-						IpAddress: b.IpAddress,
-						Port:      b.Port,
-						Drain:     b.Drain,
-					}
-				}),
+				updatedBackends: lo.Map(
+					currentBackends,
+					func(b loadbalancer.Backend, _ int) loadbalancer.BackendDetails {
+						return loadbalancer.BackendDetails{
+							IpAddress: b.IpAddress,
+							Port:      b.Port,
+							Drain:     b.Drain,
+						}
+					},
+				),
 				drainingCount: 1, // ep2 was draining
 			}
 
@@ -708,13 +727,13 @@ func TestHTTPBackendModel(t *testing.T) {
 			model := newHTTPBackendModel(newMockDeps(t))
 			refPort := int32(rand.IntN(65534) + 1)
 
-			initialEndpoints := makeFewRandomEndpoints(2, randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
+			initialEndpoints := makeFewRandomEndpoints(2, randomEndpointWithConditionsOpt(new(true), new(false)))
 			currentBackends := lo.Map(initialEndpoints, func(ep discoveryv1.Endpoint, i int) loadbalancer.Backend {
 				return loadbalancer.Backend{
-					Name:      lo.ToPtr(fmt.Sprintf("backend-%d", i)),
+					Name:      new(fmt.Sprintf("backend-%d", i)),
 					IpAddress: &ep.Addresses[0],
-					Port:      lo.ToPtr(int(refPort)),
-					Drain:     lo.ToPtr(false),
+					Port:      new(int(refPort)),
+					Drain:     new(false),
 				}
 			})
 
@@ -743,17 +762,17 @@ func TestHTTPBackendModel(t *testing.T) {
 			model := newHTTPBackendModel(newMockDeps(t))
 			refPort := int32(rand.IntN(65534) + 1)
 
-			initialEndpoints := makeFewRandomEndpoints(2, randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
+			initialEndpoints := makeFewRandomEndpoints(2, randomEndpointWithConditionsOpt(new(true), new(false)))
 			currentBackends := lo.Map(initialEndpoints, func(ep discoveryv1.Endpoint, i int) loadbalancer.Backend {
 				return loadbalancer.Backend{
-					Name:      lo.ToPtr(fmt.Sprintf("backend-%d", i)),
+					Name:      new(fmt.Sprintf("backend-%d", i)),
 					IpAddress: &ep.Addresses[0],
-					Port:      lo.ToPtr(int(refPort)),
-					Drain:     lo.ToPtr(false),
+					Port:      new(int(refPort)),
+					Drain:     new(false),
 				}
 			})
 
-			nonReadyEndpoints := makeFewRandomEndpoints(2, randomEndpointWithConditionsOpt(lo.ToPtr(false), nil))
+			nonReadyEndpoints := makeFewRandomEndpoints(2, randomEndpointWithConditionsOpt(new(false), nil))
 			endpointSlices := []discoveryv1.EndpointSlice{
 				{Endpoints: nonReadyEndpoints},
 			}
@@ -808,8 +827,8 @@ func TestHTTPBackendModel(t *testing.T) {
 			refPort := int32(rand.IntN(65534) + 1)
 
 			// One endpoint with address, one without
-			endpointWithAddr := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
-			endpointWithoutAddr := makeRandomEndpoint(randomEndpointWithConditionsOpt(lo.ToPtr(true), lo.ToPtr(false)))
+			endpointWithAddr := makeRandomEndpoint(randomEndpointWithConditionsOpt(new(true), new(false)))
+			endpointWithoutAddr := makeRandomEndpoint(randomEndpointWithConditionsOpt(new(true), new(false)))
 			endpointWithoutAddr.Addresses = []string{}
 
 			currentBackends := []loadbalancer.Backend{}
@@ -827,8 +846,8 @@ func TestHTTPBackendModel(t *testing.T) {
 			expectedUpdatedBackends := []loadbalancer.BackendDetails{
 				{
 					IpAddress: &endpointWithAddr.Addresses[0],
-					Port:      lo.ToPtr(int(refPort)),
-					Drain:     lo.ToPtr(false),
+					Port:      new(int(refPort)),
+					Drain:     new(false),
 				},
 			}
 			expectedResult := identifyBackendsToUpdateResult{

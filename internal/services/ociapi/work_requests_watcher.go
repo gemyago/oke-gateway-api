@@ -27,6 +27,36 @@ type WorkRequestsWatcher struct {
 	maxPollDuration time.Duration
 }
 
+type WorkRequestsWatcherDeps struct {
+	dig.In `ignore-unexported:"true"`
+
+	Client     workRequestsClient
+	RootLogger *slog.Logger
+
+	pollInterval    time.Duration
+	maxPollDuration time.Duration
+}
+
+const defaultPollInterval = 2 * time.Second
+const defaultMaxPollDuration = 20 * time.Minute
+
+func NewWorkRequestsWatcher(deps WorkRequestsWatcherDeps) *WorkRequestsWatcher {
+	if deps.pollInterval == 0 {
+		deps.pollInterval = defaultPollInterval
+	}
+
+	if deps.maxPollDuration == 0 {
+		deps.maxPollDuration = defaultMaxPollDuration
+	}
+
+	return &WorkRequestsWatcher{
+		client:          deps.Client,
+		logger:          deps.RootLogger.WithGroup("oci-work-requests"),
+		pollInterval:    deps.pollInterval,
+		maxPollDuration: deps.maxPollDuration,
+	}
+}
+
 // WaitFor waits for a work request to succeed.
 func (w *WorkRequestsWatcher) WaitFor(ctx context.Context, workRequestID string) error {
 	request := loadbalancer.GetWorkRequestRequest{
@@ -66,35 +96,5 @@ func (w *WorkRequestsWatcher) WaitFor(ctx context.Context, workRequestID string)
 		case <-ctx.Done():
 			return fmt.Errorf("work request %s timed out: %w", workRequestID, context.Canceled)
 		}
-	}
-}
-
-type WorkRequestsWatcherDeps struct {
-	dig.In `ignore-unexported:"true"`
-
-	Client     workRequestsClient
-	RootLogger *slog.Logger
-
-	pollInterval    time.Duration
-	maxPollDuration time.Duration
-}
-
-const defaultPollInterval = 2 * time.Second
-const defaultMaxPollDuration = 20 * time.Minute
-
-func NewWorkRequestsWatcher(deps WorkRequestsWatcherDeps) *WorkRequestsWatcher {
-	if deps.pollInterval == 0 {
-		deps.pollInterval = defaultPollInterval
-	}
-
-	if deps.maxPollDuration == 0 {
-		deps.maxPollDuration = defaultMaxPollDuration
-	}
-
-	return &WorkRequestsWatcher{
-		client:          deps.Client,
-		logger:          deps.RootLogger.WithGroup("oci-work-requests"),
-		pollInterval:    deps.pollInterval,
-		maxPollDuration: deps.maxPollDuration,
 	}
 }

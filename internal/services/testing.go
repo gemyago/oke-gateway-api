@@ -7,9 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jaswdr/faker/v2"
+
 	"github.com/gemyago/oke-gateway-api/internal/diag"
-	"github.com/go-faker/faker/v4"
 )
+
+const randomStringSegmentLength = 32
 
 type MockNow struct {
 	value time.Time
@@ -17,18 +20,19 @@ type MockNow struct {
 
 var _ TimeProvider = &MockNow{}
 
+func NewMockNow() *MockNow {
+	fake := faker.New()
+	return &MockNow{
+		value: time.UnixMilli(fake.Time().Unix(time.Now())),
+	}
+}
+
 func (m *MockNow) SetValue(t time.Time) {
 	m.value = t
 }
 
 func (m *MockNow) Now() time.Time {
 	return m.value
-}
-
-func NewMockNow() *MockNow {
-	return &MockNow{
-		value: time.UnixMilli(faker.RandomUnixTime()),
-	}
 }
 
 func MockNowValue(p TimeProvider) time.Time {
@@ -49,10 +53,11 @@ func NewTestShutdownHooks() *ShutdownHooks {
 }
 
 func RandomString(length int) string {
-	segmentsCount := math.Ceil(float64(length) / 32)
+	fake := faker.New()
+	segmentsCount := math.Ceil(float64(length) / randomStringSegmentLength)
 	segments := make([]string, int(segmentsCount))
 	for i := range segments {
-		segments[i] = faker.UUIDDigit()
+		segments[i] = fake.Numerify("################################")
 	}
 	return strings.Join(segments, "")[:length]
 }

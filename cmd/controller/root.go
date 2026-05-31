@@ -5,14 +5,15 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/samber/lo"
+	"github.com/spf13/cobra"
+	"go.uber.org/dig"
+
 	"github.com/gemyago/oke-gateway-api/internal/app"
 	"github.com/gemyago/oke-gateway-api/internal/config"
 	"github.com/gemyago/oke-gateway-api/internal/di"
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/gemyago/oke-gateway-api/internal/services"
-	"github.com/samber/lo"
-	"github.com/spf13/cobra"
-	"go.uber.org/dig"
 )
 
 func newRootCmd(container *dig.Container) *cobra.Command {

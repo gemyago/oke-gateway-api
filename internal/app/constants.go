@@ -1,7 +1,6 @@
 package app
 
 const (
-
 	// ControllerClassName is the name of the controller managing resources.
 	ControllerClassName = "oke-gateway-api.gemyago.github.io/oke-alb-gateway-controller"
 
@@ -9,7 +8,7 @@ const (
 	// The revision may be incremented if additional programming steps are introduced by the controller.
 	GatewayProgrammingRevisionAnnotation = "oke-gateway-api.gemyago.github.io/gateway-programming-revision"
 
-	// For each secret the prefix will be extended with secret full name and value will be a revision of the secret.
+	// GatewayUsedSecretsAnnotationPrefix is extended with each secret full name and stores the secret revision.
 	GatewayUsedSecretsAnnotationPrefix = "secrets.oke-gateway-api.gemyago.github.io"
 
 	// HTTPRouteProgrammingRevisionAnnotation is the annotation for the http route programming revision.
@@ -30,7 +29,7 @@ const (
 
 	// HTTPRouteProgrammingRevisionValue is the value for the http route programming revision.
 	// Incremented when the controller programming steps are changed.
-	HTTPRouteProgrammingRevisionValue = "1"
+	HTTPRouteProgrammingRevisionValue = "2"
 )
 
 const ConfigRefGroup = "oke-gateway-api.gemyago.github.io"
