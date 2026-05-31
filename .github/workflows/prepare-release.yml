@@ -67,8 +67,7 @@ jobs:
             --title "Release ${{ github.event.inputs.release_name }}" \
             --body "This PR prepares the release ${{ github.event.inputs.release_name }}.
             Changes include:
-            - Updated chart version
-            - Updated app version" \
+            - Synced chart version with app version" \
             --head "$BRANCH_NAME" \
             --base main \
             --draft)

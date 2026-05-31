@@ -7,7 +7,7 @@ usage() {
   echo "Usage: $0 --chart-file <path> --app-version <version> [--noop] [--commit]"
   echo "Options:"
   echo "  --chart-file <path>       Path to the Chart.yaml file (e.g., deploy/helm/controller/Chart.yaml)"
-  echo "  --app-version <version>   Version to set as appVersion (e.g., main, v1.2.3, feature/xyz)"
+  echo "  --app-version <version>   Release version to set as appVersion (e.g., v1.2.3)"
   echo "  --noop                    Show what would be changed without making changes"
   echo "  --commit                  Commit changes after updating"
   echo "  -h, --help                Show this help message"
@@ -74,22 +74,14 @@ echo "Current chart version (before update):"
 grep -E '^version: ' "$CHART_FILE"
 grep -E '^appVersion: ' "$CHART_FILE"
 
-# Read current version and increment patch version
-current_version=$(grep -E '^version: ' "$CHART_FILE" | cut -d' ' -f2 | tr -d '"')
+# Helm chart versions must be SemVer and cannot include a leading "v".
+new_version="${APP_VERSION#v}"
 
-# Ensure current_version is in a valid format like x.y.z
-if ! echo "$current_version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-    echo "Error: Current version '$current_version' is not in a valid x.y.z format."
-    echo "To prevent partial updates, please ensure Chart.yaml versions are standard before running."
+if ! echo "$new_version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'; then
+    echo "Error: App version '$APP_VERSION' does not resolve to a valid Helm chart version."
+    echo "Expected a release version like v1.2.3 or v1.2.3-rc.1."
     exit 1
 fi
-
-# Increment patch version (e.g., 0.1.0 -> 0.1.1)
-major=$(echo "$current_version" | cut -d. -f1)
-minor=$(echo "$current_version" | cut -d. -f2)
-patch=$(echo "$current_version" | cut -d. -f3)
-new_patch=$((patch + 1))
-new_version="${major}.${minor}.${new_patch}"
 
 echo ""
 echo "Changes that would be made:"
@@ -97,7 +89,7 @@ echo "  New appVersion: $APP_VERSION"
 echo "  New version: $new_version"
 
 if [[ "$COMMIT" == "true" ]]; then
-  commit_msg="chore: update chart version to $new_version and appVersion to $APP_VERSION"
+  commit_msg="chore: sync chart version $new_version with appVersion $APP_VERSION"
   if [[ "$NOOP" == "true" ]]; then
     echo ""
     echo "Commit message that would be used:"
