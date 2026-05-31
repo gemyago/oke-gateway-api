@@ -24,7 +24,9 @@ kubectl apply -n oke-gw -f manifests/examples/serverroutes.yaml
 
 ## Publish helm chart
 
-Helm chart is built and published automatically with each release. Steps below are for local testing. Run the following from deploy directory:
+Helm chart is built and published automatically with each release. Steps below are for local testing. Run the following from deploy directory.
+
+Release tooling keeps the chart `version` in sync with `appVersion`, without the leading `v`.
 
 ```sh
 # Login to ghcr registry (assuming you have gh cli configured)
@@ -39,4 +41,3 @@ CHART_VERSION=$(helm show chart helm/controller/ | grep 'version:' | cut -d' ' -
 # Push the chart to the registry
 helm push tmp/oke-gateway-api-controller-${CHART_VERSION}.tgz oci://ghcr.io/gemyago/helm-charts
 ```
-

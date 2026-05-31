@@ -45,6 +45,10 @@ If you touch build scripts:
 If you touch deployment assets:
 - Install Helm locally: `make -C deploy tools`
 
+Release versioning:
+- Helm chart `version` tracks the controller release without a leading `v`.
+- Helm chart `appVersion` tracks the controller release tag with the leading `v`.
+
 ## Safe Local Runs
 
 Use `--noop` for startup checks unless the task explicitly requires real Kubernetes or OCI calls.
