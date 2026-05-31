@@ -10,10 +10,8 @@ import (
 
 func Register(container *dig.Container) error {
 	return di.ProvideAll(container,
-		di.ConstructorWithOpts{
-			Constructor: NewTimeProvider,
-			Options:     []dig.ProvideOption{dig.As(new(TimeProvider))},
-		},
+		NewTimeProvider,
+		di.ProvideAs[TimeProviderFn, TimeProvider],
 		di.ProvideValue(time.NewTicker),
 		NewShutdownHooks,
 	)
