@@ -79,7 +79,7 @@
 				
 				<option value="file11">github.com/gemyago/oke-gateway-api/internal/api/http/server/register.go (100.0%)</option>
 				
-				<option value="file12">github.com/gemyago/oke-gateway-api/internal/api/http/server/server.go (92.3%)</option>
+				<option value="file12">github.com/gemyago/oke-gateway-api/internal/api/http/server/server.go (92.6%)</option>
 				
 				<option value="file13">github.com/gemyago/oke-gateway-api/internal/app/errors.go (100.0%)</option>
 				
@@ -115,11 +115,11 @@
 				
 				<option value="file29">github.com/gemyago/oke-gateway-api/internal/app/oci_load_balancer_model.go (95.1%)</option>
 				
-				<option value="file30">github.com/gemyago/oke-gateway-api/internal/app/oci_load_balancer_routing_rules.go (94.7%)</option>
+				<option value="file30">github.com/gemyago/oke-gateway-api/internal/app/oci_load_balancer_routing_rules.go (95.5%)</option>
 				
 				<option value="file31">github.com/gemyago/oke-gateway-api/internal/app/register.go (100.0%)</option>
 				
-				<option value="file32">github.com/gemyago/oke-gateway-api/internal/app/resources_model.go (97.1%)</option>
+				<option value="file32">github.com/gemyago/oke-gateway-api/internal/app/resources_model.go (97.0%)</option>
 				
 				<option value="file33">github.com/gemyago/oke-gateway-api/internal/app/watches_model.go (98.3%)</option>
 				
@@ -159,7 +159,7 @@
 				
 				<option value="file51">github.com/gemyago/oke-gateway-api/internal/services/ociapi/register.go (100.0%)</option>
 				
-				<option value="file52">github.com/gemyago/oke-gateway-api/internal/services/ociapi/testing.go (93.3%)</option>
+				<option value="file52">github.com/gemyago/oke-gateway-api/internal/services/ociapi/testing.go (93.8%)</option>
 				
 				<option value="file53">github.com/gemyago/oke-gateway-api/internal/services/ociapi/work_requests_watcher.go (95.5%)</option>
 				
@@ -167,7 +167,7 @@
 				
 				<option value="file55">github.com/gemyago/oke-gateway-api/internal/services/shutdown.go (95.8%)</option>
 				
-				<option value="file56">github.com/gemyago/oke-gateway-api/internal/services/testing.go (46.2%)</option>
+				<option value="file56">github.com/gemyago/oke-gateway-api/internal/services/testing.go (46.7%)</option>
 				
 				<option value="file57">github.com/gemyago/oke-gateway-api/internal/services/time.go (100.0%)</option>
 				
@@ -230,14 +230,15 @@ import (
         "fmt"
         "log/slog"
 
+        "github.com/samber/lo"
+        "github.com/spf13/cobra"
+        "go.uber.org/dig"
+
         "github.com/gemyago/oke-gateway-api/internal/app"
         "github.com/gemyago/oke-gateway-api/internal/config"
         "github.com/gemyago/oke-gateway-api/internal/di"
         "github.com/gemyago/oke-gateway-api/internal/diag"
         "github.com/gemyago/oke-gateway-api/internal/services"
-        "github.com/samber/lo"
-        "github.com/spf13/cobra"
-        "go.uber.org/dig"
 )
 
 func newRootCmd(container *dig.Container) *cobra.Command <span class="cov10" title="3">{
@@ -317,22 +318,23 @@ import (
         "os/signal"
         "time"
 
+        "github.com/spf13/cobra"
+        "go.uber.org/dig"
+        "golang.org/x/sys/unix"
+
         "github.com/gemyago/oke-gateway-api/internal/diag"
         "github.com/gemyago/oke-gateway-api/internal/k8s"
         "github.com/gemyago/oke-gateway-api/internal/services"
         "github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
         "github.com/gemyago/oke-gateway-api/internal/services/ociapi"
-        "github.com/spf13/cobra"
-        "go.uber.org/dig"
-        "golang.org/x/sys/unix"
 )
 
 type startServerParams struct {
         dig.In `ignore-unexported:"true"`
 
-        RootLogger *slog.Logger
-
         *services.ShutdownHooks
+
+        RootLogger *slog.Logger
 
         ManagerDeps k8s.StartManagerDeps
 
@@ -447,13 +449,14 @@ import (
         "fmt"
         "log/slog"
 
+        "github.com/samber/lo"
+        "github.com/spf13/cobra"
+        "go.uber.org/dig"
+
         "github.com/gemyago/oke-gateway-api/internal/config"
         "github.com/gemyago/oke-gateway-api/internal/di"
         "github.com/gemyago/oke-gateway-api/internal/diag"
         "github.com/gemyago/oke-gateway-api/internal/services"
-        "github.com/samber/lo"
-        "github.com/spf13/cobra"
-        "go.uber.org/dig"
 )
 
 func newRootCmd(container *dig.Container) *cobra.Command <span class="cov10" title="3">{
@@ -530,23 +533,24 @@ import (
         "os/signal"
         "time"
 
+        "github.com/spf13/cobra"
+        "go.uber.org/dig"
+        "golang.org/x/sys/unix"
+
         "github.com/gemyago/oke-gateway-api/internal/api/http"
         "github.com/gemyago/oke-gateway-api/internal/api/http/server"
         "github.com/gemyago/oke-gateway-api/internal/diag"
         "github.com/gemyago/oke-gateway-api/internal/services"
-        "github.com/spf13/cobra"
-        "go.uber.org/dig"
-        "golang.org/x/sys/unix"
 )
 
 type startServerParams struct {
         dig.In `ignore-unexported:"true"`
 
+        *services.ShutdownHooks
+
         RootLogger *slog.Logger
 
         HTTPServer *server.HTTPServer
-
-        *services.ShutdownHooks
 
         noop bool
 }
@@ -634,8 +638,9 @@ import (
         "log/slog"
         "net/http"
 
-        "github.com/gemyago/oke-gateway-api/internal/diag"
         "go.uber.org/dig"
+
+        "github.com/gemyago/oke-gateway-api/internal/diag"
 )
 
 type EchoResponse struct {
@@ -682,7 +687,7 @@ func NewRootHandler(deps RootHandlerDeps) http.Handler <span class="cov10" title
                 })
                 if err != nil </span><span class="cov1" title="1">{
                         // We can just log at this point, as we've already written a response
-                        logger.Error("failed to encode response", diag.ErrAttr(err))
+                        logger.ErrorContext(r.Context(), "failed to encode response", diag.ErrAttr(err))
                         return
                 }</span>
         })
@@ -691,14 +696,17 @@ func NewRootHandler(deps RootHandlerDeps) http.Handler <span class="cov10" title
 		
 		<pre class="file" id="file7" style="display: none">package middleware
 
-import "net/http"
+import (
+        "net/http"
+        "slices"
+)
 
 type Middleware func(http.Handler) http.Handler
 
 func Chain(middlewares ...Middleware) func(http.Handler) http.Handler <span class="cov6" title="5">{
         return func(h http.Handler) http.Handler </span><span class="cov6" title="5">{
-                for i := len(middlewares) - 1; i &gt;= 0; i-- </span><span class="cov10" title="15">{
-                        h = middlewares[i](h)
+                for _, v := range slices.Backward(middlewares) </span><span class="cov10" title="15">{
+                        h = v(h)
                 }</span>
                 <span class="cov6" title="5">return h</span>
         }
@@ -750,8 +758,9 @@ import (
         "log/slog"
         "net/http"
 
-        "github.com/gemyago/oke-gateway-api/internal/diag"
         "github.com/gofrs/uuid/v5"
+
+        "github.com/gemyago/oke-gateway-api/internal/diag"
 )
 
 type TracingMiddlewareCfg struct {
@@ -788,8 +797,9 @@ func NewTracingMiddleware(cfg *TracingMiddlewareCfg) Middleware <span class="cov
 import (
         "errors"
 
-        "github.com/gemyago/oke-gateway-api/internal/di"
         "go.uber.org/dig"
+
+        "github.com/gemyago/oke-gateway-api/internal/di"
 )
 
 func Register(container *dig.Container) error <span class="cov8" title="1">{
@@ -804,8 +814,9 @@ func Register(container *dig.Container) error <span class="cov8" title="1">{
 		<pre class="file" id="file11" style="display: none">package server
 
 import (
-        "github.com/gemyago/oke-gateway-api/internal/di"
         "go.uber.org/dig"
+
+        "github.com/gemyago/oke-gateway-api/internal/di"
 )
 
 func Register(container *dig.Container) error <span class="cov8" title="1">{
@@ -827,14 +838,18 @@ import (
         "net/http"
         "time"
 
-        "github.com/gemyago/oke-gateway-api/internal/api/http/middleware"
-        "github.com/gemyago/oke-gateway-api/internal/services"
         sloghttp "github.com/samber/slog-http"
         "go.uber.org/dig"
+
+        "github.com/gemyago/oke-gateway-api/internal/api/http/middleware"
+        "github.com/gemyago/oke-gateway-api/internal/services"
 )
 
 type HTTPServerDeps struct {
         dig.In `ignore-unexported:"true"`
+
+        // services
+        *services.ShutdownHooks
 
         RootLogger *slog.Logger
 
@@ -851,9 +866,6 @@ type HTTPServerDeps struct {
         // handler
         Handler http.Handler
 
-        // services
-        *services.ShutdownHooks
-
         // listeningSignal is an optional channel that Start will close when the server is listening.
         // Primarily for testing.
         listeningSignal chan&lt;- struct{}
@@ -863,38 +875,6 @@ type HTTPServer struct {
         httpSrv *http.Server
         deps    HTTPServerDeps
         logger  *slog.Logger
-}
-
-func (srv *HTTPServer) Start(ctx context.Context) error <span class="cov1" title="1">{
-        listener, err := net.Listen("tcp", srv.httpSrv.Addr)
-        if err != nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("failed to listen on %s: %w", srv.httpSrv.Addr, err)
-        }</span>
-
-        <span class="cov1" title="1">actualAddr := listener.Addr().String()
-        srv.logger.InfoContext(ctx, "Started http listener",
-                slog.String("addr", actualAddr),
-                slog.String("idleTimeout", srv.deps.IdleTimeout.String()),
-                slog.String("readHeaderTimeout", srv.deps.ReadHeaderTimeout.String()),
-                slog.String("readTimeout", srv.deps.ReadTimeout.String()),
-                slog.String("writeTimeout", srv.deps.WriteTimeout.String()),
-                slog.String("accessLogsLevel", srv.deps.AccessLogsLevel),
-                slog.String("mode", srv.deps.Mode),
-        )
-
-        if srv.deps.listeningSignal != nil </span><span class="cov1" title="1">{
-                close(srv.deps.listeningSignal)
-        }</span>
-
-        // http.Serve always returns a non-nil error.
-        // It returns http.ErrServerClosed when Shutdown or Close is called.
-        <span class="cov1" title="1">err = srv.httpSrv.Serve(listener)
-        if err != nil &amp;&amp; !errors.Is(err, http.ErrServerClosed) </span><span class="cov0" title="0">{
-                return fmt.Errorf("http server Serve error: %w", err)
-        }</span>
-
-        <span class="cov1" title="1">srv.logger.InfoContext(ctx, "HTTP server shut down gracefully")
-        return nil</span>
 }
 
 func buildMiddlewareChain(deps HTTPServerDeps) http.Handler <span class="cov10" title="5">{
@@ -930,7 +910,7 @@ func buildMiddlewareChain(deps HTTPServerDeps) http.Handler <span class="cov10" 
         return chain(deps.Handler)</span>
 }
 
-// NewHTTPServer constructor factory for general use *http.Server.
+// NewHTTPServer is a constructor factory for general use [http.Server].
 func NewHTTPServer(deps HTTPServerDeps) *HTTPServer <span class="cov4" title="2">{
         address := fmt.Sprintf("%s:%d", deps.Host, deps.Port)
         srv := &amp;http.Server{
@@ -951,6 +931,39 @@ func NewHTTPServer(deps HTTPServerDeps) *HTTPServer <span class="cov4" title="2"
                 logger:  deps.RootLogger.WithGroup("http-server"),
         }
 }</span>
+
+func (srv *HTTPServer) Start(ctx context.Context) error <span class="cov1" title="1">{
+        listenConfig := net.ListenConfig{}
+        listener, err := listenConfig.Listen(ctx, "tcp", srv.httpSrv.Addr)
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to listen on %s: %w", srv.httpSrv.Addr, err)
+        }</span>
+
+        <span class="cov1" title="1">actualAddr := listener.Addr().String()
+        srv.logger.InfoContext(ctx, "Started http listener",
+                slog.String("addr", actualAddr),
+                slog.String("idleTimeout", srv.deps.IdleTimeout.String()),
+                slog.String("readHeaderTimeout", srv.deps.ReadHeaderTimeout.String()),
+                slog.String("readTimeout", srv.deps.ReadTimeout.String()),
+                slog.String("writeTimeout", srv.deps.WriteTimeout.String()),
+                slog.String("accessLogsLevel", srv.deps.AccessLogsLevel),
+                slog.String("mode", srv.deps.Mode),
+        )
+
+        if srv.deps.listeningSignal != nil </span><span class="cov1" title="1">{
+                close(srv.deps.listeningSignal)
+        }</span>
+
+        // http.Serve always returns a non-nil error.
+        // It returns http.ErrServerClosed when Shutdown or Close is called.
+        <span class="cov1" title="1">err = srv.httpSrv.Serve(listener)
+        if err != nil &amp;&amp; !errors.Is(err, http.ErrServerClosed) </span><span class="cov0" title="0">{
+                return fmt.Errorf("http server Serve error: %w", err)
+        }</span>
+
+        <span class="cov1" title="1">srv.logger.InfoContext(ctx, "HTTP server shut down gracefully")
+        return nil</span>
+}
 </pre>
 		
 		<pre class="file" id="file13" style="display: none">package app
@@ -979,17 +992,6 @@ type ReconcileError struct {
         cause     error
 }
 
-func (e ReconcileError) Error() string <span class="cov7" title="3">{
-        if e.cause != nil </span><span class="cov1" title="1">{
-                return fmt.Sprintf("reconcileError: retriable=%t, message=%s, cause=%s", e.retriable, e.message, e.cause)
-        }</span>
-        <span class="cov4" title="2">return fmt.Sprintf("reconcileError: retriable=%t, message=%s", e.retriable, e.message)</span>
-}
-
-func (e ReconcileError) IsRetriable() bool <span class="cov10" title="5">{
-        return e.retriable
-}</span>
-
 func NewReconcileError(message string, retriable bool) *ReconcileError <span class="cov8" title="4">{
         return &amp;ReconcileError{
                 retriable: retriable,
@@ -1003,6 +1005,17 @@ func NewReconcileErrorWithCause(message string, retriable bool, cause error) *Re
                 message:   message,
                 cause:     cause,
         }
+}</span>
+
+func (e ReconcileError) Error() string <span class="cov7" title="3">{
+        if e.cause != nil </span><span class="cov1" title="1">{
+                return fmt.Sprintf("reconcileError: retriable=%t, message=%s, cause=%s", e.retriable, e.message, e.cause)
+        }</span>
+        <span class="cov4" title="2">return fmt.Sprintf("reconcileError: retriable=%t, message=%s", e.retriable, e.message)</span>
+}
+
+func (e ReconcileError) IsRetriable() bool <span class="cov10" title="5">{
+        return e.retriable
 }</span>
 </pre>
 		
@@ -1108,7 +1121,11 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
                                 ControllerClassName: "true",
                         },
                 }); err != nil </span><span class="cov0" title="0">{
-                        return reconcile.Result{}, fmt.Errorf("failed to set accepted condition for Gateway %s: %w", req.NamespacedName, err)
+                        return reconcile.Result{}, fmt.Errorf(
+                                "failed to set accepted condition for Gateway %s: %w",
+                                req.NamespacedName,
+                                err,
+                        )
                 }</span>
         }
 
@@ -1157,7 +1174,6 @@ import (
         "log/slog"
         "sort"
 
-        "github.com/gemyago/oke-gateway-api/internal/types"
         "github.com/oracle/oci-go-sdk/v65/loadbalancer"
         "go.uber.org/dig"
         corev1 "k8s.io/api/core/v1"
@@ -1166,6 +1182,8 @@ import (
         apitypes "k8s.io/apimachinery/pkg/types"
         "sigs.k8s.io/controller-runtime/pkg/reconcile"
         gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+        "github.com/gemyago/oke-gateway-api/internal/types"
 )
 
 type resolvedGatewayDetails struct {
@@ -1435,7 +1453,7 @@ func (m *gatewayModelImpl) isProgrammed(_ context.Context, data *resolvedGateway
 
         // Include secrets annotations in the check
         if len(data.gatewaySecrets) &gt; 0 </span><span class="cov1" title="1">{
-                for _, secret := range data.gatewaySecrets </span><span class="cov4" title="3">{
+                for _, secret := range data.gatewaySecrets </span><span class="cov3" title="2">{
                         secretUID := string(secret.UID)
                         annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + secretUID
                         annotations[annotationKey] = secret.ResourceVersion
@@ -1488,7 +1506,7 @@ type gatewayModelDeps struct {
         OciLoadBalancerModel ociLoadBalancerModel
 }
 
-func newGatewayModel(deps gatewayModelDeps) gatewayModel <span class="cov10" title="22">{
+func newGatewayModel(deps gatewayModelDeps) *gatewayModelImpl <span class="cov10" title="22">{
         return &amp;gatewayModelImpl{
                 client:               deps.K8sClient,
                 logger:               deps.RootLogger.WithGroup("gateway-model"),
@@ -1608,13 +1626,14 @@ import (
         "fmt"
         "log/slog"
 
-        "github.com/gemyago/oke-gateway-api/internal/types"
         "github.com/oracle/oci-go-sdk/v65/loadbalancer"
         "github.com/samber/lo"
         "go.uber.org/dig"
         discoveryv1 "k8s.io/api/discovery/v1"
         client "sigs.k8s.io/controller-runtime/pkg/client"
         gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+        "github.com/gemyago/oke-gateway-api/internal/types"
 )
 
 type syncRouteEndpointsParams struct {
@@ -1715,25 +1734,25 @@ func (m *httpBackendModelImpl) identifyBackendsToUpdate(
         var drainingCount int
 
         for _, slice := range params.endpointSlices </span><span class="cov7" title="8">{
-                for _, endpoint := range slice.Endpoints </span><span class="cov9" title="14">{
+                for _, endpoint := range slice.Endpoints </span><span class="cov8" title="13">{
                         if endpoint.Conditions.Ready != nil &amp;&amp; !*endpoint.Conditions.Ready </span><span class="cov3" title="2">{
                                 continue</span>
                         }
-                        <span class="cov8" title="12">if len(endpoint.Addresses) == 0 </span><span class="cov1" title="1">{
+                        <span class="cov8" title="11">if len(endpoint.Addresses) == 0 </span><span class="cov1" title="1">{
                                 m.logger.WarnContext(ctx, "Endpoint has no addresses", slog.Any("endpoint", endpoint))
                                 continue</span>
                         }
-                        <span class="cov8" title="11">ipAddress := endpoint.Addresses[0]
+                        <span class="cov8" title="10">ipAddress := endpoint.Addresses[0]
                         isDraining := endpoint.Conditions.Terminating != nil &amp;&amp; *endpoint.Conditions.Terminating
 
                         if isDraining </span><span class="cov3" title="2">{
                                 drainingCount++
                         }</span>
 
-                        <span class="cov8" title="11">desiredBackendsMap[ipAddress] = loadbalancer.BackendDetails{
-                                Port:      lo.ToPtr(int(params.endpointPort)),
+                        <span class="cov8" title="10">desiredBackendsMap[ipAddress] = loadbalancer.BackendDetails{
+                                Port:      new(int(params.endpointPort)),
                                 IpAddress: &amp;ipAddress,
-                                Drain:     lo.ToPtr(isDraining),
+                                Drain:     new(isDraining),
                                 // Weight, MaxConnections, Backup, Offline are not managed here
                         }</span>
                 }
@@ -1801,7 +1820,11 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
                 },
                 client.InNamespace(backendRefNamespace),
         ); err != nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("failed to list endpoint slices for backend %s: %w", backendRef.BackendObjectReference.Name, err)
+                return fmt.Errorf(
+                        "failed to list endpoint slices for backend %s: %w",
+                        backendRef.BackendObjectReference.Name,
+                        err,
+                )
         }</span>
 
         <span class="cov4" title="3">backendsToUpdate, err := m.self.identifyBackendsToUpdate(ctx, identifyBackendsToUpdateParams{
@@ -1908,7 +1931,7 @@ type httpBackendModelDeps struct {
 }
 
 // newHTTPBackendModel creates a new HTTPBackendModel.
-func newHTTPBackendModel(deps httpBackendModelDeps) httpBackendModel <span class="cov9" title="16">{
+func newHTTPBackendModel(deps httpBackendModelDeps) *httpBackendModelImpl <span class="cov9" title="16">{
         model := &amp;httpBackendModelImpl{
                 logger:              deps.RootLogger.WithGroup("http-backend-model"),
                 k8sClient:           deps.K8sClient,
@@ -2099,7 +2122,6 @@ import (
         "log/slog"
         "strings"
 
-        "github.com/gemyago/oke-gateway-api/internal/types"
         "github.com/oracle/oci-go-sdk/v65/loadbalancer"
         "github.com/samber/lo"
         "go.uber.org/dig"
@@ -2111,6 +2133,8 @@ import (
         "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
         "sigs.k8s.io/controller-runtime/pkg/reconcile"
         gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+        "github.com/gemyago/oke-gateway-api/internal/types"
 )
 
 type resolvedRouteDetails struct {
@@ -2205,7 +2229,7 @@ type httpRouteModel interface {
 
 // parentRefSameTarget checks if two parent references target the same resource.
 // It ignores the section name and port.
-func parentRefSameTarget(a, b gatewayv1.ParentReference) bool <span class="cov7" title="13">{
+func parentRefSameTarget(a, b gatewayv1.ParentReference) bool <span class="cov8" title="15">{
         return a.Name == b.Name &amp;&amp;
                 lo.FromPtr(a.Namespace) == lo.FromPtr(b.Namespace) &amp;&amp;
                 lo.FromPtr(a.Kind) == lo.FromPtr(b.Kind) &amp;&amp;
@@ -2288,9 +2312,12 @@ func (m *httpRouteModelImpl) resolveRouteParentRefData(
 
         <span class="cov6" title="7">if parentRef.SectionName != nil </span><span class="cov5" title="5">{
                 sectionName := *parentRef.SectionName
-                matchingListeners := lo.Filter(resolvedGatewayData.gateway.Spec.Listeners, func(l gatewayv1.Listener, _ int) bool </span><span class="cov7" title="11">{
-                        return l.Name == sectionName
-                }</span>)
+                matchingListeners := lo.Filter(
+                        resolvedGatewayData.gateway.Spec.Listeners,
+                        func(l gatewayv1.Listener, _ int) bool </span><span class="cov7" title="11">{
+                                return l.Name == sectionName
+                        }</span>,
+                )
 
                 <span class="cov5" title="5">if len(matchingListeners) == 0 </span><span class="cov2" title="2">{
                         m.logger.DebugContext(ctx, "Gateway resolved, but no listener matched section name",
@@ -2504,12 +2531,13 @@ func (m *httpRouteModelImpl) resolveBackendRefs(
         <span class="cov1" title="1">return resolvedBackendRefs, nil</span>
 }
 
+//nolint:unparam // The result is consumed through the httpRouteModel interface.
 func (m *httpRouteModelImpl) programRoute(
         ctx context.Context,
         params programRouteParams,
 ) (programRouteResult, error) <span class="cov5" title="5">{
         // First, reconcile all backend sets for known backends
-        for key, service := range params.knownBackends </span><span class="cov6" title="10">{
+        for key, service := range params.knownBackends </span><span class="cov6" title="9">{
                 err := m.ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
                         loadBalancerID: params.config.Spec.LoadBalancerID,
                         service:        service,
@@ -2541,7 +2569,7 @@ func (m *httpRouteModelImpl) programRoute(
         }</span>
 
         // Commit the rules to each listener's policy
-        <span class="cov3" title="3">for _, listener := range params.matchedListeners </span><span class="cov5" title="6">{
+        <span class="cov3" title="3">for _, listener := range params.matchedListeners </span><span class="cov5" title="5">{
                 err := m.ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
                         loadBalancerID:  params.config.Spec.LoadBalancerID,
                         listenerName:    string(listener.Name),
@@ -2549,7 +2577,11 @@ func (m *httpRouteModelImpl) programRoute(
                         prevPolicyRules: prevPolicyRules,
                 })
                 if err != nil </span><span class="cov1" title="1">{
-                        return programRouteResult{}, fmt.Errorf("failed to commit routing policy for listener %s: %w", listener.Name, err)
+                        return programRouteResult{}, fmt.Errorf(
+                                "failed to commit routing policy for listener %s: %w",
+                                listener.Name,
+                                err,
+                        )
                 }</span>
         }
 
@@ -2577,7 +2609,7 @@ func (m *httpRouteModelImpl) deprovisionRoute(
                 return nil
         }</span>
 
-        <span class="cov2" title="2">for _, listener := range params.matchedListeners </span><span class="cov4" title="4">{
+        <span class="cov2" title="2">for _, listener := range params.matchedListeners </span><span class="cov5" title="5">{
                 m.logger.DebugContext(ctx, "Deprovisioning listener policies for HTTPRoute",
                         slog.String("route", params.httpRoute.Name),
                         slog.String("listener", string(listener.Name)),
@@ -2625,6 +2657,7 @@ func (m *httpRouteModelImpl) deprovisionRoute(
         <span class="cov1" title="1">return nil</span>
 }
 
+//nolint:unparam // The error return is part of the interface contract used by controller tests.
 func (m *httpRouteModelImpl) isProgrammingRequired(
         details resolvedRouteDetails,
 ) (bool, error) <span class="cov3" title="3">{
@@ -2662,7 +2695,7 @@ func (m *httpRouteModelImpl) setProgrammed(
 
         _, statusIndex, found := lo.FindIndexOf(
                 httpRoute.Status.Parents,
-                func(s gatewayv1.RouteParentStatus) bool </span><span class="cov5" title="6">{
+                func(s gatewayv1.RouteParentStatus) bool </span><span class="cov6" title="8">{
                         return s.ControllerName == params.gatewayClass.Spec.ControllerName &amp;&amp;
                                 parentRefSameTarget(s.ParentRef, params.matchedRef)
                 }</span>,
@@ -2706,7 +2739,7 @@ type httpRouteModelDeps struct {
 }
 
 // newHTTPRouteModel creates a new instance of httpRouteModel.
-func newHTTPRouteModel(deps httpRouteModelDeps) httpRouteModel <span class="cov10" title="32">{
+func newHTTPRouteModel(deps httpRouteModelDeps) *httpRouteModelImpl <span class="cov10" title="32">{
         return &amp;httpRouteModelImpl{
                 client:               deps.K8sClient,
                 logger:               deps.RootLogger.WithGroup("httproute-model"),
@@ -5004,7 +5037,7 @@ type MockociLoadBalancerModel_Expecter struct {
         mock *mock.Mock
 }
 
-func (_m *MockociLoadBalancerModel) EXPECT() *MockociLoadBalancerModel_Expecter <span class="cov9" title="40">{
+func (_m *MockociLoadBalancerModel) EXPECT() *MockociLoadBalancerModel_Expecter <span class="cov9" title="39">{
         return &amp;MockociLoadBalancerModel_Expecter{mock: &amp;_m.Mock}
 }</span>
 
@@ -5160,21 +5193,21 @@ func (_c *MockociLoadBalancerModel_makeRoutingRule_Call) RunAndReturn(run func(c
 }</span>
 
 // reconcileBackendSet provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) reconcileBackendSet(ctx context.Context, params reconcileBackendSetParams) error <span class="cov6" title="10">{
+func (_m *MockociLoadBalancerModel) reconcileBackendSet(ctx context.Context, params reconcileBackendSetParams) error <span class="cov6" title="9">{
         ret := _m.Called(ctx, params)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for reconcileBackendSet")</span>
         }
 
-        <span class="cov6" title="10">var r0 error
+        <span class="cov6" title="9">var r0 error
         if rf, ok := ret.Get(0).(func(context.Context, reconcileBackendSetParams) error); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, params)
-        }</span> else<span class="cov6" title="10"> {
+        }</span> else<span class="cov6" title="9"> {
                 r0 = ret.Error(0)
         }</span>
 
-        <span class="cov6" title="10">return r0</span>
+        <span class="cov6" title="9">return r0</span>
 }
 
 // MockociLoadBalancerModel_reconcileBackendSet_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'reconcileBackendSet'
@@ -5185,7 +5218,7 @@ type MockociLoadBalancerModel_reconcileBackendSet_Call struct {
 // reconcileBackendSet is a helper method to define mock.On call
 //   - ctx context.Context
 //   - params reconcileBackendSetParams
-func (_e *MockociLoadBalancerModel_Expecter) reconcileBackendSet(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileBackendSet_Call <span class="cov6" title="10">{
+func (_e *MockociLoadBalancerModel_Expecter) reconcileBackendSet(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileBackendSet_Call <span class="cov6" title="9">{
         return &amp;MockociLoadBalancerModel_reconcileBackendSet_Call{Call: _e.mock.On("reconcileBackendSet", ctx, params)}
 }</span>
 
@@ -5196,7 +5229,7 @@ func (_c *MockociLoadBalancerModel_reconcileBackendSet_Call) Run(run func(ctx co
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockociLoadBalancerModel_reconcileBackendSet_Call) Return(_a0 error) *MockociLoadBalancerModel_reconcileBackendSet_Call <span class="cov6" title="10">{
+func (_c *MockociLoadBalancerModel_reconcileBackendSet_Call) Return(_a0 error) *MockociLoadBalancerModel_reconcileBackendSet_Call <span class="cov6" title="9">{
         _c.Call.Return(_a0)
         return _c
 }</span>
@@ -5862,8 +5895,6 @@ import (
         "strconv"
         "strings"
 
-        "github.com/gemyago/oke-gateway-api/internal/diag"
-        "github.com/gemyago/oke-gateway-api/internal/services/ociapi"
         "github.com/oracle/oci-go-sdk/v65/common"
         "github.com/oracle/oci-go-sdk/v65/loadbalancer"
         "github.com/samber/lo"
@@ -5871,6 +5902,9 @@ import (
         corev1 "k8s.io/api/core/v1"
         types "k8s.io/apimachinery/pkg/types"
         gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+        "github.com/gemyago/oke-gateway-api/internal/diag"
+        "github.com/gemyago/oke-gateway-api/internal/services/ociapi"
 )
 
 const defaultBackendSetPort = 80
@@ -6021,10 +6055,10 @@ func (m *ociLoadBalancerModelImpl) reconcileDefaultBackendSet(
                 LoadBalancerId: &amp;params.loadBalancerID,
                 CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
                         Name:   &amp;defaultBackendSetName,
-                        Policy: lo.ToPtr("ROUND_ROBIN"),
+                        Policy: new("ROUND_ROBIN"),
                         HealthChecker: &amp;loadbalancer.HealthCheckerDetails{
-                                Protocol: lo.ToPtr("TCP"),
-                                Port:     lo.ToPtr(int(defaultBackendSetPort)),
+                                Protocol: new("TCP"),
+                                Port:     new(int(defaultBackendSetPort)),
                         },
                 },
         })
@@ -6043,10 +6077,14 @@ func (m *ociLoadBalancerModelImpl) reconcileDefaultBackendSet(
 
         <span class="cov2" title="2">res, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
                 BackendSetName: &amp;defaultBackendSetName,
-                LoadBalancerId: lo.ToPtr(params.loadBalancerID),
+                LoadBalancerId: new(params.loadBalancerID),
         })
         if err != nil </span><span class="cov1" title="1">{
-                return loadbalancer.BackendSet{}, fmt.Errorf("failed to get default backend set %s: %w", defaultBackendSetName, err)
+                return loadbalancer.BackendSet{}, fmt.Errorf(
+                        "failed to get default backend set %s: %w",
+                        defaultBackendSetName,
+                        err,
+                )
         }</span>
 
         <span class="cov1" title="1">return res.BackendSet, nil</span>
@@ -6107,19 +6145,27 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 
                         certCreateDetails := loadbalancer.CreateCertificateDetails{
                                 CertificateName:   &amp;certName,
-                                PublicCertificate: lo.ToPtr(string(secret.Data[corev1.TLSCertKey])),
-                                PrivateKey:        lo.ToPtr(string(secret.Data[corev1.TLSPrivateKeyKey])),
+                                PublicCertificate: new(string(secret.Data[corev1.TLSCertKey])),
+                                PrivateKey:        new(string(secret.Data[corev1.TLSPrivateKeyKey])),
                         }
                         createRes, err := m.ociClient.CreateCertificate(ctx, loadbalancer.CreateCertificateRequest{
                                 LoadBalancerId:           &amp;params.loadBalancerID,
                                 CreateCertificateDetails: certCreateDetails,
                         })
                         if err != nil </span><span class="cov0" title="0">{
-                                return reconcileListenersCertificatesResult{}, fmt.Errorf("failed to create certificate %s: %w", certName, err)
+                                return reconcileListenersCertificatesResult{}, fmt.Errorf(
+                                        "failed to create certificate %s: %w",
+                                        certName,
+                                        err,
+                                )
                         }</span>
 
                         <span class="cov5" title="6">if err = m.workRequestsWatcher.WaitFor(ctx, *createRes.OpcWorkRequestId); err != nil </span><span class="cov0" title="0">{
-                                return reconcileListenersCertificatesResult{}, fmt.Errorf("failed to wait for certificate %s: %w", certName, err)
+                                return reconcileListenersCertificatesResult{}, fmt.Errorf(
+                                        "failed to wait for certificate %s: %w",
+                                        certName,
+                                        err,
+                                )
                         }</span>
 
                         <span class="cov5" title="6">cert := loadbalancer.Certificate{
@@ -6154,7 +6200,7 @@ func (m *ociLoadBalancerModelImpl) reconcileListenerRoutingPolicy(
                 createRoutingPolicyRes, err := m.ociClient.CreateRoutingPolicy(ctx, loadbalancer.CreateRoutingPolicyRequest{
                         LoadBalancerId: &amp;params.loadBalancerID,
                         CreateRoutingPolicyDetails: loadbalancer.CreateRoutingPolicyDetails{
-                                Name:                     lo.ToPtr(routingPolicyName),
+                                Name:                     new(routingPolicyName),
                                 ConditionLanguageVersion: loadbalancer.CreateRoutingPolicyDetailsConditionLanguageVersionV1,
                                 Rules: []loadbalancer.RoutingRule{
                                         // We're creating routing policy to have it available when reconciling routes
@@ -6162,11 +6208,11 @@ func (m *ociLoadBalancerModelImpl) reconcileListenerRoutingPolicy(
                                         // Alternative could be to create and attach routing policy when reconciling routes, but
                                         // it may be a bit more complex on the route reconciler side.
                                         {
-                                                Name:      lo.ToPtr(defaultCatchAllRuleName),
-                                                Condition: lo.ToPtr("any(http.request.url.path sw '/')"),
+                                                Name:      new(defaultCatchAllRuleName),
+                                                Condition: new("any(http.request.url.path sw '/')"),
                                                 Actions: []loadbalancer.Action{
                                                         loadbalancer.ForwardToBackendSet{
-                                                                BackendSetName: lo.ToPtr(params.defaultBackendSetName),
+                                                                BackendSetName: new(params.defaultBackendSetName),
                                                         },
                                                 },
                                         },
@@ -6254,11 +6300,11 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
                 createRes, err := m.ociClient.CreateListener(ctx, loadbalancer.CreateListenerRequest{
                         LoadBalancerId: &amp;params.loadBalancerID,
                         CreateListenerDetails: loadbalancer.CreateListenerDetails{
-                                Name:                  lo.ToPtr(listenerName),
-                                DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
-                                Port:                  lo.ToPtr(int(params.listenerSpec.Port)),
-                                Protocol:              lo.ToPtr("HTTP"),
-                                RoutingPolicyName:     lo.ToPtr(listenerPolicyName(listenerName)),
+                                Name:                  new(listenerName),
+                                DefaultBackendSetName: new(params.defaultBackendSetName),
+                                Port:                  new(int(params.listenerSpec.Port)),
+                                Protocol:              new("HTTP"),
+                                RoutingPolicyName:     new(listenerPolicyName(listenerName)),
                                 SslConfiguration:      sslConfig,
                         },
                 })
@@ -6319,10 +6365,10 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
                 LoadBalancerId: &amp;params.loadBalancerID,
                 CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
                         Name:   &amp;backendSetName,
-                        Policy: lo.ToPtr("ROUND_ROBIN"),
+                        Policy: new("ROUND_ROBIN"),
                         HealthChecker: &amp;loadbalancer.HealthCheckerDetails{
-                                Protocol: lo.ToPtr("TCP"),
-                                Port:     lo.ToPtr(healthCheckerPort),
+                                Protocol: new("TCP"),
+                                Port:     new(healthCheckerPort),
                         },
                 },
         })
@@ -6416,11 +6462,11 @@ func (m *ociLoadBalancerModelImpl) makeRoutingRule(
         )
 
         return loadbalancer.RoutingRule{
-                Name:      lo.ToPtr(ruleName),
-                Condition: lo.ToPtr(condition),
+                Name:      new(ruleName),
+                Condition: new(condition),
                 Actions: lo.Map(targetBackends, func(backendSetName string, _ int) loadbalancer.Action </span><span class="cov2" title="2">{
                         return loadbalancer.ForwardToBackendSet{
-                                BackendSetName: lo.ToPtr(backendSetName),
+                                BackendSetName: new(backendSetName),
                         }
                 }</span>),
         }, nil
@@ -6567,16 +6613,16 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
         <span class="cov4" title="4">mergedRules := lo.Values(currentRulesByName)
 
         // Sort the rules: defaultCatchAllRuleName should be at the end
-        sort.Slice(mergedRules, func(i, j int) bool </span><span class="cov9" title="41">{
+        sort.Slice(mergedRules, func(i, j int) bool </span><span class="cov9" title="36">{
                 ruleI := lo.FromPtr(mergedRules[i].Name)
                 ruleJ := lo.FromPtr(mergedRules[j].Name)
                 if ruleI == defaultCatchAllRuleName </span><span class="cov1" title="1">{
                         return false
                 }</span>
-                <span class="cov9" title="40">if ruleJ == defaultCatchAllRuleName </span><span class="cov6" title="10">{
+                <span class="cov9" title="35">if ruleJ == defaultCatchAllRuleName </span><span class="cov6" title="12">{
                         return true
                 }</span>
-                <span class="cov9" title="30">return ruleI &lt; ruleJ</span>
+                <span class="cov8" title="23">return ruleI &lt; ruleJ</span>
         })
 
         <span class="cov4" title="4">updateRes, err := m.ociClient.UpdateRoutingPolicy(ctx, loadbalancer.UpdateRoutingPolicyRequest{
@@ -6613,6 +6659,7 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
         return nil</span>
 }
 
+//nolint:unparam // The error return is part of the ociLoadBalancerModel interface contract.
 func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
         ctx context.Context,
         params removeUnusedCertificatesParams,
@@ -6707,7 +6754,7 @@ func ociListenerPolicyRuleIdentity(ruleIndex int, nameParts ...string) string <s
         var result strings.Builder
         result.WriteString(strconv.Itoa(ruleIndex))
         for _, part := range nameParts </span><span class="cov9" title="38">{
-                result.WriteString(fmt.Sprintf(":%d:%s", len(part), part))
+                fmt.Fprintf(&amp;result, ":%d:%s", len(part), part)
         }</span>
         <span class="cov7" title="17">return result.String()</span>
 }
@@ -6748,13 +6795,9 @@ type makeOciListenerUpdateDetailsParams struct {
 func makeOciListenerUpdateDetails(
         params makeOciListenerUpdateDetailsParams,
 ) (loadbalancer.UpdateListenerDetails, bool) <span class="cov6" title="9">{
-        hasChanges := false
+        hasChanges := params.existingListenerData.Protocol == nil || *params.existingListenerData.Protocol != "HTTP"
 
-        if params.existingListenerData.Protocol == nil || *params.existingListenerData.Protocol != "HTTP" </span><span class="cov2" title="2">{
-                hasChanges = true
-        }</span>
-
-        <span class="cov6" title="9">if params.existingListenerData.Port == nil || *params.existingListenerData.Port != int(params.listenerSpec.Port) </span><span class="cov3" title="3">{
+        if params.existingListenerData.Port == nil || *params.existingListenerData.Port != int(params.listenerSpec.Port) </span><span class="cov3" title="3">{
                 hasChanges = true
         }</span>
 
@@ -6787,10 +6830,10 @@ func makeOciListenerUpdateDetails(
         }</span>
 
         <span class="cov5" title="7">return loadbalancer.UpdateListenerDetails{
-                Protocol:              lo.ToPtr("HTTP"),
-                Port:                  lo.ToPtr(int(params.listenerSpec.Port)),
-                DefaultBackendSetName: lo.ToPtr(params.defaultBackendSetName),
-                RoutingPolicyName:     lo.ToPtr(expectedPolicyName),
+                Protocol:              new("HTTP"),
+                Port:                  new(int(params.listenerSpec.Port)),
+                DefaultBackendSetName: new(params.defaultBackendSetName),
+                RoutingPolicyName:     new(expectedPolicyName),
                 SslConfiguration:      params.sslConfig,
         }, true</span>
 }
@@ -6805,7 +6848,7 @@ type ociLoadBalancerModelDeps struct {
         RoutingRulesMapper  ociLoadBalancerRoutingRulesMapper
 }
 
-func newOciLoadBalancerModel(deps ociLoadBalancerModelDeps) ociLoadBalancerModel <span class="cov9" title="44">{
+func newOciLoadBalancerModel(deps ociLoadBalancerModelDeps) *ociLoadBalancerModelImpl <span class="cov9" title="44">{
         return &amp;ociLoadBalancerModelImpl{
                 logger:              deps.RootLogger.WithGroup("oci-load-balancer-model"),
                 ociClient:           deps.OciClient,
@@ -6882,7 +6925,7 @@ type ociLoadBalancerRoutingRulesMapper interface {
 
 type ociLoadBalancerRoutingRulesMapperImpl struct{}
 
-func newOciLoadBalancerRoutingRulesMapper() ociLoadBalancerRoutingRulesMapper <span class="cov10" title="29">{
+func newOciLoadBalancerRoutingRulesMapper() *ociLoadBalancerRoutingRulesMapperImpl <span class="cov10" title="29">{
         return &amp;ociLoadBalancerRoutingRulesMapperImpl{}
 }</span>
 
@@ -6902,69 +6945,20 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchToCondition(
 
         // --- Path Matching ---
         <span class="cov9" title="26">if match.Path != nil </span><span class="cov7" title="12">{
-                if match.Path.Value == nil </span><span class="cov1" title="1">{
-                        return "", errors.New("path match value cannot be nil")
+                condition, err := mapPathMatchToCondition(*match.Path)
+                if err != nil </span><span class="cov2" title="2">{
+                        return "", err
                 }</span>
-                <span class="cov7" title="11">pathValue := *match.Path.Value
-                pathType := gatewayv1.PathMatchPathPrefix // Default type if not specified
-                if match.Path.Type != nil </span><span class="cov7" title="10">{
-                        pathType = *match.Path.Type
-                }</span>
-
-                <span class="cov7" title="11">switch pathType </span>{
-                case gatewayv1.PathMatchExact:<span class="cov5" title="5">
-                        // TODO: Handle escaping single quotes in pathValue if necessary
-                        conditions = append(conditions, fmt.Sprintf(`http.request.url.path eq '%s'`, pathValue))</span>
-                case gatewayv1.PathMatchPathPrefix:<span class="cov5" title="5">
-                        // TODO: Handle escaping single quotes in pathValue if necessary
-                        conditions = append(conditions, fmt.Sprintf(`http.request.url.path sw '%s'`, pathValue))</span>
-                case gatewayv1.PathMatchRegularExpression:<span class="cov1" title="1">
-                        return "", fmt.Errorf("%w: regex path matching", errUnsupportedMatch)</span>
-                default:<span class="cov0" title="0">
-                        return "", fmt.Errorf("%w: unknown path match type '%s'", errUnsupportedMatch, pathType)</span>
-                }
+                <span class="cov7" title="10">conditions = append(conditions, condition)</span>
         }
 
         // --- Header Matching ---
         <span class="cov9" title="24">for _, headerMatch := range match.Headers </span><span class="cov8" title="18">{
-                headerType := gatewayv1.HeaderMatchExact // Default type
-                if headerMatch.Type != nil </span><span class="cov8" title="17">{
-                        headerType = *headerMatch.Type
+                condition, err := mapHeaderMatchToCondition(headerMatch)
+                if err != nil </span><span class="cov5" title="5">{
+                        return "", err
                 }</span>
-
-                <span class="cov8" title="18">switch headerType </span>{
-                case gatewayv1.HeaderMatchExact:<span class="cov6" title="7">
-                        // TODO: Handle escaping single quotes in headerMatch.Value if necessary
-                        // Header names are case-insensitive in HTTP, but OCI conditions might be case-sensitive.
-                        // Assuming case-sensitive match for now based on Gateway API spec.
-                        conditions = append(
-                                conditions,
-                                fmt.Sprintf(`http.request.headers[(i '%s')] eq (i '%s')`, headerMatch.Name, headerMatch.Value),
-                        )</span>
-                case gatewayv1.HeaderMatchRegularExpression:<span class="cov7" title="11">
-                        // Try to parse as starts-with pattern
-                        if prefix, swMatched := parseRegexForStartsWith(headerMatch.Value); swMatched </span><span class="cov4" title="4">{
-                                conditions = append(
-                                        conditions,
-                                        fmt.Sprintf(`http.request.headers[(i '%s')][0] sw (i '%s')`, headerMatch.Name, prefix),
-                                )
-                        }</span> else<span class="cov6" title="7"> if suffix, ewMatched := parseRegexForEndsWith(headerMatch.Value); ewMatched </span><span class="cov2" title="2">{
-                                // Try to parse as ends-with pattern
-                                conditions = append(
-                                        conditions,
-                                        fmt.Sprintf(`http.request.headers[(i '%s')][0] ew (i '%s')`, headerMatch.Name, suffix),
-                                )
-                        }</span> else<span class="cov5" title="5"> {
-                                // Unsupported regex pattern
-                                return "", fmt.Errorf("%w: regex header matching for header '%s'", errUnsupportedMatch, headerMatch.Name)
-                        }</span>
-                default:<span class="cov0" title="0">
-                        return "", fmt.Errorf("%w: unknown header match type '%s' for header '%s'",
-                                errUnsupportedMatch,
-                                headerType,
-                                headerMatch.Name,
-                        )</span>
-                }
+                <span class="cov7" title="13">conditions = append(conditions, condition)</span>
         }
 
         // --- Combine conditions ---
@@ -6975,6 +6969,67 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchToCondition(
                 return conditions[0], nil
         }</span>
         <span class="cov4" title="4">return "all(" + strings.Join(conditions, ", ") + ")", nil</span>
+}
+
+func mapPathMatchToCondition(pathMatch gatewayv1.HTTPPathMatch) (string, error) <span class="cov7" title="12">{
+        if pathMatch.Value == nil </span><span class="cov1" title="1">{
+                return "", errors.New("path match value cannot be nil")
+        }</span>
+        <span class="cov7" title="11">pathValue := *pathMatch.Value
+        pathType := gatewayv1.PathMatchPathPrefix // Default type if not specified
+        if pathMatch.Type != nil </span><span class="cov7" title="10">{
+                pathType = *pathMatch.Type
+        }</span>
+
+        <span class="cov7" title="11">switch pathType </span>{
+        case gatewayv1.PathMatchExact:<span class="cov5" title="5">
+                // TODO: Handle escaping single quotes in pathValue if necessary
+                return fmt.Sprintf(`http.request.url.path eq '%s'`, pathValue), nil</span>
+        case gatewayv1.PathMatchPathPrefix:<span class="cov5" title="5">
+                // TODO: Handle escaping single quotes in pathValue if necessary
+                return fmt.Sprintf(`http.request.url.path sw '%s'`, pathValue), nil</span>
+        case gatewayv1.PathMatchRegularExpression:<span class="cov1" title="1">
+                return "", fmt.Errorf("%w: regex path matching", errUnsupportedMatch)</span>
+        default:<span class="cov0" title="0">
+                return "", fmt.Errorf("%w: unknown path match type '%s'", errUnsupportedMatch, pathType)</span>
+        }
+}
+
+func mapHeaderMatchToCondition(headerMatch gatewayv1.HTTPHeaderMatch) (string, error) <span class="cov8" title="18">{
+        headerType := gatewayv1.HeaderMatchExact // Default type
+        if headerMatch.Type != nil </span><span class="cov8" title="17">{
+                headerType = *headerMatch.Type
+        }</span>
+
+        <span class="cov8" title="18">switch headerType </span>{
+        case gatewayv1.HeaderMatchExact:<span class="cov6" title="7">
+                // TODO: Handle escaping single quotes in headerMatch.Value if necessary
+                // Header names are case-insensitive in HTTP, but OCI conditions might be case-sensitive.
+                // Assuming case-sensitive match for now based on Gateway API spec.
+                return fmt.Sprintf(`http.request.headers[(i '%s')] eq (i '%s')`, headerMatch.Name, headerMatch.Value), nil</span>
+        case gatewayv1.HeaderMatchRegularExpression:<span class="cov7" title="11">
+                return mapRegexHeaderMatchToCondition(headerMatch)</span>
+        default:<span class="cov0" title="0">
+                return "", fmt.Errorf("%w: unknown header match type '%s' for header '%s'",
+                        errUnsupportedMatch,
+                        headerType,
+                        headerMatch.Name,
+                )</span>
+        }
+}
+
+func mapRegexHeaderMatchToCondition(headerMatch gatewayv1.HTTPHeaderMatch) (string, error) <span class="cov7" title="11">{
+        if prefix, swMatched := parseRegexForStartsWith(headerMatch.Value); swMatched </span><span class="cov4" title="4">{
+                return fmt.Sprintf(`http.request.headers[(i '%s')][0] sw (i '%s')`, headerMatch.Name, prefix), nil
+        }</span>
+        <span class="cov6" title="7">if suffix, ewMatched := parseRegexForEndsWith(headerMatch.Value); ewMatched </span><span class="cov2" title="2">{
+                return fmt.Sprintf(`http.request.headers[(i '%s')][0] ew (i '%s')`, headerMatch.Name, suffix), nil
+        }</span>
+        <span class="cov5" title="5">return "", fmt.Errorf(
+                "%w: regex header matching for header '%s'",
+                errUnsupportedMatch,
+                headerMatch.Name,
+        )</span>
 }
 
 func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchesToCondition(
@@ -7007,11 +7062,12 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchesToCondition(
 		<pre class="file" id="file31" style="display: none">package app
 
 import (
-        "github.com/gemyago/oke-gateway-api/internal/di"
-        "github.com/gemyago/oke-gateway-api/internal/services/ociapi"
         "github.com/oracle/oci-go-sdk/v65/loadbalancer"
         "go.uber.org/dig"
         "sigs.k8s.io/controller-runtime/pkg/client"
+
+        "github.com/gemyago/oke-gateway-api/internal/di"
+        "github.com/gemyago/oke-gateway-api/internal/services/ociapi"
 )
 
 func Register(container *dig.Container) error <span class="cov8" title="1">{
@@ -7022,12 +7078,13 @@ func Register(container *dig.Container) error <span class="cov8" title="1">{
                 NewGatewayClassController,
                 NewGatewayController,
                 NewHTTPRouteController,
-                newResourcesModel,
-                newGatewayModel,
-                newHTTPRouteModel,
-                newOciLoadBalancerModel,
+                di.ProvideFactoryAs[resourcesModel](newResourcesModel),
+                di.ProvideFactoryAs[gatewayModel](newGatewayModel),
+                di.ProvideFactoryAs[httpRouteModel](newHTTPRouteModel),
+                di.ProvideFactoryAs[ociLoadBalancerModel](newOciLoadBalancerModel),
                 newOciLoadBalancerRoutingRulesMapper,
-                newHTTPBackendModel,
+                di.ProvideAs[*ociLoadBalancerRoutingRulesMapperImpl, ociLoadBalancerRoutingRulesMapper],
+                di.ProvideFactoryAs[httpBackendModel](newHTTPBackendModel),
                 NewWatchesModel,
         )
 }
@@ -7039,6 +7096,7 @@ import (
         "context"
         "fmt"
         "log/slog"
+        "maps"
 
         "go.uber.org/dig"
         "k8s.io/apimachinery/pkg/api/meta"
@@ -7117,16 +7175,18 @@ func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditi
                 if currentAnnotations == nil </span><span class="cov3" title="2">{
                         currentAnnotations = make(map[string]string)
                 }</span>
-                <span class="cov6" title="5">for k, v := range params.annotations </span><span class="cov7" title="7">{
-                        currentAnnotations[k] = v
-                }</span>
-                <span class="cov6" title="5">params.resource.SetAnnotations(currentAnnotations)
+                <span class="cov6" title="5">maps.Copy(currentAnnotations, params.annotations)
+                params.resource.SetAnnotations(currentAnnotations)
                 needsResourceUpdate = true</span>
         }
 
         <span class="cov7" title="8">if needsResourceUpdate </span><span class="cov7" title="7">{
                 if err := m.client.Update(ctx, params.resource); err != nil </span><span class="cov3" title="2">{
-                        return fmt.Errorf("failed to update resource %s with finalizer/annotations: %w", params.resource.GetName(), err)
+                        return fmt.Errorf(
+                                "failed to update resource %s with finalizer/annotations: %w",
+                                params.resource.GetName(),
+                                err,
+                        )
                 }</span>
         }
 
@@ -7162,7 +7222,7 @@ type resourcesModelDeps struct {
         RootLogger *slog.Logger
 }
 
-func newResourcesModel(deps resourcesModelDeps) resourcesModel <span class="cov10" title="18">{
+func newResourcesModel(deps resourcesModelDeps) *resourcesModelImpl <span class="cov10" title="18">{
         return &amp;resourcesModelImpl{
                 client: deps.K8sClient,
                 logger: deps.RootLogger.WithGroup("resources-model"),
@@ -7178,7 +7238,6 @@ import (
         "log/slog"
         "path"
 
-        "github.com/gemyago/oke-gateway-api/internal/diag"
         "github.com/samber/lo"
         "go.uber.org/dig"
         corev1 "k8s.io/api/core/v1"
@@ -7188,6 +7247,8 @@ import (
         "sigs.k8s.io/controller-runtime/pkg/client"
         "sigs.k8s.io/controller-runtime/pkg/reconcile"
         gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+        "github.com/gemyago/oke-gateway-api/internal/diag"
 )
 
 const httpRouteBackendServiceIndexKey = ".metadata.backendRefs.serviceName" // Virtual field name, indexed
@@ -7562,19 +7623,19 @@ type LoadOpts struct {
         defaultConfigFileName string
 }
 
-func (opts *LoadOpts) WithEnv(val string) *LoadOpts <span class="cov6" title="8">{
-        if val != "" </span><span class="cov4" title="4">{
-                opts.env = val
-        }</span>
-        <span class="cov6" title="8">return opts</span>
-}
-
 func NewLoadOpts() *LoadOpts <span class="cov7" title="10">{
         return &amp;LoadOpts{
                 env:                   "local",
                 defaultConfigFileName: "default.json",
         }
 }</span>
+
+func (opts *LoadOpts) WithEnv(val string) *LoadOpts <span class="cov6" title="8">{
+        if val != "" </span><span class="cov4" title="4">{
+                opts.env = val
+        }</span>
+        <span class="cov6" title="8">return opts</span>
+}
 
 func New() *viper.Viper <span class="cov7" title="10">{
         v := viper.New()
@@ -7616,9 +7677,10 @@ func Load(cfg *viper.Viper, opts *LoadOpts) error <span class="cov7" title="10">
 import (
         "fmt"
 
-        "github.com/gemyago/oke-gateway-api/internal/di"
         "github.com/spf13/viper"
         "go.uber.org/dig"
+
+        "github.com/gemyago/oke-gateway-api/internal/di"
 )
 
 type configValueProvider struct {
@@ -7695,30 +7757,30 @@ import (
 // we are not creating any abstraction over it, but we do have a set of tools to make it easier to use
 
 type ConstructorWithOpts struct {
-        Constructor interface{}
+        Constructor any
         Options     []dig.ProvideOption
 }
 
-func ProvideAll(container *dig.Container, providers ...interface{}) error <span class="cov7" title="23">{
-        for i, provider := range providers </span><span class="cov10" title="80">{
+func ProvideAll(container *dig.Container, providers ...any) error <span class="cov7" title="25">{
+        for i, provider := range providers </span><span class="cov10" title="87">{
                 switch p := provider.(type) </span>{
-                case ConstructorWithOpts:<span class="cov8" title="44">
+                case ConstructorWithOpts:<span class="cov8" title="46">
                         if err := container.Provide(p.Constructor, p.Options...); err != nil </span><span class="cov1" title="1">{
                                 return fmt.Errorf("failed to provide %d-th dependency: %w", i, err)
                         }</span>
-                default:<span class="cov8" title="36">
+                default:<span class="cov8" title="41">
                         if err := container.Provide(provider); err != nil </span><span class="cov1" title="1">{
                                 return fmt.Errorf("failed to provide %d-th dependency: %w", i, err)
                         }</span>
                 }
         }
-        <span class="cov7" title="21">return nil</span>
+        <span class="cov7" title="23">return nil</span>
 }
 
 // ProvideValue will create a constructor (e.g func) from a given value.
-func ProvideValue[T any](val T, opts ...dig.ProvideOption) ConstructorWithOpts <span class="cov8" title="45">{
+func ProvideValue[T any](val T, opts ...dig.ProvideOption) ConstructorWithOpts <span class="cov8" title="47">{
         return ConstructorWithOpts{
-                Constructor: func() T </span><span class="cov7" title="27">{ return val }</span>,
+                Constructor: func() T </span><span class="cov7" title="29">{ return val }</span>,
                 Options:     opts,
         }
 }
@@ -7755,14 +7817,28 @@ func ProvideWithArgErr[
 
 // ProvideAs is used to provide one type as another, typically
 // used to provide implementation struct as particular interface.
-func ProvideAs[TSource any, TTarget any](source TSource) (TTarget, error) <span class="cov2" title="2">{
+//
+//nolint:ireturn // This DI adapter intentionally returns the requested target interface.
+func ProvideAs[TSource any, TTarget any](source TSource) (TTarget, error) <span class="cov5" title="10">{
         target, ok := any(source).(TTarget)
-        if !ok </span><span class="cov1" title="1">{
+        if !ok </span><span class="cov2" title="2">{
                 var src TSource
                 var tgt TTarget
                 return target, fmt.Errorf("failed to cast %s to %s", reflect.TypeOf(src), reflect.TypeOf(tgt))
         }</span>
-        <span class="cov1" title="1">return target, nil</span>
+        <span class="cov5" title="8">return target, nil</span>
+}
+
+// ProvideFactoryAs allows injecting implementation of a particular interface.
+// Functionally equivalent to injecting the factory first and then use ProvideAs.
+func ProvideFactoryAs[
+        TTarget any,
+        TSource any,
+        TTSourceDeps any,
+](srcFactory func(TTSourceDeps) TSource) func(deps TTSourceDeps) (TTarget, error) <span class="cov4" title="7">{
+        return func(deps TTSourceDeps) (TTarget, error) </span><span class="cov4" title="7">{
+                return ProvideAs[TSource, TTarget](srcFactory(deps))
+        }</span>
 }
 </pre>
 		
@@ -8038,18 +8114,18 @@ type diagLogHandler struct {
         target slog.Handler
 }
 
-func (h *diagLogHandler) Enabled(ctx context.Context, lvl slog.Level) bool <span class="cov9" title="283">{
+func (h *diagLogHandler) Enabled(ctx context.Context, lvl slog.Level) bool <span class="cov9" title="284">{
         return h.target.Enabled(ctx, lvl)
 }</span>
 
-func (h *diagLogHandler) Handle(ctx context.Context, rec slog.Record) error <span class="cov10" title="285">{
+func (h *diagLogHandler) Handle(ctx context.Context, rec slog.Record) error <span class="cov10" title="286">{
         if diagAttributes, ok := ctx.Value(contextDiagAttrs).(LogAttributes); ok </span><span class="cov2" title="2">{
                 rec.AddAttrs(
                         slog.Attr{Key: "correlationId", Value: diagAttributes.CorrelationID},
                 )
         }</span>
 
-        <span class="cov10" title="285">return h.target.Handle(ctx, rec)</span>
+        <span class="cov10" title="286">return h.target.Handle(ctx, rec)</span>
 }
 
 func (h *diagLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler <span class="cov9" title="226">{
@@ -8075,6 +8151,12 @@ type RootLoggerOpts struct {
         logLevel slog.Level
 }
 
+func NewRootLoggerOpts() *RootLoggerOpts <span class="cov9" title="211">{
+        return &amp;RootLoggerOpts{
+                output: os.Stdout,
+        }
+}</span>
+
 func (opts *RootLoggerOpts) WithJSONLogs(value bool) *RootLoggerOpts <span class="cov9" title="209">{
         opts.jsonLogs = value
         return opts
@@ -8094,19 +8176,13 @@ func (opts *RootLoggerOpts) WithOptionalOutputFile(outputFile string) *RootLogge
         if outputFile == "" </span><span class="cov1" title="1">{
                 return opts
         }</span>
-        <span class="cov2" title="2">f, err := os.OpenFile(outputFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o666)
+        <span class="cov2" title="2">f, err := os.OpenFile(outputFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
         if err != nil </span><span class="cov0" title="0">{
                 panic(err)</span>
         }
         <span class="cov2" title="2">opts.output = f
         return opts</span>
 }
-
-func NewRootLoggerOpts() *RootLoggerOpts <span class="cov9" title="211">{
-        return &amp;RootLoggerOpts{
-                output: os.Stdout,
-        }
-}</span>
 
 func SetupRootLogger(opts *RootLoggerOpts) *slog.Logger <span class="cov9" title="211">{
         logHandlerOpts := &amp;slog.HandlerOptions{Level: opts.logLevel}
@@ -8139,7 +8215,7 @@ import (
 func openTestLogFile() *os.File <span class="cov4" title="10">{
         _, filename, _, _ := runtime.Caller(0) // Will be current file
         testFilePath := filepath.Join(filename, "..", "..", "..", "test.log")
-        f, err := os.OpenFile(testFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o666)
+        f, err := os.OpenFile(testFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
         if err != nil </span><span class="cov0" title="0">{
                 err = fmt.Errorf("fail to open log file %q for test logging: %w", testFilePath, err)
                 panic(err)</span>
@@ -8162,12 +8238,14 @@ import (
         "context"
         "errors"
         "log/slog"
+        "slices"
 
-        "github.com/gemyago/oke-gateway-api/internal/app"
-        "github.com/gemyago/oke-gateway-api/internal/diag"
         "github.com/google/uuid"
         apierrors "k8s.io/apimachinery/pkg/api/errors"
         "sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+        "github.com/gemyago/oke-gateway-api/internal/app"
+        "github.com/gemyago/oke-gateway-api/internal/diag"
 )
 
 type controllerMiddleware[request comparable] func(
@@ -8230,8 +8308,8 @@ func wireupReconciler(
         ctrl reconcile.TypedReconciler[reconcile.Request],
         middlewares ...controllerMiddleware[reconcile.Request],
 ) reconcile.TypedReconciler[reconcile.Request] <span class="cov5" title="2">{
-        for i := len(middlewares) - 1; i &gt;= 0; i-- </span><span class="cov5" title="2">{
-                ctrl = middlewares[i](ctrl)
+        for _, v := range slices.Backward(middlewares) </span><span class="cov5" title="2">{
+                ctrl = v(ctrl)
         }</span>
         <span class="cov5" title="2">return ctrl</span>
 }
@@ -8244,7 +8322,6 @@ import (
         "fmt"
         "log/slog"
 
-        "github.com/gemyago/oke-gateway-api/internal/app"
         "github.com/go-logr/logr"
         "go.uber.org/dig"
         corev1 "k8s.io/api/core/v1"
@@ -8258,6 +8335,8 @@ import (
         "sigs.k8s.io/controller-runtime/pkg/predicate"
         "sigs.k8s.io/controller-runtime/pkg/reconcile"
         gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+        "github.com/gemyago/oke-gateway-api/internal/app"
 )
 
 // StartManagerDeps contains the dependencies for the controller manager.
@@ -8369,7 +8448,6 @@ import (
         "os"
         "path/filepath"
 
-        "github.com/gemyago/oke-gateway-api/internal/types"
         "go.uber.org/dig"
         "k8s.io/apimachinery/pkg/runtime"
         clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -8379,6 +8457,8 @@ import (
         "sigs.k8s.io/controller-runtime/pkg/client"
         "sigs.k8s.io/controller-runtime/pkg/manager"
         gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+        "github.com/gemyago/oke-gateway-api/internal/types"
 )
 
 type ConfigDeps struct {
@@ -8416,6 +8496,7 @@ func newConfig(deps ConfigDeps) (*rest.Config, error) <span class="cov8" title="
         <span class="cov0" title="0">return clientcmd.BuildConfigFromFlags("", kubeconfig)</span>
 }
 
+//nolint:ireturn // controller-runtime constructs managers behind an interface.
 func newManager(config *rest.Config) (manager.Manager, error) <span class="cov8" title="1">{
         scheme := runtime.NewScheme()
 
@@ -8436,6 +8517,7 @@ func newManager(config *rest.Config) (manager.Manager, error) <span class="cov8"
         })</span>
 }
 
+//nolint:ireturn // controller-runtime exposes clients through an interface.
 func newClient(manager manager.Manager) (client.Client, error) <span class="cov8" title="1">{
         return manager.GetClient(), nil
 }</span>
@@ -8765,8 +8847,9 @@ func NewMockSubResourceWriter(t interface {
 		<pre class="file" id="file46" style="display: none">package k8sapi
 
 import (
-        "github.com/gemyago/oke-gateway-api/internal/di"
         "go.uber.org/dig"
+
+        "github.com/gemyago/oke-gateway-api/internal/di"
 )
 
 func Register(container *dig.Container) error <span class="cov8" title="1">{
@@ -8822,6 +8905,7 @@ import (
         "github.com/oracle/oci-go-sdk/v65/common"
 )
 
+//nolint:ireturn // OCI SDK configuration providers are intentionally interface-based.
 func newConfigProvider() (common.ConfigurationProvider, error) <span class="cov8" title="1">{
         // TODO: This needs more advanced setup and support in cluster config
         configProvider := common.DefaultConfigProvider()
@@ -8948,7 +9032,7 @@ type OCIResourceNameConfig struct {
 }
 
 // defaultHashFunc calculates a CRC32 checksum and returns it as an 8-character lowercase hexadecimal string.
-func defaultHashFunc(input string) string <span class="cov7" title="16">{
+func defaultHashFunc(input string) string <span class="cov6" title="15">{
         checksum := crc32.ChecksumIEEE([]byte(input))
         return fmt.Sprintf("%08x", checksum)
 }</span>
@@ -8983,12 +9067,12 @@ func ConstructOCIResourceName(originalName string, config OCIResourceNameConfig)
                 resultingName = config.sanitizeFunc(originalName, config.InvalidCharsPattern)
         }</span>
 
-        <span class="cov10" title="63">if config.MaxLength &gt; 0 &amp;&amp; len(resultingName) &gt; config.MaxLength </span><span class="cov7" title="22">{
+        <span class="cov10" title="63">if config.MaxLength &gt; 0 &amp;&amp; len(resultingName) &gt; config.MaxLength </span><span class="cov7" title="21">{
                 hash := config.hashFunc(originalName)
                 if len(hash) &gt;= config.MaxLength </span><span class="cov2" title="2">{
                         return hash[:config.MaxLength]
                 }</span>
-                <span class="cov7" title="20">originalLength := len(resultingName)
+                <span class="cov7" title="19">originalLength := len(resultingName)
                 hashStarts := originalLength/ociResourceNameHashPartDivider - len(hash)/ociResourceNameHashPartDivider
                 hashEnds := hashStarts + len(hash)
                 remainingLength := config.MaxLength - hashEnds
@@ -9002,9 +9086,10 @@ func ConstructOCIResourceName(originalName string, config OCIResourceNameConfig)
 		<pre class="file" id="file51" style="display: none">package ociapi
 
 import (
-        "github.com/gemyago/oke-gateway-api/internal/di"
         "github.com/oracle/oci-go-sdk/v65/loadbalancer"
         "go.uber.org/dig"
+
+        "github.com/gemyago/oke-gateway-api/internal/di"
 )
 
 func Register(container *dig.Container) error <span class="cov8" title="1">{
@@ -9023,10 +9108,15 @@ package ociapi
 
 import (
         "fmt"
-        "math/rand/v2"
 
-        "github.com/go-faker/faker/v4"
+        "github.com/jaswdr/faker/v2"
         "github.com/oracle/oci-go-sdk/v65/common"
+)
+
+const (
+        randomServiceErrorSentenceWords = 10
+        minServiceErrorStatusCode       = 100
+        maxServiceErrorStatusCode       = 498
 )
 
 type MockServiceError struct {
@@ -9034,6 +9124,24 @@ type MockServiceError struct {
         message      string
         code         string
         opcRequestID string
+}
+
+type RandomServiceErrorOpts func(*MockServiceError)
+
+func NewRandomServiceError(opts ...RandomServiceErrorOpts) *MockServiceError <span class="cov7" title="4">{
+        fake := faker.New()
+        res := &amp;MockServiceError{
+                statusCode:   fake.IntBetween(minServiceErrorStatusCode, maxServiceErrorStatusCode),
+                message:      fake.Lorem().Sentence(randomServiceErrorSentenceWords),
+                code:         fake.Lorem().Word(),
+                opcRequestID: fake.UUID().V4(),
+        }
+
+        for _, opt := range opts </span><span class="cov10" title="6">{
+                opt(res)
+        }</span>
+
+        <span class="cov7" title="4">return res</span>
 }
 
 func (m *MockServiceError) GetHTTPStatusCode() int <span class="cov9" title="5">{
@@ -9058,23 +9166,6 @@ func (m *MockServiceError) Error() string <span class="cov1" title="1">{
 
 var _ common.ServiceError = &amp;MockServiceError{}
 var _ error = &amp;MockServiceError{}
-
-type RandomServiceErrorOpts func(*MockServiceError)
-
-func NewRandomServiceError(opts ...RandomServiceErrorOpts) *MockServiceError <span class="cov7" title="4">{
-        res := &amp;MockServiceError{
-                statusCode:   rand.IntN(399) + 100,
-                message:      faker.Sentence(),
-                code:         faker.Word(),
-                opcRequestID: faker.UUIDHyphenated(),
-        }
-
-        for _, opt := range opts </span><span class="cov10" title="6">{
-                opt(res)
-        }</span>
-
-        <span class="cov7" title="4">return res</span>
-}
 
 func RandomServiceErrorWithStatusCode(statusCode int) RandomServiceErrorOpts <span class="cov7" title="4">{
         return func(m *MockServiceError) </span><span class="cov7" title="4">{
@@ -9124,6 +9215,36 @@ type WorkRequestsWatcher struct {
         maxPollDuration time.Duration
 }
 
+type WorkRequestsWatcherDeps struct {
+        dig.In `ignore-unexported:"true"`
+
+        Client     workRequestsClient
+        RootLogger *slog.Logger
+
+        pollInterval    time.Duration
+        maxPollDuration time.Duration
+}
+
+const defaultPollInterval = 2 * time.Second
+const defaultMaxPollDuration = 20 * time.Minute
+
+func NewWorkRequestsWatcher(deps WorkRequestsWatcherDeps) *WorkRequestsWatcher <span class="cov7" title="5">{
+        if deps.pollInterval == 0 </span><span class="cov1" title="1">{
+                deps.pollInterval = defaultPollInterval
+        }</span>
+
+        <span class="cov7" title="5">if deps.maxPollDuration == 0 </span><span class="cov6" title="4">{
+                deps.maxPollDuration = defaultMaxPollDuration
+        }</span>
+
+        <span class="cov7" title="5">return &amp;WorkRequestsWatcher{
+                client:          deps.Client,
+                logger:          deps.RootLogger.WithGroup("oci-work-requests"),
+                pollInterval:    deps.pollInterval,
+                maxPollDuration: deps.maxPollDuration,
+        }</span>
+}
+
 // WaitFor waits for a work request to succeed.
 func (w *WorkRequestsWatcher) WaitFor(ctx context.Context, workRequestID string) error <span class="cov6" title="4">{
         request := loadbalancer.GetWorkRequestRequest{
@@ -9165,36 +9286,6 @@ func (w *WorkRequestsWatcher) WaitFor(ctx context.Context, workRequestID string)
                 }
         }
 }
-
-type WorkRequestsWatcherDeps struct {
-        dig.In `ignore-unexported:"true"`
-
-        Client     workRequestsClient
-        RootLogger *slog.Logger
-
-        pollInterval    time.Duration
-        maxPollDuration time.Duration
-}
-
-const defaultPollInterval = 2 * time.Second
-const defaultMaxPollDuration = 20 * time.Minute
-
-func NewWorkRequestsWatcher(deps WorkRequestsWatcherDeps) *WorkRequestsWatcher <span class="cov7" title="5">{
-        if deps.pollInterval == 0 </span><span class="cov1" title="1">{
-                deps.pollInterval = defaultPollInterval
-        }</span>
-
-        <span class="cov7" title="5">if deps.maxPollDuration == 0 </span><span class="cov6" title="4">{
-                deps.maxPollDuration = defaultMaxPollDuration
-        }</span>
-
-        <span class="cov7" title="5">return &amp;WorkRequestsWatcher{
-                client:          deps.Client,
-                logger:          deps.RootLogger.WithGroup("oci-work-requests"),
-                pollInterval:    deps.pollInterval,
-                maxPollDuration: deps.maxPollDuration,
-        }</span>
-}
 </pre>
 		
 		<pre class="file" id="file54" style="display: none">package services
@@ -9202,13 +9293,15 @@ func NewWorkRequestsWatcher(deps WorkRequestsWatcherDeps) *WorkRequestsWatcher <
 import (
         "time"
 
-        "github.com/gemyago/oke-gateway-api/internal/di"
         "go.uber.org/dig"
+
+        "github.com/gemyago/oke-gateway-api/internal/di"
 )
 
 func Register(container *dig.Container) error <span class="cov10" title="2">{
         return di.ProvideAll(container,
                 NewTimeProvider,
+                di.ProvideAs[TimeProviderFn, TimeProvider],
                 di.ProvideValue(time.NewTicker),
                 NewShutdownHooks,
         )
@@ -9242,6 +9335,13 @@ type ShutdownHooks struct {
         hooks  []shutdownHook
         deps   ShutdownHooksRegistryDeps
 }
+
+func NewShutdownHooks(deps ShutdownHooksRegistryDeps) *ShutdownHooks <span class="cov8" title="7">{
+        return &amp;ShutdownHooks{
+                logger: deps.RootLogger.WithGroup("shutdown"),
+                deps:   deps,
+        }
+}</span>
 
 // HasHook checks if a shutdown hook with the given name is registered.
 // Typical usage is in tests and must be carefully considered for production scenarios.
@@ -9301,13 +9401,6 @@ type ShutdownHooksRegistryDeps struct {
         // config
         GracefulShutdownTimeout time.Duration `name:"config.gracefulShutdownTimeout"`
 }
-
-func NewShutdownHooks(deps ShutdownHooksRegistryDeps) *ShutdownHooks <span class="cov8" title="7">{
-        return &amp;ShutdownHooks{
-                logger: deps.RootLogger.WithGroup("shutdown"),
-                deps:   deps,
-        }
-}</span>
 </pre>
 		
 		<pre class="file" id="file56" style="display: none">//go:build !release
@@ -9319,9 +9412,12 @@ import (
         "strings"
         "time"
 
+        "github.com/jaswdr/faker/v2"
+
         "github.com/gemyago/oke-gateway-api/internal/diag"
-        "github.com/go-faker/faker/v4"
 )
+
+const randomStringSegmentLength = 32
 
 type MockNow struct {
         value time.Time
@@ -9329,18 +9425,19 @@ type MockNow struct {
 
 var _ TimeProvider = &amp;MockNow{}
 
+func NewMockNow() *MockNow <span class="cov0" title="0">{
+        fake := faker.New()
+        return &amp;MockNow{
+                value: time.UnixMilli(fake.Time().Unix(time.Now())),
+        }
+}</span>
+
 func (m *MockNow) SetValue(t time.Time) <span class="cov0" title="0">{
         m.value = t
 }</span>
 
 func (m *MockNow) Now() time.Time <span class="cov0" title="0">{
         return m.value
-}</span>
-
-func NewMockNow() *MockNow <span class="cov0" title="0">{
-        return &amp;MockNow{
-                value: time.UnixMilli(faker.RandomUnixTime()),
-        }
 }</span>
 
 func MockNowValue(p TimeProvider) time.Time <span class="cov0" title="0">{
@@ -9360,13 +9457,14 @@ func NewTestShutdownHooks() *ShutdownHooks <span class="cov1" title="1">{
         })
 }</span>
 
-func RandomString(length int) string <span class="cov9" title="8">{
-        segmentsCount := math.Ceil(float64(length) / 32)
+func RandomString(length int) string <span class="cov8" title="8">{
+        fake := faker.New()
+        segmentsCount := math.Ceil(float64(length) / randomStringSegmentLength)
         segments := make([]string, int(segmentsCount))
-        for i := range segments </span><span class="cov10" title="10">{
-                segments[i] = faker.UUIDDigit()
+        for i := range segments </span><span class="cov10" title="11">{
+                segments[i] = fake.Numerify("################################")
         }</span>
-        <span class="cov9" title="8">return strings.Join(segments, "")[:length]</span>
+        <span class="cov8" title="8">return strings.Join(segments, "")[:length]</span>
 }
 </pre>
 		
@@ -9378,14 +9476,15 @@ type TimeProvider interface {
         Now() time.Time
 }
 
-type timeProviderFn func() time.Time
+// TimeProviderFn adapts a function into a TimeProvider.
+type TimeProviderFn func() time.Time
 
-func (fn timeProviderFn) Now() time.Time <span class="cov8" title="1">{
-        return fn()
+func NewTimeProvider() TimeProviderFn <span class="cov8" title="1">{
+        return TimeProviderFn(time.Now)
 }</span>
 
-func NewTimeProvider() TimeProvider <span class="cov8" title="1">{
-        return timeProviderFn(time.Now)
+func (fn TimeProviderFn) Now() time.Time <span class="cov8" title="1">{
+        return fn()
 }</span>
 </pre>
 		
@@ -9404,7 +9503,7 @@ const (
         Version = "v1"
 )
 
-// Adds the list of known types to Scheme.
+// AddKnownTypes adds the list of known types to Scheme.
 func AddKnownTypes(scheme *runtime.Scheme) error <span class="cov8" title="1">{
         groupVersion := schema.GroupVersion{Group: GroupName, Version: Version}
         scheme.AddKnownTypes(groupVersion,
