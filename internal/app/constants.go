@@ -29,7 +29,7 @@ const (
 
 	// HTTPRouteProgrammingRevisionValue is the value for the http route programming revision.
 	// Incremented when the controller programming steps are changed.
-	HTTPRouteProgrammingRevisionValue = "1"
+	HTTPRouteProgrammingRevisionValue = "2"
 )
 
 const ConfigRefGroup = "oke-gateway-api.gemyago.github.io"
