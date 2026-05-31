@@ -82,3 +82,15 @@ func ProvideAs[TSource any, TTarget any](source TSource) (TTarget, error) {
 	}
 	return target, nil
 }
+
+// ProvideFactoryAs allows injecting implementation of a particular interface.
+// Functionally equivalent to injecting the factory first and then use ProvideAs.
+func ProvideFactoryAs[
+	TTarget any,
+	TSource any,
+	TTSourceDeps any,
+](srcFactory func(TTSourceDeps) TSource) func(deps TTSourceDeps) (TTarget, error) {
+	return func(deps TTSourceDeps) (TTarget, error) {
+		return ProvideAs[TSource, TTarget](srcFactory(deps))
+	}
+}

@@ -17,30 +17,13 @@ func Register(container *dig.Container) error {
 		NewGatewayClassController,
 		NewGatewayController,
 		NewHTTPRouteController,
-		di.ConstructorWithOpts{
-			Constructor: newResourcesModel,
-			Options:     []dig.ProvideOption{dig.As(new(resourcesModel))},
-		},
-		di.ConstructorWithOpts{
-			Constructor: newGatewayModel,
-			Options:     []dig.ProvideOption{dig.As(new(gatewayModel))},
-		},
-		di.ConstructorWithOpts{
-			Constructor: newHTTPRouteModel,
-			Options:     []dig.ProvideOption{dig.As(new(httpRouteModel))},
-		},
-		di.ConstructorWithOpts{
-			Constructor: newOciLoadBalancerModel,
-			Options:     []dig.ProvideOption{dig.As(new(ociLoadBalancerModel))},
-		},
-		di.ConstructorWithOpts{
-			Constructor: newOciLoadBalancerRoutingRulesMapper,
-			Options:     []dig.ProvideOption{dig.As(new(ociLoadBalancerRoutingRulesMapper))},
-		},
-		di.ConstructorWithOpts{
-			Constructor: newHTTPBackendModel,
-			Options:     []dig.ProvideOption{dig.As(new(httpBackendModel))},
-		},
+		di.ProvideFactoryAs[resourcesModel](newResourcesModel),
+		di.ProvideFactoryAs[gatewayModel](newGatewayModel),
+		di.ProvideFactoryAs[httpRouteModel](newHTTPRouteModel),
+		di.ProvideFactoryAs[ociLoadBalancerModel](newOciLoadBalancerModel),
+		newOciLoadBalancerRoutingRulesMapper,
+		di.ProvideAs[*ociLoadBalancerRoutingRulesMapperImpl, ociLoadBalancerRoutingRulesMapper],
+		di.ProvideFactoryAs[httpBackendModel](newHTTPBackendModel),
 		NewWatchesModel,
 	)
 }
