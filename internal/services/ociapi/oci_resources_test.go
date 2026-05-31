@@ -95,6 +95,27 @@ func TestConstructOCIResourceName(t *testing.T) {
 			require.True(t, sanitized)
 		})
 
+		t.Run("with limit clamps hash position when centered hash exceeds limit", func(t *testing.T) {
+			input := services.RandomString(61 + rand.IntN(20))
+			wantHash := services.RandomString(8)
+			wantMaxLength := 32
+			wantAvailableLength := wantMaxLength - len(wantHash)
+			wantPrefixLength := (wantAvailableLength + 1) / 2
+			wantSuffixLength := wantAvailableLength - wantPrefixLength
+			wantResult := input[:wantPrefixLength] + wantHash + input[len(input)-wantSuffixLength:]
+
+			got := ConstructOCIResourceName(input, OCIResourceNameConfig{
+				MaxLength: wantMaxLength,
+				hashFunc: func(hashInput string) string {
+					assert.Equal(t, input, hashInput)
+					return wantHash
+				},
+			})
+
+			require.Equal(t, wantResult, got)
+			assert.Len(t, got, wantMaxLength)
+		})
+
 		t.Run("with limit no sanitize fixed cases", func(t *testing.T) {
 			type testCase struct {
 				input string

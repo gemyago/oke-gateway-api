@@ -2332,6 +2332,33 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 			ociListerPolicyRuleName(otherRoute, index),
 		)
 	})
+
+	t.Run("truncates generated name at crash boundary", func(t *testing.T) {
+		fake := faker.New()
+		rule := makeRandomHTTPRouteRule()
+		index := 0
+		namespace := fake.Numerify("#################")
+		routeName := fake.Numerify("############################")
+		route := makeRandomHTTPRoute(
+			randomHTTPRouteWithNamespaceOpt(namespace),
+			randomHTTPRouteWithNameOpt(routeName),
+			randomHTTPRouteWithRulesOpt(rule),
+		)
+
+		unsanitizedInput := fmt.Sprintf(
+			"p%04d_%08x_%s",
+			index,
+			crc32.ChecksumIEEE([]byte(ociListenerPolicyRuleIdentity(index, namespace, routeName))),
+			strings.Join([]string{namespace, routeName}, "_"),
+		)
+		require.Len(t, unsanitizedInput, 61)
+
+		require.NotPanics(t, func() {
+			got := ociListerPolicyRuleName(route, index)
+			assert.Len(t, got, maxListenerPolicyNameLength)
+			assert.False(t, invalidCharsForPolicyNamePattern.MatchString(got))
+		})
+	})
 }
 
 func Test_ociBackendSetNameFromBackendRef(t *testing.T) {
