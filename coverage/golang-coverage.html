@@ -1453,7 +1453,7 @@ func (m *gatewayModelImpl) isProgrammed(_ context.Context, data *resolvedGateway
 
         // Include secrets annotations in the check
         if len(data.gatewaySecrets) &gt; 0 </span><span class="cov1" title="1">{
-                for _, secret := range data.gatewaySecrets </span><span class="cov4" title="3">{
+                for _, secret := range data.gatewaySecrets </span><span class="cov3" title="2">{
                         secretUID := string(secret.UID)
                         annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + secretUID
                         annotations[annotationKey] = secret.ResourceVersion
@@ -1474,7 +1474,7 @@ func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGate
         }
 
         if len(data.gatewaySecrets) &gt; 0 </span><span class="cov1" title="1">{
-                for _, secret := range data.gatewaySecrets </span><span class="cov4" title="3">{
+                for _, secret := range data.gatewaySecrets </span><span class="cov3" title="2">{
                         secretUID := string(secret.UID)
                         annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + secretUID
                         annotations[annotationKey] = secret.ResourceVersion
@@ -2229,7 +2229,7 @@ type httpRouteModel interface {
 
 // parentRefSameTarget checks if two parent references target the same resource.
 // It ignores the section name and port.
-func parentRefSameTarget(a, b gatewayv1.ParentReference) bool <span class="cov8" title="15">{
+func parentRefSameTarget(a, b gatewayv1.ParentReference) bool <span class="cov7" title="14">{
         return a.Name == b.Name &amp;&amp;
                 lo.FromPtr(a.Namespace) == lo.FromPtr(b.Namespace) &amp;&amp;
                 lo.FromPtr(a.Kind) == lo.FromPtr(b.Kind) &amp;&amp;
@@ -2537,7 +2537,7 @@ func (m *httpRouteModelImpl) programRoute(
         params programRouteParams,
 ) (programRouteResult, error) <span class="cov5" title="5">{
         // First, reconcile all backend sets for known backends
-        for key, service := range params.knownBackends </span><span class="cov6" title="10">{
+        for key, service := range params.knownBackends </span><span class="cov7" title="11">{
                 err := m.ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
                         loadBalancerID: params.config.Spec.LoadBalancerID,
                         service:        service,
@@ -2569,7 +2569,7 @@ func (m *httpRouteModelImpl) programRoute(
         }</span>
 
         // Commit the rules to each listener's policy
-        <span class="cov3" title="3">for _, listener := range params.matchedListeners </span><span class="cov5" title="6">{
+        <span class="cov3" title="3">for _, listener := range params.matchedListeners </span><span class="cov6" title="9">{
                 err := m.ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
                         loadBalancerID:  params.config.Spec.LoadBalancerID,
                         listenerName:    string(listener.Name),
@@ -2609,7 +2609,7 @@ func (m *httpRouteModelImpl) deprovisionRoute(
                 return nil
         }</span>
 
-        <span class="cov2" title="2">for _, listener := range params.matchedListeners </span><span class="cov5" title="5">{
+        <span class="cov2" title="2">for _, listener := range params.matchedListeners </span><span class="cov3" title="3">{
                 m.logger.DebugContext(ctx, "Deprovisioning listener policies for HTTPRoute",
                         slog.String("route", params.httpRoute.Name),
                         slog.String("listener", string(listener.Name)),
@@ -2695,7 +2695,7 @@ func (m *httpRouteModelImpl) setProgrammed(
 
         _, statusIndex, found := lo.FindIndexOf(
                 httpRoute.Status.Parents,
-                func(s gatewayv1.RouteParentStatus) bool </span><span class="cov6" title="8">{
+                func(s gatewayv1.RouteParentStatus) bool </span><span class="cov6" title="7">{
                         return s.ControllerName == params.gatewayClass.Spec.ControllerName &amp;&amp;
                                 parentRefSameTarget(s.ParentRef, params.matchedRef)
                 }</span>,
@@ -5037,26 +5037,26 @@ type MockociLoadBalancerModel_Expecter struct {
         mock *mock.Mock
 }
 
-func (_m *MockociLoadBalancerModel) EXPECT() *MockociLoadBalancerModel_Expecter <span class="cov9" title="40">{
+func (_m *MockociLoadBalancerModel) EXPECT() *MockociLoadBalancerModel_Expecter <span class="cov9" title="42">{
         return &amp;MockociLoadBalancerModel_Expecter{mock: &amp;_m.Mock}
 }</span>
 
 // commitRoutingPolicy provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) commitRoutingPolicy(ctx context.Context, params commitRoutingPolicyParams) error <span class="cov6" title="11">{
+func (_m *MockociLoadBalancerModel) commitRoutingPolicy(ctx context.Context, params commitRoutingPolicyParams) error <span class="cov6" title="12">{
         ret := _m.Called(ctx, params)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for commitRoutingPolicy")</span>
         }
 
-        <span class="cov6" title="11">var r0 error
+        <span class="cov6" title="12">var r0 error
         if rf, ok := ret.Get(0).(func(context.Context, commitRoutingPolicyParams) error); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, params)
-        }</span> else<span class="cov6" title="11"> {
+        }</span> else<span class="cov6" title="12"> {
                 r0 = ret.Error(0)
         }</span>
 
-        <span class="cov6" title="11">return r0</span>
+        <span class="cov6" title="12">return r0</span>
 }
 
 // MockociLoadBalancerModel_commitRoutingPolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'commitRoutingPolicy'
@@ -5067,7 +5067,7 @@ type MockociLoadBalancerModel_commitRoutingPolicy_Call struct {
 // commitRoutingPolicy is a helper method to define mock.On call
 //   - ctx context.Context
 //   - params commitRoutingPolicyParams
-func (_e *MockociLoadBalancerModel_Expecter) commitRoutingPolicy(ctx interface{}, params interface{}) *MockociLoadBalancerModel_commitRoutingPolicy_Call <span class="cov6" title="11">{
+func (_e *MockociLoadBalancerModel_Expecter) commitRoutingPolicy(ctx interface{}, params interface{}) *MockociLoadBalancerModel_commitRoutingPolicy_Call <span class="cov6" title="12">{
         return &amp;MockociLoadBalancerModel_commitRoutingPolicy_Call{Call: _e.mock.On("commitRoutingPolicy", ctx, params)}
 }</span>
 
@@ -5078,7 +5078,7 @@ func (_c *MockociLoadBalancerModel_commitRoutingPolicy_Call) Run(run func(ctx co
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockociLoadBalancerModel_commitRoutingPolicy_Call) Return(_a0 error) *MockociLoadBalancerModel_commitRoutingPolicy_Call <span class="cov6" title="11">{
+func (_c *MockociLoadBalancerModel_commitRoutingPolicy_Call) Return(_a0 error) *MockociLoadBalancerModel_commitRoutingPolicy_Call <span class="cov6" title="12">{
         _c.Call.Return(_a0)
         return _c
 }</span>
@@ -5193,21 +5193,21 @@ func (_c *MockociLoadBalancerModel_makeRoutingRule_Call) RunAndReturn(run func(c
 }</span>
 
 // reconcileBackendSet provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) reconcileBackendSet(ctx context.Context, params reconcileBackendSetParams) error <span class="cov6" title="10">{
+func (_m *MockociLoadBalancerModel) reconcileBackendSet(ctx context.Context, params reconcileBackendSetParams) error <span class="cov6" title="11">{
         ret := _m.Called(ctx, params)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for reconcileBackendSet")</span>
         }
 
-        <span class="cov6" title="10">var r0 error
+        <span class="cov6" title="11">var r0 error
         if rf, ok := ret.Get(0).(func(context.Context, reconcileBackendSetParams) error); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, params)
-        }</span> else<span class="cov6" title="10"> {
+        }</span> else<span class="cov6" title="11"> {
                 r0 = ret.Error(0)
         }</span>
 
-        <span class="cov6" title="10">return r0</span>
+        <span class="cov6" title="11">return r0</span>
 }
 
 // MockociLoadBalancerModel_reconcileBackendSet_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'reconcileBackendSet'
@@ -5218,7 +5218,7 @@ type MockociLoadBalancerModel_reconcileBackendSet_Call struct {
 // reconcileBackendSet is a helper method to define mock.On call
 //   - ctx context.Context
 //   - params reconcileBackendSetParams
-func (_e *MockociLoadBalancerModel_Expecter) reconcileBackendSet(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileBackendSet_Call <span class="cov6" title="10">{
+func (_e *MockociLoadBalancerModel_Expecter) reconcileBackendSet(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileBackendSet_Call <span class="cov6" title="11">{
         return &amp;MockociLoadBalancerModel_reconcileBackendSet_Call{Call: _e.mock.On("reconcileBackendSet", ctx, params)}
 }</span>
 
@@ -5229,7 +5229,7 @@ func (_c *MockociLoadBalancerModel_reconcileBackendSet_Call) Run(run func(ctx co
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockociLoadBalancerModel_reconcileBackendSet_Call) Return(_a0 error) *MockociLoadBalancerModel_reconcileBackendSet_Call <span class="cov6" title="10">{
+func (_c *MockociLoadBalancerModel_reconcileBackendSet_Call) Return(_a0 error) *MockociLoadBalancerModel_reconcileBackendSet_Call <span class="cov6" title="11">{
         _c.Call.Return(_a0)
         return _c
 }</span>
@@ -6109,7 +6109,7 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 
                 <span class="cov6" title="10">listenerName := string(listenerSpec.Name)
 
-                for _, ref := range listenerSpec.TLS.CertificateRefs </span><span class="cov7" title="20">{
+                for _, ref := range listenerSpec.TLS.CertificateRefs </span><span class="cov8" title="20">{
                         secret := corev1.Secret{}
                         ns := lo.Ternary(ref.Namespace != nil, string(lo.FromPtr(ref.Namespace)), params.gateway.Namespace)
                         err := m.k8sClient.Get(ctx, types.NamespacedName{
@@ -6120,7 +6120,7 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
                                 return reconcileListenersCertificatesResult{}, fmt.Errorf("failed to get secret %s: %w", ref.Name, err)
                         }</span>
 
-                        <span class="cov7" title="20">certName := ociCertificateNameFromSecret(secret)
+                        <span class="cov8" title="20">certName := ociCertificateNameFromSecret(secret)
                         if cert, ok := resultingCertificates[certName]; ok </span><span class="cov7" title="14">{
                                 m.logger.DebugContext(ctx, "Certificate already exists, skipping",
                                         slog.String("loadBalancerId", params.loadBalancerID),
@@ -6613,16 +6613,16 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
         <span class="cov4" title="4">mergedRules := lo.Values(currentRulesByName)
 
         // Sort the rules: defaultCatchAllRuleName should be at the end
-        sort.Slice(mergedRules, func(i, j int) bool </span><span class="cov10" title="51">{
+        sort.Slice(mergedRules, func(i, j int) bool </span><span class="cov9" title="34">{
                 ruleI := lo.FromPtr(mergedRules[i].Name)
                 ruleJ := lo.FromPtr(mergedRules[j].Name)
                 if ruleI == defaultCatchAllRuleName </span><span class="cov2" title="2">{
                         return false
                 }</span>
-                <span class="cov9" title="49">if ruleJ == defaultCatchAllRuleName </span><span class="cov6" title="9">{
+                <span class="cov9" title="32">if ruleJ == defaultCatchAllRuleName </span><span class="cov4" title="4">{
                         return true
                 }</span>
-                <span class="cov9" title="40">return ruleI &lt; ruleJ</span>
+                <span class="cov8" title="28">return ruleI &lt; ruleJ</span>
         })
 
         <span class="cov4" title="4">updateRes, err := m.ociClient.UpdateRoutingPolicy(ctx, loadbalancer.UpdateRoutingPolicyRequest{
@@ -6712,7 +6712,7 @@ func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
         <span class="cov4" title="4">return nil</span>
 }
 
-func listenerPolicyName(listenerName string) string <span class="cov9" title="45">{
+func listenerPolicyName(listenerName string) string <span class="cov10" title="45">{
         // TODO: Sanitize the name, investigate docs for allowed characters
         return listenerName + "_policy"
 }</span>
@@ -6729,7 +6729,7 @@ var invalidCharsForPolicyNamePattern = regexp.MustCompile(`[^a-zA-Z0-9_]`)
 // ociListerPolicyRuleName returns the name of the routing rule for the listener policy.
 // It's expected that the rule name is unique within the listener policy for every route.
 // Names should also be sortable, so we're using a 4 digit index.
-func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string <span class="cov6" title="13">{
+func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string <span class="cov7" title="14">{
         rule := route.Spec.Rules[ruleIndex]
         nameParts := []string{route.Namespace, route.Name}
 
@@ -6737,7 +6737,7 @@ func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string <s
                 nameParts = append(nameParts, string(*rule.Name))
         }</span>
 
-        <span class="cov6" title="13">resultingName := fmt.Sprintf(
+        <span class="cov7" title="14">resultingName := fmt.Sprintf(
                 "p%04d_%08x_%s",
                 ruleIndex,
                 crc32.ChecksumIEEE([]byte(ociListenerPolicyRuleIdentity(ruleIndex, nameParts...))),
@@ -6750,13 +6750,13 @@ func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string <s
         })</span>
 }
 
-func ociListenerPolicyRuleIdentity(ruleIndex int, nameParts ...string) string <span class="cov7" title="17">{
+func ociListenerPolicyRuleIdentity(ruleIndex int, nameParts ...string) string <span class="cov7" title="19">{
         var result strings.Builder
         result.WriteString(strconv.Itoa(ruleIndex))
-        for _, part := range nameParts </span><span class="cov9" title="38">{
+        for _, part := range nameParts </span><span class="cov9" title="42">{
                 fmt.Fprintf(&amp;result, ":%d:%s", len(part), part)
         }</span>
-        <span class="cov7" title="17">return result.String()</span>
+        <span class="cov7" title="19">return result.String()</span>
 }
 
 // ociBackendSetName returns the name of the backend set for the route.
@@ -8114,18 +8114,18 @@ type diagLogHandler struct {
         target slog.Handler
 }
 
-func (h *diagLogHandler) Enabled(ctx context.Context, lvl slog.Level) bool <span class="cov9" title="284">{
+func (h *diagLogHandler) Enabled(ctx context.Context, lvl slog.Level) bool <span class="cov9" title="282">{
         return h.target.Enabled(ctx, lvl)
 }</span>
 
-func (h *diagLogHandler) Handle(ctx context.Context, rec slog.Record) error <span class="cov10" title="286">{
+func (h *diagLogHandler) Handle(ctx context.Context, rec slog.Record) error <span class="cov10" title="284">{
         if diagAttributes, ok := ctx.Value(contextDiagAttrs).(LogAttributes); ok </span><span class="cov2" title="2">{
                 rec.AddAttrs(
                         slog.Attr{Key: "correlationId", Value: diagAttributes.CorrelationID},
                 )
         }</span>
 
-        <span class="cov10" title="286">return h.target.Handle(ctx, rec)</span>
+        <span class="cov10" title="284">return h.target.Handle(ctx, rec)</span>
 }
 
 func (h *diagLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler <span class="cov9" title="226">{
@@ -9032,18 +9032,18 @@ type OCIResourceNameConfig struct {
 }
 
 // defaultHashFunc calculates a CRC32 checksum and returns it as an 8-character lowercase hexadecimal string.
-func defaultHashFunc(input string) string <span class="cov6" title="15">{
+func defaultHashFunc(input string) string <span class="cov7" title="17">{
         checksum := crc32.ChecksumIEEE([]byte(input))
         return fmt.Sprintf("%08x", checksum)
 }</span>
 
 // defaultSanitizeFunc replaces characters matching the provided pattern with an underscore.
 // If no pattern is provided, or name is empty, it returns the name as is.
-func defaultSanitizeFunc(name string, pattern *regexp.Regexp) string <span class="cov7" title="19">{
+func defaultSanitizeFunc(name string, pattern *regexp.Regexp) string <span class="cov7" title="20">{
         if name == "" || pattern == nil </span><span class="cov1" title="1">{
                 return name
         }</span>
-        <span class="cov7" title="18">return pattern.ReplaceAllString(name, "_")</span>
+        <span class="cov7" title="19">return pattern.ReplaceAllString(name, "_")</span>
 }
 
 // ConstructOCIResourceName generates a resource name string based on the originalName and configuration.
@@ -9053,33 +9053,37 @@ func defaultSanitizeFunc(name string, pattern *regexp.Regexp) string <span class
 // Otherwise (name too long and MaxLength &gt; 0), the *original* originalName is hashed, and the name is constructed as:
 // &lt;start_of_sanitized_name&gt; + &lt;hash_of_original_name&gt; + &lt;end_of_sanitized_name&gt;,
 // ensuring the total length does not exceed MaxLength.
-func ConstructOCIResourceName(originalName string, config OCIResourceNameConfig) string <span class="cov10" title="63">{
-        if config.hashFunc == nil </span><span class="cov9" title="55">{
+func ConstructOCIResourceName(originalName string, config OCIResourceNameConfig) string <span class="cov10" title="65">{
+        if config.hashFunc == nil </span><span class="cov9" title="56">{
                 config.hashFunc = defaultHashFunc
         }</span>
 
-        <span class="cov10" title="63">if config.sanitizeFunc == nil </span><span class="cov9" title="61">{
+        <span class="cov10" title="65">if config.sanitizeFunc == nil </span><span class="cov9" title="63">{
                 config.sanitizeFunc = defaultSanitizeFunc
         }</span>
 
-        <span class="cov10" title="63">resultingName := originalName
-        if config.InvalidCharsPattern != nil </span><span class="cov7" title="19">{
+        <span class="cov10" title="65">resultingName := originalName
+        if config.InvalidCharsPattern != nil </span><span class="cov7" title="20">{
                 resultingName = config.sanitizeFunc(originalName, config.InvalidCharsPattern)
         }</span>
 
-        <span class="cov10" title="63">if config.MaxLength &gt; 0 &amp;&amp; len(resultingName) &gt; config.MaxLength </span><span class="cov7" title="21">{
+        <span class="cov10" title="65">if config.MaxLength &gt; 0 &amp;&amp; len(resultingName) &gt; config.MaxLength </span><span class="cov7" title="24">{
                 hash := config.hashFunc(originalName)
                 if len(hash) &gt;= config.MaxLength </span><span class="cov2" title="2">{
                         return hash[:config.MaxLength]
                 }</span>
-                <span class="cov7" title="19">originalLength := len(resultingName)
+                <span class="cov7" title="22">originalLength := len(resultingName)
                 hashStarts := originalLength/ociResourceNameHashPartDivider - len(hash)/ociResourceNameHashPartDivider
-                hashEnds := hashStarts + len(hash)
+                maxHashStart := config.MaxLength - len(hash)
+                if hashStarts &gt; maxHashStart </span><span class="cov2" title="2">{
+                        hashStarts = (maxHashStart + 1) / ociResourceNameHashPartDivider
+                }</span>
+                <span class="cov7" title="22">hashEnds := hashStarts + len(hash)
                 remainingLength := config.MaxLength - hashEnds
                 resultingName = resultingName[:hashStarts] + hash + resultingName[originalLength-remainingLength:]</span>
         }
 
-        <span class="cov9" title="61">return resultingName</span>
+        <span class="cov9" title="63">return resultingName</span>
 }
 </pre>
 		
@@ -9457,14 +9461,14 @@ func NewTestShutdownHooks() *ShutdownHooks <span class="cov1" title="1">{
         })
 }</span>
 
-func RandomString(length int) string <span class="cov9" title="8">{
+func RandomString(length int) string <span class="cov8" title="10">{
         fake := faker.New()
         segmentsCount := math.Ceil(float64(length) / randomStringSegmentLength)
         segments := make([]string, int(segmentsCount))
-        for i := range segments </span><span class="cov10" title="10">{
+        for i := range segments </span><span class="cov10" title="15">{
                 segments[i] = fake.Numerify("################################")
         }</span>
-        <span class="cov9" title="8">return strings.Join(segments, "")[:length]</span>
+        <span class="cov8" title="10">return strings.Join(segments, "")[:length]</span>
 }
 </pre>
 		
