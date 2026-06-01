@@ -11,6 +11,9 @@ const (
 	// GatewayUsedSecretsAnnotationPrefix is extended with each secret full name and stores the secret revision.
 	GatewayUsedSecretsAnnotationPrefix = "secrets.oke-gateway-api.gemyago.github.io"
 
+	// ListenerTLSOptionOCICertificateOCID configures an existing OCI Certificates Service certificate for a listener.
+	ListenerTLSOptionOCICertificateOCID = "oci.oraclecloud.com/certificate-ocid"
+
 	// HTTPRouteProgrammingRevisionAnnotation is the annotation for the http route programming revision.
 	// The revision may be incremented if additional programming steps are introduced by the controller.
 	HTTPRouteProgrammingRevisionAnnotation = "oke-gateway-api.gemyago.github.io/http-route-programming-revision"

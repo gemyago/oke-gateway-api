@@ -22,6 +22,21 @@ kubectl apply -n oke-gw -f manifests/examples/serverdeployment.yaml
 kubectl apply -n oke-gw -f manifests/examples/serverroutes.yaml
 ```
 
+## OCI certificate example
+
+Use these manifests when the HTTPS listener should reference an OCI Certificates Service
+certificate created outside Kubernetes, such as by Terraform. The `https` listener intentionally
+does not set `tls.certificateRefs`; the certificate OCID is set with the listener TLS option
+`oci.oraclecloud.com/certificate-ocid`.
+
+```sh
+kubectl apply -n oke-gw -f manifests/examples/gatewayconfig.yaml
+kubectl apply -n oke-gw -f manifests/examples/gatewayclass.yaml
+kubectl apply -n oke-gw -f manifests/examples/gateway-https-oci-certificate.yaml
+kubectl apply -n oke-gw -f manifests/examples/serverdeployment.yaml
+kubectl apply -n oke-gw -f manifests/examples/serverroutes.yaml
+```
+
 ## Publish helm chart
 
 Helm chart is built and published automatically with each release. Steps below are for local testing. Run the following from deploy directory.

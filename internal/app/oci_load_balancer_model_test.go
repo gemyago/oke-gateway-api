@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -786,6 +787,36 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			err := model.reconcileHTTPListener(t.Context(), params)
 			require.NoError(t, err)
+		})
+
+		t.Run("fails when https listener has no certificate source", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			gwListener := makeRandomListener(
+				randomListenerWithHTTPSParamsOpt(),
+			)
+			routingPolicyName := string(gwListener.Name) + "_policy"
+
+			params := reconcileHTTPListenerParams{
+				loadBalancerID: faker.New().UUID().V4(),
+				knownRoutingPolicies: map[string]loadbalancer.RoutingPolicy{
+					routingPolicyName: makeRandomOCIRoutingPolicy(),
+				},
+				defaultBackendSetName: faker.New().UUID().V4(),
+				listenerSpec:          &gwListener,
+			}
+
+			err := model.reconcileHTTPListener(t.Context(), params)
+
+			var statusErr *resourceStatusError
+			require.ErrorAs(t, err, &statusErr)
+			assert.Equal(t, string(gatewayv1.GatewayConditionAccepted), statusErr.conditionType)
+			assert.Equal(t, string(gatewayv1.GatewayReasonInvalidParameters), statusErr.reason)
+			assert.Contains(
+				t,
+				statusErr.message,
+				"requires certificateRefs or oci.oraclecloud.com/certificate-ocid TLS option",
+			)
 		})
 
 		t.Run("when routing policy exists", func(t *testing.T) {
@@ -2162,6 +2193,518 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 	})
 }
 
+func TestOciLoadBalancerModelOCICertificateIDs(t *testing.T) {
+	withOCICertificateOption := func(listener gatewayv1.Listener, certificateID string) gatewayv1.Listener {
+		listener.TLS = &gatewayv1.GatewayTLSConfig{
+			Options: map[gatewayv1.AnnotationKey]gatewayv1.AnnotationValue{
+				gatewayv1.AnnotationKey(ListenerTLSOptionOCICertificateOCID): gatewayv1.AnnotationValue(certificateID),
+			},
+		}
+		return listener
+	}
+
+	t.Run("reconcileListenersCertificates returns OCI certificate IDs without reading secrets", func(t *testing.T) {
+		deps := ociLoadBalancerModelDeps{
+			RootLogger:          diag.RootTestLogger(),
+			OciClient:           NewMockociLoadBalancerClient(t),
+			K8sClient:           NewMockk8sClient(t),
+			WorkRequestsWatcher: NewMockworkRequestsWatcher(t),
+			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
+		}
+		model := newOciLoadBalancerModel(deps)
+		gateway := gatewayv1.Gateway{
+			Spec: gatewayv1.GatewaySpec{
+				Listeners: []gatewayv1.Listener{withOCICertificateOption(gatewayv1.Listener{
+					Name:     "https",
+					Protocol: gatewayv1.HTTPSProtocolType,
+					Port:     443,
+				}, "ocid1.certificate.oc1..test")},
+			},
+		}
+
+		result, err := model.reconcileListenersCertificates(t.Context(), reconcileListenersCertificatesParams{
+			loadBalancerID:    faker.New().UUID().V4(),
+			gateway:           &gateway,
+			knownCertificates: map[string]loadbalancer.Certificate{},
+		})
+
+		require.NoError(t, err)
+		assert.Empty(t, result.certificatesByListener)
+		assert.Empty(t, result.reconciledCertificates)
+		assert.Equal(t, "ocid1.certificate.oc1..test", result.certificateIDsByListener["https"])
+	})
+
+	t.Run("reconcileListenersCertificates supports mixed OCI IDs and Kubernetes Secrets", func(t *testing.T) {
+		deps := ociLoadBalancerModelDeps{
+			RootLogger:          diag.RootTestLogger(),
+			OciClient:           NewMockociLoadBalancerClient(t),
+			K8sClient:           NewMockk8sClient(t),
+			WorkRequestsWatcher: NewMockworkRequestsWatcher(t),
+			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
+		}
+		model := newOciLoadBalancerModel(deps)
+		secretListener := gatewayv1.Listener{
+			Name:     "secret-https",
+			Protocol: gatewayv1.HTTPSProtocolType,
+			Port:     8443,
+			TLS: &gatewayv1.GatewayTLSConfig{
+				CertificateRefs: []gatewayv1.SecretObjectReference{{Name: "secret-cert"}},
+			},
+		}
+		ociListener := gatewayv1.Listener{
+			Name:     "oci-https",
+			Protocol: gatewayv1.HTTPSProtocolType,
+			Port:     443,
+		}
+		ociListener = withOCICertificateOption(ociListener, "ocid1.certificate.oc1..test")
+		gateway := gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "gateway-ns"},
+			Spec: gatewayv1.GatewaySpec{
+				Listeners: []gatewayv1.Listener{secretListener, ociListener},
+			},
+		}
+		secret := makeRandomSecret()
+		secret.Namespace = gateway.Namespace
+		secret.Name = "secret-cert"
+		certName := ociCertificateNameFromSecret(secret)
+		knownCertificate := makeRandomOCICertificate()
+
+		k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+		setupClientGet(t, k8sClient, types.NamespacedName{
+			Namespace: gateway.Namespace,
+			Name:      secret.Name,
+		}, secret).Once()
+
+		result, err := model.reconcileListenersCertificates(t.Context(), reconcileListenersCertificatesParams{
+			loadBalancerID: faker.New().UUID().V4(),
+			gateway:        &gateway,
+			knownCertificates: map[string]loadbalancer.Certificate{
+				certName: knownCertificate,
+			},
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, "ocid1.certificate.oc1..test", result.certificateIDsByListener["oci-https"])
+		assert.Equal(t, []loadbalancer.Certificate{knownCertificate}, result.certificatesByListener["secret-https"])
+		assert.Equal(t, map[string]loadbalancer.Certificate{certName: knownCertificate}, result.reconciledCertificates)
+	})
+
+	t.Run("reconcileListenersCertificates deduplicates listener certificateRefs", func(t *testing.T) {
+		deps := ociLoadBalancerModelDeps{
+			RootLogger:          diag.RootTestLogger(),
+			OciClient:           NewMockociLoadBalancerClient(t),
+			K8sClient:           NewMockk8sClient(t),
+			WorkRequestsWatcher: NewMockworkRequestsWatcher(t),
+			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
+		}
+		model := newOciLoadBalancerModel(deps)
+		gateway := gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "gateway-ns"},
+			Spec: gatewayv1.GatewaySpec{
+				Listeners: []gatewayv1.Listener{{
+					Name:     "https",
+					Protocol: gatewayv1.HTTPSProtocolType,
+					Port:     443,
+					TLS: &gatewayv1.GatewayTLSConfig{
+						CertificateRefs: []gatewayv1.SecretObjectReference{
+							{Name: "tls-secret"},
+							{Name: "tls-secret"},
+						},
+					},
+				}},
+			},
+		}
+		secret := makeRandomSecret(
+			randomSecretWithNameOpt("tls-secret"),
+			randomSecretWithTLSDataOpt(),
+		)
+		secret.Namespace = gateway.Namespace
+		certName := ociCertificateNameFromSecret(secret)
+		knownCertificate := makeRandomOCICertificate()
+
+		k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+		setupClientGet(t, k8sClient, types.NamespacedName{
+			Namespace: gateway.Namespace,
+			Name:      secret.Name,
+		}, secret).Once()
+
+		result, err := model.reconcileListenersCertificates(t.Context(), reconcileListenersCertificatesParams{
+			loadBalancerID: faker.New().UUID().V4(),
+			gateway:        &gateway,
+			knownCertificates: map[string]loadbalancer.Certificate{
+				certName: knownCertificate,
+			},
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, []loadbalancer.Certificate{knownCertificate}, result.certificatesByListener["https"])
+	})
+
+	t.Run("reconcileListenersCertificates returns Kubernetes Secret lookup errors", func(t *testing.T) {
+		deps := ociLoadBalancerModelDeps{
+			RootLogger:          diag.RootTestLogger(),
+			OciClient:           NewMockociLoadBalancerClient(t),
+			K8sClient:           NewMockk8sClient(t),
+			WorkRequestsWatcher: NewMockworkRequestsWatcher(t),
+			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
+		}
+		model := newOciLoadBalancerModel(deps)
+		gateway := gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "gateway-ns"},
+			Spec: gatewayv1.GatewaySpec{
+				Listeners: []gatewayv1.Listener{{
+					Name:     "https",
+					Protocol: gatewayv1.HTTPSProtocolType,
+					Port:     443,
+					TLS: &gatewayv1.GatewayTLSConfig{
+						CertificateRefs: []gatewayv1.SecretObjectReference{{Name: "tls-secret"}},
+					},
+				}},
+			},
+		}
+		wantErr := errors.New("k8s unavailable")
+		k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+		k8sClient.EXPECT().
+			Get(t.Context(), types.NamespacedName{
+				Namespace: gateway.Namespace,
+				Name:      "tls-secret",
+			}, mock.Anything).
+			Return(wantErr).
+			Once()
+
+		_, err := model.reconcileListenersCertificates(t.Context(), reconcileListenersCertificatesParams{
+			loadBalancerID:    faker.New().UUID().V4(),
+			gateway:           &gateway,
+			knownCertificates: map[string]loadbalancer.Certificate{},
+		})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to get secret tls-secret")
+	})
+
+	t.Run("reconcileListenersCertificates returns OCI certificate create errors", func(t *testing.T) {
+		deps := ociLoadBalancerModelDeps{
+			RootLogger:          diag.RootTestLogger(),
+			OciClient:           NewMockociLoadBalancerClient(t),
+			K8sClient:           NewMockk8sClient(t),
+			WorkRequestsWatcher: NewMockworkRequestsWatcher(t),
+			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
+		}
+		model := newOciLoadBalancerModel(deps)
+		gateway := gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "gateway-ns"},
+			Spec: gatewayv1.GatewaySpec{
+				Listeners: []gatewayv1.Listener{{
+					Name:     "https",
+					Protocol: gatewayv1.HTTPSProtocolType,
+					Port:     443,
+					TLS: &gatewayv1.GatewayTLSConfig{
+						CertificateRefs: []gatewayv1.SecretObjectReference{{Name: "tls-secret"}},
+					},
+				}},
+			},
+		}
+		secret := makeRandomSecret(
+			randomSecretWithNameOpt("tls-secret"),
+			randomSecretWithTLSDataOpt(),
+		)
+		secret.Namespace = gateway.Namespace
+		loadBalancerID := faker.New().UUID().V4()
+		certName := ociCertificateNameFromSecret(secret)
+		wantErr := errors.New("create failed")
+
+		k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+		setupClientGet(t, k8sClient, types.NamespacedName{
+			Namespace: gateway.Namespace,
+			Name:      secret.Name,
+		}, secret).Once()
+
+		ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+		ociLoadBalancerClient.EXPECT().
+			CreateCertificate(t.Context(), loadbalancer.CreateCertificateRequest{
+				LoadBalancerId: &loadBalancerID,
+				CreateCertificateDetails: loadbalancer.CreateCertificateDetails{
+					CertificateName:   &certName,
+					PublicCertificate: new(string(secret.Data[corev1.TLSCertKey])),
+					PrivateKey:        new(string(secret.Data[corev1.TLSPrivateKeyKey])),
+				},
+			}).
+			Return(loadbalancer.CreateCertificateResponse{}, wantErr).
+			Once()
+
+		_, err := model.reconcileListenersCertificates(t.Context(), reconcileListenersCertificatesParams{
+			loadBalancerID:    loadBalancerID,
+			gateway:           &gateway,
+			knownCertificates: map[string]loadbalancer.Certificate{},
+		})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to create certificate")
+	})
+
+	t.Run("reconcileListenersCertificates returns OCI work request wait errors", func(t *testing.T) {
+		deps := ociLoadBalancerModelDeps{
+			RootLogger:          diag.RootTestLogger(),
+			OciClient:           NewMockociLoadBalancerClient(t),
+			K8sClient:           NewMockk8sClient(t),
+			WorkRequestsWatcher: NewMockworkRequestsWatcher(t),
+			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
+		}
+		model := newOciLoadBalancerModel(deps)
+		gateway := gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "gateway-ns"},
+			Spec: gatewayv1.GatewaySpec{
+				Listeners: []gatewayv1.Listener{{
+					Name:     "https",
+					Protocol: gatewayv1.HTTPSProtocolType,
+					Port:     443,
+					TLS: &gatewayv1.GatewayTLSConfig{
+						CertificateRefs: []gatewayv1.SecretObjectReference{{Name: "tls-secret"}},
+					},
+				}},
+			},
+		}
+		secret := makeRandomSecret(
+			randomSecretWithNameOpt("tls-secret"),
+			randomSecretWithTLSDataOpt(),
+		)
+		secret.Namespace = gateway.Namespace
+		loadBalancerID := faker.New().UUID().V4()
+		workRequestID := faker.New().UUID().V4()
+		certName := ociCertificateNameFromSecret(secret)
+		wantErr := errors.New("wait failed")
+
+		k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+		setupClientGet(t, k8sClient, types.NamespacedName{
+			Namespace: gateway.Namespace,
+			Name:      secret.Name,
+		}, secret).Once()
+
+		ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+		ociLoadBalancerClient.EXPECT().
+			CreateCertificate(t.Context(), loadbalancer.CreateCertificateRequest{
+				LoadBalancerId: &loadBalancerID,
+				CreateCertificateDetails: loadbalancer.CreateCertificateDetails{
+					CertificateName:   &certName,
+					PublicCertificate: new(string(secret.Data[corev1.TLSCertKey])),
+					PrivateKey:        new(string(secret.Data[corev1.TLSPrivateKeyKey])),
+				},
+			}).
+			Return(loadbalancer.CreateCertificateResponse{OpcWorkRequestId: &workRequestID}, nil).
+			Once()
+		workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+		workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(wantErr).Once()
+
+		_, err := model.reconcileListenersCertificates(t.Context(), reconcileListenersCertificatesParams{
+			loadBalancerID:    loadBalancerID,
+			gateway:           &gateway,
+			knownCertificates: map[string]loadbalancer.Certificate{},
+		})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to wait for certificate")
+	})
+
+	t.Run("reconcileListenersCertificates returns missing OCI work request id errors", func(t *testing.T) {
+		deps := ociLoadBalancerModelDeps{
+			RootLogger:          diag.RootTestLogger(),
+			OciClient:           NewMockociLoadBalancerClient(t),
+			K8sClient:           NewMockk8sClient(t),
+			WorkRequestsWatcher: NewMockworkRequestsWatcher(t),
+			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
+		}
+		model := newOciLoadBalancerModel(deps)
+		gateway := gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "gateway-ns"},
+			Spec: gatewayv1.GatewaySpec{
+				Listeners: []gatewayv1.Listener{{
+					Name:     "https",
+					Protocol: gatewayv1.HTTPSProtocolType,
+					Port:     443,
+					TLS: &gatewayv1.GatewayTLSConfig{
+						CertificateRefs: []gatewayv1.SecretObjectReference{{Name: "tls-secret"}},
+					},
+				}},
+			},
+		}
+		secret := makeRandomSecret(
+			randomSecretWithNameOpt("tls-secret"),
+			randomSecretWithTLSDataOpt(),
+		)
+		secret.Namespace = gateway.Namespace
+		loadBalancerID := faker.New().UUID().V4()
+		certName := ociCertificateNameFromSecret(secret)
+
+		k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+		setupClientGet(t, k8sClient, types.NamespacedName{
+			Namespace: gateway.Namespace,
+			Name:      secret.Name,
+		}, secret).Once()
+
+		ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+		ociLoadBalancerClient.EXPECT().
+			CreateCertificate(t.Context(), loadbalancer.CreateCertificateRequest{
+				LoadBalancerId: &loadBalancerID,
+				CreateCertificateDetails: loadbalancer.CreateCertificateDetails{
+					CertificateName:   &certName,
+					PublicCertificate: new(string(secret.Data[corev1.TLSCertKey])),
+					PrivateKey:        new(string(secret.Data[corev1.TLSPrivateKeyKey])),
+				},
+			}).
+			Return(loadbalancer.CreateCertificateResponse{}, nil).
+			Once()
+
+		_, err := model.reconcileListenersCertificates(t.Context(), reconcileListenersCertificatesParams{
+			loadBalancerID:    loadBalancerID,
+			gateway:           &gateway,
+			knownCertificates: map[string]loadbalancer.Certificate{},
+		})
+
+		require.ErrorContains(t, err, "missing work request id")
+	})
+
+	t.Run("make listener update details detects OCI certificate IDs", func(t *testing.T) {
+		listener := gatewayv1.Listener{
+			Name:     "https",
+			Protocol: gatewayv1.HTTPSProtocolType,
+			Port:     443,
+		}
+		sslConfig := &loadbalancer.SslConfigurationDetails{
+			CertificateIds: []string{"ocid1.certificate.oc1..test"},
+		}
+
+		details, changed := makeOciListenerUpdateDetails(makeOciListenerUpdateDetailsParams{
+			existingListenerData: loadbalancer.Listener{
+				Protocol:              new("HTTP"),
+				Port:                  new(443),
+				DefaultBackendSetName: new("default"),
+				RoutingPolicyName:     new("https_policy"),
+				SslConfiguration: &loadbalancer.SslConfiguration{
+					CertificateIds: []string{"ocid1.certificate.oc1..old"},
+				},
+			},
+			listenerName:          "https",
+			listenerSpec:          &listener,
+			defaultBackendSetName: "default",
+			sslConfig:             sslConfig,
+		})
+
+		assert.True(t, changed)
+		assert.Equal(t, []string{"ocid1.certificate.oc1..test"}, details.SslConfiguration.CertificateIds)
+	})
+
+	t.Run("reconcileHTTPListener configures OCI certificate IDs", func(t *testing.T) {
+		deps := ociLoadBalancerModelDeps{
+			RootLogger:          diag.RootTestLogger(),
+			OciClient:           NewMockociLoadBalancerClient(t),
+			K8sClient:           NewMockk8sClient(t),
+			WorkRequestsWatcher: NewMockworkRequestsWatcher(t),
+			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
+		}
+		model := newOciLoadBalancerModel(deps)
+		listener := gatewayv1.Listener{
+			Name:     "https",
+			Protocol: gatewayv1.HTTPSProtocolType,
+			Port:     443,
+		}
+		params := reconcileHTTPListenerParams{
+			loadBalancerID: faker.New().UUID().V4(),
+			knownListeners: map[string]loadbalancer.Listener{
+				"https": {
+					Name:                  new("https"),
+					Protocol:              new("HTTP"),
+					Port:                  new(443),
+					DefaultBackendSetName: new("default"),
+					RoutingPolicyName:     new("https_policy"),
+				},
+			},
+			knownRoutingPolicies: map[string]loadbalancer.RoutingPolicy{
+				"https_policy": {},
+			},
+			listenerCertificateID: "ocid1.certificate.oc1..test",
+			defaultBackendSetName: "default",
+			listenerSpec:          &listener,
+		}
+		ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+		watcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+		workRequestID := faker.New().UUID().V4()
+
+		ociLoadBalancerClient.EXPECT().UpdateListener(t.Context(), loadbalancer.UpdateListenerRequest{
+			LoadBalancerId: new(params.loadBalancerID),
+			ListenerName:   new("https"),
+			UpdateListenerDetails: loadbalancer.UpdateListenerDetails{
+				Protocol:              new("HTTP"),
+				Port:                  new(443),
+				DefaultBackendSetName: new("default"),
+				RoutingPolicyName:     new("https_policy"),
+				SslConfiguration: &loadbalancer.SslConfigurationDetails{
+					CertificateIds: []string{"ocid1.certificate.oc1..test"},
+				},
+			},
+		}).Return(loadbalancer.UpdateListenerResponse{OpcWorkRequestId: new(workRequestID)}, nil)
+		watcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
+
+		err := model.reconcileHTTPListener(t.Context(), params)
+
+		require.NoError(t, err)
+	})
+
+	t.Run("reconcileHTTPListener returns OCI certificate ID update errors", func(t *testing.T) {
+		deps := ociLoadBalancerModelDeps{
+			RootLogger:          diag.RootTestLogger(),
+			OciClient:           NewMockociLoadBalancerClient(t),
+			K8sClient:           NewMockk8sClient(t),
+			WorkRequestsWatcher: NewMockworkRequestsWatcher(t),
+			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
+		}
+		model := newOciLoadBalancerModel(deps)
+		listener := gatewayv1.Listener{
+			Name:     "https",
+			Protocol: gatewayv1.HTTPSProtocolType,
+			Port:     443,
+		}
+		params := reconcileHTTPListenerParams{
+			loadBalancerID: faker.New().UUID().V4(),
+			knownListeners: map[string]loadbalancer.Listener{
+				"https": {
+					Name:                  new("https"),
+					Protocol:              new("HTTP"),
+					Port:                  new(443),
+					DefaultBackendSetName: new("default"),
+					RoutingPolicyName:     new("https_policy"),
+				},
+			},
+			knownRoutingPolicies: map[string]loadbalancer.RoutingPolicy{
+				"https_policy": {},
+			},
+			listenerCertificateID: "ocid1.certificate.oc1..test",
+			defaultBackendSetName: "default",
+			listenerSpec:          &listener,
+		}
+		ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+		wantErr := errors.New(faker.New().Lorem().Sentence(10))
+
+		ociLoadBalancerClient.EXPECT().UpdateListener(t.Context(), loadbalancer.UpdateListenerRequest{
+			LoadBalancerId: new(params.loadBalancerID),
+			ListenerName:   new("https"),
+			UpdateListenerDetails: loadbalancer.UpdateListenerDetails{
+				Protocol:              new("HTTP"),
+				Port:                  new(443),
+				DefaultBackendSetName: new("default"),
+				RoutingPolicyName:     new("https_policy"),
+				SslConfiguration: &loadbalancer.SslConfigurationDetails{
+					CertificateIds: []string{"ocid1.certificate.oc1..test"},
+				},
+			},
+		}).Return(loadbalancer.UpdateListenerResponse{}, wantErr)
+
+		err := model.reconcileHTTPListener(t.Context(), params)
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, wantErr)
+	})
+}
+
 func Test_ociListerPolicyRuleName(t *testing.T) {
 	makeExpectedName := func(ruleIndex int, nameParts ...string) string {
 		unsanitizedInput := fmt.Sprintf(
@@ -2536,6 +3079,7 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 	makeSslConfigFromDetails := func(details *loadbalancer.SslConfigurationDetails) *loadbalancer.SslConfiguration {
 		return &loadbalancer.SslConfiguration{
 			CertificateName: details.CertificateName,
+			CertificateIds:  details.CertificateIds,
 		}
 	}
 
@@ -2739,6 +3283,38 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 					SslConfiguration:      nil,
 				},
 				wantOk: true,
+			}
+		},
+		func() testCase {
+			fake := faker.New()
+			listenerName := fake.UUID().V4()
+			listenerSpec := makeRandomListener(
+				randomListenerWithHTTPSParamsOpt(),
+			)
+			defaultBackendSetName := fake.UUID().V4()
+			sslConfig := &loadbalancer.SslConfigurationDetails{
+				CertificateIds: []string{},
+			}
+
+			return testCase{
+				name: "empty certificate IDs match nil certificate IDs",
+				params: makeOciListenerUpdateDetailsParams{
+					existingListenerData: loadbalancer.Listener{
+						Protocol:              new("HTTP"),
+						Port:                  new(int(listenerSpec.Port)),
+						DefaultBackendSetName: new(defaultBackendSetName),
+						RoutingPolicyName:     new(listenerPolicyName(listenerName)),
+						SslConfiguration: &loadbalancer.SslConfiguration{
+							CertificateIds: nil,
+						},
+					},
+					listenerName:          listenerName,
+					listenerSpec:          &listenerSpec,
+					defaultBackendSetName: defaultBackendSetName,
+					sslConfig:             sslConfig,
+				},
+				want:   loadbalancer.UpdateListenerDetails{},
+				wantOk: false,
 			}
 		},
 	}

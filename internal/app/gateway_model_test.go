@@ -1286,3 +1286,172 @@ func TestGatewayModelImpl(t *testing.T) {
 		})
 	})
 }
+
+func TestGatewayCertificateOptionsValidation(t *testing.T) {
+	makeGateway := func(listeners ...gatewayv1.Listener) gatewayv1.Gateway {
+		return gatewayv1.Gateway{
+			Spec: gatewayv1.GatewaySpec{Listeners: listeners},
+		}
+	}
+	withOCICertificateOption := func(listener gatewayv1.Listener, certificateID string) gatewayv1.Listener {
+		listener.TLS = &gatewayv1.GatewayTLSConfig{
+			Options: map[gatewayv1.AnnotationKey]gatewayv1.AnnotationValue{
+				gatewayv1.AnnotationKey(ListenerTLSOptionOCICertificateOCID): gatewayv1.AnnotationValue(certificateID),
+			},
+		}
+		return listener
+	}
+	withTLSMode := func(listener gatewayv1.Listener, mode gatewayv1.TLSModeType) gatewayv1.Listener {
+		listener.TLS.Mode = &mode
+		return listener
+	}
+	httpsListener := gatewayv1.Listener{
+		Name:     "https",
+		Protocol: gatewayv1.HTTPSProtocolType,
+		Port:     443,
+	}
+
+	t.Run("accepts OCI certificate option without certificateRefs", func(t *testing.T) {
+		err := validateGatewayCertificateOptions(makeGateway(
+			withOCICertificateOption(httpsListener, "ocid1.certificate.oc1..test"),
+		))
+
+		require.NoError(t, err)
+	})
+
+	t.Run("accepts OCI certificate option with terminate TLS mode", func(t *testing.T) {
+		err := validateGatewayCertificateOptions(makeGateway(
+			withTLSMode(
+				withOCICertificateOption(httpsListener, "ocid1.certificate.oc1..test"),
+				gatewayv1.TLSModeTerminate,
+			),
+		))
+
+		require.NoError(t, err)
+	})
+
+	t.Run("accepts multiple OCI certificate options for different listeners", func(t *testing.T) {
+		adminListener := gatewayv1.Listener{
+			Name:     "admin-https",
+			Protocol: gatewayv1.HTTPSProtocolType,
+			Port:     8443,
+		}
+
+		err := validateGatewayCertificateOptions(makeGateway(
+			withOCICertificateOption(httpsListener, "ocid1.certificate.oc1..public"),
+			withOCICertificateOption(adminListener, "ocid1.certificate.oc1..admin"),
+		))
+
+		require.NoError(t, err)
+	})
+
+	t.Run("rejects certificate option on non TLS listener", func(t *testing.T) {
+		err := validateGatewayCertificateOptions(makeGateway(withOCICertificateOption(gatewayv1.Listener{
+			Name:     "http",
+			Protocol: gatewayv1.HTTPProtocolType,
+			Port:     80,
+		}, "ocid1.certificate.oc1..test")))
+
+		require.ErrorContains(t, err, "can only be used with HTTPS listeners")
+	})
+
+	t.Run("rejects certificate option on TLS listener", func(t *testing.T) {
+		err := validateGatewayCertificateOptions(makeGateway(withOCICertificateOption(gatewayv1.Listener{
+			Name:     "tls",
+			Protocol: gatewayv1.TLSProtocolType,
+			Port:     443,
+		}, "ocid1.certificate.oc1..test")))
+
+		require.ErrorContains(t, err, "can only be used with HTTPS listeners")
+	})
+
+	t.Run("rejects certificate option with passthrough TLS mode", func(t *testing.T) {
+		err := validateGatewayCertificateOptions(makeGateway(
+			withTLSMode(
+				withOCICertificateOption(httpsListener, "ocid1.certificate.oc1..test"),
+				gatewayv1.TLSModePassthrough,
+			),
+		))
+
+		require.ErrorContains(t, err, "can only be used with Terminate TLS mode")
+	})
+
+	t.Run("rejects conflict with certificateRefs", func(t *testing.T) {
+		listener := withOCICertificateOption(httpsListener, "ocid1.certificate.oc1..test")
+		listener.TLS.CertificateRefs = []gatewayv1.SecretObjectReference{{Name: "tls-secret"}}
+
+		err := validateGatewayCertificateOptions(makeGateway(listener))
+
+		require.ErrorContains(t, err, "cannot be used together with listener.tls.certificateRefs")
+	})
+
+	t.Run("skips secret population for OCI certificate listeners", func(t *testing.T) {
+		model := &gatewayModelImpl{client: NewMockk8sClient(t)}
+		details := resolvedGatewayDetails{
+			gateway: makeGateway(withOCICertificateOption(httpsListener, "ocid1.certificate.oc1..test")),
+		}
+
+		err := model.populateGatewaySecrets(t.Context(), &details)
+
+		require.NoError(t, err)
+		assert.Empty(t, details.gatewaySecrets)
+	})
+
+	t.Run("does not reload duplicate certificateRefs", func(t *testing.T) {
+		model := &gatewayModelImpl{client: NewMockk8sClient(t)}
+		listener := httpsListener
+		listener.TLS = &gatewayv1.GatewayTLSConfig{
+			CertificateRefs: []gatewayv1.SecretObjectReference{
+				{Name: "tls-secret"},
+				{Name: "tls-secret"},
+			},
+		}
+		details := resolvedGatewayDetails{
+			gateway: makeGateway(listener),
+		}
+		details.gateway.Namespace = "gateway-ns"
+		secret := makeRandomSecret(
+			randomSecretWithNameOpt("tls-secret"),
+			randomSecretWithTLSDataOpt(),
+		)
+		secret.Namespace = details.gateway.Namespace
+
+		mockClient, _ := model.client.(*Mockk8sClient)
+		setupClientGet(t, mockClient, apitypes.NamespacedName{
+			Namespace: details.gateway.Namespace,
+			Name:      secret.Name,
+		}, secret).Once()
+
+		err := model.populateGatewaySecrets(t.Context(), &details)
+
+		require.NoError(t, err)
+		assert.Len(t, details.gatewaySecrets, 1)
+	})
+
+	t.Run("returns generic secret lookup errors", func(t *testing.T) {
+		model := &gatewayModelImpl{client: NewMockk8sClient(t)}
+		listener := httpsListener
+		listener.TLS = &gatewayv1.GatewayTLSConfig{
+			CertificateRefs: []gatewayv1.SecretObjectReference{{Name: "tls-secret"}},
+		}
+		details := resolvedGatewayDetails{
+			gateway: makeGateway(listener),
+		}
+		details.gateway.Namespace = "gateway-ns"
+		wantErr := errors.New("k8s unavailable")
+
+		mockClient, _ := model.client.(*Mockk8sClient)
+		mockClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{
+				Namespace: details.gateway.Namespace,
+				Name:      "tls-secret",
+			}, mock.Anything).
+			Return(wantErr).
+			Once()
+
+		err := model.populateGatewaySecrets(t.Context(), &details)
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to get secret gateway-ns/tls-secret")
+	})
+}
