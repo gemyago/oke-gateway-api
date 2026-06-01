@@ -17,6 +17,7 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
+	configtypes "github.com/gemyago/oke-gateway-api/internal/types"
 )
 
 const httpRouteBackendServiceIndexKey = ".metadata.backendRefs.serviceName" // Virtual field name, indexed
@@ -261,6 +262,50 @@ func (m *WatchesModel) MapEndpointSliceToHTTPRoute(ctx context.Context, obj clie
 			"Queueing HTTPRoute for reconciliation due to EndpointSlice change",
 			slog.String("httpRoute", client.ObjectKeyFromObject(&route).String()),
 			slog.String("endpointSlice", client.ObjectKeyFromObject(epSlice).String()),
+		)
+	}
+
+	return requests
+}
+
+// MapGatewayConfigToGateway maps GatewayConfig events to Gateway reconcile requests.
+// Its signature matches handler.MapFunc.
+func (m *WatchesModel) MapGatewayConfigToGateway(ctx context.Context, obj client.Object) []reconcile.Request {
+	config, ok := obj.(*configtypes.GatewayConfig)
+	if !ok {
+		m.logger.WarnContext(ctx, "Received non-GatewayConfig object", slog.Any("object", obj))
+		return nil
+	}
+
+	var gatewayList gatewayv1.GatewayList
+	if err := m.k8sClient.List(ctx, &gatewayList, client.InNamespace(config.Namespace)); err != nil {
+		m.logger.ErrorContext(ctx, "Failed to list Gateways for GatewayConfig change",
+			slog.String("gatewayConfig", client.ObjectKeyFromObject(config).String()),
+			diag.ErrAttr(err),
+		)
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0)
+	for _, gateway := range gatewayList.Items {
+		if gateway.DeletionTimestamp != nil ||
+			gateway.Annotations == nil ||
+			gateway.Annotations[ControllerClassName] != "true" ||
+			gateway.Spec.Infrastructure == nil ||
+			gateway.Spec.Infrastructure.ParametersRef == nil ||
+			gateway.Spec.Infrastructure.ParametersRef.Name != config.Name {
+			continue
+		}
+
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&gateway)})
+		m.logger.InfoContext(ctx,
+			"Queueing Gateway for reconciliation due to GatewayConfig change",
+			slog.String("gateway", client.ObjectKeyFromObject(&gateway).String()),
+			slog.String("gatewayConfig", client.ObjectKeyFromObject(config).String()),
+			slog.String("resourceVersion", gateway.ResourceVersion),
+			slog.Int64("generation", gateway.Generation),
+			slog.String("gatewayConfigResourceVersion", config.ResourceVersion),
+			slog.Int64("gatewayConfigGeneration", config.Generation),
 		)
 	}
 

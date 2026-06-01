@@ -21,6 +21,7 @@ import (
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
+	configtypes "github.com/gemyago/oke-gateway-api/internal/types"
 )
 
 func withRelevantGatewayClass(gw *gatewayv1.Gateway) {
@@ -757,6 +758,95 @@ func TestWatchesModel(t *testing.T) {
 
 			result := model.MapSecretToGateway(t.Context(), &corev1.Service{})
 			require.Nil(t, result)
+		})
+	})
+	t.Run("MapGatewayConfigToGateway", func(t *testing.T) {
+		t.Run("maps GatewayConfig changes to referencing Gateways", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			config := &configtypes.GatewayConfig{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "edge-config"},
+			}
+			now := metav1.Now()
+			gateways := []gatewayv1.Gateway{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace:   "iot",
+						Name:        "edge",
+						Annotations: map[string]string{ControllerClassName: "true"},
+					},
+					Spec: gatewayv1.GatewaySpec{
+						Infrastructure: &gatewayv1.GatewayInfrastructure{
+							ParametersRef: &gatewayv1.LocalParametersReference{
+								Name: "edge-config",
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "not-managed"},
+					Spec: gatewayv1.GatewaySpec{
+						Infrastructure: &gatewayv1.GatewayInfrastructure{
+							ParametersRef: &gatewayv1.LocalParametersReference{
+								Name: "edge-config",
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "other"},
+					Spec: gatewayv1.GatewaySpec{
+						Infrastructure: &gatewayv1.GatewayInfrastructure{
+							ParametersRef: &gatewayv1.LocalParametersReference{
+								Name: "other-config",
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "missing-ref"},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace:         "iot",
+						Name:              "deleting",
+						DeletionTimestamp: &now,
+					},
+					Spec: gatewayv1.GatewaySpec{
+						Infrastructure: &gatewayv1.GatewayInfrastructure{
+							ParametersRef: &gatewayv1.LocalParametersReference{
+								Name: "edge-config",
+							},
+						},
+					},
+				},
+			}
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.GatewayList{}, client.InNamespace("iot")).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(gateways))
+					return nil
+				})
+
+			require.Equal(t, []reconcile.Request{
+				{NamespacedName: apitypes.NamespacedName{Namespace: "iot", Name: "edge"}},
+			}, model.MapGatewayConfigToGateway(t.Context(), config))
+			require.Nil(t, model.MapGatewayConfigToGateway(t.Context(), &corev1.Service{}))
+		})
+
+		t.Run("handles Gateway list errors", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			config := &configtypes.GatewayConfig{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "edge-config"},
+			}
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.GatewayList{}, client.InNamespace("iot")).
+				Return(errors.New("gateway list failed"))
+
+			require.Nil(t, model.MapGatewayConfigToGateway(t.Context(), config))
 		})
 	})
 }

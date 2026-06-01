@@ -20,6 +20,7 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/gemyago/oke-gateway-api/internal/app"
+	configtypes "github.com/gemyago/oke-gateway-api/internal/types"
 )
 
 // StartManagerDeps contains the dependencies for the controller manager.
@@ -93,6 +94,11 @@ func StartManager(ctx context.Context, deps StartManagerDeps) error { // coverag
 					},
 					predicate.ResourceVersionChangedPredicate{},
 				)),
+			).
+			Watches(
+				&configtypes.GatewayConfig{},
+				handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapGatewayConfigToGateway),
+				builder.WithPredicates(predicate.GenerationChangedPredicate{}),
 			).
 			Complete(wireupReconciler(deps.GatewayCtrl, middlewares...)); err != nil {
 			return fmt.Errorf("failed to setup Gateway controller: %w", err)
