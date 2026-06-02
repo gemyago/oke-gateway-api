@@ -1,0 +1,22 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: oke-gateway-oci-certificate
+spec:
+  gatewayClassName: oke-gateway-api
+  infrastructure:
+    parametersRef:
+      group: oke-gateway-api.gemyago.github.io
+      kind: GatewayConfig
+      name: oke-gateway-config
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+    - name: https
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        options:
+          oci.oraclecloud.com/certificate-ocid: ocid1.certificate.oc1..exampleuniqueID

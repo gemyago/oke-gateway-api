@@ -18,6 +18,66 @@ import (
 	"github.com/gemyago/oke-gateway-api/internal/types"
 )
 
+func listenerOCICertificateOCID(listener gatewayv1.Listener) string {
+	if listener.TLS == nil || listener.TLS.Options == nil {
+		return ""
+	}
+	return string(listener.TLS.Options[gatewayv1.AnnotationKey(ListenerTLSOptionOCICertificateOCID)])
+}
+
+func gatewayCertificateIDsByListener(gateway gatewayv1.Gateway) map[string]string {
+	result := make(map[string]string)
+	for _, listener := range gateway.Spec.Listeners {
+		if certificateID := listenerOCICertificateOCID(listener); certificateID != "" {
+			result[string(listener.Name)] = certificateID
+		}
+	}
+	return result
+}
+
+func validateGatewayCertificateOptions(gateway gatewayv1.Gateway) error {
+	for _, listener := range gateway.Spec.Listeners {
+		certificateID := listenerOCICertificateOCID(listener)
+		if certificateID == "" {
+			continue
+		}
+		if listener.Protocol != gatewayv1.HTTPSProtocolType {
+			return &resourceStatusError{
+				conditionType: string(gatewayv1.GatewayConditionAccepted),
+				reason:        string(gatewayv1.GatewayReasonInvalidParameters),
+				message: fmt.Sprintf(
+					"listener %s option %s can only be used with HTTPS listeners",
+					listener.Name,
+					ListenerTLSOptionOCICertificateOCID,
+				),
+			}
+		}
+		if listener.TLS.Mode != nil && *listener.TLS.Mode != gatewayv1.TLSModeTerminate {
+			return &resourceStatusError{
+				conditionType: string(gatewayv1.GatewayConditionAccepted),
+				reason:        string(gatewayv1.GatewayReasonInvalidParameters),
+				message: fmt.Sprintf(
+					"listener %s option %s can only be used with Terminate TLS mode",
+					listener.Name,
+					ListenerTLSOptionOCICertificateOCID,
+				),
+			}
+		}
+		if len(listener.TLS.CertificateRefs) > 0 {
+			return &resourceStatusError{
+				conditionType: string(gatewayv1.GatewayConditionAccepted),
+				reason:        string(gatewayv1.GatewayReasonInvalidParameters),
+				message: fmt.Sprintf(
+					"listener %s option %s cannot be used together with listener.tls.certificateRefs",
+					listener.Name,
+					ListenerTLSOptionOCICertificateOCID,
+				),
+			}
+		}
+	}
+	return nil
+}
+
 type resolvedGatewayDetails struct {
 	gateway      gatewayv1.Gateway
 	gatewayClass gatewayv1.GatewayClass
@@ -113,6 +173,10 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
 		return false, fmt.Errorf("failed to get GatewayConfig %s: %w", configName, err)
 	}
 
+	if err := validateGatewayCertificateOptions(receiver.gateway); err != nil {
+		return false, err
+	}
+
 	if err := m.populateGatewaySecrets(ctx, receiver); err != nil {
 		return false, err
 	}
@@ -122,46 +186,75 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
 	return true, nil
 }
 
-func (m *gatewayModelImpl) populateGatewaySecrets(ctx context.Context, receiver *resolvedGatewayDetails) error {
+func (m *gatewayModelImpl) populateGatewaySecrets(
+	ctx context.Context,
+	receiver *resolvedGatewayDetails,
+) error {
 	receiver.gatewaySecrets = make(map[string]corev1.Secret)
-
 	for _, listener := range receiver.gateway.Spec.Listeners {
-		if listener.TLS == nil || len(listener.TLS.CertificateRefs) == 0 {
+		if listenerOCICertificateOCID(listener) != "" {
 			continue
 		}
-
-		for _, certRef := range listener.TLS.CertificateRefs {
-			secretName := string(certRef.Name)
-			secretNamespace := receiver.gateway.Namespace
-			if certRef.Namespace != nil {
-				secretNamespace = string(*certRef.Namespace)
-			}
-
-			fullSecretName := secretNamespace + "/" + secretName
-
-			if _, exists := receiver.gatewaySecrets[fullSecretName]; exists {
-				continue
-			}
-
-			var secret corev1.Secret
-			if err := m.client.Get(ctx, apitypes.NamespacedName{
-				Name:      secretName,
-				Namespace: secretNamespace,
-			}, &secret); err != nil {
-				if apierrors.IsNotFound(err) {
-					return &resourceStatusError{
-						conditionType: string(gatewayv1.GatewayConditionAccepted),
-						reason:        string(gatewayv1.GatewayReasonInvalidParameters),
-						message:       fmt.Sprintf("referenced secret %s not found", fullSecretName),
-					}
-				}
-				return fmt.Errorf("failed to get secret %s: %w", fullSecretName, err)
-			}
-
-			receiver.gatewaySecrets[fullSecretName] = secret
+		if populateErr := m.populateGatewayListenerSecrets(ctx, receiver, listener); populateErr != nil {
+			return populateErr
 		}
 	}
 
+	return nil
+}
+
+func (m *gatewayModelImpl) populateGatewayListenerSecrets(
+	ctx context.Context,
+	receiver *resolvedGatewayDetails,
+	listener gatewayv1.Listener,
+) error {
+	if listener.TLS == nil || len(listener.TLS.CertificateRefs) == 0 {
+		return nil
+	}
+
+	for _, certRef := range listener.TLS.CertificateRefs {
+		secretName := string(certRef.Name)
+		secretNamespace := receiver.gateway.Namespace
+		if certRef.Namespace != nil {
+			secretNamespace = string(*certRef.Namespace)
+		}
+
+		if err := m.populateGatewaySecret(ctx, receiver, secretNamespace, secretName); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *gatewayModelImpl) populateGatewaySecret(
+	ctx context.Context,
+	receiver *resolvedGatewayDetails,
+	secretNamespace string,
+	secretName string,
+) error {
+	fullSecretName := secretNamespace + "/" + secretName
+	if _, exists := receiver.gatewaySecrets[fullSecretName]; exists {
+		return nil
+	}
+
+	var secret corev1.Secret
+	getErr := m.client.Get(ctx, apitypes.NamespacedName{
+		Name:      secretName,
+		Namespace: secretNamespace,
+	}, &secret)
+	if getErr != nil {
+		if apierrors.IsNotFound(getErr) {
+			return &resourceStatusError{
+				conditionType: string(gatewayv1.GatewayConditionAccepted),
+				reason:        string(gatewayv1.GatewayReasonInvalidParameters),
+				message:       fmt.Sprintf("referenced secret %s not found", fullSecretName),
+			}
+		}
+		return fmt.Errorf("failed to get secret %s: %w", fullSecretName, getErr)
+	}
+
+	receiver.gatewaySecrets[fullSecretName] = secret
 	return nil
 }
 
@@ -217,6 +310,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 			knownListeners:        response.LoadBalancer.Listeners,
 			knownRoutingPolicies:  response.LoadBalancer.RoutingPolicies,
 			listenerCertificates:  reconcileListenersCertificatesResult.certificatesByListener[listenerName],
+			listenerCertificateID: reconcileListenersCertificatesResult.certificateIDsByListener[listenerName],
 			defaultBackendSetName: *defaultBackendSet.Name,
 			listenerSpec:          &listener,
 		}
