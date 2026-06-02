@@ -49,11 +49,12 @@ func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Re
 	}
 
 	// Check if the ControllerName matches the one we are responsible for
-	if gatewayClass.Spec.ControllerName != ControllerClassName {
+	if !isSupportedControllerClassName(gatewayClass.Spec.ControllerName) {
 		r.logger.InfoContext(ctx,
 			"Ignoring GatewayClass because controllerName does not match",
 			slog.String("gatewayClass", req.NamespacedName.String()),
 			slog.String("expectedControllerName", ControllerClassName),
+			slog.String("expectedNetworkLoadBalancerControllerName", NetworkLoadBalancerControllerClassName),
 			slog.String("actualControllerName", string(gatewayClass.Spec.ControllerName)),
 		)
 		return reconcile.Result{}, nil // Ignore this GatewayClass
@@ -84,7 +85,11 @@ func (r *GatewayClassController) Reconcile(ctx context.Context, req reconcile.Re
 		conditionType: string(gatewayv1.GatewayClassConditionStatusAccepted),
 		status:        metav1.ConditionTrue,
 		reason:        string(gatewayv1.GatewayClassReasonAccepted),
-		message:       fmt.Sprintf("GatewayClass %s is accepted by %s", gatewayClass.Name, ControllerClassName),
+		message: fmt.Sprintf(
+			"GatewayClass %s is accepted by %s",
+			gatewayClass.Name,
+			gatewayClass.Spec.ControllerName,
+		),
 	}); err != nil {
 		return reconcile.Result{},
 			fmt.Errorf("failed to set accepted condition for GatewayClass %s: %w",

@@ -1,0 +1,21 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: oke-nlb-gateway
+spec:
+  gatewayClassName: oke-nlb
+  infrastructure:
+    parametersRef:
+      group: oke-gateway-api.gemyago.github.io
+      kind: GatewayConfig
+      name: oke-nlb-gateway-config
+  listeners:
+    - name: coap-dtls
+      protocol: UDP
+      port: 5684
+    - name: srt
+      protocol: UDP
+      port: 8890
+    - name: rtmp
+      protocol: TCP
+      port: 1935

@@ -8,16 +8,14 @@ metadata:
 rules:
 # Permissions to watch and update Gateway API resources
 - apiGroups: ["gateway.networking.k8s.io"]
-  # Add other relevant route types like TCPRoute, UDPRoute, TLSRoute if the controller supports them
-  resources: ["gatewayclasses", "gateways", "httproutes", "referencegrants"]
+  resources: ["gatewayclasses", "gateways", "httproutes", "tcproutes", "udproutes", "referencegrants"]
   verbs: ["get", "list", "watch", "update", "patch"] # Read access + update/patch for finalizers/annotations
 - apiGroups: ["gateway.networking.k8s.io"]
-  # Add status subresources for other supported route types
-  resources: ["gatewayclasses/status", "gateways/status", "httproutes/status"]
+  resources: ["gatewayclasses/status", "gateways/status", "httproutes/status", "tcproutes/status", "udproutes/status"]
   verbs: ["update", "patch"] # Update status
 # Permissions to read necessary core resources for OCI LB configuration
 - apiGroups: [""]
-  resources: ["services", "endpoints", "secrets", "nodes"]
+  resources: ["services", "endpoints", "secrets", "nodes", "namespaces"]
   verbs: ["get", "list", "watch"] # Read-only access
 # Permissions for leader election
 - apiGroups: ["coordination.k8s.io"]

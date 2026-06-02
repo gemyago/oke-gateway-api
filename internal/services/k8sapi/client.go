@@ -17,9 +17,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
+	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	"github.com/gemyago/oke-gateway-api/internal/types"
 )
+
+type controllerManager struct {
+	manager.Manager
+}
+
+type controllerClient struct {
+	client.Client
+}
 
 type ConfigDeps struct {
 	dig.In
@@ -56,8 +66,7 @@ func newConfig(deps ConfigDeps) (*rest.Config, error) {
 	return clientcmd.BuildConfigFromFlags("", kubeconfig)
 }
 
-//nolint:ireturn // controller-runtime constructs managers behind an interface.
-func newManager(config *rest.Config) (manager.Manager, error) {
+func newManager(config *rest.Config) (*controllerManager, error) {
 	scheme := runtime.NewScheme()
 
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
@@ -72,12 +81,23 @@ func newManager(config *rest.Config) (manager.Manager, error) {
 		return nil, fmt.Errorf("failed to add gateway api scheme: %w", err)
 	}
 
-	return manager.New(config, manager.Options{
+	if err := gatewayv1alpha2.Install(scheme); err != nil {
+		return nil, fmt.Errorf("failed to add gateway api v1alpha2 scheme: %w", err)
+	}
+
+	if err := gatewayv1beta1.Install(scheme); err != nil {
+		return nil, fmt.Errorf("failed to add gateway api v1beta1 scheme: %w", err)
+	}
+
+	mgr, err := manager.New(config, manager.Options{
 		Scheme: scheme,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return &controllerManager{Manager: mgr}, nil
 }
 
-//nolint:ireturn // controller-runtime exposes clients through an interface.
-func newClient(manager manager.Manager) (client.Client, error) {
-	return manager.GetClient(), nil
+func newClient(manager *controllerManager) *controllerClient {
+	return &controllerClient{Client: manager.GetClient()}
 }

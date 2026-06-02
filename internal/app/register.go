@@ -2,6 +2,7 @@ package app
 
 import (
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
+	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"go.uber.org/dig"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -13,13 +14,25 @@ func Register(container *dig.Container) error {
 	return di.ProvideAll(container,
 		func(c client.Client) k8sClient { return c },
 		func(c loadbalancer.LoadBalancerClient) ociLoadBalancerClient { return c },
+		func(c networkloadbalancer.NetworkLoadBalancerClient) ociNetworkLoadBalancerClient { return c },
 		func(w *ociapi.WorkRequestsWatcher) workRequestsWatcher { return w },
+		di.ConstructorWithOpts{
+			Constructor: func(w *ociapi.NetworkLoadBalancerWorkRequestsWatcher) workRequestsWatcher { return w },
+			Options:     []dig.ProvideOption{dig.Name("networkLoadBalancerWorkRequestsWatcher")},
+		},
 		NewGatewayClassController,
 		NewGatewayController,
+		NewNetworkLoadBalancerGatewayController,
 		NewHTTPRouteController,
+		NewTCPRouteController,
+		NewUDPRouteController,
+		newNetworkLoadBalancerOperationLocks,
 		di.ProvideFactoryAs[resourcesModel](newResourcesModel),
 		di.ProvideFactoryAs[gatewayModel](newGatewayModel),
+		di.ProvideFactoryAs[networkLoadBalancerGatewayModel](newNetworkLoadBalancerGatewayModel),
 		di.ProvideFactoryAs[httpRouteModel](newHTTPRouteModel),
+		di.ProvideFactoryAs[tcpRouteModel](newTCPRouteModel),
+		di.ProvideFactoryAs[udpRouteModel](newUDPRouteModel),
 		di.ProvideFactoryAs[ociLoadBalancerModel](newOciLoadBalancerModel),
 		newOciLoadBalancerRoutingRulesMapper,
 		di.ProvideAs[*ociLoadBalancerRoutingRulesMapperImpl, ociLoadBalancerRoutingRulesMapper],

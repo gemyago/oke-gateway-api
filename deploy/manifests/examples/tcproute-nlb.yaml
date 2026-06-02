@@ -1,0 +1,12 @@
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
+metadata:
+  name: rtmp
+spec:
+  parentRefs:
+    - name: oke-nlb-gateway
+      sectionName: rtmp
+  rules:
+    - backendRefs:
+        - name: rtmp-service
+          port: 1935

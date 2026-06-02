@@ -15,6 +15,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
+	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	configtypes "github.com/gemyago/oke-gateway-api/internal/types"
@@ -22,6 +24,8 @@ import (
 
 const httpRouteBackendServiceIndexKey = ".metadata.backendRefs.serviceName" // Virtual field name, indexed
 const gatewayCertificateIndexKey = ".metadata.certificates"                 // Virtual field name, indexed
+const tcpRouteBackendServiceIndexKey = ".metadata.tcpBackendRefs.serviceName"
+const udpRouteBackendServiceIndexKey = ".metadata.udpBackendRefs.serviceName"
 
 // WatchesModel implements the WatchesModel interface.
 type WatchesModel struct {
@@ -36,6 +40,12 @@ type WatchesModelDeps struct {
 	Logger    *slog.Logger
 }
 
+// RegisterFieldIndexersOptions controls which optional route indexers are registered.
+type RegisterFieldIndexersOptions struct {
+	EnableTCPRoute bool
+	EnableUDPRoute bool
+}
+
 // NewWatchesModel creates a new watchesModel.
 func NewWatchesModel(deps WatchesModelDeps) *WatchesModel {
 	return &WatchesModel{
@@ -45,7 +55,19 @@ func NewWatchesModel(deps WatchesModelDeps) *WatchesModel {
 }
 
 // RegisterFieldIndexers registers the indexers for the watches model.
-func (m *WatchesModel) RegisterFieldIndexers(ctx context.Context, indexer client.FieldIndexer) error {
+func (m *WatchesModel) RegisterFieldIndexers(
+	ctx context.Context,
+	indexer client.FieldIndexer,
+	options ...RegisterFieldIndexersOptions,
+) error {
+	opts := RegisterFieldIndexersOptions{
+		EnableTCPRoute: true,
+		EnableUDPRoute: true,
+	}
+	if len(options) > 0 {
+		opts = options[0]
+	}
+
 	if err := indexer.IndexField(ctx,
 		&gatewayv1.HTTPRoute{},
 		httpRouteBackendServiceIndexKey,
@@ -54,6 +76,30 @@ func (m *WatchesModel) RegisterFieldIndexers(ctx context.Context, indexer client
 		},
 	); err != nil {
 		return fmt.Errorf("failed to index HTTPRoute by backend service: %w", err)
+	}
+
+	if opts.EnableTCPRoute {
+		if err := indexer.IndexField(ctx,
+			&gatewayv1alpha2.TCPRoute{},
+			tcpRouteBackendServiceIndexKey,
+			func(o client.Object) []string {
+				return m.indexTCPRouteByBackendService(ctx, o)
+			},
+		); err != nil {
+			return fmt.Errorf("failed to index TCPRoute by backend service: %w", err)
+		}
+	}
+
+	if opts.EnableUDPRoute {
+		if err := indexer.IndexField(ctx,
+			&gatewayv1alpha2.UDPRoute{},
+			udpRouteBackendServiceIndexKey,
+			func(o client.Object) []string {
+				return m.indexUDPRouteByBackendService(ctx, o)
+			},
+		); err != nil {
+			return fmt.Errorf("failed to index UDPRoute by backend service: %w", err)
+		}
 	}
 
 	if err := indexer.IndexField(ctx,
@@ -69,8 +115,25 @@ func (m *WatchesModel) RegisterFieldIndexers(ctx context.Context, indexer client
 	m.logger.DebugContext(ctx, "Field indexers registered",
 		slog.String("indexKey", httpRouteBackendServiceIndexKey),
 		slog.String("indexKey", gatewayCertificateIndexKey),
+		slog.Bool("tcpRouteIndexEnabled", opts.EnableTCPRoute),
+		slog.Bool("udpRouteIndexEnabled", opts.EnableUDPRoute),
 	)
 	return nil
+}
+
+func indexBackendRefsByService(namespace string, refs []gatewayv1.BackendRef) []string {
+	uniqueServiceKeys := make(map[string]struct{})
+	for _, backendRef := range refs {
+		ns := namespace
+		if backendRef.BackendObjectReference.Namespace != nil {
+			ns = string(*backendRef.BackendObjectReference.Namespace)
+		}
+		namespacedName := path.Join(ns, string(backendRef.BackendObjectReference.Name))
+		if _, ok := uniqueServiceKeys[namespacedName]; !ok {
+			uniqueServiceKeys[namespacedName] = struct{}{}
+		}
+	}
+	return lo.Keys(uniqueServiceKeys)
 }
 
 // indexHTTPRouteByBackendService extracts the namespaced names of Services referenced
@@ -141,6 +204,88 @@ func (m *WatchesModel) indexHTTPRouteByBackendService(ctx context.Context, obj c
 		slog.Any("serviceKeys", serviceKeys),
 	)
 
+	return serviceKeys
+}
+
+func (m *WatchesModel) indexTCPRouteByBackendService(ctx context.Context, obj client.Object) []string {
+	tcpRoute, isRoute := obj.(*gatewayv1alpha2.TCPRoute)
+	logger := m.logger.WithGroup("tcp-route-backend-service-index")
+	if !isRoute {
+		logger.WarnContext(ctx, "Received non-TCPRoute object", slog.Any("object", obj))
+		return nil
+	}
+	if tcpRoute.DeletionTimestamp != nil {
+		logger.DebugContext(ctx, "Ignoring TCPRoute marked for deletion",
+			slog.String("tcpRoute", client.ObjectKeyFromObject(tcpRoute).String()),
+			slog.Time("deletionTimestamp", tcpRoute.DeletionTimestamp.Time),
+		)
+		return nil
+	}
+
+	rulesBackendRefs := make([][]gatewayv1.BackendRef, 0, len(tcpRoute.Spec.Rules))
+	for _, rule := range tcpRoute.Spec.Rules {
+		rulesBackendRefs = append(rulesBackendRefs, rule.BackendRefs)
+	}
+	return indexL4RouteByBackendService(
+		ctx,
+		logger,
+		tcpRoute,
+		rulesBackendRefs,
+		"tcpRoute",
+		tcpRouteBackendServiceIndexKey,
+	)
+}
+
+func (m *WatchesModel) indexUDPRouteByBackendService(ctx context.Context, obj client.Object) []string {
+	udpRoute, isRoute := obj.(*gatewayv1alpha2.UDPRoute)
+	logger := m.logger.WithGroup("udp-route-backend-service-index")
+	if !isRoute {
+		logger.WarnContext(ctx, "Received non-UDPRoute object", slog.Any("object", obj))
+		return nil
+	}
+	if udpRoute.DeletionTimestamp != nil {
+		logger.DebugContext(ctx, "Ignoring UDPRoute marked for deletion",
+			slog.String("udpRoute", client.ObjectKeyFromObject(udpRoute).String()),
+			slog.Time("deletionTimestamp", udpRoute.DeletionTimestamp.Time),
+		)
+		return nil
+	}
+
+	rulesBackendRefs := make([][]gatewayv1.BackendRef, 0, len(udpRoute.Spec.Rules))
+	for _, rule := range udpRoute.Spec.Rules {
+		rulesBackendRefs = append(rulesBackendRefs, rule.BackendRefs)
+	}
+	return indexL4RouteByBackendService(
+		ctx,
+		logger,
+		udpRoute,
+		rulesBackendRefs,
+		"udpRoute",
+		udpRouteBackendServiceIndexKey,
+	)
+}
+
+func indexL4RouteByBackendService(
+	ctx context.Context,
+	logger *slog.Logger,
+	route client.Object,
+	rulesBackendRefs [][]gatewayv1.BackendRef,
+	routeAttr string,
+	indexKey string,
+) []string {
+	uniqueServiceKeys := make(map[string]struct{})
+	for _, backendRefs := range rulesBackendRefs {
+		for _, key := range indexBackendRefsByService(route.GetNamespace(), backendRefs) {
+			uniqueServiceKeys[key] = struct{}{}
+		}
+	}
+
+	serviceKeys := lo.Keys(uniqueServiceKeys)
+	logger.DebugContext(ctx, "Indexed L4 route by backend service",
+		slog.String(routeAttr, client.ObjectKeyFromObject(route).String()),
+		slog.String("indexKey", indexKey),
+		slog.Any("serviceKeys", serviceKeys),
+	)
 	return serviceKeys
 }
 
@@ -266,6 +411,260 @@ func (m *WatchesModel) MapEndpointSliceToHTTPRoute(ctx context.Context, obj clie
 	}
 
 	return requests
+}
+
+func (m *WatchesModel) MapEndpointSliceToTCPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	var routeList gatewayv1alpha2.TCPRouteList
+	return mapEndpointSliceToL4Route(
+		ctx,
+		m.logger,
+		m.k8sClient,
+		obj,
+		&routeList,
+		tcpRouteBackendServiceIndexKey,
+		"TCPRoutes",
+		func(routeList *gatewayv1alpha2.TCPRouteList) []reconcile.Request {
+			requests := make([]reconcile.Request, 0, len(routeList.Items))
+			for _, route := range routeList.Items {
+				if route.DeletionTimestamp != nil {
+					continue
+				}
+				requests = append(requests, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(&route),
+				})
+			}
+			return requests
+		},
+	)
+}
+
+func (m *WatchesModel) MapEndpointSliceToUDPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	var routeList gatewayv1alpha2.UDPRouteList
+	return mapEndpointSliceToL4Route(
+		ctx,
+		m.logger,
+		m.k8sClient,
+		obj,
+		&routeList,
+		udpRouteBackendServiceIndexKey,
+		"UDPRoutes",
+		func(routeList *gatewayv1alpha2.UDPRouteList) []reconcile.Request {
+			requests := make([]reconcile.Request, 0, len(routeList.Items))
+			for _, route := range routeList.Items {
+				if route.DeletionTimestamp != nil {
+					continue
+				}
+				requests = append(requests, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(&route),
+				})
+			}
+			return requests
+		},
+	)
+}
+
+func mapEndpointSliceToL4Route[T client.ObjectList](
+	ctx context.Context,
+	logger *slog.Logger,
+	k8sClient k8sClient,
+	obj client.Object,
+	routeList T,
+	indexKey string,
+	routeKind string,
+	requestsFromList func(T) []reconcile.Request,
+) []reconcile.Request {
+	epSlice, ok := obj.(*discoveryv1.EndpointSlice)
+	if !ok {
+		logger.WarnContext(ctx, "Received non-EndpointSlice object", slog.Any("object", obj))
+		return nil
+	}
+
+	svcName, ok := epSlice.Labels[discoveryv1.LabelServiceName]
+	if !ok {
+		logger.WarnContext(ctx, "EndpointSlice missing service name label", slog.Any("endpointSlice", epSlice))
+		return nil
+	}
+
+	serviceIndexKey := path.Join(epSlice.Namespace, svcName)
+	if err := k8sClient.List(
+		ctx,
+		routeList,
+		client.MatchingFields{indexKey: serviceIndexKey},
+	); err != nil {
+		logger.ErrorContext(ctx,
+			fmt.Sprintf("Failed to list %s for service", routeKind),
+			slog.String("indexKey", serviceIndexKey),
+			diag.ErrAttr(err),
+		)
+		return nil
+	}
+
+	return requestsFromList(routeList)
+}
+
+func routeReferencesBackendNamespace(routeNamespace string, refs []gatewayv1.BackendRef, backendNamespace string) bool {
+	for _, backendRef := range refs {
+		ns := routeNamespace
+		if backendRef.BackendObjectReference.Namespace != nil {
+			ns = string(*backendRef.BackendObjectReference.Namespace)
+		}
+		if ns == backendNamespace && ns != routeNamespace {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *WatchesModel) MapReferenceGrantToTCPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	var routeList gatewayv1alpha2.TCPRouteList
+	return mapReferenceGrantToL4Route(ctx, m.logger, m.k8sClient, obj, &routeList, "TCPRoutes",
+		func(routeList *gatewayv1alpha2.TCPRouteList, grant *gatewayv1beta1.ReferenceGrant) []reconcile.Request {
+			requests := make([]reconcile.Request, 0)
+			for _, route := range routeList.Items {
+				shouldQueue := false
+				for _, rule := range route.Spec.Rules {
+					if routeReferencesBackendNamespace(route.Namespace, rule.BackendRefs, grant.Namespace) {
+						shouldQueue = true
+						break
+					}
+				}
+				if shouldQueue {
+					requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&route)})
+				}
+			}
+			return requests
+		},
+	)
+}
+
+func (m *WatchesModel) MapReferenceGrantToUDPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	var routeList gatewayv1alpha2.UDPRouteList
+	return mapReferenceGrantToL4Route(ctx, m.logger, m.k8sClient, obj, &routeList, "UDPRoutes",
+		func(routeList *gatewayv1alpha2.UDPRouteList, grant *gatewayv1beta1.ReferenceGrant) []reconcile.Request {
+			requests := make([]reconcile.Request, 0)
+			for _, route := range routeList.Items {
+				shouldQueue := false
+				for _, rule := range route.Spec.Rules {
+					if routeReferencesBackendNamespace(route.Namespace, rule.BackendRefs, grant.Namespace) {
+						shouldQueue = true
+						break
+					}
+				}
+				if shouldQueue {
+					requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&route)})
+				}
+			}
+			return requests
+		},
+	)
+}
+
+func mapReferenceGrantToL4Route[T client.ObjectList](
+	ctx context.Context,
+	logger *slog.Logger,
+	k8sClient k8sClient,
+	obj client.Object,
+	routeList T,
+	routeKind string,
+	requestsFromList func(T, *gatewayv1beta1.ReferenceGrant) []reconcile.Request,
+) []reconcile.Request {
+	grant, ok := obj.(*gatewayv1beta1.ReferenceGrant)
+	if !ok {
+		logger.WarnContext(ctx, "Received non-ReferenceGrant object", slog.Any("object", obj))
+		return nil
+	}
+
+	if err := k8sClient.List(ctx, routeList); err != nil {
+		logger.ErrorContext(ctx, fmt.Sprintf("Failed to list %s for ReferenceGrant change", routeKind),
+			slog.String("referenceGrant", client.ObjectKeyFromObject(grant).String()),
+			diag.ErrAttr(err),
+		)
+		return nil
+	}
+
+	return requestsFromList(routeList, grant)
+}
+
+func tcpRouteReferencesGateway(route gatewayv1alpha2.TCPRoute, gateway gatewayv1.Gateway) bool {
+	gatewayName := client.ObjectKeyFromObject(&gateway)
+	for _, parentRef := range route.Spec.ParentRefs {
+		if !parentRefTargetsGateway(parentRef) {
+			continue
+		}
+		if tcpParentRefTarget(parentRef, route.Namespace) == gatewayName {
+			return true
+		}
+	}
+	return false
+}
+
+func udpRouteReferencesGateway(route gatewayv1alpha2.UDPRoute, gateway gatewayv1.Gateway) bool {
+	gatewayName := client.ObjectKeyFromObject(&gateway)
+	for _, parentRef := range route.Spec.ParentRefs {
+		if !parentRefTargetsGateway(parentRef) {
+			continue
+		}
+		if udpParentRefTarget(parentRef, route.Namespace) == gatewayName {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *WatchesModel) MapGatewayToTCPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	var routeList gatewayv1alpha2.TCPRouteList
+	return mapGatewayToL4Route(ctx, m.logger, m.k8sClient, obj, &routeList, "TCPRoutes",
+		func(routeList *gatewayv1alpha2.TCPRouteList, gateway *gatewayv1.Gateway) []reconcile.Request {
+			requests := make([]reconcile.Request, 0)
+			for _, route := range routeList.Items {
+				if tcpRouteReferencesGateway(route, *gateway) {
+					requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&route)})
+				}
+			}
+			return requests
+		},
+	)
+}
+
+func (m *WatchesModel) MapGatewayToUDPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	var routeList gatewayv1alpha2.UDPRouteList
+	return mapGatewayToL4Route(ctx, m.logger, m.k8sClient, obj, &routeList, "UDPRoutes",
+		func(routeList *gatewayv1alpha2.UDPRouteList, gateway *gatewayv1.Gateway) []reconcile.Request {
+			requests := make([]reconcile.Request, 0)
+			for _, route := range routeList.Items {
+				if udpRouteReferencesGateway(route, *gateway) {
+					requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&route)})
+				}
+			}
+			return requests
+		},
+	)
+}
+
+func mapGatewayToL4Route[T client.ObjectList](
+	ctx context.Context,
+	logger *slog.Logger,
+	k8sClient k8sClient,
+	obj client.Object,
+	routeList T,
+	routeKind string,
+	requestsFromList func(T, *gatewayv1.Gateway) []reconcile.Request,
+) []reconcile.Request {
+	gateway, ok := obj.(*gatewayv1.Gateway)
+	if !ok {
+		logger.WarnContext(ctx, "Received non-Gateway object", slog.Any("object", obj))
+		return nil
+	}
+
+	if err := k8sClient.List(ctx, routeList); err != nil {
+		logger.ErrorContext(ctx, fmt.Sprintf("Failed to list %s for Gateway change", routeKind),
+			slog.String("gateway", client.ObjectKeyFromObject(gateway).String()),
+			diag.ErrAttr(err),
+		)
+		return nil
+	}
+
+	return requestsFromList(routeList, gateway)
 }
 
 // MapGatewayConfigToGateway maps GatewayConfig events to Gateway reconcile requests.

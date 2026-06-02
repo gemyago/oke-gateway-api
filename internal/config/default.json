@@ -21,6 +21,9 @@
   "features": {
     "reconcileGatewayClass": true,
     "reconcileGateway": true,
+    "reconcileNetworkLoadBalancerGateway": true,
+    "reconcileTCPRoute": true,
+    "reconcileUDPRoute": true,
     "reconcileHTTPRoute": true
   }
 }

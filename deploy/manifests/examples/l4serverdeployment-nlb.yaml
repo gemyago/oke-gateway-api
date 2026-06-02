@@ -1,0 +1,133 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rtmp-server
+  labels:
+    app: rtmp-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rtmp-server
+  template:
+    metadata:
+      labels:
+        app: rtmp-server
+    spec:
+      containers:
+      - name: netexec
+        image: registry.k8s.io/e2e-test-images/agnhost:2.45
+        args:
+          - netexec
+          - --http-port=1935
+        ports:
+        - containerPort: 1935
+          name: rtmp
+          protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rtmp-service
+  labels:
+    app: rtmp-server
+spec:
+  selector:
+    app: rtmp-server
+  ports:
+  - name: rtmp
+    port: 1935
+    targetPort: rtmp
+    protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coap-server
+  labels:
+    app: coap-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: coap-server
+  template:
+    metadata:
+      labels:
+        app: coap-server
+    spec:
+      containers:
+      - name: netexec
+        image: registry.k8s.io/e2e-test-images/agnhost:2.45
+        args:
+          - netexec
+          - --udp-port=5684
+          - --http-port=5684
+        ports:
+        - containerPort: 5684
+          name: coap-dtls
+          protocol: UDP
+        - containerPort: 5684
+          name: coap-health
+          protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: coap-service
+  labels:
+    app: coap-server
+spec:
+  selector:
+    app: coap-server
+  ports:
+  - name: coap-dtls
+    port: 5684
+    targetPort: coap-dtls
+    protocol: UDP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: srt-server
+  labels:
+    app: srt-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: srt-server
+  template:
+    metadata:
+      labels:
+        app: srt-server
+    spec:
+      containers:
+      - name: netexec
+        image: registry.k8s.io/e2e-test-images/agnhost:2.45
+        args:
+          - netexec
+          - --udp-port=8890
+          - --http-port=8890
+        ports:
+        - containerPort: 8890
+          name: srt
+          protocol: UDP
+        - containerPort: 8890
+          name: srt-health
+          protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: srt-service
+  labels:
+    app: srt-server
+spec:
+  selector:
+    app: srt-server
+  ports:
+  - name: srt
+    port: 8890
+    targetPort: srt
+    protocol: UDP

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
+	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -78,4 +79,37 @@ type ociLoadBalancerClient interface {
 
 type workRequestsWatcher interface {
 	WaitFor(ctx context.Context, workRequestID string) error
+}
+
+// ociNetworkLoadBalancerClient defines the interface for OCI Network Load Balancer operations.
+type ociNetworkLoadBalancerClient interface {
+	GetNetworkLoadBalancer(ctx context.Context, request networkloadbalancer.GetNetworkLoadBalancerRequest) (
+		response networkloadbalancer.GetNetworkLoadBalancerResponse, err error)
+
+	CreateListener(ctx context.Context, request networkloadbalancer.CreateListenerRequest) (
+		response networkloadbalancer.CreateListenerResponse, err error)
+
+	UpdateListener(ctx context.Context, request networkloadbalancer.UpdateListenerRequest) (
+		response networkloadbalancer.UpdateListenerResponse, err error)
+
+	DeleteListener(ctx context.Context, request networkloadbalancer.DeleteListenerRequest) (
+		response networkloadbalancer.DeleteListenerResponse, err error)
+
+	CreateBackendSet(ctx context.Context, request networkloadbalancer.CreateBackendSetRequest) (
+		response networkloadbalancer.CreateBackendSetResponse, err error)
+
+	UpdateBackendSet(ctx context.Context, request networkloadbalancer.UpdateBackendSetRequest) (
+		response networkloadbalancer.UpdateBackendSetResponse, err error)
+
+	DeleteBackendSet(ctx context.Context, request networkloadbalancer.DeleteBackendSetRequest) (
+		response networkloadbalancer.DeleteBackendSetResponse, err error)
+
+	CreateBackend(ctx context.Context, request networkloadbalancer.CreateBackendRequest) (
+		response networkloadbalancer.CreateBackendResponse, err error)
+
+	UpdateBackend(ctx context.Context, request networkloadbalancer.UpdateBackendRequest) (
+		response networkloadbalancer.UpdateBackendResponse, err error)
+
+	DeleteBackend(ctx context.Context, request networkloadbalancer.DeleteBackendRequest) (
+		response networkloadbalancer.DeleteBackendResponse, err error)
 }
