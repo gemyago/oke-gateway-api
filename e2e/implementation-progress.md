@@ -180,3 +180,62 @@
   - `direnv exec . bash -lc 'cd e2e && ../bin/golangci-lint run ./...'`
 - Live e2e status: not run.
 - Commit created: yes, `e2e: add diagnostics and config bootstrap`
+
+## 2026-06-07 OCI Cleanup
+
+- Status: green
+- Scope:
+  - Added `e2e/internal/e2eoci` for OCI load balancer client construction, work request waiting,
+    preflight validation, stable public IP selection, and disposable load balancer child cleanup.
+  - Finished `e2e/internal/cmd/e2e-cleanup/main.go` as an OCI-only operator command using the shared
+    cleanup code.
+- Decisions:
+  - Kept the cleanup surface OCI-specific and explicit: the command reads only OCI env inputs and
+    `OKE_E2E_LOAD_BALANCER_ID`, so it does not pull Kubernetes requirements into this slice.
+  - Reset order is listener -> routing policy -> backend set, with an OCI work request wait after
+    every successful delete, and the load balancer itself is left intact.
+  - Stable probe targeting uses the lexicographically smallest public IP from the load balancer
+    response to avoid response-order drift.
+- Files changed:
+  - `e2e/internal/e2eoci/client.go`
+  - `e2e/internal/e2eoci/workrequests.go`
+  - `e2e/internal/e2eoci/cleanup.go`
+  - `e2e/internal/e2eoci/e2eoci_test.go`
+  - `e2e/internal/cmd/e2e-cleanup/main.go`
+  - `e2e/README.md`
+  - `e2e/go.mod`
+  - `e2e/go.sum`
+  - `e2e/implementation-progress.md`
+- Verification run:
+  - `direnv exec . bash -lc 'cd e2e && go mod download'`
+  - `direnv exec . bash -lc 'cd e2e && go mod tidy'`
+  - `direnv exec . make -C e2e compile`
+  - `direnv exec . make -C e2e lint`
+  - `direnv exec . make -C e2e test`
+- Live e2e status: not run.
+- Root repo files changed: none.
+
+## 2026-06-07 Reviewer Verification - OCI Cleanup
+
+- Reviewer: Codex verification sub-agent
+- Status: green
+- Findings:
+  - No blocking issues found in the OCI cleanup slice.
+  - Verified the `e2e` module still does not import root repo `internal/...` packages.
+  - Re-confirmed the root default `make test` flow still excludes live e2e because the root module
+    and `e2e` module are listed separately.
+  - Confirmed the cleanup path stays OCI-only, deletes listeners before routing policies before
+    backend sets, waits for the OCI work request after each successful mutation, never deletes the
+    load balancer itself, and keeps logs limited to non-secret operational fields.
+  - Confirmed preflight inspection requires a load balancer id, resolves the load balancer, and
+    selects a stable public IP by sorting the discovered public addresses.
+- Verification run:
+  - `direnv exec . make lint`
+  - `direnv exec . make test`
+  - `direnv exec . bash -lc 'cd e2e && ../bin/golangci-lint run ./...'`
+  - `direnv exec . make -C e2e compile`
+  - `direnv exec . make -C e2e test`
+  - `direnv exec . go list ./...`
+  - `direnv exec . bash -lc 'cd e2e && go list ./...'`
+- Live e2e status: not run.
+- Commit created: yes, `e2e: add OCI cleanup workflow`

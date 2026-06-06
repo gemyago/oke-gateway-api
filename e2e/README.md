@@ -49,7 +49,26 @@ The bootstrap currently provides:
 - local linting via the root-pinned `../bin/golangci-lint`,
 - local `go test` execution for e2e-owned packages,
 - compile-only checks that do not require live infrastructure,
-- a placeholder cleanup command entry point for future implementation.
+- an OCI cleanup command for operator-driven disposable load balancer resets.
+
+## Cleanup Command
+
+`direnv exec . make -C e2e cleanup` is an operator command for resetting disposable OCI load
+balancer state outside the initial live test run.
+
+Current cleanup behavior:
+
+- builds an OCI load balancer client from the default SDK config flow, with optional config file and
+  profile overrides from the documented OCI env vars,
+- validates that `OKE_E2E_LOAD_BALANCER_ID` exists and that the load balancer has at least one
+  public IP,
+- picks a stable public IP from the load balancer response for later probe-oriented workflows,
+- deletes listeners first, then routing policies, then backend sets,
+- waits for the OCI work request after each successful mutation,
+- does not delete the load balancer itself.
+
+The cleanup command only needs OCI-related inputs. It does not require Kubernetes helper wiring or
+controller process management.
 
 ## Controller Binary
 
