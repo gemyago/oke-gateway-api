@@ -84,3 +84,99 @@
     while `e2e` remained opt-in through its separate Make targets.
 - Live e2e status: not run.
 - Root repo files changed: none.
+
+## 2026-06-07 Diagnostics And Config
+
+- Status: green
+- Scope:
+  - Added local `e2e/internal/diag` slog helpers and `e2e/internal/config` env parsing without
+    importing root repo `internal/...` packages.
+- Decisions:
+  - Kept config explicit and OCI-oriented with separate Kubernetes, OCI, and controller sections so
+    later slices can derive the load balancer public IP from `OKE_E2E_LOAD_BALANCER_ID` without
+    reshaping the config contract.
+  - Validated required envs and controller binary presence in one pass for clearer setup failures.
+  - Kept config logging safe by exposing only non-secret structured attributes and presence flags.
+- Files changed:
+  - `e2e/internal/config/env.go`
+  - `e2e/internal/config/env_test.go`
+  - `e2e/internal/diag/attributes.go`
+  - `e2e/internal/diag/slog.go`
+  - `e2e/internal/diag/slog_test.go`
+  - `e2e/README.md`
+  - `e2e/implementation-progress.md`
+- Verification run:
+  - `direnv exec . make -C e2e compile`
+  - `direnv exec . make -C e2e lint`
+  - `direnv exec . make -C e2e test`
+- Live e2e status: not run.
+- Root repo files changed: none.
+
+## 2026-06-07 Reviewer Verification - Diagnostics And Config
+
+- Reviewer: Codex verification sub-agent
+- Status: not green
+- Findings:
+  - `e2e/internal/config/env.go` validates `OKE_E2E_CONTROLLER_BIN` unconditionally, even when
+    `OKE_E2E_SKIP_CONTROLLER_START=true`. That blocks the explicit "already running controller"
+    mode described in `e2e/AGENTS.md`, because the config loader still fails if the local binary is
+    absent even though this path should not start it.
+- Verification run:
+  - `direnv exec . make lint`
+  - `direnv exec . make test`
+  - `direnv exec . bash -lc 'cd e2e && ../bin/golangci-lint run ./...'`
+  - `direnv exec . make -C e2e compile`
+  - `direnv exec . go list ./...`
+- Live e2e status: not run.
+- Commit created: no
+- Smallest focused fix:
+  - Skip `validateControllerBin(...)` when `cfg.Controller.SkipStart` is true, and add a unit test
+    covering the missing-binary + skip-start case.
+
+## 2026-06-07 Fix - Diagnostics And Config Skip-Start Validation
+
+- Status: green
+- Scope:
+  - Gated controller binary validation in `e2e/internal/config/env.go` on
+    `!cfg.Controller.SkipStart`.
+  - Added a regression test in `e2e/internal/config/env_test.go` covering
+    missing controller binary with `OKE_E2E_SKIP_CONTROLLER_START=true`.
+- Decisions:
+  - Kept the fix inside the e2e config slice only, matching the reviewer-requested smallest change.
+  - Preserved controller binary validation for normal startup mode and skipped it only for the
+    explicit already-running-controller path.
+- Files changed:
+  - `e2e/internal/config/env.go`
+  - `e2e/internal/config/env_test.go`
+  - `e2e/implementation-progress.md`
+- Verification run:
+  - `direnv exec . make -C e2e compile`
+  - `direnv exec . make -C e2e lint`
+  - `direnv exec . make -C e2e test`
+  - `direnv exec . make lint`
+  - `direnv exec . make test`
+- Live e2e status: not run.
+- Root repo files changed: none.
+
+## 2026-06-07 Re-Review Verification - Diagnostics And Config
+
+- Reviewer: Codex verification sub-agent
+- Status: green
+- Findings:
+  - Verified `OKE_E2E_CONTROLLER_BIN` is no longer required when
+    `OKE_E2E_SKIP_CONTROLLER_START=true`; the focused regression test passed with a missing binary
+    path.
+  - Re-checked the `e2e` module boundary and found no imports of root repo `internal/...`
+    packages.
+  - Re-confirmed the root default `make test` flow still excludes live e2e; `direnv exec . go list
+    ./...` listed only root-module packages, while `e2e` remained behind its separate Make targets.
+- Verification run:
+  - `direnv exec . bash -lc 'cd e2e && go test ./internal/config -run "TestLoadFromEnv/skips_controller_binary_validation_when_skip_start_is_enabled" -count=1'`
+  - `direnv exec . go list ./...`
+  - `direnv exec . make -C e2e compile`
+  - `direnv exec . make -C e2e test`
+  - `direnv exec . make lint`
+  - `direnv exec . make test`
+  - `direnv exec . bash -lc 'cd e2e && ../bin/golangci-lint run ./...'`
+- Live e2e status: not run.
+- Commit created: yes, `e2e: add diagnostics and config bootstrap`

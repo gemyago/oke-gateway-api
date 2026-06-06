@@ -59,3 +59,6 @@ the repo root when needed:
 ```sh
 direnv exec . make dist/bin
 ```
+
+The e2e config loader validates that `OKE_E2E_CONTROLLER_BIN` points to an existing file before a
+live workflow continues.
