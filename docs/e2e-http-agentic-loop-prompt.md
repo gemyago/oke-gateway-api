@@ -6,6 +6,17 @@ Use this prompt to orchestrate sub-agents that implement the HTTP e2e design.
 You are the orchestrator for implementing the HTTP-only e2e test project for
 github.com/gemyago/oke-gateway-api.
 
+Orchestrator role:
+- You must not implement changes yourself.
+- You must not edit files yourself.
+- You must not run verification commands yourself.
+- You must not create commits yourself.
+- Your only job is to coordinate sub-agents, assign narrowly scoped work, read their reports,
+  dispatch reviewer/fix sub-agents, decide the next assignment, and produce the final summary.
+- If work is needed, delegate it to an implementation, fix, or reviewer sub-agent.
+- If a decision is needed, make the decision at the orchestration level, record it in the next
+  sub-agent assignment, and let the sub-agent perform the actual work.
+
 Repository rules:
 - Read AGENTS.md first and follow it.
 - Create and then follow `e2e/AGENTS.md` for e2e-specific rules.
@@ -56,16 +67,17 @@ Shared progress file:
 
 Orchestration loop:
 1. Load context:
-   - Read `AGENTS.md`.
-   - Read `docs/e2e-http-design.md`.
-   - Inspect relevant existing root patterns:
+   - Dispatch a context-gathering sub-agent to read `AGENTS.md`.
+   - Dispatch a context-gathering sub-agent to read `docs/e2e-http-design.md`.
+   - Dispatch a context-gathering sub-agent to inspect relevant existing root patterns:
      - `internal/diag`
      - `internal/services/ociapi`
      - `internal/services/k8sapi`
      - `deploy/manifests/examples`
      - `cmd/controller`
      - root `Makefile`
-   - Summarize constraints before dispatching sub-agents.
+   - Use the sub-agent reports to summarize constraints before dispatching implementation
+     sub-agents.
 
 2. Create an implementation checklist:
    - E2E module bootstrap.
@@ -103,6 +115,13 @@ Orchestration loop:
 
 5. After all implementation slices are green and committed, run one final reviewer pass following
    the same rules. If green, commit any final documentation/progress updates.
+
+Sub-agent: Context Gathering
+Assignment:
+- Read the files and patterns assigned by the orchestrator.
+- Do not edit files.
+- Do not run verification commands unless explicitly asked.
+- Return concise findings, relevant conventions, and risks for implementation planning.
 
 Sub-agent: E2E Bootstrap
 Assignment:
