@@ -239,3 +239,69 @@
   - `direnv exec . bash -lc 'cd e2e && go list ./...'`
 - Live e2e status: not run.
 - Commit created: yes, `e2e: add OCI cleanup workflow`
+
+## 2026-06-07 Kubernetes Fixtures
+
+- Status: green
+- Scope:
+  - Added `e2e/internal/e2ek8s` with controller-runtime client construction from `KUBECONFIG`,
+    typed Kubernetes and Gateway API fixtures, unstructured `GatewayConfig` creation, namespace
+    helpers, and readiness/condition waiters.
+  - Documented the new fixture layer and the namespace-prefix cleanup guard in `e2e/README.md`.
+- Decisions:
+  - Kept the e2e module independent from root repo `internal/...` packages by defining
+    `GatewayConfig` as `unstructured.Unstructured` with the public CRD group/version/kind.
+  - Registered Kubernetes core, apps, discovery, and Gateway API types in a dedicated e2e scheme,
+    and wrapped the controller-runtime client in an e2e-local struct so constructors still return a
+    concrete type.
+  - Restricted namespace cleanup to names beginning with the configured e2e prefix, which keeps the
+    helper safe for shared clusters.
+  - Kept the echo backend fixture aligned with the example deployment image and HTTP wiring already
+    documented in the repo, while leaving controller process management and live HTTP probing for
+    later slices.
+- Files changed:
+  - `e2e/internal/e2ek8s/client.go`
+  - `e2e/internal/e2ek8s/e2ek8s_test.go`
+  - `e2e/internal/e2ek8s/fixtures.go`
+  - `e2e/internal/e2ek8s/namespace.go`
+  - `e2e/internal/e2ek8s/wait.go`
+  - `e2e/README.md`
+  - `e2e/go.mod`
+  - `e2e/go.sum`
+  - `e2e/implementation-progress.md`
+- Verification run:
+  - `direnv exec . bash -lc 'cd e2e && go mod download'`
+  - `direnv exec . bash -lc 'cd e2e && go mod download sigs.k8s.io/gateway-api github.com/jaswdr/faker/v2'`
+  - `direnv exec . bash -lc 'cd e2e && go mod tidy'`
+  - `direnv exec . make -C e2e compile`
+  - `direnv exec . make -C e2e lint`
+  - `direnv exec . make -C e2e test`
+- Live e2e status: not run.
+- Root repo files changed: none.
+
+### Reviewer Verification - 2026-06-07
+
+- Reviewer result: green
+- Findings:
+  - No root repo `internal/...` imports were added under `e2e/`; the new package only uses e2e-local
+    config plus public Kubernetes, controller-runtime, and Gateway API packages.
+  - The root `make test` flow remains separate from live e2e because the `e2e` module is outside the
+    root module and `e2e/http_test.go` still skips the unimplemented live HTTP path.
+  - Namespace cleanup remains prefix-guarded in `DeleteNamespacesWithPrefix`, and the README now
+    documents that only namespaces starting with `OKE_E2E_NAMESPACE_PREFIX` are eligible.
+  - Fixtures stay typed for core Kubernetes and Gateway API resources, while `GatewayConfig`
+    remains the only unstructured fixture.
+  - The controller-runtime client is built from `KUBECONFIG`, and the wait helpers are compile- and
+    unit-validated without starting live infrastructure.
+  - The slice stayed scoped to fixture/client/waiter groundwork and documentation; it did not spill
+    into controller orchestration or live e2e execution.
+- Verification run:
+  - `direnv exec . make lint`
+  - `direnv exec . make test`
+  - `direnv exec . bash -lc 'cd e2e && ../bin/golangci-lint run ./...'`
+  - `direnv exec . make -C e2e compile`
+  - `direnv exec . make -C e2e test`
+  - `direnv exec . bash -lc 'cd e2e && go list ./...'`
+  - `direnv exec . bash -lc 'cd e2e && go test -run '^$' ./...'`
+  - `direnv exec . bash -lc 'cd e2e && go test ./internal/e2ek8s -run TestWaiters -count=1 -v'`
+- Live e2e status: not run.

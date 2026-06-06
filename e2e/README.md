@@ -49,7 +49,10 @@ The bootstrap currently provides:
 - local linting via the root-pinned `../bin/golangci-lint`,
 - local `go test` execution for e2e-owned packages,
 - compile-only checks that do not require live infrastructure,
-- an OCI cleanup command for operator-driven disposable load balancer resets.
+- an OCI cleanup command for operator-driven disposable load balancer resets,
+- Kubernetes fixture helpers under `e2e/internal/e2ek8s` for controller-runtime client creation,
+  typed resource builders, unstructured `GatewayConfig` fixtures, readiness waiters, and
+  namespace-prefix-scoped cleanup for shared clusters.
 
 ## Cleanup Command
 
@@ -69,6 +72,9 @@ Current cleanup behavior:
 
 The cleanup command only needs OCI-related inputs. It does not require Kubernetes helper wiring or
 controller process management.
+
+For Kubernetes-side cleanup, the `e2e/internal/e2ek8s` helper only deletes namespaces whose names
+start with the configured `OKE_E2E_NAMESPACE_PREFIX`.
 
 ## Controller Binary
 
