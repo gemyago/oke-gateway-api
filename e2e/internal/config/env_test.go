@@ -53,7 +53,6 @@ func TestLoadFromEnv(t *testing.T) {
 			NewLoadOptions().
 				WithLookupEnv(lookupEnvFromMap(map[string]string{
 					envLoadBalancerID:      "ocid1.loadbalancer.oc1..example",
-					envKubeconfig:          "/tmp/kubeconfig",
 					envOCIConfigFile:       "/tmp/primary-config",
 					envOCIConfigFileAlt:    "/tmp/fallback-config",
 					envOCIConfigProfile:    "PRIMARY",
@@ -70,6 +69,7 @@ func TestLoadFromEnv(t *testing.T) {
 		assertEqual(t, defaultHTTPPort, cfg.HTTPPort)
 		assertEqual(t, defaultControllerBin, cfg.Controller.BinPath)
 		assertFalse(t, cfg.Controller.SkipStart)
+		assertEqual(t, "", cfg.Kubernetes.KubeconfigPath)
 		assertEqual(t, "/tmp/primary-config", cfg.OCI.ConfigFile)
 		assertEqual(t, "PRIMARY", cfg.OCI.ConfigProfile)
 	})
@@ -88,7 +88,6 @@ func TestLoadFromEnv(t *testing.T) {
 				}),
 		)
 		assertErrorContains(t, err, envLoadBalancerID+" is required")
-		assertErrorContains(t, err, envKubeconfig+" is required")
 		assertErrorContains(t, err, envHTTPPort+" must be a valid integer")
 		assertErrorContains(t, err, envSkipController+" must be a valid boolean")
 		assertErrorContains(t, err, envControllerBin+" points to missing file")

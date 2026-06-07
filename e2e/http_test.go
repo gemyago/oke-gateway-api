@@ -182,14 +182,22 @@ func requireLiveHTTPConfig(t *testing.T) *config.Config {
 	}
 
 	cfg, err := config.LoadFromEnv(nil)
-	require.NoError(t, err)
+	if err != nil {
+		if strings.Contains(err.Error(), "OKE_E2E_CONTROLLER_BIN points to missing file") {
+			t.Skipf(
+				"skipping live HTTP e2e until the controller binary exists; build it with `direnv exec . make dist/bin`: %v",
+				err,
+			)
+		}
+
+		require.NoError(t, err)
+	}
 
 	return cfg
 }
 
 func missingLiveHTTPInputs() []string {
 	required := []string{
-		"KUBECONFIG",
 		"OKE_E2E_LOAD_BALANCER_ID",
 	}
 

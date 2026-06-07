@@ -111,6 +111,35 @@ func TestStart(t *testing.T) {
 		assert.Contains(t, err.Error(), envControllerBin+" points to missing file")
 	})
 
+	t.Run("allows empty kubeconfig so the controller can use default loading", func(t *testing.T) {
+		t.Parallel()
+
+		controllerPath := writeControllerStub(t, strings.Join([]string{
+			"#!/bin/sh",
+			"echo \"stdout default kubeconfig path allowed\"",
+		}, "\n")+"\n")
+
+		logSink := &fakeTestLogSink{}
+		cfg := config.Config{
+			Controller: config.ControllerConfig{
+				BinPath: controllerPath,
+			},
+		}
+
+		proc, err := Start(logSink, cfg, NewStartOptions().WithEnviron([]string{
+			"PATH=" + os.Getenv("PATH"),
+		}))
+		require.NoError(t, err)
+		require.False(t, proc.Skipped())
+		require.NotZero(t, proc.PID())
+		require.Eventually(t, func() bool {
+			return logSink.Contains("controller stdout: stdout default kubeconfig path allowed")
+		}, 5*time.Second, 50*time.Millisecond)
+
+		logSink.RunCleanups()
+		assert.Empty(t, logSink.Errors())
+	})
+
 	t.Run("forced stop accepts the expected signaled wait result after kill", func(t *testing.T) {
 		t.Parallel()
 
@@ -152,32 +181,49 @@ func TestStart(t *testing.T) {
 func TestBuildControllerEnv(t *testing.T) {
 	t.Parallel()
 
-	cfg := config.Config{
-		Kubernetes: config.KubernetesConfig{
-			KubeconfigPath: "/tmp/test-kubeconfig",
-		},
-		OCI: config.OCIConfig{
-			ConfigFile:    "/tmp/test-oci-config",
-			ConfigProfile: "PRIMARY",
-		},
-	}
+	t.Run("overrides kubeconfig and oci env when explicitly configured", func(t *testing.T) {
+		t.Parallel()
 
-	env := buildControllerEnv(cfg, []string{
-		"PATH=/usr/bin",
-		envKubeconfig + "=/tmp/original-kubeconfig",
-		envOCIConfigFileAlt + "=/tmp/original-config",
-		envOCIConfigProfileAlt + "=FALLBACK",
-		envK8sAPINoop + "=true",
-		envOCIAPINoop + "=true",
+		cfg := config.Config{
+			Kubernetes: config.KubernetesConfig{
+				KubeconfigPath: "/tmp/test-kubeconfig",
+			},
+			OCI: config.OCIConfig{
+				ConfigFile:    "/tmp/test-oci-config",
+				ConfigProfile: "PRIMARY",
+			},
+		}
+
+		env := buildControllerEnv(cfg, []string{
+			"PATH=/usr/bin",
+			envKubeconfig + "=/tmp/original-kubeconfig",
+			envOCIConfigFileAlt + "=/tmp/original-config",
+			envOCIConfigProfileAlt + "=FALLBACK",
+			envK8sAPINoop + "=true",
+			envOCIAPINoop + "=true",
+		})
+
+		assertEnvValue(t, env, envKubeconfig, "/tmp/test-kubeconfig")
+		assertEnvValue(t, env, envOCIConfigFile, "/tmp/test-oci-config")
+		assertEnvValue(t, env, envOCIConfigFileAlt, "/tmp/test-oci-config")
+		assertEnvValue(t, env, envOCIConfigProfile, "PRIMARY")
+		assertEnvValue(t, env, envOCIConfigProfileAlt, "PRIMARY")
+		assertEnvValue(t, env, envK8sAPINoop, "false")
+		assertEnvValue(t, env, envOCIAPINoop, "false")
 	})
 
-	assertEnvValue(t, env, envKubeconfig, "/tmp/test-kubeconfig")
-	assertEnvValue(t, env, envOCIConfigFile, "/tmp/test-oci-config")
-	assertEnvValue(t, env, envOCIConfigFileAlt, "/tmp/test-oci-config")
-	assertEnvValue(t, env, envOCIConfigProfile, "PRIMARY")
-	assertEnvValue(t, env, envOCIConfigProfileAlt, "PRIMARY")
-	assertEnvValue(t, env, envK8sAPINoop, "false")
-	assertEnvValue(t, env, envOCIAPINoop, "false")
+	t.Run("preserves inherited kubeconfig when no explicit path is configured", func(t *testing.T) {
+		t.Parallel()
+
+		env := buildControllerEnv(config.Config{}, []string{
+			"PATH=/usr/bin",
+			envKubeconfig + "=/tmp/original-kubeconfig",
+		})
+
+		assertEnvValue(t, env, envKubeconfig, "/tmp/original-kubeconfig")
+		assertEnvValue(t, env, envK8sAPINoop, "false")
+		assertEnvValue(t, env, envOCIAPINoop, "false")
+	})
 }
 
 func writeControllerStub(t *testing.T, body string) string {

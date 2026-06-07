@@ -1,6 +1,7 @@
 package e2ek8s
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -10,12 +11,58 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/rest"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/gemyago/oke-gateway-api/e2e/internal/config"
 )
+
+func TestNewClient(t *testing.T) {
+	t.Parallel()
+
+	t.Run("allows empty kubeconfig path and falls back to default loading", func(t *testing.T) {
+		t.Parallel()
+
+		var gotPath string
+		cfg := config.KubernetesConfig{}
+
+		client, err := NewClient(cfg, &ClientFactoryOptions{
+			buildConfig: func(path string) (*rest.Config, error) {
+				gotPath = path
+				return &rest.Config{}, nil
+			},
+			newClient: func(_ *rest.Config, options ctrlclient.Options) (*RuntimeClient, error) {
+				return &RuntimeClient{Scheme: options.Scheme}, nil
+			},
+			newScheme: NewScheme,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, client)
+		assert.Empty(t, gotPath)
+	})
+
+	t.Run("wraps kubeconfig build errors with context", func(t *testing.T) {
+		t.Parallel()
+
+		wantErr := errors.New("boom")
+		_, err := NewClient(config.KubernetesConfig{}, &ClientFactoryOptions{
+			buildConfig: func(path string) (*rest.Config, error) {
+				assert.Empty(t, path)
+				return nil, wantErr
+			},
+			newClient: newControllerRuntimeClient,
+			newScheme: NewScheme,
+		})
+		require.Error(t, err)
+		require.ErrorIs(t, err, wantErr)
+		assert.Contains(t, err.Error(), "build Kubernetes REST config")
+	})
+}
 
 func TestDeleteNamespacesWithPrefix(t *testing.T) {
 	t.Run("deletes only matching namespaces", func(t *testing.T) {

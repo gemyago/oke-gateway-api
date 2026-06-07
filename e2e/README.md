@@ -17,7 +17,7 @@ Put developer-specific live values in `e2e/.envrc.local`. That file is intention
 Common live inputs:
 
 - `OKE_E2E_LOAD_BALANCER_ID`
-- `KUBECONFIG`
+- `KUBECONFIG` (optional; when unset, the default kubeconfig loading rules are used)
 - `OCI_CONFIG_FILE` or `OCI_CLI_CONFIG_FILE`
 - `OCI_CLI_PROFILE` or `OCI_CLI_CONFIG_PROFILE`
 
@@ -29,6 +29,11 @@ Safe defaults come from `e2e/.envrc`, including:
 - `OKE_E2E_CONTROLLER_BIN=../dist/bin/controller`
 - `OKE_E2E_SKIP_CONTROLLER_START=false`
 
+**Env Check**:
+
+```sh
+direnv exec . oci lb load-balancer get --load-balancer-id ${OKE_E2E_LOAD_BALANCER_ID}
+```
 ## Commands
 
 Run e2e commands from the repo root via `direnv exec .`:
@@ -102,5 +107,6 @@ live workflow continues.
 When `OKE_E2E_SKIP_CONTROLLER_START=true`, the helper skips child-process startup so a live test can
 target an already running controller without requiring a local binary during offline verification.
 
-If `KUBECONFIG` or `OKE_E2E_LOAD_BALANCER_ID` is not set, `e2e/http_test.go` skips with a clear
-message instead of attempting live infrastructure access during offline verification.
+If `OKE_E2E_LOAD_BALANCER_ID` is not set, `e2e/http_test.go` skips with a clear message instead of
+attempting live infrastructure access during offline verification. When `KUBECONFIG` is unset, the
+e2e helpers fall back to the default kubeconfig loading rules.

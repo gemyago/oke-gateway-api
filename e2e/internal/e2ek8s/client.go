@@ -1,7 +1,6 @@
 package e2ek8s
 
 import (
-	"errors"
 	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -60,10 +59,6 @@ func NewClient(cfg config.KubernetesConfig, opts *ClientFactoryOptions) (*Runtim
 		opts = NewClientFactoryOptions()
 	}
 
-	if cfg.KubeconfigPath == "" {
-		return nil, errors.New("KUBECONFIG is required")
-	}
-
 	scheme, err := opts.newScheme()
 	if err != nil {
 		return nil, fmt.Errorf("build scheme: %w", err)
@@ -85,7 +80,15 @@ func NewClient(cfg config.KubernetesConfig, opts *ClientFactoryOptions) (*Runtim
 }
 
 func buildRESTConfig(kubeconfigPath string) (*rest.Config, error) {
-	return clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+	loader := clientcmd.NewDefaultClientConfigLoadingRules()
+	if kubeconfigPath != "" {
+		loader.ExplicitPath = kubeconfigPath
+	}
+
+	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		loader,
+		&clientcmd.ConfigOverrides{},
+	).ClientConfig()
 }
 
 func newControllerRuntimeClient(

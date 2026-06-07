@@ -121,10 +121,6 @@ func Start(t TestLogSink, cfg config.Config, opts *StartOptions) (*Process, erro
 		}, nil
 	}
 
-	if strings.TrimSpace(cfg.Kubernetes.KubeconfigPath) == "" {
-		return nil, fmt.Errorf("%s is required to start controller process", envKubeconfig)
-	}
-
 	if err := validateControllerBinary(cfg.Controller.BinPath, opts.stat); err != nil {
 		return nil, err
 	}
@@ -356,7 +352,9 @@ func buildControllerEnv(cfg config.Config, environ []string) []string {
 	}
 
 	env := append([]string(nil), environ...)
-	env = upsertEnv(env, envKubeconfig, cfg.Kubernetes.KubeconfigPath)
+	if cfg.Kubernetes.KubeconfigPath != "" {
+		env = upsertEnv(env, envKubeconfig, cfg.Kubernetes.KubeconfigPath)
+	}
 	env = upsertEnv(env, envK8sAPINoop, "false")
 	env = upsertEnv(env, envOCIAPINoop, "false")
 

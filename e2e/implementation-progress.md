@@ -504,3 +504,29 @@
   - `direnv exec . bash -lc 'cd e2e && go test -count=1 ./internal/...'`
   - `direnv exec . bash -lc 'cd e2e && unset KUBECONFIG OKE_E2E_LOAD_BALANCER_ID && go test -count=1 -run "^TestHTTP$" ./...'`
 - Live e2e status: not run.
+
+## 2026-06-07 Fix - Default Kubeconfig Fallback
+
+- Status: green
+- Scope:
+  - Made `KUBECONFIG` optional in the e2e env loader and let Kubernetes client/controller startup
+    fall back to the default kubeconfig loading rules when it is unset.
+  - Updated the live HTTP gate so missing `OKE_E2E_CONTROLLER_BIN` still skips the opt-in test with
+    a clear build hint during offline verification.
+  - Updated e2e docs and focused tests to match the new kubeconfig behavior.
+- Files changed:
+  - `e2e/internal/config/env.go`
+  - `e2e/internal/config/env_test.go`
+  - `e2e/internal/e2ek8s/client.go`
+  - `e2e/internal/e2ek8s/e2ek8s_test.go`
+  - `e2e/internal/controllerproc/controller.go`
+  - `e2e/internal/controllerproc/controller_test.go`
+  - `e2e/http_test.go`
+  - `e2e/README.md`
+  - `e2e/implementation-progress.md`
+- Verification run:
+  - `direnv exec . make -C e2e compile`
+  - `direnv exec . make -C e2e lint`
+  - `direnv exec . make -C e2e test`
+- Live e2e status: not run.
+- Root repo files changed: none.

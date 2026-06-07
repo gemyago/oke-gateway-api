@@ -109,7 +109,7 @@ func LoadFromEnv(opts *LoadOptions) (*Config, error) {
 	problems := validationProblems{}
 
 	cfg.OCI.LoadBalancerID = requiredEnv(opts.lookupEnv, envLoadBalancerID, &problems)
-	cfg.Kubernetes.KubeconfigPath = requiredEnv(opts.lookupEnv, envKubeconfig, &problems)
+	cfg.Kubernetes.KubeconfigPath = firstEnv(opts.lookupEnv, envKubeconfig)
 
 	if value, ok := optionalEnv(opts.lookupEnv, envNamespacePrefix); ok {
 		cfg.NamespacePrefix = value
