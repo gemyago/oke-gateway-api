@@ -18,6 +18,10 @@ type LoadBalancerClient interface {
 		context.Context,
 		loadbalancer.GetLoadBalancerRequest,
 	) (loadbalancer.GetLoadBalancerResponse, error)
+	GetRoutingPolicy(
+		context.Context,
+		loadbalancer.GetRoutingPolicyRequest,
+	) (loadbalancer.GetRoutingPolicyResponse, error)
 	DeleteListener(
 		context.Context,
 		loadbalancer.DeleteListenerRequest,

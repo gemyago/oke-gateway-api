@@ -44,7 +44,7 @@ These Make targets load `e2e/.envrc` in the `e2e/` working directory, so its saf
 ignored `e2e/.envrc.local` live overrides are applied even when the command starts from the repo
 root.
 
-The bootstrap currently provides:
+The e2e module currently provides:
 
 - local linting via the root-pinned `../bin/golangci-lint`,
 - local `go test` execution for e2e-owned packages,
@@ -56,7 +56,14 @@ The bootstrap currently provides:
   controller stdout/stderr into test logs, and shuts the child down during test cleanup,
 - Kubernetes fixture helpers under `e2e/internal/e2ek8s` for controller-runtime client creation,
   typed resource builders, unstructured `GatewayConfig` fixtures, readiness waiters, and
-  namespace-prefix-scoped cleanup for shared clusters.
+  namespace-prefix-scoped cleanup for shared clusters,
+- HTTP probe helpers under `e2e/internal/probe` for polling `http://<public-ip>/<path>` and
+  decoding the echo server JSON shape without importing root repo internals,
+- a live `e2e/http_test.go` MVP that creates a unique namespace plus Gateway API resources, probes
+  `/echo`, captures programmed OCI routing policy rule names from the `HTTPRoute` annotation,
+  deletes the route, verifies `/echo` no longer serves the echo response, verifies the captured OCI
+  rule names disappear from the listener routing policy, and leaves full disposable load balancer
+  reset to the separate cleanup command.
 
 ## Cleanup Command
 
@@ -94,3 +101,6 @@ live workflow continues.
 
 When `OKE_E2E_SKIP_CONTROLLER_START=true`, the helper skips child-process startup so a live test can
 target an already running controller without requiring a local binary during offline verification.
+
+If `KUBECONFIG` or `OKE_E2E_LOAD_BALANCER_ID` is not set, `e2e/http_test.go` skips with a clear
+message instead of attempting live infrastructure access during offline verification.

@@ -8,6 +8,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -126,6 +127,34 @@ func WaitForHTTPRouteResolvedRefs(
 		gatewayName,
 		string(gatewayv1.RouteConditionResolvedRefs),
 		opts,
+	)
+}
+
+func WaitForHTTPRouteDeleted(
+	ctx context.Context,
+	kubeClient ctrlclient.Client,
+	namespace string,
+	name string,
+	opts *WaitOptions,
+) error {
+	resource := &gatewayv1.HTTPRoute{}
+	key := ctrlclient.ObjectKey{Namespace: namespace, Name: name}
+
+	return waitFor(
+		ctx,
+		fmt.Sprintf("wait for HTTPRoute %s/%s deletion", namespace, name),
+		opts,
+		func(ctx context.Context) (bool, string, error) {
+			if err := kubeClient.Get(ctx, key, resource); err != nil {
+				if apierrors.IsNotFound(err) {
+					return true, "", nil
+				}
+
+				return false, "", err
+			}
+
+			return false, "resource still exists", nil
+		},
 	)
 }
 

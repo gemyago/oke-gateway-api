@@ -112,6 +112,36 @@
 - Live e2e status: not run.
 - Root repo files changed: none.
 
+## 2026-06-07 Reviewer Verification - HTTP Probe And Test
+
+- Reviewer: Codex verification sub-agent
+- Status: green
+- Findings:
+  - No blocking issues found in the HTTP probe and test slice.
+- Checks:
+  - Confirmed the e2e module keeps imports inside `e2e/internal/...` and does not reach into root
+    `internal/...`.
+  - Confirmed the live HTTP path remains outside the root default test flow; `direnv exec . go list
+    ./...` from the repo root still excludes the nested `e2e` module.
+  - Confirmed the live HTTP test skips when `KUBECONFIG` or `OKE_E2E_LOAD_BALANCER_ID` is absent.
+  - Confirmed shared-cluster cleanup stays scoped to the unique namespace plus the test-created
+    `GatewayClass`.
+  - Confirmed the live path uses e2e-local real helpers for Kubernetes, OCI, controller startup,
+    and HTTP probing.
+  - Confirmed the probe decodes the echo JSON response shape locally inside `e2e/internal/probe`.
+  - Confirmed the test asserts route deletion, HTTP echo disappearance, and OCI routing policy rule
+    disappearance after `HTTPRoute` deletion.
+  - Confirmed the initial test body does not perform a full disposable load balancer reset.
+  - Confirmed the slice stayed within the assigned HTTP probe/test scope.
+- Verification run:
+  - `direnv exec . make lint`
+  - `direnv exec . make test`
+  - `direnv exec . bash -lc 'cd e2e && ../bin/golangci-lint run ./...'`
+  - `direnv exec . make -C e2e compile`
+  - `direnv exec . bash -lc 'cd e2e && go test -count=1 ./internal/...'`
+  - `direnv exec . go list ./...`
+- Live e2e status: not run.
+
 ## 2026-06-07 Reviewer Verification - Diagnostics And Config
 
 - Reviewer: Codex verification sub-agent
@@ -398,3 +428,39 @@
   - `direnv exec . bash -lc 'cd e2e && go test ./internal/controllerproc -count=1 -v'`
   - `direnv exec . go list ./...`
 - Live e2e status: not run.
+
+## 2026-06-07 HTTP Probe And Test
+
+- Status: green
+- Scope:
+  - Added `e2e/internal/probe` with HTTP polling helpers that target the load balancer public IP
+    and decode the echo JSON response shape locally inside the e2e module.
+  - Replaced the `e2e/http_test.go` bootstrap skip with a live HTTP MVP that creates Gateway API
+    resources, starts the controller unless skip-start is enabled, probes `/echo`, deletes the
+    route, and verifies both HTTP removal and OCI routing policy rule cleanup.
+  - Added small supporting waiters for HTTPRoute deletion and listener routing policy rule removal.
+- Decisions:
+  - Kept live execution opt-in by skipping the HTTP test unless `KUBECONFIG` and
+    `OKE_E2E_LOAD_BALANCER_ID` are present, while still wiring the real Kubernetes, OCI, controller
+    process, and HTTP probe helpers together for actual runs.
+  - Captured programmed OCI rule names from the real `HTTPRoute` annotation contract instead of
+    importing root repo internals into the e2e module.
+  - Scoped cleanup to the unique namespace plus the test-created `GatewayClass`, and left the full
+    disposable load balancer reset out of the main test body.
+- Files changed:
+  - `e2e/http_test.go`
+  - `e2e/internal/probe/http.go`
+  - `e2e/internal/probe/http_test.go`
+  - `e2e/internal/e2ek8s/wait.go`
+  - `e2e/internal/e2ek8s/e2ek8s_test.go`
+  - `e2e/internal/e2eoci/cleanup.go`
+  - `e2e/internal/e2eoci/routingpolicy.go`
+  - `e2e/internal/e2eoci/e2eoci_test.go`
+  - `e2e/README.md`
+  - `e2e/implementation-progress.md`
+- Verification run:
+  - `direnv exec . make -C e2e compile`
+  - `direnv exec . make -C e2e lint`
+  - `direnv exec . make -C e2e test`
+- Live e2e status: not run.
+- Root repo files changed: none.

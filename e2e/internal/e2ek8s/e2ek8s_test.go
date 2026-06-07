@@ -179,6 +179,22 @@ func TestWaiters(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("waits for route deletion", func(t *testing.T) {
+		scheme := makeTestScheme(t)
+		kubeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			Build()
+
+		err := WaitForHTTPRouteDeleted(
+			t.Context(),
+			kubeClient,
+			"oke-gw-e2e-12345",
+			"echo-route",
+			waitOpts,
+		)
+		require.NoError(t, err)
+	})
+
 	t.Run("waits for deployment availability", func(t *testing.T) {
 		scheme := makeTestScheme(t)
 		replicas := int32(1)
