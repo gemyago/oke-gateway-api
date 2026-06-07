@@ -464,3 +464,43 @@
   - `direnv exec . make -C e2e test`
 - Live e2e status: not run.
 - Root repo files changed: none.
+
+## 2026-06-07 Final Review - Full E2E Scaffold
+
+- Reviewer: final verification reviewer
+- Status: green
+- Findings:
+  - No blocking issues found across the assembled offline e2e scaffold.
+  - No root repo `internal/...` imports are present under `e2e/`; the module stays isolated behind
+    `e2e/internal/...` plus public upstream packages.
+  - The root default `make test` flow still excludes live e2e because the nested `e2e` module does
+    not appear in the root `go list ./...`, while `direnv exec . make -C e2e test` remains the
+    explicit opt-in path.
+  - Live test cleanup remains shared-cluster-safe on the Kubernetes side because the test deletes
+    only the exact generated namespace and exact generated `GatewayClass`, while the OCI cleanup
+    command remains limited to listeners, routing policies, and backend sets on the disposable load
+    balancer and never deletes the load balancer itself.
+  - Config and cleanup logging remain free of raw kubeconfig and OCI credential values; the logged
+    fields stay limited to non-secret presence flags and operational identifiers.
+  - Timeouts and polling intervals remain reasonable and explicit for offline review: 20 minute
+    top-level live test and OCI work request timeouts, 10 second probe request timeout, and 2
+    second polling intervals for Kubernetes, OCI routing policy, work request, and HTTP probe
+    waiters.
+  - Controller startup behavior, skip-start semantics, and missing-infra skip behavior are wired as
+    documented: the controller helper can skip local startup when
+    `OKE_E2E_SKIP_CONTROLLER_START=true`, and `TestHTTP` cleanly skips when `KUBECONFIG` or
+    `OKE_E2E_LOAD_BALANCER_ID` is absent.
+  - `e2e/README.md`, `e2e/AGENTS.md`, and `e2e/Makefile` remain aligned with the implemented
+    repo-root `direnv exec .` workflow, and the lack of a root `e2e-lint` target matches the
+    documented fallback lint invocation.
+- Verification run:
+  - `direnv exec . make lint`
+  - `direnv exec . make test`
+  - `direnv exec . bash -lc 'cd e2e && ../bin/golangci-lint run ./...'`
+  - `direnv exec . make -C e2e compile`
+  - `direnv exec . make -C e2e test`
+  - `direnv exec . go list ./...`
+  - `direnv exec . bash -lc 'cd e2e && go list ./...'`
+  - `direnv exec . bash -lc 'cd e2e && go test -count=1 ./internal/...'`
+  - `direnv exec . bash -lc 'cd e2e && unset KUBECONFIG OKE_E2E_LOAD_BALANCER_ID && go test -count=1 -run "^TestHTTP$" ./...'`
+- Live e2e status: not run.
