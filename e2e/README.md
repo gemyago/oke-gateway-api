@@ -50,6 +50,10 @@ The bootstrap currently provides:
 - local `go test` execution for e2e-owned packages,
 - compile-only checks that do not require live infrastructure,
 - an OCI cleanup command for operator-driven disposable load balancer resets,
+- a controller process helper under `e2e/internal/controllerproc` that launches the prebuilt
+  controller binary from `OKE_E2E_CONTROLLER_BIN`, forwards `KUBECONFIG` plus the caller OCI SDK
+  env into the child process, forces `APP_K8SAPI_NOOP=false` and `APP_OCIAPI_NOOP=false`, streams
+  controller stdout/stderr into test logs, and shuts the child down during test cleanup,
 - Kubernetes fixture helpers under `e2e/internal/e2ek8s` for controller-runtime client creation,
   typed resource builders, unstructured `GatewayConfig` fixtures, readiness waiters, and
   namespace-prefix-scoped cleanup for shared clusters.
@@ -87,3 +91,6 @@ direnv exec . make dist/bin
 
 The e2e config loader validates that `OKE_E2E_CONTROLLER_BIN` points to an existing file before a
 live workflow continues.
+
+When `OKE_E2E_SKIP_CONTROLLER_START=true`, the helper skips child-process startup so a live test can
+target an already running controller without requiring a local binary during offline verification.

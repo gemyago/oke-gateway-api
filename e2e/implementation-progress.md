@@ -305,3 +305,96 @@
   - `direnv exec . bash -lc 'cd e2e && go test -run '^$' ./...'`
   - `direnv exec . bash -lc 'cd e2e && go test ./internal/e2ek8s -run TestWaiters -count=1 -v'`
 - Live e2e status: not run.
+
+## 2026-06-07 Controller Process
+
+- Status: green
+- Scope:
+  - Added `e2e/internal/controllerproc` to verify and launch the prebuilt controller binary from
+    `OKE_E2E_CONTROLLER_BIN` as a child process for live e2e tests.
+  - Documented the controller helper startup, env forwarding, log capture, cleanup shutdown, and
+    `OKE_E2E_SKIP_CONTROLLER_START=true` behavior in `e2e/README.md`.
+- Decisions:
+  - Kept controller orchestration test-oriented and e2e-local by exposing a small helper that
+    accepts a test log sink, so stdout/stderr stream directly into test logs without importing root
+    repo `internal/...` packages.
+  - Forwarded the caller environment, then normalized `KUBECONFIG`, OCI config/profile env vars,
+    and forced `APP_K8SAPI_NOOP=false` plus `APP_OCIAPI_NOOP=false` in the child process to match
+    live-controller expectations.
+  - Used offline unit tests with a temporary shell stub as the child process so compile, lint, and
+    test verification stay infrastructure-free while still exercising process launch and shutdown.
+- Files changed:
+  - `e2e/internal/controllerproc/controller.go`
+  - `e2e/internal/controllerproc/controller_test.go`
+  - `e2e/README.md`
+  - `e2e/implementation-progress.md`
+- Verification run:
+  - `direnv exec . bash -lc 'cd e2e && gofmt -w internal/controllerproc/controller.go internal/controllerproc/controller_test.go'`
+  - `direnv exec . bash -lc 'cd e2e && go test ./internal/controllerproc -run TestStart -count=1'`
+  - `direnv exec . make -C e2e compile`
+  - `direnv exec . make -C e2e lint`
+  - `direnv exec . make -C e2e test`
+- Live e2e status: not run.
+- Root repo files changed: none.
+
+## 2026-06-07 Controller Process Review
+
+- Reviewer: verification reviewer
+- Status: not green
+- Findings:
+  - `e2e/internal/controllerproc/controller.go`: the forced-stop fallback treats a successfully
+    killed controller as a cleanup failure. After `Process.Kill()` succeeds, `cmd.Wait()` commonly
+    returns an `*exec.ExitError` for signal termination; `killAfterTimeout()` currently converts
+    that expected result into `wait for killed controller process ...` and fails test cleanup.
+    This makes the stop path flaky for any controller process that ignores or outlives SIGTERM.
+- Verification run:
+  - `direnv exec . make lint`
+  - `direnv exec . make test`
+  - `direnv exec . bash -lc 'cd e2e && ../bin/golangci-lint run ./...'`
+  - `direnv exec . make -C e2e compile`
+  - `direnv exec . bash -lc 'cd e2e && go test -run '^$' ./...'`
+  - `direnv exec . bash -lc 'cd e2e && go test ./internal/controllerproc -count=1 -v'`
+  - `direnv exec . bash -lc 'cd e2e && go list ./...'`
+- Live e2e status: not run.
+
+## 2026-06-07 Fix - Controller Process Forced Stop Cleanup
+
+- Status: green
+- Scope:
+  - Kept the fix inside `e2e/internal/controllerproc` and the progress log.
+- Decisions:
+  - Treated a signaled `*exec.ExitError` as an expected result only after a successful forced kill,
+    which fixes the cleanup false positive without changing the normal SIGTERM wait path.
+  - Added a focused regression test with a TERM-ignoring temporary controller stub and a readiness
+    line so the test deterministically exercises the timeout-to-kill branch.
+- Files changed:
+  - `e2e/internal/controllerproc/controller.go`
+  - `e2e/internal/controllerproc/controller_test.go`
+  - `e2e/implementation-progress.md`
+- Verification run:
+  - `direnv exec . bash -lc 'cd e2e && go test -run "^$" ./internal/controllerproc'`
+  - `direnv exec . bash -lc 'cd e2e && ../bin/golangci-lint run ./internal/controllerproc/...'`
+  - `direnv exec . bash -lc 'cd e2e && go test ./internal/controllerproc -run TestStart -count=1'`
+- Live e2e status: not run.
+
+## 2026-06-07 Re-review - Controller Process Verification
+
+- Reviewer: verification reviewer
+- Status: green
+- Findings:
+  - No blocking issues found in the controller process slice.
+  - Verified the forced-stop cleanup path no longer reports a cleanup error after a successful
+    kill; `TestStart/forced_stop_accepts_the_expected_signaled_wait_result_after_kill` passes and
+    cleanup stays error-free.
+  - No root repo `internal/...` imports are present under `e2e/`.
+  - The root default `make test` flow still excludes live e2e; `direnv exec . go list ./...`
+    listed only the root module packages, while `e2e` remained behind separate `e2e` Make targets.
+- Verification run:
+  - `direnv exec . make lint`
+  - `direnv exec . make test`
+  - `direnv exec . bash -lc 'cd e2e && ../bin/golangci-lint run ./...'`
+  - `direnv exec . make -C e2e compile`
+  - `direnv exec . bash -lc 'cd e2e && go test -run '^$' ./...'`
+  - `direnv exec . bash -lc 'cd e2e && go test ./internal/controllerproc -count=1 -v'`
+  - `direnv exec . go list ./...`
+- Live e2e status: not run.
