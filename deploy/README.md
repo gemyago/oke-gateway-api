@@ -10,8 +10,8 @@ make tools
 ## Install example resources
 
 ```sh
-# Install CRDs directly from the helm chart
-kubectl apply -f helm/controller/templates/gateway-config-crd.yaml
+# Install CRDs directly from the Helm chart
+kubectl apply -f helm/controller/crds/gateway-config-crd.yaml
 
 # Actualize load balancer OCID in the gatewayconfig prior to applying
 kubectl apply -n oke-gw -f manifests/examples/gatewayconfig.yaml
@@ -24,7 +24,10 @@ kubectl apply -n oke-gw -f manifests/examples/serverroutes.yaml
 
 ## Helm install options
 
-The chart always installs the CRD. Controller resources are installed by default and can be disabled.
+The chart packages the `GatewayConfig` CRD in `crds/`, so Helm installs it on first install
+without treating it like a regular templated resource. Helm does not upgrade or delete CRDs from
+that directory, so apply [helm/controller/crds/gateway-config-crd.yaml](./helm/controller/crds/gateway-config-crd.yaml)
+manually when the CRD changes.
 
 ```sh
 # Install everything (default behavior)
@@ -33,6 +36,10 @@ helm install oke-gateway-api-controller ./helm/controller
 # Install only the CRD
 helm install oke-gateway-api-controller ./helm/controller \
   --set deployment.enabled=false
+
+# Install only the controller when the CRD is already managed separately
+helm install oke-gateway-api-controller ./helm/controller \
+  --skip-crds
 ```
 
 ## OCI certificate example
