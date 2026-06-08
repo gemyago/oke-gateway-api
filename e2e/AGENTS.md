@@ -20,6 +20,8 @@
 - Treat `direnv exec . make -C e2e test` as a support-only check for e2e-owned helper packages.
 - Use `direnv exec . make -C e2e run-e2e-tests` as the explicit live path.
 - The live `run-e2e-tests` target builds the controller binary before running `go test .`.
+- The selected cluster must already have the `GatewayConfig` CRD installed before live HTTP e2e
+  runs; missing CRDs should fail the live test rather than being created by the helper.
 - Do not make support-only targets such as `test` or `compile` build the controller binary.
 - Use `OKE_E2E_SKIP_CONTROLLER_START=true` only when intentionally testing against an already
   running controller.
