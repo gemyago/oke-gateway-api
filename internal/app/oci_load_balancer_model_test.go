@@ -1446,7 +1446,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			}
 
 			expectedCondition := fake.Lorem().Sentence(10)
-			routingRulesMapper.EXPECT().mapHTTPRouteMatchesToCondition(
+			routingRulesMapper.EXPECT().mapHTTPRouteHostnamesAndMatchesToCondition(
+				httpRoute.Spec.Hostnames,
 				httpRoute.Spec.Rules[ruleIndex].Matches,
 			).Return(expectedCondition, nil).Once()
 
@@ -1526,7 +1527,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			}
 
 			expectedErr := errors.New(fake.Lorem().Sentence(10))
-			routingRulesMapper.EXPECT().mapHTTPRouteMatchesToCondition(
+			routingRulesMapper.EXPECT().mapHTTPRouteHostnamesAndMatchesToCondition(
+				httpRoute.Spec.Hostnames,
 				httpRoute.Spec.Rules[ruleIndex].Matches,
 			).Return("", expectedErr).Once()
 
