@@ -1470,6 +1470,45 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			assert.Equal(t, expectedRule, actualRule)
 		})
 
+		t.Run("includes route hostname in routing rule condition", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			deps.RoutingRulesMapper = newOciLoadBalancerRoutingRulesMapper()
+			model := newOciLoadBalancerModel(deps)
+
+			hostname := gatewayv1.Hostname("auth-" + fake.Internet().Domain())
+			pathValue := "/"
+			backendRef := makeRandomBackendRef()
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(
+					gatewayv1.HTTPRouteRule{
+						Matches: []gatewayv1.HTTPRouteMatch{
+							{
+								Path: &gatewayv1.HTTPPathMatch{
+									Type:  lo.ToPtr(gatewayv1.PathMatchPathPrefix),
+									Value: &pathValue,
+								},
+							},
+						},
+						BackendRefs: []gatewayv1.HTTPBackendRef{backendRef},
+					},
+				),
+			)
+			httpRoute.Spec.Hostnames = []gatewayv1.Hostname{hostname}
+
+			actualRule, err := model.makeRoutingRule(t.Context(), makeRoutingRuleParams{
+				httpRoute:          httpRoute,
+				httpRouteRuleIndex: 0,
+			})
+
+			require.NoError(t, err)
+			condition := lo.FromPtr(actualRule.Condition)
+			assert.Contains(t, condition, "all(")
+			assert.Contains(t, condition, "http.request.headers[(i 'host')]")
+			assert.Contains(t, condition, fmt.Sprintf("eq (i '%s')", hostname))
+			assert.Contains(t, condition, fmt.Sprintf("http.request.url.path sw '%s'", pathValue))
+		})
+
 		t.Run("fail when mapping matches to condition fails", func(t *testing.T) {
 			fake := faker.New()
 			deps := makeMockDeps(t)
