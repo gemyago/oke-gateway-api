@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"go.uber.org/dig"
+	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -38,6 +39,16 @@ func NewGatewayController(deps GatewayControllerDeps) *GatewayController {
 		resourcesModel: deps.ResourcesModel, // Initialize resourcesModel
 		gatewayModel:   deps.GatewayModel,
 	}
+}
+
+func isGatewayAccepted(gateway *gatewayv1.Gateway) bool {
+	condition := meta.FindStatusCondition(
+		gateway.Status.Conditions,
+		string(gatewayv1.GatewayConditionAccepted),
+	)
+	return condition != nil &&
+		condition.ObservedGeneration == gateway.Generation &&
+		condition.Status == v1.ConditionTrue
 }
 
 // processResourceError handles errors from resource programming operations.
@@ -84,11 +95,7 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 		slog.Int64("generation", data.gateway.Generation),
 	)
 
-	if !r.resourcesModel.isConditionSet(isConditionSetParams{
-		resource:      &data.gateway,
-		conditions:    data.gateway.Status.Conditions,
-		conditionType: string(gatewayv1.GatewayConditionAccepted),
-	}) {
+	if !isGatewayAccepted(&data.gateway) {
 		if err = r.resourcesModel.setCondition(ctx, setConditionParams{
 			resource:      &data.gateway,
 			conditions:    &data.gateway.Status.Conditions,

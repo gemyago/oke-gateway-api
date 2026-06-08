@@ -33,6 +33,16 @@ func TestGatewayController(t *testing.T) {
 			RootLogger:     diag.RootTestLogger(),
 		}
 	}
+	markGatewayAccepted := func(gateway *gatewayv1.Gateway) {
+		gateway.Status.Conditions = append(gateway.Status.Conditions, metav1.Condition{
+			Type:               string(gatewayv1.GatewayConditionAccepted),
+			Status:             metav1.ConditionTrue,
+			Reason:             string(gatewayv1.GatewayReasonAccepted),
+			Message:            fmt.Sprintf("Gateway %s accepted by %s", gateway.Name, ControllerClassName),
+			ObservedGeneration: gateway.Generation,
+			LastTransitionTime: metav1.Now(),
+		})
+	}
 
 	t.Run("Reconcile", func(t *testing.T) {
 		t.Run("acceptAndProgram", func(t *testing.T) {
@@ -58,14 +68,6 @@ func TestGatewayController(t *testing.T) {
 					return true
 				})).
 				Return(true, nil).Once()
-
-			mockResourcesModel.EXPECT().
-				isConditionSet(isConditionSetParams{
-					resource:      gateway,
-					conditions:    gateway.Status.Conditions,
-					conditionType: string(gatewayv1.GatewayConditionAccepted),
-				}).
-				Return(false).Once()
 
 			mockResourcesModel.EXPECT().
 				setCondition(t.Context(), setConditionParams{
@@ -227,6 +229,7 @@ func TestGatewayController(t *testing.T) {
 		t.Run("handle porgramGateway errors", func(t *testing.T) {
 			fake := faker.New()
 			gateway := newRandomGateway()
+			markGatewayAccepted(gateway)
 
 			req := reconcile.Request{
 				NamespacedName: client.ObjectKey{
@@ -238,7 +241,6 @@ func TestGatewayController(t *testing.T) {
 			deps := newMockDeps(t)
 			controller := NewGatewayController(deps)
 
-			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
 			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
 			mockGatewayModel.EXPECT().
@@ -247,14 +249,6 @@ func TestGatewayController(t *testing.T) {
 					return true
 				})).
 				Return(true, nil).Once()
-
-			mockResourcesModel.EXPECT().
-				isConditionSet(isConditionSetParams{
-					resource:      gateway,
-					conditions:    gateway.Status.Conditions,
-					conditionType: string(gatewayv1.GatewayConditionAccepted),
-				}).
-				Return(true).Once()
 
 			mockGatewayModel.EXPECT().
 				isProgrammed(t.Context(), &resolvedGatewayDetails{
@@ -279,6 +273,7 @@ func TestGatewayController(t *testing.T) {
 		t.Run("handle program resourceStatusError", func(t *testing.T) {
 			fake := faker.New()
 			gateway := newRandomGateway()
+			markGatewayAccepted(gateway)
 
 			req := reconcile.Request{
 				NamespacedName: client.ObjectKey{
@@ -299,14 +294,6 @@ func TestGatewayController(t *testing.T) {
 					return true
 				})).
 				Return(true, nil).Once()
-
-			mockResourcesModel.EXPECT().
-				isConditionSet(isConditionSetParams{
-					resource:      gateway,
-					conditions:    gateway.Status.Conditions,
-					conditionType: string(gatewayv1.GatewayConditionAccepted),
-				}).
-				Return(true).Once()
 
 			mockGatewayModel.EXPECT().
 				isProgrammed(t.Context(), &resolvedGatewayDetails{
@@ -344,6 +331,7 @@ func TestGatewayController(t *testing.T) {
 		t.Run("handle set programmed condition error", func(t *testing.T) {
 			fake := faker.New()
 			gateway := newRandomGateway()
+			markGatewayAccepted(gateway)
 
 			req := reconcile.Request{
 				NamespacedName: client.ObjectKey{
@@ -355,7 +343,6 @@ func TestGatewayController(t *testing.T) {
 			deps := newMockDeps(t)
 			controller := NewGatewayController(deps)
 
-			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
 			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
 			mockGatewayModel.EXPECT().
@@ -364,14 +351,6 @@ func TestGatewayController(t *testing.T) {
 					return true
 				})).
 				Return(true, nil).Once()
-
-			mockResourcesModel.EXPECT().
-				isConditionSet(isConditionSetParams{
-					resource:      gateway,
-					conditions:    gateway.Status.Conditions,
-					conditionType: string(gatewayv1.GatewayConditionAccepted),
-				}).
-				Return(true).Once()
 
 			mockGatewayModel.EXPECT().
 				isProgrammed(t.Context(), &resolvedGatewayDetails{
@@ -400,6 +379,7 @@ func TestGatewayController(t *testing.T) {
 
 		t.Run("skip program when condition is already set", func(t *testing.T) {
 			gateway := newRandomGateway()
+			markGatewayAccepted(gateway)
 
 			req := reconcile.Request{
 				NamespacedName: client.ObjectKey{
@@ -411,7 +391,6 @@ func TestGatewayController(t *testing.T) {
 			deps := newMockDeps(t)
 			controller := NewGatewayController(deps)
 
-			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
 			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
 			mockGatewayModel.EXPECT().
@@ -420,14 +399,6 @@ func TestGatewayController(t *testing.T) {
 					return true
 				})).
 				Return(true, nil).Once()
-
-			mockResourcesModel.EXPECT().
-				isConditionSet(isConditionSetParams{
-					resource:      gateway,
-					conditions:    gateway.Status.Conditions,
-					conditionType: string(gatewayv1.GatewayConditionAccepted),
-				}).
-				Return(true).Once()
 
 			mockGatewayModel.EXPECT().
 				isProgrammed(t.Context(), &resolvedGatewayDetails{

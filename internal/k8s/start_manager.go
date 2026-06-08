@@ -57,12 +57,7 @@ func httpRouteObjectPredicate() predicate.Funcs {
 func gatewaySecretPredicate() predicate.Funcs {
 	resourceVersionChanged := predicate.ResourceVersionChangedPredicate{}
 	return predicate.Funcs{
-		// We ignore create events. They're also happening when controller starts up
-		// which leads to duplicate reconciliations and just noise.
-		// We don't care when new secrets are created, currently if no secret
-		// the whole gateway reconciliation will fail. We may want to change this
-		// in the future and revisit this predicate.
-		CreateFunc: func(_ event.CreateEvent) bool { return false },
+		CreateFunc: func(_ event.CreateEvent) bool { return true },
 		UpdateFunc: resourceVersionChanged.Update,
 	}
 }
