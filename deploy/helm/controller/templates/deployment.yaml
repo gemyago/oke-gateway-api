@@ -1,3 +1,4 @@
+{{- if .Values.deployment.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -52,3 +53,4 @@ spec:
         - name: oci-config-volume
           mountPath: "/etc/oci"
           readOnly: true
+{{- end }}
