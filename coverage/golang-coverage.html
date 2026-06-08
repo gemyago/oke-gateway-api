@@ -85,7 +85,7 @@
 				
 				<option value="file14">github.com/gemyago/oke-gateway-api/internal/app/gateway_controller.go (96.3%)</option>
 				
-				<option value="file15">github.com/gemyago/oke-gateway-api/internal/app/gateway_model.go (94.1%)</option>
+				<option value="file15">github.com/gemyago/oke-gateway-api/internal/app/gateway_model.go (96.2%)</option>
 				
 				<option value="file16">github.com/gemyago/oke-gateway-api/internal/app/gatewayclass_controller.go (100.0%)</option>
 				
@@ -113,7 +113,7 @@
 				
 				<option value="file28">github.com/gemyago/oke-gateway-api/internal/app/mock_work_requests_watcher.go (68.2%)</option>
 				
-				<option value="file29">github.com/gemyago/oke-gateway-api/internal/app/oci_load_balancer_model.go (95.1%)</option>
+				<option value="file29">github.com/gemyago/oke-gateway-api/internal/app/oci_load_balancer_model.go (97.2%)</option>
 				
 				<option value="file30">github.com/gemyago/oke-gateway-api/internal/app/oci_load_balancer_routing_rules.go (95.5%)</option>
 				
@@ -121,7 +121,7 @@
 				
 				<option value="file32">github.com/gemyago/oke-gateway-api/internal/app/resources_model.go (97.0%)</option>
 				
-				<option value="file33">github.com/gemyago/oke-gateway-api/internal/app/watches_model.go (98.3%)</option>
+				<option value="file33">github.com/gemyago/oke-gateway-api/internal/app/watches_model.go (98.5%)</option>
 				
 				<option value="file34">github.com/gemyago/oke-gateway-api/internal/config/load.go (92.6%)</option>
 				
@@ -977,13 +977,13 @@ type resourceStatusError struct {
         cause         error
 }
 
-func (e resourceStatusError) Error() string <span class="cov10" title="5">{
+func (e resourceStatusError) Error() string <span class="cov10" title="9">{
         if e.cause != nil </span><span class="cov1" title="1">{
                 return fmt.Sprintf(
                         "resourceStatusError: type=%s, reason=%s, message=%s, cause=%s",
                         e.conditionType, e.reason, e.message, e.cause)
         }</span>
-        <span class="cov8" title="4">return fmt.Sprintf("resourceStatusError: type=%s, reason=%s, message=%s", e.conditionType, e.reason, e.message)</span>
+        <span class="cov9" title="8">return fmt.Sprintf("resourceStatusError: type=%s, reason=%s, message=%s", e.conditionType, e.reason, e.message)</span>
 }
 
 type ReconcileError struct {
@@ -992,14 +992,14 @@ type ReconcileError struct {
         cause     error
 }
 
-func NewReconcileError(message string, retriable bool) *ReconcileError <span class="cov8" title="4">{
+func NewReconcileError(message string, retriable bool) *ReconcileError <span class="cov6" title="4">{
         return &amp;ReconcileError{
                 retriable: retriable,
                 message:   message,
         }
 }</span>
 
-func NewReconcileErrorWithCause(message string, retriable bool, cause error) *ReconcileError <span class="cov7" title="3">{
+func NewReconcileErrorWithCause(message string, retriable bool, cause error) *ReconcileError <span class="cov5" title="3">{
         return &amp;ReconcileError{
                 retriable: retriable,
                 message:   message,
@@ -1007,14 +1007,14 @@ func NewReconcileErrorWithCause(message string, retriable bool, cause error) *Re
         }
 }</span>
 
-func (e ReconcileError) Error() string <span class="cov7" title="3">{
+func (e ReconcileError) Error() string <span class="cov5" title="3">{
         if e.cause != nil </span><span class="cov1" title="1">{
                 return fmt.Sprintf("reconcileError: retriable=%t, message=%s, cause=%s", e.retriable, e.message, e.cause)
         }</span>
-        <span class="cov4" title="2">return fmt.Sprintf("reconcileError: retriable=%t, message=%s", e.retriable, e.message)</span>
+        <span class="cov3" title="2">return fmt.Sprintf("reconcileError: retriable=%t, message=%s", e.retriable, e.message)</span>
 }
 
-func (e ReconcileError) IsRetriable() bool <span class="cov10" title="5">{
+func (e ReconcileError) IsRetriable() bool <span class="cov7" title="5">{
         return e.retriable
 }</span>
 </pre>
@@ -1186,6 +1186,66 @@ import (
         "github.com/gemyago/oke-gateway-api/internal/types"
 )
 
+func listenerOCICertificateOCID(listener gatewayv1.Listener) string <span class="cov10" title="38">{
+        if listener.TLS == nil || listener.TLS.Options == nil </span><span class="cov9" title="27">{
+                return ""
+        }</span>
+        <span class="cov6" title="11">return string(listener.TLS.Options[gatewayv1.AnnotationKey(ListenerTLSOptionOCICertificateOCID)])</span>
+}
+
+func gatewayCertificateIDsByListener(gateway gatewayv1.Gateway) map[string]string <span class="cov6" title="10">{
+        result := make(map[string]string)
+        for _, listener := range gateway.Spec.Listeners </span><span class="cov8" title="19">{
+                if certificateID := listenerOCICertificateOCID(listener); certificateID != "" </span><span class="cov2" title="2">{
+                        result[string(listener.Name)] = certificateID
+                }</span>
+        }
+        <span class="cov6" title="10">return result</span>
+}
+
+func validateGatewayCertificateOptions(gateway gatewayv1.Gateway) error <span class="cov6" title="10">{
+        for _, listener := range gateway.Spec.Listeners </span><span class="cov7" title="12">{
+                certificateID := listenerOCICertificateOCID(listener)
+                if certificateID == "" </span><span class="cov4" title="4">{
+                        continue</span>
+                }
+                <span class="cov6" title="8">if listener.Protocol != gatewayv1.HTTPSProtocolType </span><span class="cov2" title="2">{
+                        return &amp;resourceStatusError{
+                                conditionType: string(gatewayv1.GatewayConditionAccepted),
+                                reason:        string(gatewayv1.GatewayReasonInvalidParameters),
+                                message: fmt.Sprintf(
+                                        "listener %s option %s can only be used with HTTPS listeners",
+                                        listener.Name,
+                                        ListenerTLSOptionOCICertificateOCID,
+                                ),
+                        }
+                }</span>
+                <span class="cov5" title="6">if listener.TLS.Mode != nil &amp;&amp; *listener.TLS.Mode != gatewayv1.TLSModeTerminate </span><span class="cov1" title="1">{
+                        return &amp;resourceStatusError{
+                                conditionType: string(gatewayv1.GatewayConditionAccepted),
+                                reason:        string(gatewayv1.GatewayReasonInvalidParameters),
+                                message: fmt.Sprintf(
+                                        "listener %s option %s can only be used with Terminate TLS mode",
+                                        listener.Name,
+                                        ListenerTLSOptionOCICertificateOCID,
+                                ),
+                        }
+                }</span>
+                <span class="cov4" title="5">if len(listener.TLS.CertificateRefs) &gt; 0 </span><span class="cov1" title="1">{
+                        return &amp;resourceStatusError{
+                                conditionType: string(gatewayv1.GatewayConditionAccepted),
+                                reason:        string(gatewayv1.GatewayReasonInvalidParameters),
+                                message: fmt.Sprintf(
+                                        "listener %s option %s cannot be used together with listener.tls.certificateRefs",
+                                        listener.Name,
+                                        ListenerTLSOptionOCICertificateOCID,
+                                ),
+                        }
+                }</span>
+        }
+        <span class="cov5" title="6">return nil</span>
+}
+
 type resolvedGatewayDetails struct {
         gateway      gatewayv1.Gateway
         gatewayClass gatewayv1.GatewayClass
@@ -1230,8 +1290,8 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
         ctx context.Context,
         req reconcile.Request,
         receiver *resolvedGatewayDetails,
-) (bool, error) <span class="cov7" title="11">{
-        if err := m.client.Get(ctx, req.NamespacedName, &amp;receiver.gateway); err != nil </span><span class="cov3" title="2">{
+) (bool, error) <span class="cov6" title="11">{
+        if err := m.client.Get(ctx, req.NamespacedName, &amp;receiver.gateway); err != nil </span><span class="cov2" title="2">{
                 if apierrors.IsNotFound(err) </span><span class="cov1" title="1">{
                         m.logger.InfoContext(ctx, fmt.Sprintf("Gateway %s not found", req.NamespacedName))
                         return false, nil
@@ -1239,9 +1299,9 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
                 <span class="cov1" title="1">return false, fmt.Errorf("failed to get Gateway %s: %w", req.NamespacedName, err)</span>
         }
 
-        <span class="cov7" title="9">if err := m.client.Get(ctx, apitypes.NamespacedName{
+        <span class="cov6" title="9">if err := m.client.Get(ctx, apitypes.NamespacedName{
                 Name: string(receiver.gateway.Spec.GatewayClassName),
-        }, &amp;receiver.gatewayClass); err != nil </span><span class="cov3" title="2">{
+        }, &amp;receiver.gatewayClass); err != nil </span><span class="cov2" title="2">{
                 if apierrors.IsNotFound(err) </span><span class="cov1" title="1">{
                         m.logger.InfoContext(ctx, fmt.Sprintf("GatewayClass %s not found", receiver.gateway.Spec.GatewayClassName))
                         return false, nil
@@ -1249,7 +1309,7 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
                 <span class="cov1" title="1">return false, fmt.Errorf("failed to get GatewayClass %s: %w", receiver.gateway.Spec.GatewayClassName, err)</span>
         }
 
-        <span class="cov6" title="7">if receiver.gatewayClass.Spec.ControllerName != gatewayv1.GatewayController(ControllerClassName) </span><span class="cov1" title="1">{
+        <span class="cov5" title="7">if receiver.gatewayClass.Spec.ControllerName != gatewayv1.GatewayController(ControllerClassName) </span><span class="cov1" title="1">{
                 m.logger.InfoContext(
                         ctx,
                         fmt.Sprintf("GatewayClass %s is not managed by this controller", receiver.gateway.Spec.GatewayClassName),
@@ -1257,7 +1317,7 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
                 return false, nil
         }</span>
 
-        <span class="cov6" title="6">if receiver.gateway.Spec.Infrastructure == nil || receiver.gateway.Spec.Infrastructure.ParametersRef == nil </span><span class="cov1" title="1">{
+        <span class="cov5" title="6">if receiver.gateway.Spec.Infrastructure == nil || receiver.gateway.Spec.Infrastructure.ParametersRef == nil </span><span class="cov1" title="1">{
                 return false, &amp;resourceStatusError{
                         conditionType: string(gatewayv1.GatewayConditionAccepted),
                         reason:        string(gatewayv1.GatewayReasonInvalidParameters),
@@ -1265,12 +1325,12 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
                 }
         }</span>
 
-        <span class="cov5" title="5">configName := apitypes.NamespacedName{
+        <span class="cov4" title="5">configName := apitypes.NamespacedName{
                 Namespace: receiver.gateway.Namespace,
                 Name:      receiver.gateway.Spec.Infrastructure.ParametersRef.Name,
         }
 
-        if err := m.client.Get(ctx, configName, &amp;receiver.config); err != nil </span><span class="cov3" title="2">{
+        if err := m.client.Get(ctx, configName, &amp;receiver.config); err != nil </span><span class="cov2" title="2">{
                 if apierrors.IsNotFound(err) </span><span class="cov1" title="1">{
                         return false, &amp;resourceStatusError{
                                 conditionType: string(gatewayv1.GatewayConditionAccepted),
@@ -1281,59 +1341,92 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
                 <span class="cov1" title="1">return false, fmt.Errorf("failed to get GatewayConfig %s: %w", configName, err)</span>
         }
 
-        <span class="cov4" title="3">if err := m.populateGatewaySecrets(ctx, receiver); err != nil </span><span class="cov1" title="1">{
+        <span class="cov3" title="3">if err := validateGatewayCertificateOptions(receiver.gateway); err != nil </span><span class="cov0" title="0">{
+                return false, err
+        }</span>
+
+        <span class="cov3" title="3">if err := m.populateGatewaySecrets(ctx, receiver); err != nil </span><span class="cov1" title="1">{
                 return false, err
         }</span>
 
         // TODO: Make sure config is complete
 
-        <span class="cov3" title="2">return true, nil</span>
+        <span class="cov2" title="2">return true, nil</span>
 }
 
-func (m *gatewayModelImpl) populateGatewaySecrets(ctx context.Context, receiver *resolvedGatewayDetails) error <span class="cov4" title="3">{
+func (m *gatewayModelImpl) populateGatewaySecrets(
+        ctx context.Context,
+        receiver *resolvedGatewayDetails,
+) error <span class="cov5" title="6">{
         receiver.gatewaySecrets = make(map[string]corev1.Secret)
-
-        for _, listener := range receiver.gateway.Spec.Listeners </span><span class="cov5" title="4">{
-                if listener.TLS == nil || len(listener.TLS.CertificateRefs) == 0 </span><span class="cov1" title="1">{
+        for _, listener := range receiver.gateway.Spec.Listeners </span><span class="cov5" title="7">{
+                if listenerOCICertificateOCID(listener) != "" </span><span class="cov1" title="1">{
                         continue</span>
                 }
-
-                <span class="cov4" title="3">for _, certRef := range listener.TLS.CertificateRefs </span><span class="cov5" title="5">{
-                        secretName := string(certRef.Name)
-                        secretNamespace := receiver.gateway.Namespace
-                        if certRef.Namespace != nil </span><span class="cov5" title="5">{
-                                secretNamespace = string(*certRef.Namespace)
-                        }</span>
-
-                        <span class="cov5" title="5">fullSecretName := secretNamespace + "/" + secretName
-
-                        if _, exists := receiver.gatewaySecrets[fullSecretName]; exists </span><span class="cov0" title="0">{
-                                continue</span>
-                        }
-
-                        <span class="cov5" title="5">var secret corev1.Secret
-                        if err := m.client.Get(ctx, apitypes.NamespacedName{
-                                Name:      secretName,
-                                Namespace: secretNamespace,
-                        }, &amp;secret); err != nil </span><span class="cov1" title="1">{
-                                if apierrors.IsNotFound(err) </span><span class="cov1" title="1">{
-                                        return &amp;resourceStatusError{
-                                                conditionType: string(gatewayv1.GatewayConditionAccepted),
-                                                reason:        string(gatewayv1.GatewayReasonInvalidParameters),
-                                                message:       fmt.Sprintf("referenced secret %s not found", fullSecretName),
-                                        }
-                                }</span>
-                                <span class="cov0" title="0">return fmt.Errorf("failed to get secret %s: %w", fullSecretName, err)</span>
-                        }
-
-                        <span class="cov5" title="4">receiver.gatewaySecrets[fullSecretName] = secret</span>
-                }
+                <span class="cov5" title="6">if populateErr := m.populateGatewayListenerSecrets(ctx, receiver, listener); populateErr != nil </span><span class="cov2" title="2">{
+                        return populateErr
+                }</span>
         }
 
-        <span class="cov3" title="2">return nil</span>
+        <span class="cov4" title="4">return nil</span>
 }
 
-func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGatewayDetails) error <span class="cov5" title="4">{
+func (m *gatewayModelImpl) populateGatewayListenerSecrets(
+        ctx context.Context,
+        receiver *resolvedGatewayDetails,
+        listener gatewayv1.Listener,
+) error <span class="cov5" title="6">{
+        if listener.TLS == nil || len(listener.TLS.CertificateRefs) == 0 </span><span class="cov1" title="1">{
+                return nil
+        }</span>
+
+        <span class="cov4" title="5">for _, certRef := range listener.TLS.CertificateRefs </span><span class="cov6" title="8">{
+                secretName := string(certRef.Name)
+                secretNamespace := receiver.gateway.Namespace
+                if certRef.Namespace != nil </span><span class="cov4" title="5">{
+                        secretNamespace = string(*certRef.Namespace)
+                }</span>
+
+                <span class="cov6" title="8">if err := m.populateGatewaySecret(ctx, receiver, secretNamespace, secretName); err != nil </span><span class="cov2" title="2">{
+                        return err
+                }</span>
+        }
+
+        <span class="cov3" title="3">return nil</span>
+}
+
+func (m *gatewayModelImpl) populateGatewaySecret(
+        ctx context.Context,
+        receiver *resolvedGatewayDetails,
+        secretNamespace string,
+        secretName string,
+) error <span class="cov6" title="8">{
+        fullSecretName := secretNamespace + "/" + secretName
+        if _, exists := receiver.gatewaySecrets[fullSecretName]; exists </span><span class="cov1" title="1">{
+                return nil
+        }</span>
+
+        <span class="cov5" title="7">var secret corev1.Secret
+        getErr := m.client.Get(ctx, apitypes.NamespacedName{
+                Name:      secretName,
+                Namespace: secretNamespace,
+        }, &amp;secret)
+        if getErr != nil </span><span class="cov2" title="2">{
+                if apierrors.IsNotFound(getErr) </span><span class="cov1" title="1">{
+                        return &amp;resourceStatusError{
+                                conditionType: string(gatewayv1.GatewayConditionAccepted),
+                                reason:        string(gatewayv1.GatewayReasonInvalidParameters),
+                                message:       fmt.Sprintf("referenced secret %s not found", fullSecretName),
+                        }
+                }</span>
+                <span class="cov1" title="1">return fmt.Errorf("failed to get secret %s: %w", fullSecretName, getErr)</span>
+        }
+
+        <span class="cov4" title="5">receiver.gatewaySecrets[fullSecretName] = secret
+        return nil</span>
+}
+
+func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGatewayDetails) error <span class="cov4" title="4">{
         loadBalancerID := data.config.Spec.LoadBalancerID
         m.logger.DebugContext(ctx, "Fetching OCI Load Balancer details",
                 slog.String("loadBalancerId", loadBalancerID),
@@ -1349,7 +1442,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
         if err != nil </span><span class="cov1" title="1">{
                 return fmt.Errorf("failed to get OCI Load Balancer %s: %w", loadBalancerID, err)
         }</span>
-        <span class="cov4" title="3">data.loadBalancer = &amp;response.LoadBalancer
+        <span class="cov3" title="3">data.loadBalancer = &amp;response.LoadBalancer
 
         // This is very verbose, uncomment if needed
         // m.logger.DebugContext(ctx, "Successfully retrieved OCI Load Balancer details",
@@ -1365,7 +1458,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
                 return fmt.Errorf("failed to program default backend set: %w", err)
         }</span>
 
-        <span class="cov3" title="2">reconcileListenersCertificatesResult, err := m.ociLoadBalancerModel.reconcileListenersCertificates(ctx,
+        <span class="cov2" title="2">reconcileListenersCertificatesResult, err := m.ociLoadBalancerModel.reconcileListenersCertificates(ctx,
                 reconcileListenersCertificatesParams{
                         loadBalancerID:    loadBalancerID,
                         gateway:           &amp;data.gateway,
@@ -1375,7 +1468,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
                 return fmt.Errorf("failed to reconcile listeners certificates: %w", err)
         }</span>
 
-        <span class="cov3" title="2">for _, listener := range data.gateway.Spec.Listeners </span><span class="cov5" title="5">{
+        <span class="cov2" title="2">for _, listener := range data.gateway.Spec.Listeners </span><span class="cov3" title="3">{
                 // TODO: Support listener with hostname
 
                 listenerName := string(listener.Name)
@@ -1385,6 +1478,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
                         knownListeners:        response.LoadBalancer.Listeners,
                         knownRoutingPolicies:  response.LoadBalancer.RoutingPolicies,
                         listenerCertificates:  reconcileListenersCertificatesResult.certificatesByListener[listenerName],
+                        listenerCertificateID: reconcileListenersCertificatesResult.certificateIDsByListener[listenerName],
                         defaultBackendSetName: *defaultBackendSet.Name,
                         listenerSpec:          &amp;listener,
                 }
@@ -1413,18 +1507,18 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
         <span class="cov1" title="1">return nil</span>
 }
 
-func gatewayStatusAddressesFromLoadBalancer(lb *loadbalancer.LoadBalancer) []gatewayv1.GatewayStatusAddress <span class="cov4" title="3">{
-        if lb == nil || len(lb.IpAddresses) == 0 </span><span class="cov3" title="2">{
+func gatewayStatusAddressesFromLoadBalancer(lb *loadbalancer.LoadBalancer) []gatewayv1.GatewayStatusAddress <span class="cov3" title="3">{
+        if lb == nil || len(lb.IpAddresses) == 0 </span><span class="cov2" title="2">{
                 return nil
         }</span>
 
         <span class="cov1" title="1">addressType := gatewayv1.IPAddressType
         addressesByValue := make(map[string]gatewayv1.GatewayStatusAddress, len(lb.IpAddresses))
-        for _, ipAddress := range lb.IpAddresses </span><span class="cov5" title="5">{
-                if ipAddress.IpAddress == nil || *ipAddress.IpAddress == "" </span><span class="cov3" title="2">{
+        for _, ipAddress := range lb.IpAddresses </span><span class="cov4" title="5">{
+                if ipAddress.IpAddress == nil || *ipAddress.IpAddress == "" </span><span class="cov2" title="2">{
                         continue</span>
                 }
-                <span class="cov4" title="3">addressesByValue[*ipAddress.IpAddress] = gatewayv1.GatewayStatusAddress{
+                <span class="cov3" title="3">addressesByValue[*ipAddress.IpAddress] = gatewayv1.GatewayStatusAddress{
                         Type:  &amp;addressType,
                         Value: *ipAddress.IpAddress,
                 }</span>
@@ -1434,33 +1528,33 @@ func gatewayStatusAddressesFromLoadBalancer(lb *loadbalancer.LoadBalancer) []gat
         }</span>
 
         <span class="cov1" title="1">values := make([]string, 0, len(addressesByValue))
-        for value := range addressesByValue </span><span class="cov3" title="2">{
+        for value := range addressesByValue </span><span class="cov2" title="2">{
                 values = append(values, value)
         }</span>
         <span class="cov1" title="1">sort.Strings(values)
 
         addresses := make([]gatewayv1.GatewayStatusAddress, 0, len(values))
-        for _, value := range values </span><span class="cov3" title="2">{
+        for _, value := range values </span><span class="cov2" title="2">{
                 addresses = append(addresses, addressesByValue[value])
         }</span>
         <span class="cov1" title="1">return addresses</span>
 }
 
-func (m *gatewayModelImpl) isProgrammed(_ context.Context, data *resolvedGatewayDetails) bool <span class="cov4" title="3">{
+func (m *gatewayModelImpl) isProgrammed(_ context.Context, data *resolvedGatewayDetails) bool <span class="cov3" title="3">{
         annotations := map[string]string{
                 GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
         }
 
         // Include secrets annotations in the check
         if len(data.gatewaySecrets) &gt; 0 </span><span class="cov1" title="1">{
-                for _, secret := range data.gatewaySecrets </span><span class="cov4" title="3">{
+                for _, secret := range data.gatewaySecrets </span><span class="cov2" title="2">{
                         secretUID := string(secret.UID)
                         annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + secretUID
                         annotations[annotationKey] = secret.ResourceVersion
                 }</span>
         }
 
-        <span class="cov4" title="3">return m.resourcesModel.isConditionSet(isConditionSetParams{
+        <span class="cov3" title="3">return m.resourcesModel.isConditionSet(isConditionSetParams{
                 resource:      &amp;data.gateway,
                 conditions:    data.gateway.Status.Conditions,
                 conditionType: string(gatewayv1.GatewayConditionProgrammed),
@@ -1468,20 +1562,20 @@ func (m *gatewayModelImpl) isProgrammed(_ context.Context, data *resolvedGateway
         })</span>
 }
 
-func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGatewayDetails) error <span class="cov4" title="3">{
+func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGatewayDetails) error <span class="cov3" title="3">{
         annotations := map[string]string{
                 GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
         }
 
         if len(data.gatewaySecrets) &gt; 0 </span><span class="cov1" title="1">{
-                for _, secret := range data.gatewaySecrets </span><span class="cov3" title="2">{
+                for _, secret := range data.gatewaySecrets </span><span class="cov2" title="2">{
                         secretUID := string(secret.UID)
                         annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + secretUID
                         annotations[annotationKey] = secret.ResourceVersion
                 }</span>
         }
 
-        <span class="cov4" title="3">data.gateway.Status.Addresses = gatewayStatusAddressesFromLoadBalancer(data.loadBalancer)
+        <span class="cov3" title="3">data.gateway.Status.Addresses = gatewayStatusAddressesFromLoadBalancer(data.loadBalancer)
         if err := m.resourcesModel.setCondition(ctx, setConditionParams{
                 resource:      &amp;data.gateway,
                 conditions:    &amp;data.gateway.Status.Conditions,
@@ -1493,7 +1587,7 @@ func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGate
         }); err != nil </span><span class="cov1" title="1">{
                 return fmt.Errorf("failed to set programmed condition for Gateway %s: %w", data.gateway.Name, err)
         }</span>
-        <span class="cov3" title="2">return nil</span>
+        <span class="cov2" title="2">return nil</span>
 }
 
 type gatewayModelDeps struct {
@@ -1506,7 +1600,7 @@ type gatewayModelDeps struct {
         OciLoadBalancerModel ociLoadBalancerModel
 }
 
-func newGatewayModel(deps gatewayModelDeps) *gatewayModelImpl <span class="cov10" title="22">{
+func newGatewayModel(deps gatewayModelDeps) *gatewayModelImpl <span class="cov8" title="22">{
         return &amp;gatewayModelImpl{
                 client:               deps.K8sClient,
                 logger:               deps.RootLogger.WithGroup("gateway-model"),
@@ -1734,22 +1828,22 @@ func (m *httpBackendModelImpl) identifyBackendsToUpdate(
         var drainingCount int
 
         for _, slice := range params.endpointSlices </span><span class="cov7" title="8">{
-                for _, endpoint := range slice.Endpoints </span><span class="cov9" title="14">{
+                for _, endpoint := range slice.Endpoints </span><span class="cov9" title="15">{
                         if endpoint.Conditions.Ready != nil &amp;&amp; !*endpoint.Conditions.Ready </span><span class="cov3" title="2">{
                                 continue</span>
                         }
-                        <span class="cov8" title="12">if len(endpoint.Addresses) == 0 </span><span class="cov1" title="1">{
+                        <span class="cov8" title="13">if len(endpoint.Addresses) == 0 </span><span class="cov1" title="1">{
                                 m.logger.WarnContext(ctx, "Endpoint has no addresses", slog.Any("endpoint", endpoint))
                                 continue</span>
                         }
-                        <span class="cov8" title="11">ipAddress := endpoint.Addresses[0]
+                        <span class="cov8" title="12">ipAddress := endpoint.Addresses[0]
                         isDraining := endpoint.Conditions.Terminating != nil &amp;&amp; *endpoint.Conditions.Terminating
 
                         if isDraining </span><span class="cov3" title="2">{
                                 drainingCount++
                         }</span>
 
-                        <span class="cov8" title="11">desiredBackendsMap[ipAddress] = loadbalancer.BackendDetails{
+                        <span class="cov8" title="12">desiredBackendsMap[ipAddress] = loadbalancer.BackendDetails{
                                 Port:      new(int(params.endpointPort)),
                                 IpAddress: &amp;ipAddress,
                                 Drain:     new(isDraining),
@@ -2229,7 +2323,7 @@ type httpRouteModel interface {
 
 // parentRefSameTarget checks if two parent references target the same resource.
 // It ignores the section name and port.
-func parentRefSameTarget(a, b gatewayv1.ParentReference) bool <span class="cov7" title="11">{
+func parentRefSameTarget(a, b gatewayv1.ParentReference) bool <span class="cov8" title="15">{
         return a.Name == b.Name &amp;&amp;
                 lo.FromPtr(a.Namespace) == lo.FromPtr(b.Namespace) &amp;&amp;
                 lo.FromPtr(a.Kind) == lo.FromPtr(b.Kind) &amp;&amp;
@@ -2537,7 +2631,7 @@ func (m *httpRouteModelImpl) programRoute(
         params programRouteParams,
 ) (programRouteResult, error) <span class="cov5" title="5">{
         // First, reconcile all backend sets for known backends
-        for key, service := range params.knownBackends </span><span class="cov6" title="10">{
+        for key, service := range params.knownBackends </span><span class="cov6" title="7">{
                 err := m.ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
                         loadBalancerID: params.config.Spec.LoadBalancerID,
                         service:        service,
@@ -2569,7 +2663,7 @@ func (m *httpRouteModelImpl) programRoute(
         }</span>
 
         // Commit the rules to each listener's policy
-        <span class="cov3" title="3">for _, listener := range params.matchedListeners </span><span class="cov6" title="9">{
+        <span class="cov3" title="3">for _, listener := range params.matchedListeners </span><span class="cov5" title="5">{
                 err := m.ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
                         loadBalancerID:  params.config.Spec.LoadBalancerID,
                         listenerName:    string(listener.Name),
@@ -2609,7 +2703,7 @@ func (m *httpRouteModelImpl) deprovisionRoute(
                 return nil
         }</span>
 
-        <span class="cov2" title="2">for _, listener := range params.matchedListeners </span><span class="cov3" title="3">{
+        <span class="cov2" title="2">for _, listener := range params.matchedListeners </span><span class="cov4" title="4">{
                 m.logger.DebugContext(ctx, "Deprovisioning listener policies for HTTPRoute",
                         slog.String("route", params.httpRoute.Name),
                         slog.String("listener", string(listener.Name)),
@@ -2695,7 +2789,7 @@ func (m *httpRouteModelImpl) setProgrammed(
 
         _, statusIndex, found := lo.FindIndexOf(
                 httpRoute.Status.Parents,
-                func(s gatewayv1.RouteParentStatus) bool </span><span class="cov4" title="4">{
+                func(s gatewayv1.RouteParentStatus) bool </span><span class="cov6" title="8">{
                         return s.ControllerName == params.gatewayClass.Spec.ControllerName &amp;&amp;
                                 parentRefSameTarget(s.ParentRef, params.matchedRef)
                 }</span>,
@@ -3638,17 +3732,17 @@ type Mockk8sClient_Expecter struct {
         mock *mock.Mock
 }
 
-func (_m *Mockk8sClient) EXPECT() *Mockk8sClient_Expecter <span class="cov9" title="103">{
+func (_m *Mockk8sClient) EXPECT() *Mockk8sClient_Expecter <span class="cov9" title="113">{
         return &amp;Mockk8sClient_Expecter{mock: &amp;_m.Mock}
 }</span>
 
 // Get provides a mock function with given fields: ctx, key, obj, opts
-func (_m *Mockk8sClient) Get(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error <span class="cov8" title="70">{
+func (_m *Mockk8sClient) Get(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error <span class="cov8" title="78">{
         _va := make([]interface{}, len(opts))
         for _i := range opts </span><span class="cov0" title="0">{
                 _va[_i] = opts[_i]
         }</span>
-        <span class="cov8" title="70">var _ca []interface{}
+        <span class="cov8" title="78">var _ca []interface{}
         _ca = append(_ca, ctx, key, obj)
         _ca = append(_ca, _va...)
         ret := _m.Called(_ca...)
@@ -3657,14 +3751,14 @@ func (_m *Mockk8sClient) Get(ctx context.Context, key types.NamespacedName, obj 
                 panic("no return value specified for Get")</span>
         }
 
-        <span class="cov8" title="70">var r0 error
-        if rf, ok := ret.Get(0).(func(context.Context, types.NamespacedName, client.Object, ...client.GetOption) error); ok </span><span class="cov8" title="62">{
+        <span class="cov8" title="78">var r0 error
+        if rf, ok := ret.Get(0).(func(context.Context, types.NamespacedName, client.Object, ...client.GetOption) error); ok </span><span class="cov8" title="68">{
                 r0 = rf(ctx, key, obj, opts...)
-        }</span> else<span class="cov4" title="8"> {
+        }</span> else<span class="cov4" title="10"> {
                 r0 = ret.Error(0)
         }</span>
 
-        <span class="cov8" title="70">return r0</span>
+        <span class="cov8" title="78">return r0</span>
 }
 
 // Mockk8sClient_Get_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Get'
@@ -3677,7 +3771,7 @@ type Mockk8sClient_Get_Call struct {
 //   - key types.NamespacedName
 //   - obj client.Object
 //   - opts ...client.GetOption
-func (_e *Mockk8sClient_Expecter) Get(ctx interface{}, key interface{}, obj interface{}, opts ...interface{}) *Mockk8sClient_Get_Call <span class="cov8" title="70">{
+func (_e *Mockk8sClient_Expecter) Get(ctx interface{}, key interface{}, obj interface{}, opts ...interface{}) *Mockk8sClient_Get_Call <span class="cov8" title="78">{
         return &amp;Mockk8sClient_Get_Call{Call: _e.mock.On("Get",
                 append([]interface{}{ctx, key, obj}, opts...)...)}
 }</span>
@@ -3695,23 +3789,23 @@ func (_c *Mockk8sClient_Get_Call) Run(run func(ctx context.Context, key types.Na
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *Mockk8sClient_Get_Call) Return(_a0 error) *Mockk8sClient_Get_Call <span class="cov4" title="8">{
+func (_c *Mockk8sClient_Get_Call) Return(_a0 error) *Mockk8sClient_Get_Call <span class="cov4" title="10">{
         _c.Call.Return(_a0)
         return _c
 }</span>
 
-func (_c *Mockk8sClient_Get_Call) RunAndReturn(run func(context.Context, types.NamespacedName, client.Object, ...client.GetOption) error) *Mockk8sClient_Get_Call <span class="cov8" title="62">{
+func (_c *Mockk8sClient_Get_Call) RunAndReturn(run func(context.Context, types.NamespacedName, client.Object, ...client.GetOption) error) *Mockk8sClient_Get_Call <span class="cov8" title="68">{
         _c.Call.Return(run)
         return _c
 }</span>
 
 // List provides a mock function with given fields: ctx, list, opts
-func (_m *Mockk8sClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error <span class="cov5" title="11">{
+func (_m *Mockk8sClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error <span class="cov5" title="13">{
         _va := make([]interface{}, len(opts))
-        for _i := range opts </span><span class="cov5" title="14">{
+        for _i := range opts </span><span class="cov5" title="16">{
                 _va[_i] = opts[_i]
         }</span>
-        <span class="cov5" title="11">var _ca []interface{}
+        <span class="cov5" title="13">var _ca []interface{}
         _ca = append(_ca, ctx, list)
         _ca = append(_ca, _va...)
         ret := _m.Called(_ca...)
@@ -3720,14 +3814,14 @@ func (_m *Mockk8sClient) List(ctx context.Context, list client.ObjectList, opts 
                 panic("no return value specified for List")</span>
         }
 
-        <span class="cov5" title="11">var r0 error
-        if rf, ok := ret.Get(0).(func(context.Context, client.ObjectList, ...client.ListOption) error); ok </span><span class="cov4" title="9">{
+        <span class="cov5" title="13">var r0 error
+        if rf, ok := ret.Get(0).(func(context.Context, client.ObjectList, ...client.ListOption) error); ok </span><span class="cov4" title="10">{
                 r0 = rf(ctx, list, opts...)
-        }</span> else<span class="cov2" title="2"> {
+        }</span> else<span class="cov2" title="3"> {
                 r0 = ret.Error(0)
         }</span>
 
-        <span class="cov5" title="11">return r0</span>
+        <span class="cov5" title="13">return r0</span>
 }
 
 // Mockk8sClient_List_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'List'
@@ -3739,7 +3833,7 @@ type Mockk8sClient_List_Call struct {
 //   - ctx context.Context
 //   - list client.ObjectList
 //   - opts ...client.ListOption
-func (_e *Mockk8sClient_Expecter) List(ctx interface{}, list interface{}, opts ...interface{}) *Mockk8sClient_List_Call <span class="cov5" title="11">{
+func (_e *Mockk8sClient_Expecter) List(ctx interface{}, list interface{}, opts ...interface{}) *Mockk8sClient_List_Call <span class="cov5" title="13">{
         return &amp;Mockk8sClient_List_Call{Call: _e.mock.On("List",
                 append([]interface{}{ctx, list}, opts...)...)}
 }</span>
@@ -3757,12 +3851,12 @@ func (_c *Mockk8sClient_List_Call) Run(run func(ctx context.Context, list client
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *Mockk8sClient_List_Call) Return(_a0 error) *Mockk8sClient_List_Call <span class="cov2" title="2">{
+func (_c *Mockk8sClient_List_Call) Return(_a0 error) *Mockk8sClient_List_Call <span class="cov2" title="3">{
         _c.Call.Return(_a0)
         return _c
 }</span>
 
-func (_c *Mockk8sClient_List_Call) RunAndReturn(run func(context.Context, client.ObjectList, ...client.ListOption) error) *Mockk8sClient_List_Call <span class="cov4" title="9">{
+func (_c *Mockk8sClient_List_Call) RunAndReturn(run func(context.Context, client.ObjectList, ...client.ListOption) error) *Mockk8sClient_List_Call <span class="cov4" title="10">{
         _c.Call.Return(run)
         return _c
 }</span>
@@ -3881,13 +3975,13 @@ func (_c *Mockk8sClient_Update_Call) RunAndReturn(run func(context.Context, clie
 func NewMockk8sClient(t interface {
         mock.TestingT
         Cleanup(func())
-}) *Mockk8sClient <span class="cov10" title="172">{
+}) *Mockk8sClient <span class="cov10" title="187">{
         mock := &amp;Mockk8sClient{}
         mock.Mock.Test(t)
 
-        t.Cleanup(func() </span><span class="cov10" title="172">{ mock.AssertExpectations(t) }</span>)
+        t.Cleanup(func() </span><span class="cov10" title="187">{ mock.AssertExpectations(t) }</span>)
 
-        <span class="cov10" title="172">return mock</span>
+        <span class="cov10" title="187">return mock</span>
 }
 </pre>
 		
@@ -3913,7 +4007,7 @@ type MockociLoadBalancerClient_Expecter struct {
         mock *mock.Mock
 }
 
-func (_m *MockociLoadBalancerClient) EXPECT() *MockociLoadBalancerClient_Expecter <span class="cov9" title="69">{
+func (_m *MockociLoadBalancerClient) EXPECT() *MockociLoadBalancerClient_Expecter <span class="cov9" title="74">{
         return &amp;MockociLoadBalancerClient_Expecter{mock: &amp;_m.Mock}
 }</span>
 
@@ -4032,31 +4126,31 @@ func (_c *MockociLoadBalancerClient_CreateBackendSet_Call) RunAndReturn(run func
 }</span>
 
 // CreateCertificate provides a mock function with given fields: ctx, request
-func (_m *MockociLoadBalancerClient) CreateCertificate(ctx context.Context, request loadbalancer.CreateCertificateRequest) (loadbalancer.CreateCertificateResponse, error) <span class="cov4" title="6">{
+func (_m *MockociLoadBalancerClient) CreateCertificate(ctx context.Context, request loadbalancer.CreateCertificateRequest) (loadbalancer.CreateCertificateResponse, error) <span class="cov5" title="9">{
         ret := _m.Called(ctx, request)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for CreateCertificate")</span>
         }
 
-        <span class="cov4" title="6">var r0 loadbalancer.CreateCertificateResponse
+        <span class="cov5" title="9">var r0 loadbalancer.CreateCertificateResponse
         var r1 error
         if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.CreateCertificateRequest) (loadbalancer.CreateCertificateResponse, error)); ok </span><span class="cov0" title="0">{
                 return rf(ctx, request)
         }</span>
-        <span class="cov4" title="6">if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.CreateCertificateRequest) loadbalancer.CreateCertificateResponse); ok </span><span class="cov0" title="0">{
+        <span class="cov5" title="9">if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.CreateCertificateRequest) loadbalancer.CreateCertificateResponse); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, request)
-        }</span> else<span class="cov4" title="6"> {
+        }</span> else<span class="cov5" title="9"> {
                 r0 = ret.Get(0).(loadbalancer.CreateCertificateResponse)
         }</span>
 
-        <span class="cov4" title="6">if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.CreateCertificateRequest) error); ok </span><span class="cov0" title="0">{
+        <span class="cov5" title="9">if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.CreateCertificateRequest) error); ok </span><span class="cov0" title="0">{
                 r1 = rf(ctx, request)
-        }</span> else<span class="cov4" title="6"> {
+        }</span> else<span class="cov5" title="9"> {
                 r1 = ret.Error(1)
         }</span>
 
-        <span class="cov4" title="6">return r0, r1</span>
+        <span class="cov5" title="9">return r0, r1</span>
 }
 
 // MockociLoadBalancerClient_CreateCertificate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateCertificate'
@@ -4067,7 +4161,7 @@ type MockociLoadBalancerClient_CreateCertificate_Call struct {
 // CreateCertificate is a helper method to define mock.On call
 //   - ctx context.Context
 //   - request loadbalancer.CreateCertificateRequest
-func (_e *MockociLoadBalancerClient_Expecter) CreateCertificate(ctx interface{}, request interface{}) *MockociLoadBalancerClient_CreateCertificate_Call <span class="cov4" title="6">{
+func (_e *MockociLoadBalancerClient_Expecter) CreateCertificate(ctx interface{}, request interface{}) *MockociLoadBalancerClient_CreateCertificate_Call <span class="cov5" title="9">{
         return &amp;MockociLoadBalancerClient_CreateCertificate_Call{Call: _e.mock.On("CreateCertificate", ctx, request)}
 }</span>
 
@@ -4078,7 +4172,7 @@ func (_c *MockociLoadBalancerClient_CreateCertificate_Call) Run(run func(ctx con
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockociLoadBalancerClient_CreateCertificate_Call) Return(response loadbalancer.CreateCertificateResponse, err error) *MockociLoadBalancerClient_CreateCertificate_Call <span class="cov4" title="6">{
+func (_c *MockociLoadBalancerClient_CreateCertificate_Call) Return(response loadbalancer.CreateCertificateResponse, err error) *MockociLoadBalancerClient_CreateCertificate_Call <span class="cov5" title="9">{
         _c.Call.Return(response, err)
         return _c
 }</span>
@@ -4830,31 +4924,31 @@ func (_c *MockociLoadBalancerClient_UpdateBackendSet_Call) RunAndReturn(run func
 }</span>
 
 // UpdateListener provides a mock function with given fields: ctx, request
-func (_m *MockociLoadBalancerClient) UpdateListener(ctx context.Context, request loadbalancer.UpdateListenerRequest) (loadbalancer.UpdateListenerResponse, error) <span class="cov2" title="2">{
+func (_m *MockociLoadBalancerClient) UpdateListener(ctx context.Context, request loadbalancer.UpdateListenerRequest) (loadbalancer.UpdateListenerResponse, error) <span class="cov3" title="4">{
         ret := _m.Called(ctx, request)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for UpdateListener")</span>
         }
 
-        <span class="cov2" title="2">var r0 loadbalancer.UpdateListenerResponse
+        <span class="cov3" title="4">var r0 loadbalancer.UpdateListenerResponse
         var r1 error
         if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.UpdateListenerRequest) (loadbalancer.UpdateListenerResponse, error)); ok </span><span class="cov0" title="0">{
                 return rf(ctx, request)
         }</span>
-        <span class="cov2" title="2">if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.UpdateListenerRequest) loadbalancer.UpdateListenerResponse); ok </span><span class="cov0" title="0">{
+        <span class="cov3" title="4">if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.UpdateListenerRequest) loadbalancer.UpdateListenerResponse); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, request)
-        }</span> else<span class="cov2" title="2"> {
+        }</span> else<span class="cov3" title="4"> {
                 r0 = ret.Get(0).(loadbalancer.UpdateListenerResponse)
         }</span>
 
-        <span class="cov2" title="2">if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.UpdateListenerRequest) error); ok </span><span class="cov0" title="0">{
+        <span class="cov3" title="4">if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.UpdateListenerRequest) error); ok </span><span class="cov0" title="0">{
                 r1 = rf(ctx, request)
-        }</span> else<span class="cov2" title="2"> {
+        }</span> else<span class="cov3" title="4"> {
                 r1 = ret.Error(1)
         }</span>
 
-        <span class="cov2" title="2">return r0, r1</span>
+        <span class="cov3" title="4">return r0, r1</span>
 }
 
 // MockociLoadBalancerClient_UpdateListener_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateListener'
@@ -4865,7 +4959,7 @@ type MockociLoadBalancerClient_UpdateListener_Call struct {
 // UpdateListener is a helper method to define mock.On call
 //   - ctx context.Context
 //   - request loadbalancer.UpdateListenerRequest
-func (_e *MockociLoadBalancerClient_Expecter) UpdateListener(ctx interface{}, request interface{}) *MockociLoadBalancerClient_UpdateListener_Call <span class="cov2" title="2">{
+func (_e *MockociLoadBalancerClient_Expecter) UpdateListener(ctx interface{}, request interface{}) *MockociLoadBalancerClient_UpdateListener_Call <span class="cov3" title="4">{
         return &amp;MockociLoadBalancerClient_UpdateListener_Call{Call: _e.mock.On("UpdateListener", ctx, request)}
 }</span>
 
@@ -4876,7 +4970,7 @@ func (_c *MockociLoadBalancerClient_UpdateListener_Call) Run(run func(ctx contex
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockociLoadBalancerClient_UpdateListener_Call) Return(response loadbalancer.UpdateListenerResponse, err error) *MockociLoadBalancerClient_UpdateListener_Call <span class="cov2" title="2">{
+func (_c *MockociLoadBalancerClient_UpdateListener_Call) Return(response loadbalancer.UpdateListenerResponse, err error) *MockociLoadBalancerClient_UpdateListener_Call <span class="cov3" title="4">{
         _c.Call.Return(response, err)
         return _c
 }</span>
@@ -5005,13 +5099,13 @@ func (_c *MockociLoadBalancerClient_UpdateRuleSet_Call) RunAndReturn(run func(co
 func NewMockociLoadBalancerClient(t interface {
         mock.TestingT
         Cleanup(func())
-}) *MockociLoadBalancerClient <span class="cov10" title="79">{
+}) *MockociLoadBalancerClient <span class="cov10" title="89">{
         mock := &amp;MockociLoadBalancerClient{}
         mock.Mock.Test(t)
 
-        t.Cleanup(func() </span><span class="cov10" title="79">{ mock.AssertExpectations(t) }</span>)
+        t.Cleanup(func() </span><span class="cov10" title="89">{ mock.AssertExpectations(t) }</span>)
 
-        <span class="cov10" title="79">return mock</span>
+        <span class="cov10" title="89">return mock</span>
 }
 </pre>
 		
@@ -5037,26 +5131,26 @@ type MockociLoadBalancerModel_Expecter struct {
         mock *mock.Mock
 }
 
-func (_m *MockociLoadBalancerModel) EXPECT() *MockociLoadBalancerModel_Expecter <span class="cov9" title="43">{
+func (_m *MockociLoadBalancerModel) EXPECT() *MockociLoadBalancerModel_Expecter <span class="cov9" title="35">{
         return &amp;MockociLoadBalancerModel_Expecter{mock: &amp;_m.Mock}
 }</span>
 
 // commitRoutingPolicy provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) commitRoutingPolicy(ctx context.Context, params commitRoutingPolicyParams) error <span class="cov6" title="12">{
+func (_m *MockociLoadBalancerModel) commitRoutingPolicy(ctx context.Context, params commitRoutingPolicyParams) error <span class="cov6" title="9">{
         ret := _m.Called(ctx, params)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for commitRoutingPolicy")</span>
         }
 
-        <span class="cov6" title="12">var r0 error
+        <span class="cov6" title="9">var r0 error
         if rf, ok := ret.Get(0).(func(context.Context, commitRoutingPolicyParams) error); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, params)
-        }</span> else<span class="cov6" title="12"> {
+        }</span> else<span class="cov6" title="9"> {
                 r0 = ret.Error(0)
         }</span>
 
-        <span class="cov6" title="12">return r0</span>
+        <span class="cov6" title="9">return r0</span>
 }
 
 // MockociLoadBalancerModel_commitRoutingPolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'commitRoutingPolicy'
@@ -5067,7 +5161,7 @@ type MockociLoadBalancerModel_commitRoutingPolicy_Call struct {
 // commitRoutingPolicy is a helper method to define mock.On call
 //   - ctx context.Context
 //   - params commitRoutingPolicyParams
-func (_e *MockociLoadBalancerModel_Expecter) commitRoutingPolicy(ctx interface{}, params interface{}) *MockociLoadBalancerModel_commitRoutingPolicy_Call <span class="cov6" title="12">{
+func (_e *MockociLoadBalancerModel_Expecter) commitRoutingPolicy(ctx interface{}, params interface{}) *MockociLoadBalancerModel_commitRoutingPolicy_Call <span class="cov6" title="9">{
         return &amp;MockociLoadBalancerModel_commitRoutingPolicy_Call{Call: _e.mock.On("commitRoutingPolicy", ctx, params)}
 }</span>
 
@@ -5078,7 +5172,7 @@ func (_c *MockociLoadBalancerModel_commitRoutingPolicy_Call) Run(run func(ctx co
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockociLoadBalancerModel_commitRoutingPolicy_Call) Return(_a0 error) *MockociLoadBalancerModel_commitRoutingPolicy_Call <span class="cov6" title="12">{
+func (_c *MockociLoadBalancerModel_commitRoutingPolicy_Call) Return(_a0 error) *MockociLoadBalancerModel_commitRoutingPolicy_Call <span class="cov6" title="9">{
         _c.Call.Return(_a0)
         return _c
 }</span>
@@ -5193,21 +5287,21 @@ func (_c *MockociLoadBalancerModel_makeRoutingRule_Call) RunAndReturn(run func(c
 }</span>
 
 // reconcileBackendSet provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) reconcileBackendSet(ctx context.Context, params reconcileBackendSetParams) error <span class="cov6" title="10">{
+func (_m *MockociLoadBalancerModel) reconcileBackendSet(ctx context.Context, params reconcileBackendSetParams) error <span class="cov5" title="7">{
         ret := _m.Called(ctx, params)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for reconcileBackendSet")</span>
         }
 
-        <span class="cov6" title="10">var r0 error
+        <span class="cov5" title="7">var r0 error
         if rf, ok := ret.Get(0).(func(context.Context, reconcileBackendSetParams) error); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, params)
-        }</span> else<span class="cov6" title="10"> {
+        }</span> else<span class="cov5" title="7"> {
                 r0 = ret.Error(0)
         }</span>
 
-        <span class="cov6" title="10">return r0</span>
+        <span class="cov5" title="7">return r0</span>
 }
 
 // MockociLoadBalancerModel_reconcileBackendSet_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'reconcileBackendSet'
@@ -5218,7 +5312,7 @@ type MockociLoadBalancerModel_reconcileBackendSet_Call struct {
 // reconcileBackendSet is a helper method to define mock.On call
 //   - ctx context.Context
 //   - params reconcileBackendSetParams
-func (_e *MockociLoadBalancerModel_Expecter) reconcileBackendSet(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileBackendSet_Call <span class="cov6" title="10">{
+func (_e *MockociLoadBalancerModel_Expecter) reconcileBackendSet(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileBackendSet_Call <span class="cov5" title="7">{
         return &amp;MockociLoadBalancerModel_reconcileBackendSet_Call{Call: _e.mock.On("reconcileBackendSet", ctx, params)}
 }</span>
 
@@ -5229,7 +5323,7 @@ func (_c *MockociLoadBalancerModel_reconcileBackendSet_Call) Run(run func(ctx co
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockociLoadBalancerModel_reconcileBackendSet_Call) Return(_a0 error) *MockociLoadBalancerModel_reconcileBackendSet_Call <span class="cov6" title="10">{
+func (_c *MockociLoadBalancerModel_reconcileBackendSet_Call) Return(_a0 error) *MockociLoadBalancerModel_reconcileBackendSet_Call <span class="cov5" title="7">{
         _c.Call.Return(_a0)
         return _c
 }</span>
@@ -5297,21 +5391,21 @@ func (_c *MockociLoadBalancerModel_reconcileDefaultBackendSet_Call) RunAndReturn
 }</span>
 
 // reconcileHTTPListener provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) reconcileHTTPListener(ctx context.Context, params reconcileHTTPListenerParams) error <span class="cov4" title="5">{
+func (_m *MockociLoadBalancerModel) reconcileHTTPListener(ctx context.Context, params reconcileHTTPListenerParams) error <span class="cov3" title="3">{
         ret := _m.Called(ctx, params)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for reconcileHTTPListener")</span>
         }
 
-        <span class="cov4" title="5">var r0 error
+        <span class="cov3" title="3">var r0 error
         if rf, ok := ret.Get(0).(func(context.Context, reconcileHTTPListenerParams) error); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, params)
-        }</span> else<span class="cov4" title="5"> {
+        }</span> else<span class="cov3" title="3"> {
                 r0 = ret.Error(0)
         }</span>
 
-        <span class="cov4" title="5">return r0</span>
+        <span class="cov3" title="3">return r0</span>
 }
 
 // MockociLoadBalancerModel_reconcileHTTPListener_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'reconcileHTTPListener'
@@ -5322,7 +5416,7 @@ type MockociLoadBalancerModel_reconcileHTTPListener_Call struct {
 // reconcileHTTPListener is a helper method to define mock.On call
 //   - ctx context.Context
 //   - params reconcileHTTPListenerParams
-func (_e *MockociLoadBalancerModel_Expecter) reconcileHTTPListener(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov4" title="5">{
+func (_e *MockociLoadBalancerModel_Expecter) reconcileHTTPListener(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov3" title="3">{
         return &amp;MockociLoadBalancerModel_reconcileHTTPListener_Call{Call: _e.mock.On("reconcileHTTPListener", ctx, params)}
 }</span>
 
@@ -5333,7 +5427,7 @@ func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Run(run func(ctx 
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Return(_a0 error) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov4" title="5">{
+func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Return(_a0 error) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov3" title="3">{
         _c.Call.Return(_a0)
         return _c
 }</span>
@@ -5650,13 +5744,13 @@ func (_c *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteMatchesToCondition_C
 func NewMockociLoadBalancerRoutingRulesMapper(t interface {
         mock.TestingT
         Cleanup(func())
-}) *MockociLoadBalancerRoutingRulesMapper <span class="cov10" title="43">{
+}) *MockociLoadBalancerRoutingRulesMapper <span class="cov10" title="53">{
         mock := &amp;MockociLoadBalancerRoutingRulesMapper{}
         mock.Mock.Test(t)
 
-        t.Cleanup(func() </span><span class="cov10" title="43">{ mock.AssertExpectations(t) }</span>)
+        t.Cleanup(func() </span><span class="cov10" title="53">{ mock.AssertExpectations(t) }</span>)
 
-        <span class="cov10" title="43">return mock</span>
+        <span class="cov10" title="53">return mock</span>
 }
 </pre>
 		
@@ -5814,26 +5908,26 @@ type MockworkRequestsWatcher_Expecter struct {
         mock *mock.Mock
 }
 
-func (_m *MockworkRequestsWatcher) EXPECT() *MockworkRequestsWatcher_Expecter <span class="cov9" title="42">{
+func (_m *MockworkRequestsWatcher) EXPECT() *MockworkRequestsWatcher_Expecter <span class="cov9" title="44">{
         return &amp;MockworkRequestsWatcher_Expecter{mock: &amp;_m.Mock}
 }</span>
 
 // WaitFor provides a mock function with given fields: ctx, workRequestID
-func (_m *MockworkRequestsWatcher) WaitFor(ctx context.Context, workRequestID string) error <span class="cov9" title="42">{
+func (_m *MockworkRequestsWatcher) WaitFor(ctx context.Context, workRequestID string) error <span class="cov9" title="44">{
         ret := _m.Called(ctx, workRequestID)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for WaitFor")</span>
         }
 
-        <span class="cov9" title="42">var r0 error
+        <span class="cov9" title="44">var r0 error
         if rf, ok := ret.Get(0).(func(context.Context, string) error); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, workRequestID)
-        }</span> else<span class="cov9" title="42"> {
+        }</span> else<span class="cov9" title="44"> {
                 r0 = ret.Error(0)
         }</span>
 
-        <span class="cov9" title="42">return r0</span>
+        <span class="cov9" title="44">return r0</span>
 }
 
 // MockworkRequestsWatcher_WaitFor_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WaitFor'
@@ -5844,7 +5938,7 @@ type MockworkRequestsWatcher_WaitFor_Call struct {
 // WaitFor is a helper method to define mock.On call
 //   - ctx context.Context
 //   - workRequestID string
-func (_e *MockworkRequestsWatcher_Expecter) WaitFor(ctx interface{}, workRequestID interface{}) *MockworkRequestsWatcher_WaitFor_Call <span class="cov9" title="42">{
+func (_e *MockworkRequestsWatcher_Expecter) WaitFor(ctx interface{}, workRequestID interface{}) *MockworkRequestsWatcher_WaitFor_Call <span class="cov9" title="44">{
         return &amp;MockworkRequestsWatcher_WaitFor_Call{Call: _e.mock.On("WaitFor", ctx, workRequestID)}
 }</span>
 
@@ -5855,7 +5949,7 @@ func (_c *MockworkRequestsWatcher_WaitFor_Call) Run(run func(ctx context.Context
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockworkRequestsWatcher_WaitFor_Call) Return(_a0 error) *MockworkRequestsWatcher_WaitFor_Call <span class="cov9" title="42">{
+func (_c *MockworkRequestsWatcher_WaitFor_Call) Return(_a0 error) *MockworkRequestsWatcher_WaitFor_Call <span class="cov9" title="44">{
         _c.Call.Return(_a0)
         return _c
 }</span>
@@ -5870,13 +5964,13 @@ func (_c *MockworkRequestsWatcher_WaitFor_Call) RunAndReturn(run func(context.Co
 func NewMockworkRequestsWatcher(t interface {
         mock.TestingT
         Cleanup(func())
-}) *MockworkRequestsWatcher <span class="cov10" title="58">{
+}) *MockworkRequestsWatcher <span class="cov10" title="68">{
         mock := &amp;MockworkRequestsWatcher{}
         mock.Mock.Test(t)
 
-        t.Cleanup(func() </span><span class="cov10" title="58">{ mock.AssertExpectations(t) }</span>)
+        t.Cleanup(func() </span><span class="cov10" title="68">{ mock.AssertExpectations(t) }</span>)
 
-        <span class="cov10" title="58">return mock</span>
+        <span class="cov10" title="68">return mock</span>
 }
 </pre>
 		
@@ -5891,6 +5985,7 @@ import (
         "maps"
         "net/http"
         "regexp"
+        "slices"
         "sort"
         "strconv"
         "strings"
@@ -5900,7 +5995,7 @@ import (
         "github.com/samber/lo"
         "go.uber.org/dig"
         corev1 "k8s.io/api/core/v1"
-        types "k8s.io/apimachinery/pkg/types"
+        apitypes "k8s.io/apimachinery/pkg/types"
         gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
         "github.com/gemyago/oke-gateway-api/internal/diag"
@@ -5934,6 +6029,7 @@ type reconcileHTTPListenerParams struct {
         knownListeners        map[string]loadbalancer.Listener
         knownRoutingPolicies  map[string]loadbalancer.RoutingPolicy
         listenerCertificates  []loadbalancer.Certificate
+        listenerCertificateID string
         defaultBackendSetName string
         listenerSpec          *gatewayv1.Listener
 }
@@ -5950,6 +6046,9 @@ type reconcileListenersCertificatesResult struct {
 
         // List of certificates by listener name
         certificatesByListener map[string][]loadbalancer.Certificate
+
+        // List of OCI Certificates Service certificate IDs by listener name.
+        certificateIDsByListener map[string]string
 }
 
 type makeRoutingRuleParams struct {
@@ -6093,7 +6192,7 @@ func (m *ociLoadBalancerModelImpl) reconcileDefaultBackendSet(
 func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
         ctx context.Context,
         params reconcileListenersCertificatesParams,
-) (reconcileListenersCertificatesResult, error) <span class="cov3" title="3">{
+) (reconcileListenersCertificatesResult, error) <span class="cov6" title="10">{
         m.logger.DebugContext(ctx, "Reconciling certificates",
                 slog.String("loadBalancerId", params.loadBalancerID),
                 slog.Int("provisionedCertificatesCount", len(params.knownCertificates)),
@@ -6101,92 +6200,180 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 
         resultingCertificates := maps.Clone(params.knownCertificates)
         listenerCertificates := make(map[string][]loadbalancer.Certificate)
+        certificateIDsByListener := gatewayCertificateIDsByListener(*params.gateway)
 
-        for _, listenerSpec := range params.gateway.Spec.Listeners </span><span class="cov6" title="11">{
-                if listenerSpec.TLS == nil </span><span class="cov1" title="1">{
+        for _, listenerSpec := range params.gateway.Spec.Listeners </span><span class="cov7" title="19">{
+                if _, usesOCICertificate := certificateIDsByListener[string(listenerSpec.Name)]; usesOCICertificate </span><span class="cov2" title="2">{
                         continue</span>
                 }
-
-                <span class="cov6" title="10">listenerName := string(listenerSpec.Name)
-
-                for _, ref := range listenerSpec.TLS.CertificateRefs </span><span class="cov8" title="20">{
-                        secret := corev1.Secret{}
-                        ns := lo.Ternary(ref.Namespace != nil, string(lo.FromPtr(ref.Namespace)), params.gateway.Namespace)
-                        err := m.k8sClient.Get(ctx, types.NamespacedName{
-                                Name:      string(ref.Name),
-                                Namespace: ns,
-                        }, &amp;secret)
-                        if err != nil </span><span class="cov0" title="0">{
-                                return reconcileListenersCertificatesResult{}, fmt.Errorf("failed to get secret %s: %w", ref.Name, err)
-                        }</span>
-
-                        <span class="cov8" title="20">certName := ociCertificateNameFromSecret(secret)
-                        if cert, ok := resultingCertificates[certName]; ok </span><span class="cov7" title="14">{
-                                m.logger.DebugContext(ctx, "Certificate already exists, skipping",
-                                        slog.String("loadBalancerId", params.loadBalancerID),
-                                        slog.String("listenerName", listenerName),
-                                        slog.String("certificateName", certName),
-                                        slog.String("secretName", secret.Name),
-                                        slog.String("secretNamespace", secret.Namespace),
-                                        slog.String("secretVersion", secret.ResourceVersion),
-                                )
-                                listenerCertificates[listenerName] = append(listenerCertificates[listenerName], cert)
-                                continue</span>
-                        }
-
-                        <span class="cov5" title="6">m.logger.InfoContext(ctx, "Creating certificate",
-                                slog.String("loadBalancerId", params.loadBalancerID),
-                                slog.String("listenerName", listenerName),
-                                slog.String("certificateName", certName),
-                                slog.String("secretName", secret.Name),
-                                slog.String("secretNamespace", secret.Namespace),
-                                slog.String("secretVersion", secret.ResourceVersion),
-                        )
-
-                        certCreateDetails := loadbalancer.CreateCertificateDetails{
-                                CertificateName:   &amp;certName,
-                                PublicCertificate: new(string(secret.Data[corev1.TLSCertKey])),
-                                PrivateKey:        new(string(secret.Data[corev1.TLSPrivateKeyKey])),
-                        }
-                        createRes, err := m.ociClient.CreateCertificate(ctx, loadbalancer.CreateCertificateRequest{
-                                LoadBalancerId:           &amp;params.loadBalancerID,
-                                CreateCertificateDetails: certCreateDetails,
-                        })
-                        if err != nil </span><span class="cov0" title="0">{
-                                return reconcileListenersCertificatesResult{}, fmt.Errorf(
-                                        "failed to create certificate %s: %w",
-                                        certName,
-                                        err,
-                                )
-                        }</span>
-
-                        <span class="cov5" title="6">if err = m.workRequestsWatcher.WaitFor(ctx, *createRes.OpcWorkRequestId); err != nil </span><span class="cov0" title="0">{
-                                return reconcileListenersCertificatesResult{}, fmt.Errorf(
-                                        "failed to wait for certificate %s: %w",
-                                        certName,
-                                        err,
-                                )
-                        }</span>
-
-                        <span class="cov5" title="6">cert := loadbalancer.Certificate{
-                                CertificateName:   &amp;certName,
-                                PublicCertificate: certCreateDetails.PublicCertificate,
-                        }
-                        resultingCertificates[certName] = cert
-                        listenerCertificates[listenerName] = append(listenerCertificates[listenerName], cert)</span>
-                }
+                <span class="cov7" title="17">certs, reconcileErr := m.reconcileListenerSecretCertificates(ctx, listenerSecretCertificatesParams{
+                        loadBalancerID:        params.loadBalancerID,
+                        gatewayNamespace:      params.gateway.Namespace,
+                        listenerSpec:          listenerSpec,
+                        resultingCertificates: resultingCertificates,
+                })
+                if reconcileErr != nil </span><span class="cov4" title="4">{
+                        return reconcileListenersCertificatesResult{}, reconcileErr
+                }</span>
+                <span class="cov6" title="13">if len(certs) &gt; 0 </span><span class="cov6" title="12">{
+                        listenerCertificates[string(listenerSpec.Name)] = certs
+                }</span>
         }
 
-        <span class="cov3" title="3">return reconcileListenersCertificatesResult{
-                reconciledCertificates: resultingCertificates,
-                certificatesByListener: listenerCertificates,
+        <span class="cov5" title="6">return reconcileListenersCertificatesResult{
+                reconciledCertificates:   resultingCertificates,
+                certificatesByListener:   listenerCertificates,
+                certificateIDsByListener: certificateIDsByListener,
         }, nil</span>
 }
+
+type listenerSecretCertificatesParams struct {
+        loadBalancerID        string
+        gatewayNamespace      string
+        listenerSpec          gatewayv1.Listener
+        resultingCertificates map[string]loadbalancer.Certificate
+}
+
+func (m *ociLoadBalancerModelImpl) reconcileListenerSecretCertificates(
+        ctx context.Context,
+        params listenerSecretCertificatesParams,
+) ([]loadbalancer.Certificate, error) <span class="cov7" title="17">{
+        if params.listenerSpec.TLS == nil </span><span class="cov1" title="1">{
+                return nil, nil
+        }</span>
+
+        <span class="cov7" title="16">certificates := make([]loadbalancer.Certificate, 0, len(params.listenerSpec.TLS.CertificateRefs))
+        seenRefs := make(map[apitypes.NamespacedName]struct{}, len(params.listenerSpec.TLS.CertificateRefs))
+        for _, ref := range params.listenerSpec.TLS.CertificateRefs </span><span class="cov8" title="27">{
+                refName := certificateRefNamespacedName(params.gatewayNamespace, ref)
+                if _, exists := seenRefs[refName]; exists </span><span class="cov1" title="1">{
+                        continue</span>
+                }
+                <span class="cov8" title="26">seenRefs[refName] = struct{}{}
+
+                cert, err := m.reconcileListenerSecretCertificate(ctx, params, ref)
+                if err != nil </span><span class="cov4" title="4">{
+                        return nil, err
+                }</span>
+                <span class="cov7" title="22">certificates = append(certificates, cert)</span>
+        }
+
+        <span class="cov6" title="12">return certificates, nil</span>
+}
+
+func (m *ociLoadBalancerModelImpl) reconcileListenerSecretCertificate(
+        ctx context.Context,
+        params listenerSecretCertificatesParams,
+        ref gatewayv1.SecretObjectReference,
+) (loadbalancer.Certificate, error) <span class="cov8" title="26">{
+        secret, err := m.getListenerCertificateSecret(ctx, params.gatewayNamespace, ref)
+        if err != nil </span><span class="cov1" title="1">{
+                return loadbalancer.Certificate{}, err
+        }</span>
+
+        <span class="cov8" title="25">certName := ociCertificateNameFromSecret(secret)
+        if cert, ok := params.resultingCertificates[certName]; ok </span><span class="cov7" title="16">{
+                m.logCertificateAlreadyExists(ctx, params.loadBalancerID, params.listenerSpec.Name, certName, secret)
+                return cert, nil
+        }</span>
+
+        <span class="cov5" title="9">cert, err := m.createListenerCertificate(ctx, params.loadBalancerID, params.listenerSpec.Name, certName, secret)
+        if err != nil </span><span class="cov3" title="3">{
+                return loadbalancer.Certificate{}, err
+        }</span>
+        <span class="cov5" title="6">params.resultingCertificates[certName] = cert
+        return cert, nil</span>
+}
+
+func (m *ociLoadBalancerModelImpl) getListenerCertificateSecret(
+        ctx context.Context,
+        gatewayNamespace string,
+        ref gatewayv1.SecretObjectReference,
+) (corev1.Secret, error) <span class="cov8" title="26">{
+        secret := corev1.Secret{}
+        err := m.k8sClient.Get(ctx, certificateRefNamespacedName(gatewayNamespace, ref), &amp;secret)
+        if err != nil </span><span class="cov1" title="1">{
+                return corev1.Secret{}, fmt.Errorf("failed to get secret %s: %w", ref.Name, err)
+        }</span>
+        <span class="cov8" title="25">return secret, nil</span>
+}
+
+func certificateRefNamespacedName(
+        gatewayNamespace string,
+        ref gatewayv1.SecretObjectReference,
+) apitypes.NamespacedName <span class="cov9" title="53">{
+        return apitypes.NamespacedName{
+                Name:      string(ref.Name),
+                Namespace: lo.Ternary(ref.Namespace != nil, string(lo.FromPtr(ref.Namespace)), gatewayNamespace),
+        }
+}</span>
+
+func (m *ociLoadBalancerModelImpl) createListenerCertificate(
+        ctx context.Context,
+        loadBalancerID string,
+        listenerName gatewayv1.SectionName,
+        certName string,
+        secret corev1.Secret,
+) (loadbalancer.Certificate, error) <span class="cov5" title="9">{
+        m.logger.InfoContext(ctx, "Creating certificate",
+                slog.String("loadBalancerId", loadBalancerID),
+                slog.String("listenerName", string(listenerName)),
+                slog.String("certificateName", certName),
+                slog.String("secretName", secret.Name),
+                slog.String("secretNamespace", secret.Namespace),
+                slog.String("secretVersion", secret.ResourceVersion),
+        )
+
+        certCreateDetails := loadbalancer.CreateCertificateDetails{
+                CertificateName:   &amp;certName,
+                PublicCertificate: new(string(secret.Data[corev1.TLSCertKey])),
+                PrivateKey:        new(string(secret.Data[corev1.TLSPrivateKeyKey])),
+        }
+        createRes, createErr := m.ociClient.CreateCertificate(ctx, loadbalancer.CreateCertificateRequest{
+                LoadBalancerId:           &amp;loadBalancerID,
+                CreateCertificateDetails: certCreateDetails,
+        })
+        if createErr != nil </span><span class="cov1" title="1">{
+                return loadbalancer.Certificate{}, fmt.Errorf("failed to create certificate %s: %w", certName, createErr)
+        }</span>
+        <span class="cov5" title="8">if createRes.OpcWorkRequestId == nil </span><span class="cov1" title="1">{
+                return loadbalancer.Certificate{}, fmt.Errorf(
+                        "failed to create certificate %s: missing work request id",
+                        certName,
+                )
+        }</span>
+
+        <span class="cov5" title="7">if err := m.workRequestsWatcher.WaitFor(ctx, *createRes.OpcWorkRequestId); err != nil </span><span class="cov1" title="1">{
+                return loadbalancer.Certificate{}, fmt.Errorf("failed to wait for certificate %s: %w", certName, err)
+        }</span>
+
+        <span class="cov5" title="6">return loadbalancer.Certificate{
+                CertificateName:   &amp;certName,
+                PublicCertificate: certCreateDetails.PublicCertificate,
+        }, nil</span>
+}
+
+func (m *ociLoadBalancerModelImpl) logCertificateAlreadyExists(
+        ctx context.Context,
+        loadBalancerID string,
+        listenerName gatewayv1.SectionName,
+        certName string,
+        secret corev1.Secret,
+) <span class="cov7" title="16">{
+        m.logger.DebugContext(ctx, "Certificate already exists, skipping",
+                slog.String("loadBalancerId", loadBalancerID),
+                slog.String("listenerName", string(listenerName)),
+                slog.String("certificateName", certName),
+                slog.String("secretName", secret.Name),
+                slog.String("secretNamespace", secret.Namespace),
+                slog.String("secretVersion", secret.ResourceVersion),
+        )
+}</span>
 
 func (m *ociLoadBalancerModelImpl) reconcileListenerRoutingPolicy(
         ctx context.Context,
         params reconcileHTTPListenerParams,
-) error <span class="cov6" title="10">{
+) error <span class="cov6" title="13">{
         listenerName := string(params.listenerSpec.Name)
         routingPolicyName := listenerPolicyName(listenerName)
 
@@ -6229,7 +6416,7 @@ func (m *ociLoadBalancerModelImpl) reconcileListenerRoutingPolicy(
                 ); err != nil </span><span class="cov1" title="1">{
                         return fmt.Errorf("failed to wait for routing policy %s: %w", routingPolicyName, err)
                 }</span>
-        } else<span class="cov4" title="4"> {
+        } else<span class="cov5" title="7"> {
                 m.logger.DebugContext(ctx, "Routing policy already exists, skipping creation",
                         slog.String("loadBalancerId", params.loadBalancerID),
                         slog.String("routingPolicyName", routingPolicyName),
@@ -6237,30 +6424,45 @@ func (m *ociLoadBalancerModelImpl) reconcileListenerRoutingPolicy(
                 )
         }</span>
 
-        <span class="cov5" title="8">return nil</span>
+        <span class="cov6" title="11">return nil</span>
 }
 
 func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
         ctx context.Context,
         params reconcileHTTPListenerParams,
-) error <span class="cov6" title="10">{
+) error <span class="cov6" title="13">{
         listenerName := string(params.listenerSpec.Name)
 
         if err := m.reconcileListenerRoutingPolicy(ctx, params); err != nil </span><span class="cov2" title="2">{
                 return fmt.Errorf("failed to reconcile listener routing policy: %w", err)
         }</span>
 
-        <span class="cov5" title="8">var sslConfig *loadbalancer.SslConfigurationDetails
-        if params.listenerSpec.TLS != nil </span><span class="cov2" title="2">{
-                cert := params.listenerCertificates[0]
+        <span class="cov6" title="11">var sslConfig *loadbalancer.SslConfigurationDetails
+        if params.listenerCertificateID != "" </span><span class="cov2" title="2">{
+                sslConfig = &amp;loadbalancer.SslConfigurationDetails{
+                        CertificateIds: []string{params.listenerCertificateID},
+                }
+        }</span> else<span class="cov5" title="9"> if params.listenerSpec.TLS != nil </span><span class="cov3" title="3">{
+                if len(params.listenerCertificates) == 0 </span><span class="cov1" title="1">{
+                        return &amp;resourceStatusError{
+                                conditionType: string(gatewayv1.GatewayConditionAccepted),
+                                reason:        string(gatewayv1.GatewayReasonInvalidParameters),
+                                message: fmt.Sprintf(
+                                        "listener %s requires certificateRefs or %s TLS option",
+                                        listenerName,
+                                        ListenerTLSOptionOCICertificateOCID,
+                                ),
+                        }
+                }</span>
+                <span class="cov2" title="2">cert := params.listenerCertificates[0]
 
                 sslConfig = &amp;loadbalancer.SslConfigurationDetails{
                         CertificateName: cert.CertificateName,
-                }
-        }</span>
+                }</span>
+        }
 
-        <span class="cov5" title="8">var workRequestID string
-        if _, ok := params.knownListeners[listenerName]; ok </span><span class="cov3" title="3">{
+        <span class="cov6" title="10">var workRequestID string
+        if _, ok := params.knownListeners[listenerName]; ok </span><span class="cov4" title="5">{
                 updateDetails, hasChanges := makeOciListenerUpdateDetails(makeOciListenerUpdateDetailsParams{
                         existingListenerData:  params.knownListeners[listenerName],
                         listenerName:          listenerName,
@@ -6276,7 +6478,7 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
                         return nil
                 }</span>
 
-                <span class="cov2" title="2">m.logger.DebugContext(ctx, "Updating existing listener",
+                <span class="cov4" title="4">m.logger.DebugContext(ctx, "Updating existing listener",
                         slog.String("loadBalancerId", params.loadBalancerID),
                         slog.String("listenerName", listenerName),
                 )
@@ -6286,11 +6488,11 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
                         LoadBalancerId:        &amp;params.loadBalancerID,
                         UpdateListenerDetails: updateDetails,
                 })
-                if err != nil </span><span class="cov0" title="0">{
+                if err != nil </span><span class="cov1" title="1">{
                         return fmt.Errorf("failed to update listener %s: %w", listenerName, err)
                 }</span>
 
-                <span class="cov2" title="2">workRequestID = *updateRes.OpcWorkRequestId</span>
+                <span class="cov3" title="3">workRequestID = *updateRes.OpcWorkRequestId</span>
         } else<span class="cov4" title="5"> {
                 m.logger.InfoContext(ctx, "Listener not found, creating",
                         slog.String("loadBalancerId", params.loadBalancerID),
@@ -6315,14 +6517,14 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
                 <span class="cov4" title="4">workRequestID = *createRes.OpcWorkRequestId</span>
         }
 
-        <span class="cov5" title="6">if err := m.workRequestsWatcher.WaitFor(
+        <span class="cov5" title="7">if err := m.workRequestsWatcher.WaitFor(
                 ctx,
                 workRequestID,
         ); err != nil </span><span class="cov1" title="1">{
                 return fmt.Errorf("failed to wait for listener %s: %w", listenerName, err)
         }</span>
 
-        <span class="cov4" title="5">return nil</span>
+        <span class="cov5" title="6">return nil</span>
 }
 
 func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
@@ -6476,7 +6678,7 @@ func (m *ociLoadBalancerModelImpl) deleteMissingListener(
         ctx context.Context,
         loadBalancerID string,
         listener loadbalancer.Listener,
-) error <span class="cov6" title="9">{
+) error <span class="cov5" title="9">{
         m.logger.InfoContext(ctx, "Removing listener not found in gateway spec",
                 slog.String("listenerName", lo.FromPtr(listener.Name)),
                 slog.String("loadBalancerId", loadBalancerID),
@@ -6543,7 +6745,7 @@ func (m *ociLoadBalancerModelImpl) removeMissingListeners(
 
         <span class="cov5" title="6">var errs []error
         for listenerName, listener := range params.knownListeners </span><span class="cov7" title="15">{
-                if _, existsInGateway := gatewayListenerNames[listenerName]; !existsInGateway </span><span class="cov6" title="9">{
+                if _, existsInGateway := gatewayListenerNames[listenerName]; !existsInGateway </span><span class="cov5" title="9">{
                         if err := m.deleteMissingListener(ctx, params.loadBalancerID, listener); err != nil </span><span class="cov4" title="4">{
                                 m.logger.WarnContext(ctx, "Failed to delete listener, will try with others",
                                         diag.ErrAttr(err),
@@ -6613,16 +6815,16 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
         <span class="cov4" title="4">mergedRules := lo.Values(currentRulesByName)
 
         // Sort the rules: defaultCatchAllRuleName should be at the end
-        sort.Slice(mergedRules, func(i, j int) bool </span><span class="cov9" title="40">{
+        sort.Slice(mergedRules, func(i, j int) bool </span><span class="cov9" title="44">{
                 ruleI := lo.FromPtr(mergedRules[i].Name)
                 ruleJ := lo.FromPtr(mergedRules[j].Name)
                 if ruleI == defaultCatchAllRuleName </span><span class="cov2" title="2">{
                         return false
                 }</span>
-                <span class="cov9" title="38">if ruleJ == defaultCatchAllRuleName </span><span class="cov4" title="5">{
+                <span class="cov9" title="42">if ruleJ == defaultCatchAllRuleName </span><span class="cov5" title="6">{
                         return true
                 }</span>
-                <span class="cov9" title="33">return ruleI &lt; ruleJ</span>
+                <span class="cov9" title="36">return ruleI &lt; ruleJ</span>
         })
 
         <span class="cov4" title="4">updateRes, err := m.ociClient.UpdateRoutingPolicy(ctx, loadbalancer.UpdateRoutingPolicyRequest{
@@ -6712,7 +6914,7 @@ func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
         <span class="cov4" title="4">return nil</span>
 }
 
-func listenerPolicyName(listenerName string) string <span class="cov10" title="45">{
+func listenerPolicyName(listenerName string) string <span class="cov9" title="53">{
         // TODO: Sanitize the name, investigate docs for allowed characters
         return listenerName + "_policy"
 }</span>
@@ -6729,7 +6931,7 @@ var invalidCharsForPolicyNamePattern = regexp.MustCompile(`[^a-zA-Z0-9_]`)
 // ociListerPolicyRuleName returns the name of the routing rule for the listener policy.
 // It's expected that the rule name is unique within the listener policy for every route.
 // Names should also be sortable, so we're using a 4 digit index.
-func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string <span class="cov7" title="14">{
+func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string <span class="cov6" title="14">{
         rule := route.Spec.Rules[ruleIndex]
         nameParts := []string{route.Namespace, route.Name}
 
@@ -6737,7 +6939,7 @@ func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string <s
                 nameParts = append(nameParts, string(*rule.Name))
         }</span>
 
-        <span class="cov7" title="14">resultingName := fmt.Sprintf(
+        <span class="cov6" title="14">resultingName := fmt.Sprintf(
                 "p%04d_%08x_%s",
                 ruleIndex,
                 crc32.ChecksumIEEE([]byte(ociListenerPolicyRuleIdentity(ruleIndex, nameParts...))),
@@ -6794,48 +6996,63 @@ type makeOciListenerUpdateDetailsParams struct {
 
 func makeOciListenerUpdateDetails(
         params makeOciListenerUpdateDetailsParams,
-) (loadbalancer.UpdateListenerDetails, bool) <span class="cov6" title="9">{
+) (loadbalancer.UpdateListenerDetails, bool) <span class="cov6" title="13">{
         hasChanges := params.existingListenerData.Protocol == nil || *params.existingListenerData.Protocol != "HTTP"
 
         if params.existingListenerData.Port == nil || *params.existingListenerData.Port != int(params.listenerSpec.Port) </span><span class="cov3" title="3">{
                 hasChanges = true
         }</span>
 
-        <span class="cov6" title="9">if lo.FromPtr(params.existingListenerData.DefaultBackendSetName) != params.defaultBackendSetName </span><span class="cov3" title="3">{
+        <span class="cov6" title="13">if lo.FromPtr(params.existingListenerData.DefaultBackendSetName) != params.defaultBackendSetName </span><span class="cov3" title="3">{
                 hasChanges = true
         }</span>
 
-        <span class="cov6" title="9">expectedPolicyName := listenerPolicyName(params.listenerName)
+        <span class="cov6" title="13">expectedPolicyName := listenerPolicyName(params.listenerName)
         if lo.FromPtr(params.existingListenerData.RoutingPolicyName) != expectedPolicyName </span><span class="cov2" title="2">{
                 hasChanges = true
         }</span>
 
-        <span class="cov6" title="9">existingCertName := ""
+        <span class="cov6" title="13">existingCertName := ""
         if params.existingListenerData.SslConfiguration != nil &amp;&amp;
                 params.existingListenerData.SslConfiguration.CertificateName != nil </span><span class="cov2" title="2">{
                 existingCertName = *params.existingListenerData.SslConfiguration.CertificateName
         }</span>
+        <span class="cov6" title="13">existingCertIDs := normalizeCertificateIDs(nil)
+        if params.existingListenerData.SslConfiguration != nil </span><span class="cov4" title="4">{
+                existingCertIDs = normalizeCertificateIDs(params.existingListenerData.SslConfiguration.CertificateIds)
+        }</span>
 
-        <span class="cov6" title="9">newCertName := ""
+        <span class="cov6" title="13">newCertName := ""
         if params.sslConfig != nil &amp;&amp; params.sslConfig.CertificateName != nil </span><span class="cov3" title="3">{
                 newCertName = *params.sslConfig.CertificateName
         }</span>
+        <span class="cov6" title="13">newCertIDs := normalizeCertificateIDs(nil)
+        if params.sslConfig != nil </span><span class="cov5" title="7">{
+                newCertIDs = normalizeCertificateIDs(params.sslConfig.CertificateIds)
+        }</span>
 
-        <span class="cov6" title="9">if existingCertName != newCertName </span><span class="cov4" title="4">{
+        <span class="cov6" title="13">if existingCertName != newCertName || !slices.Equal(existingCertIDs, newCertIDs) </span><span class="cov5" title="7">{
                 hasChanges = true
         }</span>
 
-        <span class="cov6" title="9">if !hasChanges </span><span class="cov2" title="2">{
+        <span class="cov6" title="13">if !hasChanges </span><span class="cov3" title="3">{
                 return loadbalancer.UpdateListenerDetails{}, false
         }</span>
 
-        <span class="cov5" title="7">return loadbalancer.UpdateListenerDetails{
+        <span class="cov6" title="10">return loadbalancer.UpdateListenerDetails{
                 Protocol:              new("HTTP"),
                 Port:                  new(int(params.listenerSpec.Port)),
                 DefaultBackendSetName: new(params.defaultBackendSetName),
                 RoutingPolicyName:     new(expectedPolicyName),
                 SslConfiguration:      params.sslConfig,
         }, true</span>
+}
+
+func normalizeCertificateIDs(certificateIDs []string) []string <span class="cov9" title="37">{
+        if len(certificateIDs) == 0 </span><span class="cov8" title="33">{
+                return nil
+        }</span>
+        <span class="cov4" title="4">return certificateIDs</span>
 }
 
 type ociLoadBalancerModelDeps struct {
@@ -6848,7 +7065,7 @@ type ociLoadBalancerModelDeps struct {
         RoutingRulesMapper  ociLoadBalancerRoutingRulesMapper
 }
 
-func newOciLoadBalancerModel(deps ociLoadBalancerModelDeps) *ociLoadBalancerModelImpl <span class="cov9" title="44">{
+func newOciLoadBalancerModel(deps ociLoadBalancerModelDeps) *ociLoadBalancerModelImpl <span class="cov10" title="54">{
         return &amp;ociLoadBalancerModelImpl{
                 logger:              deps.RootLogger.WithGroup("oci-load-balancer-model"),
                 ociClient:           deps.OciClient,
@@ -6860,7 +7077,7 @@ func newOciLoadBalancerModel(deps ociLoadBalancerModelDeps) *ociLoadBalancerMode
 
 func ociCertificateNameFromSecret(
         secret corev1.Secret,
-) string <span class="cov9" title="41">{
+) string <span class="cov9" title="51">{
         return secret.Namespace + "-" + secret.Name + "-rev-" + secret.ResourceVersion
 }</span>
 </pre>
@@ -7249,6 +7466,7 @@ import (
         gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
         "github.com/gemyago/oke-gateway-api/internal/diag"
+        configtypes "github.com/gemyago/oke-gateway-api/internal/types"
 )
 
 const httpRouteBackendServiceIndexKey = ".metadata.backendRefs.serviceName" // Virtual field name, indexed
@@ -7268,7 +7486,7 @@ type WatchesModelDeps struct {
 }
 
 // NewWatchesModel creates a new watchesModel.
-func NewWatchesModel(deps WatchesModelDeps) *WatchesModel <span class="cov10" title="31">{
+func NewWatchesModel(deps WatchesModelDeps) *WatchesModel <span class="cov10" title="33">{
         return &amp;WatchesModel{
                 k8sClient: deps.K8sClient,
                 logger:    deps.Logger.WithGroup("watches-model"),
@@ -7352,7 +7570,7 @@ func (m *WatchesModel) indexHTTPRouteByBackendService(ctx context.Context, obj c
         for _, rule := range httpRoute.Spec.Rules </span><span class="cov5" title="6">{
                 for _, backendRef := range rule.BackendRefs </span><span class="cov8" title="17">{
                         ns := httpRoute.Namespace
-                        if backendRef.BackendObjectReference.Namespace != nil </span><span class="cov8" title="15">{
+                        if backendRef.BackendObjectReference.Namespace != nil </span><span class="cov7" title="15">{
                                 ns = string(*backendRef.BackendObjectReference.Namespace)
                         }</span>
                         <span class="cov8" title="17">namespacedName := path.Join(
@@ -7497,6 +7715,50 @@ func (m *WatchesModel) MapEndpointSliceToHTTPRoute(ctx context.Context, obj clie
         }
 
         <span class="cov2" title="2">return requests</span>
+}
+
+// MapGatewayConfigToGateway maps GatewayConfig events to Gateway reconcile requests.
+// Its signature matches handler.MapFunc.
+func (m *WatchesModel) MapGatewayConfigToGateway(ctx context.Context, obj client.Object) []reconcile.Request <span class="cov3" title="3">{
+        config, ok := obj.(*configtypes.GatewayConfig)
+        if !ok </span><span class="cov1" title="1">{
+                m.logger.WarnContext(ctx, "Received non-GatewayConfig object", slog.Any("object", obj))
+                return nil
+        }</span>
+
+        <span class="cov2" title="2">var gatewayList gatewayv1.GatewayList
+        if err := m.k8sClient.List(ctx, &amp;gatewayList, client.InNamespace(config.Namespace)); err != nil </span><span class="cov1" title="1">{
+                m.logger.ErrorContext(ctx, "Failed to list Gateways for GatewayConfig change",
+                        slog.String("gatewayConfig", client.ObjectKeyFromObject(config).String()),
+                        diag.ErrAttr(err),
+                )
+                return nil
+        }</span>
+
+        <span class="cov1" title="1">requests := make([]reconcile.Request, 0)
+        for _, gateway := range gatewayList.Items </span><span class="cov5" title="5">{
+                if gateway.DeletionTimestamp != nil ||
+                        gateway.Annotations == nil ||
+                        gateway.Annotations[ControllerClassName] != "true" ||
+                        gateway.Spec.Infrastructure == nil ||
+                        gateway.Spec.Infrastructure.ParametersRef == nil ||
+                        gateway.Spec.Infrastructure.ParametersRef.Name != config.Name </span><span class="cov4" title="4">{
+                        continue</span>
+                }
+
+                <span class="cov1" title="1">requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&amp;gateway)})
+                m.logger.InfoContext(ctx,
+                        "Queueing Gateway for reconciliation due to GatewayConfig change",
+                        slog.String("gateway", client.ObjectKeyFromObject(&amp;gateway).String()),
+                        slog.String("gatewayConfig", client.ObjectKeyFromObject(config).String()),
+                        slog.String("resourceVersion", gateway.ResourceVersion),
+                        slog.Int64("generation", gateway.Generation),
+                        slog.String("gatewayConfigResourceVersion", config.ResourceVersion),
+                        slog.Int64("gatewayConfigGeneration", config.Generation),
+                )</span>
+        }
+
+        <span class="cov1" title="1">return requests</span>
 }
 
 // MapSecretToGateway maps Secret events to Gateway reconcile requests.
@@ -7846,7 +8108,7 @@ func ProvideFactoryAs[
 
 import "log/slog"
 
-func ErrAttr(err error) slog.Attr <span class="cov10" title="16">{
+func ErrAttr(err error) slog.Attr <span class="cov10" title="17">{
         return slog.Any("err", err)
 }</span>
 </pre>
@@ -8114,25 +8376,25 @@ type diagLogHandler struct {
         target slog.Handler
 }
 
-func (h *diagLogHandler) Enabled(ctx context.Context, lvl slog.Level) bool <span class="cov9" title="282">{
+func (h *diagLogHandler) Enabled(ctx context.Context, lvl slog.Level) bool <span class="cov9" title="303">{
         return h.target.Enabled(ctx, lvl)
 }</span>
 
-func (h *diagLogHandler) Handle(ctx context.Context, rec slog.Record) error <span class="cov10" title="284">{
+func (h *diagLogHandler) Handle(ctx context.Context, rec slog.Record) error <span class="cov10" title="305">{
         if diagAttributes, ok := ctx.Value(contextDiagAttrs).(LogAttributes); ok </span><span class="cov2" title="2">{
                 rec.AddAttrs(
                         slog.Attr{Key: "correlationId", Value: diagAttributes.CorrelationID},
                 )
         }</span>
 
-        <span class="cov10" title="284">return h.target.Handle(ctx, rec)</span>
+        <span class="cov10" title="305">return h.target.Handle(ctx, rec)</span>
 }
 
-func (h *diagLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler <span class="cov9" title="226">{
+func (h *diagLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler <span class="cov9" title="238">{
         return &amp;diagLogHandler{target: h.target.WithAttrs(attrs)}
 }</span>
 
-func (h *diagLogHandler) WithGroup(name string) slog.Handler <span class="cov9" title="225">{
+func (h *diagLogHandler) WithGroup(name string) slog.Handler <span class="cov9" title="237">{
         // Using WithAttrs here since group will nest all the attributes
         // inside of it (including correlationId), which makes it harder to
         // filter logs by the correlationId.
@@ -8151,23 +8413,23 @@ type RootLoggerOpts struct {
         logLevel slog.Level
 }
 
-func NewRootLoggerOpts() *RootLoggerOpts <span class="cov9" title="211">{
+func NewRootLoggerOpts() *RootLoggerOpts <span class="cov9" title="223">{
         return &amp;RootLoggerOpts{
                 output: os.Stdout,
         }
 }</span>
 
-func (opts *RootLoggerOpts) WithJSONLogs(value bool) *RootLoggerOpts <span class="cov9" title="209">{
+func (opts *RootLoggerOpts) WithJSONLogs(value bool) *RootLoggerOpts <span class="cov9" title="221">{
         opts.jsonLogs = value
         return opts
 }</span>
 
-func (opts *RootLoggerOpts) WithLogLevel(logLevel slog.Level) *RootLoggerOpts <span class="cov9" title="209">{
+func (opts *RootLoggerOpts) WithLogLevel(logLevel slog.Level) *RootLoggerOpts <span class="cov9" title="221">{
         opts.logLevel = logLevel
         return opts
 }</span>
 
-func (opts *RootLoggerOpts) WithOutput(output io.Writer) *RootLoggerOpts <span class="cov9" title="207">{
+func (opts *RootLoggerOpts) WithOutput(output io.Writer) *RootLoggerOpts <span class="cov9" title="219">{
         opts.output = output
         return opts
 }</span>
@@ -8184,15 +8446,15 @@ func (opts *RootLoggerOpts) WithOptionalOutputFile(outputFile string) *RootLogge
         return opts</span>
 }
 
-func SetupRootLogger(opts *RootLoggerOpts) *slog.Logger <span class="cov9" title="211">{
+func SetupRootLogger(opts *RootLoggerOpts) *slog.Logger <span class="cov9" title="223">{
         logHandlerOpts := &amp;slog.HandlerOptions{Level: opts.logLevel}
         var logHandler slog.Handler
-        if opts.jsonLogs </span><span class="cov9" title="207">{
+        if opts.jsonLogs </span><span class="cov9" title="219">{
                 logHandler = slog.NewJSONHandler(opts.output, logHandlerOpts)
         }</span> else<span class="cov3" title="4"> {
                 logHandler = slog.NewTextHandler(opts.output, logHandlerOpts)
         }</span>
-        <span class="cov9" title="211">return slog.New(&amp;diagLogHandler{target: logHandler})</span>
+        <span class="cov9" title="223">return slog.New(&amp;diagLogHandler{target: logHandler})</span>
 }
 </pre>
 		
@@ -8225,7 +8487,7 @@ func openTestLogFile() *os.File <span class="cov4" title="10">{
 
 var testOutput = openTestLogFile() //nolint:gochecknoglobals //it's ok for tests
 
-func RootTestLogger() *slog.Logger <span class="cov10" title="206">{
+func RootTestLogger() *slog.Logger <span class="cov10" title="218">{
         return SetupRootLogger(
                 NewRootLoggerOpts().WithOutput(testOutput).WithLogLevel(slog.LevelDebug).WithJSONLogs(true),
         )
@@ -8337,6 +8599,7 @@ import (
         gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
         "github.com/gemyago/oke-gateway-api/internal/app"
+        configtypes "github.com/gemyago/oke-gateway-api/internal/types"
 )
 
 // StartManagerDeps contains the dependencies for the controller manager.
@@ -8410,6 +8673,11 @@ func StartManager(ctx context.Context, deps StartManagerDeps) error <span class=
                                         },
                                         predicate.ResourceVersionChangedPredicate{},
                                 )),
+                        ).
+                        Watches(
+                                &amp;configtypes.GatewayConfig{},
+                                handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapGatewayConfigToGateway),
+                                builder.WithPredicates(predicate.GenerationChangedPredicate{}),
                         ).
                         Complete(wireupReconciler(deps.GatewayCtrl, middlewares...)); err != nil <span class="cov0" title="0">{
                         return fmt.Errorf("failed to setup Gateway controller: %w", err)
@@ -9461,14 +9729,14 @@ func NewTestShutdownHooks() *ShutdownHooks <span class="cov1" title="1">{
         })
 }</span>
 
-func RandomString(length int) string <span class="cov9" title="10">{
+func RandomString(length int) string <span class="cov8" title="10">{
         fake := faker.New()
         segmentsCount := math.Ceil(float64(length) / randomStringSegmentLength)
         segments := make([]string, int(segmentsCount))
-        for i := range segments </span><span class="cov10" title="12">{
+        for i := range segments </span><span class="cov10" title="16">{
                 segments[i] = fake.Numerify("################################")
         }</span>
-        <span class="cov9" title="10">return strings.Join(segments, "")[:length]</span>
+        <span class="cov8" title="10">return strings.Join(segments, "")[:length]</span>
 }
 </pre>
 		
