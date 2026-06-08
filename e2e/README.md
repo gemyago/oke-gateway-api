@@ -78,7 +78,7 @@ direnv exec . make -C e2e lint
 direnv exec . make -C e2e test
 direnv exec . make -C e2e compile
 direnv exec . make -C e2e run-e2e-tests
-direnv exec . make -C e2e cleanup
+direnv exec . make -C e2e infra-cleanup
 ```
 
 These Make targets load `e2e/.envrc` in the `e2e/` working directory, so its safe defaults and
@@ -110,9 +110,9 @@ The e2e module currently provides:
   rule names disappear from the listener routing policy, and leaves full disposable load balancer
   reset to the separate cleanup command.
 
-## Cleanup Command
+## Infra Cleanup Command
 
-`direnv exec . make -C e2e cleanup` is an operator command for resetting disposable OCI load
+`direnv exec . make -C e2e infra-cleanup` is an operator command for resetting disposable OCI load
 balancer state outside the initial live test run.
 
 Current cleanup behavior:

@@ -13,7 +13,7 @@
   - `direnv exec . make -C e2e lint`
   - `direnv exec . make -C e2e test`
   - `direnv exec . make -C e2e compile`
-  - `direnv exec . make -C e2e cleanup`
+  - `direnv exec . make -C e2e infra-cleanup`
 - Live e2e status: not run.
 - Root repo files changed: none.
 

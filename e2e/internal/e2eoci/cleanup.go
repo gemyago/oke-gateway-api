@@ -145,17 +145,21 @@ func (c *LoadBalancerCleaner) Cleanup(
 		ctx,
 		"resetting disposable load balancer children",
 		slog.String("publicIP", disposableLoadBalancer.PublicIP),
-		slog.Int("listenerCount", len(disposableLoadBalancer.ListenerNames)),
-		slog.Int("routingPolicyCount", len(disposableLoadBalancer.RoutingPolicyNames)),
-		slog.Int("backendSetCount", len(disposableLoadBalancer.BackendSetNames)),
+		slog.String("loadBalancerID", loadBalancerID),
 	)
 
+	c.logger.InfoContext(ctx, "deleting listeners", slog.Any("listenerNames", disposableLoadBalancer.ListenerNames))
 	deletedListeners, err := c.deleteListeners(ctx, loadBalancerID, disposableLoadBalancer.ListenerNames)
 	if err != nil {
 		return nil, err
 	}
 	result.DeletedListeners = deletedListeners
 
+	c.logger.InfoContext(
+		ctx,
+		"deleting routing policies",
+		slog.Any("routingPolicyNames", disposableLoadBalancer.RoutingPolicyNames),
+	)
 	deletedRoutingPolicies, err := c.deleteRoutingPolicies(
 		ctx,
 		loadBalancerID,
@@ -166,6 +170,11 @@ func (c *LoadBalancerCleaner) Cleanup(
 	}
 	result.DeletedRoutingPolicies = deletedRoutingPolicies
 
+	c.logger.InfoContext(
+		ctx,
+		"deleting backend sets",
+		slog.Any("backendSetNames", disposableLoadBalancer.BackendSetNames),
+	)
 	deletedBackendSets, err := c.deleteBackendSets(ctx, loadBalancerID, disposableLoadBalancer.BackendSetNames)
 	if err != nil {
 		return nil, err

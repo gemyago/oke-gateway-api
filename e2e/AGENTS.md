@@ -32,9 +32,8 @@
 ## Environment
 
 - Run project shell commands from the repo root via `direnv exec . <command>`.
-- Put live local values in ignored `e2e/.envrc.local`.
-- The `e2e` Make targets load `e2e/.envrc` from the `e2e/` working directory so those values load
-  under the root workflow.
+- User must prepare `e2e/.envrc.local` with actual values. **DO NOT** read this file.
+- The `e2e` Make targets load `e2e/.envrc` from the `e2e/` working directory so those values load under the root workflow.
 - Keep only safe defaults in committed files.
 
 ## Local Commands
@@ -43,13 +42,25 @@
 - Test: `direnv exec . make -C e2e test` (support-only)
 - Live e2e: `direnv exec . make -C e2e run-e2e-tests`
 - Compile: `direnv exec . make -C e2e compile`
-- Cleanup: `direnv exec . make -C e2e cleanup`
+- Infra cleanup: `direnv exec . make -C e2e infra-cleanup`
 
-## Completion
+## Task Completion Protocol
 
-For bootstrap or code changes under `e2e/`:
-1. Run the relevant `e2e` make targets through `direnv exec .` from the repo root.
-2. Do not run live e2e unless the required infrastructure inputs are present and the task asks for
-   it. Missing required live config should fail the live path instead of downgrading it into an
-   offline check.
-3. Append a completion entry to `e2e/implementation-progress.md`.
+### Coding Task Completion Protocol
+
+Apply this when any Go, YAML, config, or other code-related files changed.
+
+Always do all of the following before reporting completion:
+1. Run `direnv exec . make lint` and confirm no errors.
+2. Run `direnv exec . make compile` and confirm everything builds.
+3. Run `direnv exec . make test` and confirm all tests pass.
+4. Update this file if commands, workflows, or architecture changed.
+
+Report completion status:
+- Lint/Compile: ✓ no errors
+- Tests: ✓ all passing, coverage XX.XX%
+- AGENTS.md: ✓ updated / no changes needed
+
+### Non-Coding Task Completion Protocol
+
+Same as root.
