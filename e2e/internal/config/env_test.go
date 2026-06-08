@@ -21,6 +21,7 @@ func TestLoadFromEnv(t *testing.T) {
 				WithLookupEnv(lookupEnvFromMap(map[string]string{
 					envLoadBalancerID:      "ocid1.loadbalancer.oc1..example",
 					envKubeconfig:          "/tmp/kubeconfig",
+					envKubeContext:         "oke-live",
 					envNamespacePrefix:     "suite-",
 					envGatewayClassName:    "custom-class",
 					envHTTPPort:            "8080",
@@ -39,6 +40,7 @@ func TestLoadFromEnv(t *testing.T) {
 		assertEqual(t, "custom-class", cfg.GatewayClassName)
 		assertEqual(t, 8080, cfg.HTTPPort)
 		assertEqual(t, "/tmp/kubeconfig", cfg.Kubernetes.KubeconfigPath)
+		assertEqual(t, "oke-live", cfg.Kubernetes.Context)
 		assertEqual(t, "ocid1.loadbalancer.oc1..example", cfg.OCI.LoadBalancerID)
 		assertEqual(t, "/tmp/oci-config", cfg.OCI.ConfigFile)
 		assertEqual(t, "DEFAULT", cfg.OCI.ConfigProfile)
@@ -53,6 +55,7 @@ func TestLoadFromEnv(t *testing.T) {
 			NewLoadOptions().
 				WithLookupEnv(lookupEnvFromMap(map[string]string{
 					envLoadBalancerID:      "ocid1.loadbalancer.oc1..example",
+					envKubeContext:         "oke-live",
 					envOCIConfigFile:       "/tmp/primary-config",
 					envOCIConfigFileAlt:    "/tmp/fallback-config",
 					envOCIConfigProfile:    "PRIMARY",
@@ -70,6 +73,7 @@ func TestLoadFromEnv(t *testing.T) {
 		assertEqual(t, defaultControllerBin, cfg.Controller.BinPath)
 		assertFalse(t, cfg.Controller.SkipStart)
 		assertEqual(t, "", cfg.Kubernetes.KubeconfigPath)
+		assertEqual(t, "oke-live", cfg.Kubernetes.Context)
 		assertEqual(t, "/tmp/primary-config", cfg.OCI.ConfigFile)
 		assertEqual(t, "PRIMARY", cfg.OCI.ConfigProfile)
 	})
@@ -88,6 +92,7 @@ func TestLoadFromEnv(t *testing.T) {
 				}),
 		)
 		assertErrorContains(t, err, envLoadBalancerID+" is required")
+		assertErrorContains(t, err, envKubeContext+" is required")
 		assertErrorContains(t, err, envHTTPPort+" must be a valid integer")
 		assertErrorContains(t, err, envSkipController+" must be a valid boolean")
 		assertErrorContains(t, err, envControllerBin+" points to missing file")
@@ -101,6 +106,7 @@ func TestLoadFromEnv(t *testing.T) {
 				WithLookupEnv(lookupEnvFromMap(map[string]string{
 					envLoadBalancerID: "ocid1.loadbalancer.oc1..example",
 					envKubeconfig:     "/tmp/kubeconfig",
+					envKubeContext:    "oke-live",
 					envControllerBin:  "/tmp/missing-controller",
 					envSkipController: "true",
 				})).
@@ -112,6 +118,7 @@ func TestLoadFromEnv(t *testing.T) {
 		assertNoError(t, err)
 		assertEqual(t, "/tmp/missing-controller", cfg.Controller.BinPath)
 		assertTrue(t, cfg.Controller.SkipStart)
+		assertEqual(t, "oke-live", cfg.Kubernetes.Context)
 	})
 
 	t.Run("rejects non-positive ports", func(t *testing.T) {
@@ -122,6 +129,7 @@ func TestLoadFromEnv(t *testing.T) {
 				WithLookupEnv(lookupEnvFromMap(map[string]string{
 					envLoadBalancerID: "ocid1.loadbalancer.oc1..example",
 					envKubeconfig:     "/tmp/kubeconfig",
+					envKubeContext:    "oke-live",
 					envHTTPPort:       "0",
 				})).
 				WithStat(func(name string) (fs.FileInfo, error) {
@@ -141,6 +149,7 @@ func TestConfigLogAttrs(t *testing.T) {
 		HTTPPort:         8080,
 		Kubernetes: KubernetesConfig{
 			KubeconfigPath: "/tmp/kubeconfig",
+			Context:        "oke-live",
 		},
 		OCI: OCIConfig{
 			LoadBalancerID: "ocid1.loadbalancer.oc1..secret",
@@ -157,6 +166,7 @@ func TestConfigLogAttrs(t *testing.T) {
 	assertEqual(t, "suite-", attrs["namespacePrefix"].Value.String())
 	assertEqual(t, "gw-class", attrs["gatewayClassName"].Value.String())
 	assertEqual(t, int64(8080), attrs["httpPort"].Value.Int64())
+	assertEqual(t, "oke-live", attrs["kubeContext"].Value.String())
 	assertEqual(t, "/tmp/controller", attrs["controllerBin"].Value.String())
 	assertTrue(t, attrs["skipControllerStart"].Value.Bool())
 	assertTrue(t, attrs["kubeconfigSet"].Value.Bool())

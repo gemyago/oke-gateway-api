@@ -2,16 +2,21 @@ package controllerproc
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
 	"github.com/gemyago/oke-gateway-api/e2e/internal/config"
 )
@@ -56,10 +61,15 @@ type Process struct {
 	logf        func(string, ...any)
 	stopTimeout time.Duration
 	cmd         *exec.Cmd
-	waitDone    chan error
+	exitDone    chan struct{}
+	exitErr     error
 	streamsDone chan struct{}
+	cleanup     func()
 	stopOnce    sync.Once
 	stopErr     error
+	logMu       sync.Mutex
+	logLines    []string
+	logWait     chan struct{}
 }
 
 func NewStartOptions() *StartOptions {
@@ -93,6 +103,66 @@ func (opts *StartOptions) WithStopTimeout(timeout time.Duration) *StartOptions {
 func Start(t TestLogSink, cfg config.Config, opts *StartOptions) (*Process, error) {
 	t.Helper()
 
+	opts = normalizeStartOptions(opts)
+
+	if cfg.Controller.SkipStart {
+		t.Logf("controller start skipped because %s=true", envSkipController)
+		return &Process{
+			path:        cfg.Controller.BinPath,
+			skipped:     true,
+			logf:        t.Logf,
+			stopTimeout: opts.stopTimeout,
+			exitDone:    closedSignalChannel(),
+			streamsDone: closedSignalChannel(),
+			cleanup:     func() {},
+			logWait:     make(chan struct{}),
+		}, nil
+	}
+
+	cmd, stdout, stderr, cleanupControllerKubeconfig, err := prepareStartedCommand(cfg, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	streamsDone := make(chan struct{})
+	proc := &Process{
+		path:        cfg.Controller.BinPath,
+		pid:         cmd.Process.Pid,
+		logf:        t.Logf,
+		stopTimeout: opts.stopTimeout,
+		cmd:         cmd,
+		exitDone:    make(chan struct{}),
+		streamsDone: streamsDone,
+		cleanup:     cleanupControllerKubeconfig,
+		logWait:     make(chan struct{}),
+	}
+
+	var streamGroup sync.WaitGroup
+	streamGroup.Add(controllerStreamCount)
+	go copyToTestLog(t, proc, "stdout", stdout, &streamGroup)
+	go copyToTestLog(t, proc, "stderr", stderr, &streamGroup)
+	go func() {
+		streamGroup.Wait()
+		close(streamsDone)
+	}()
+
+	go func() {
+		proc.exitErr = cmd.Wait()
+		close(proc.exitDone)
+	}()
+
+	t.Logf("started controller process pid=%d path=%q", proc.pid, proc.path)
+	t.Cleanup(func() {
+		stopErr := proc.Stop()
+		if stopErr != nil {
+			t.Errorf("stop controller process: %v", stopErr)
+		}
+	})
+
+	return proc, nil
+}
+
+func normalizeStartOptions(opts *StartOptions) *StartOptions {
 	if opts == nil {
 		opts = NewStartOptions()
 	}
@@ -109,75 +179,7 @@ func Start(t TestLogSink, cfg config.Config, opts *StartOptions) (*Process, erro
 		opts.stopTimeout = defaultStopTimeout
 	}
 
-	if cfg.Controller.SkipStart {
-		t.Logf("controller start skipped because %s=true", envSkipController)
-		return &Process{
-			path:        cfg.Controller.BinPath,
-			skipped:     true,
-			logf:        t.Logf,
-			stopTimeout: opts.stopTimeout,
-			waitDone:    closedWaitChannel(nil),
-			streamsDone: closedSignalChannel(),
-		}, nil
-	}
-
-	if err := validateControllerBinary(cfg.Controller.BinPath, opts.stat); err != nil {
-		return nil, err
-	}
-
-	cmd := opts.command(cfg.Controller.BinPath, "start")
-	cmd.Env = buildControllerEnv(cfg, opts.environ)
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("prepare controller stdout pipe: %w", err)
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, fmt.Errorf("prepare controller stderr pipe: %w", err)
-	}
-
-	startErr := cmd.Start()
-	if startErr != nil {
-		return nil, fmt.Errorf("start controller binary %q: %w", cfg.Controller.BinPath, startErr)
-	}
-
-	streamsDone := make(chan struct{})
-	var streamGroup sync.WaitGroup
-	streamGroup.Add(controllerStreamCount)
-	go copyToTestLog(t, "stdout", stdout, &streamGroup)
-	go copyToTestLog(t, "stderr", stderr, &streamGroup)
-	go func() {
-		streamGroup.Wait()
-		close(streamsDone)
-	}()
-
-	waitDone := make(chan error, 1)
-	go func() {
-		waitDone <- cmd.Wait()
-		close(waitDone)
-	}()
-
-	proc := &Process{
-		path:        cfg.Controller.BinPath,
-		pid:         cmd.Process.Pid,
-		logf:        t.Logf,
-		stopTimeout: opts.stopTimeout,
-		cmd:         cmd,
-		waitDone:    waitDone,
-		streamsDone: streamsDone,
-	}
-
-	t.Logf("started controller process pid=%d path=%q", proc.pid, proc.path)
-	t.Cleanup(func() {
-		stopErr := proc.Stop()
-		if stopErr != nil {
-			t.Errorf("stop controller process: %v", stopErr)
-		}
-	})
-
-	return proc, nil
+	return opts
 }
 
 func (p *Process) PID() int {
@@ -209,6 +211,8 @@ func (p *Process) Stop() error {
 }
 
 func (p *Process) stop() error {
+	defer p.cleanupResources()
+
 	if p.skipped {
 		return nil
 	}
@@ -222,6 +226,41 @@ func (p *Process) stop() error {
 	}
 
 	return p.stopRunningProcess()
+}
+
+func (p *Process) WaitForLog(ctx context.Context, fragment string) error {
+	if p == nil {
+		return errors.New("controller process is required")
+	}
+
+	fragment = strings.TrimSpace(fragment)
+	if fragment == "" {
+		return errors.New("controller log fragment is required")
+	}
+
+	for {
+		found, logWait := p.waitForLogState(fragment)
+		if found {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for controller log %q: %w", fragment, ctx.Err())
+		case <-logWait:
+		case <-p.exitDone:
+			p.awaitStreams()
+			if p.containsLogLine(fragment) {
+				return nil
+			}
+
+			if p.exitErr != nil {
+				return fmt.Errorf("controller process exited before log %q: %w", fragment, p.exitErr)
+			}
+
+			return fmt.Errorf("controller process exited before log %q", fragment)
+		}
+	}
 }
 
 func (p *Process) handleExitedProcess(waitErr error) error {
@@ -255,8 +294,8 @@ func (p *Process) waitForExitAfterSignal() error {
 	defer timer.Stop()
 
 	select {
-	case waitErr := <-p.waitDone:
-		return p.handleSignalWaitResult(waitErr)
+	case <-p.exitDone:
+		return p.handleSignalWaitResult(p.exitErr)
 	case <-timer.C:
 		return p.killAfterTimeout()
 	}
@@ -285,7 +324,8 @@ func (p *Process) killAfterTimeout() error {
 		return fmt.Errorf("kill controller process pid=%d: %w", p.pid, killErr)
 	}
 
-	waitErr := <-p.waitDone
+	<-p.exitDone
+	waitErr := p.exitErr
 	p.awaitStreams()
 	if waitErr != nil && !isSignaledExit(waitErr) {
 		return fmt.Errorf("wait for killed controller process pid=%d: %w", p.pid, waitErr)
@@ -306,8 +346,8 @@ func isSignaledExit(err error) bool {
 
 func (p *Process) waitResultNonBlocking() (bool, error) {
 	select {
-	case err := <-p.waitDone:
-		return true, err
+	case <-p.exitDone:
+		return true, p.exitErr
 	default:
 		return false, nil
 	}
@@ -319,6 +359,55 @@ func (p *Process) awaitStreams() {
 	}
 
 	<-p.streamsDone
+}
+
+func (p *Process) appendLogLine(line string) {
+	if p == nil {
+		return
+	}
+
+	p.logMu.Lock()
+	p.logLines = append(p.logLines, line)
+	logWait := p.logWait
+	p.logWait = make(chan struct{})
+	p.logMu.Unlock()
+
+	close(logWait)
+}
+
+func (p *Process) waitForLogState(fragment string) (bool, chan struct{}) {
+	p.logMu.Lock()
+	defer p.logMu.Unlock()
+
+	for _, line := range p.logLines {
+		if strings.Contains(line, fragment) {
+			return true, nil
+		}
+	}
+
+	return false, p.logWait
+}
+
+func (p *Process) containsLogLine(fragment string) bool {
+	p.logMu.Lock()
+	defer p.logMu.Unlock()
+
+	for _, line := range p.logLines {
+		if strings.Contains(line, fragment) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (p *Process) cleanupResources() {
+	if p == nil || p.cleanup == nil {
+		return
+	}
+
+	p.cleanup()
+	p.cleanup = nil
 }
 
 func validateControllerBinary(path string, stat func(string) (fs.FileInfo, error)) error {
@@ -346,14 +435,150 @@ func validateControllerBinary(path string, stat func(string) (fs.FileInfo, error
 	return fmt.Errorf("stat %s at %q: %w", envControllerBin, path, err)
 }
 
-func buildControllerEnv(cfg config.Config, environ []string) []string {
+func prepareStartedCommand(
+	cfg config.Config,
+	opts *StartOptions,
+) (*exec.Cmd, io.ReadCloser, io.ReadCloser, func(), error) {
+	if err := validateControllerBinary(cfg.Controller.BinPath, opts.stat); err != nil {
+		return nil, nil, nil, func() {}, err
+	}
+
+	controllerKubeconfigPath, cleanupControllerKubeconfig, err := prepareControllerKubeconfig(
+		cfg,
+		opts.environ,
+	)
+	if err != nil {
+		return nil, nil, nil, func() {}, err
+	}
+
+	cmd := opts.command(cfg.Controller.BinPath, "start")
+	cmd.Env = buildControllerEnv(cfg, opts.environ, controllerKubeconfigPath)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		cleanupControllerKubeconfig()
+		return nil, nil, nil, func() {}, fmt.Errorf("prepare controller stdout pipe: %w", err)
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		cleanupControllerKubeconfig()
+		return nil, nil, nil, func() {}, fmt.Errorf("prepare controller stderr pipe: %w", err)
+	}
+
+	if startErr := cmd.Start(); startErr != nil {
+		cleanupControllerKubeconfig()
+		return nil, nil, nil, func() {}, fmt.Errorf(
+			"start controller binary %q: %w",
+			cfg.Controller.BinPath,
+			startErr,
+		)
+	}
+
+	return cmd, stdout, stderr, cleanupControllerKubeconfig, nil
+}
+
+func prepareControllerKubeconfig(cfg config.Config, environ []string) (string, func(), error) {
+	if strings.TrimSpace(cfg.Kubernetes.Context) == "" {
+		return cfg.Kubernetes.KubeconfigPath, func() {}, nil
+	}
+
+	rawConfig, err := loadKubeconfig(cfg.Kubernetes.KubeconfigPath, environ)
+	if err != nil {
+		return "", func() {}, fmt.Errorf(
+			"load kubeconfig for controller context %q: %w",
+			cfg.Kubernetes.Context,
+			err,
+		)
+	}
+
+	shapedConfig, err := shapeKubeconfigForContext(rawConfig, cfg.Kubernetes.Context)
+	if err != nil {
+		return "", func() {}, err
+	}
+
+	tempDir, err := os.MkdirTemp("", "oke-e2e-controller-kubeconfig-")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("create temporary kubeconfig directory: %w", err)
+	}
+
+	kubeconfigPath := filepath.Join(tempDir, "config")
+	if writeErr := clientcmd.WriteToFile(*shapedConfig, kubeconfigPath); writeErr != nil {
+		_ = os.RemoveAll(tempDir)
+		return "", func() {}, fmt.Errorf(
+			"write controller kubeconfig for context %q: %w",
+			cfg.Kubernetes.Context,
+			writeErr,
+		)
+	}
+
+	return kubeconfigPath, func() {
+		_ = os.RemoveAll(tempDir)
+	}, nil
+}
+
+func loadKubeconfig(kubeconfigPath string, environ []string) (*clientcmdapi.Config, error) {
+	loader := clientcmd.NewDefaultClientConfigLoadingRules()
+	if strings.TrimSpace(kubeconfigPath) != "" {
+		loader.ExplicitPath = kubeconfigPath
+	} else if inheritedPath, ok := envValue(environ, envKubeconfig); ok {
+		loader.Precedence = filepath.SplitList(inheritedPath)
+	}
+
+	return loader.Load()
+}
+
+func shapeKubeconfigForContext(rawConfig *clientcmdapi.Config, contextName string) (*clientcmdapi.Config, error) {
+	if rawConfig == nil {
+		return nil, errors.New("kubeconfig is required")
+	}
+
+	selectedContext, contextFound := rawConfig.Contexts[contextName]
+	if !contextFound {
+		return nil, fmt.Errorf("kubeconfig missing required context %q", contextName)
+	}
+
+	shapedConfig := clientcmdapi.NewConfig()
+	shapedConfig.CurrentContext = contextName
+	shapedConfig.Contexts[contextName] = selectedContext.DeepCopy()
+
+	if selectedContext.Cluster != "" {
+		cluster, clusterFound := rawConfig.Clusters[selectedContext.Cluster]
+		if !clusterFound {
+			return nil, fmt.Errorf(
+				"kubeconfig context %q references missing cluster %q",
+				contextName,
+				selectedContext.Cluster,
+			)
+		}
+
+		shapedConfig.Clusters[selectedContext.Cluster] = cluster.DeepCopy()
+	}
+
+	if selectedContext.AuthInfo != "" {
+		authInfo, authInfoFound := rawConfig.AuthInfos[selectedContext.AuthInfo]
+		if !authInfoFound {
+			return nil, fmt.Errorf(
+				"kubeconfig context %q references missing auth info %q",
+				contextName,
+				selectedContext.AuthInfo,
+			)
+		}
+
+		shapedConfig.AuthInfos[selectedContext.AuthInfo] = authInfo.DeepCopy()
+	}
+
+	return shapedConfig, nil
+}
+
+func buildControllerEnv(cfg config.Config, environ []string, controllerKubeconfigPath string) []string {
 	if len(environ) == 0 {
 		environ = os.Environ()
 	}
 
 	env := append([]string(nil), environ...)
-	if cfg.Kubernetes.KubeconfigPath != "" {
-		env = upsertEnv(env, envKubeconfig, cfg.Kubernetes.KubeconfigPath)
+	if controllerKubeconfigPath != "" {
+		env = upsertEnv(env, envKubeconfig, controllerKubeconfigPath)
 	}
 	env = upsertEnv(env, envK8sAPINoop, "false")
 	env = upsertEnv(env, envOCIAPINoop, "false")
@@ -388,25 +613,33 @@ func upsertEnv(environ []string, key string, value string) []string {
 	return append(environ, entry)
 }
 
-func copyToTestLog(t TestLogSink, streamName string, reader io.Reader, wg *sync.WaitGroup) {
+func envValue(environ []string, key string) (string, bool) {
+	for _, entry := range environ {
+		currentKey, currentValue, found := strings.Cut(entry, "=")
+		if found && currentKey == key {
+			return currentValue, true
+		}
+	}
+
+	return "", false
+}
+
+func copyToTestLog(t TestLogSink, proc *Process, streamName string, reader io.Reader, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, streamScannerBufferSize), streamScannerMaxToken)
 	for scanner.Scan() {
-		t.Logf("controller %s: %s", streamName, scanner.Text())
+		line := fmt.Sprintf("controller %s: %s", streamName, scanner.Text())
+		proc.appendLogLine(line)
+		t.Logf("%s", line)
 	}
 
 	if err := scanner.Err(); err != nil {
-		t.Logf("controller %s read error: %v", streamName, err)
+		line := fmt.Sprintf("controller %s read error: %v", streamName, err)
+		proc.appendLogLine(line)
+		t.Logf("%s", line)
 	}
-}
-
-func closedWaitChannel(err error) chan error {
-	waitDone := make(chan error, 1)
-	waitDone <- err
-	close(waitDone)
-	return waitDone
 }
 
 func closedSignalChannel() chan struct{} {

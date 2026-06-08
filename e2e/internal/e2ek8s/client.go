@@ -18,7 +18,7 @@ import (
 const defaultClientUserAgent = "oke-gateway-api-e2e"
 
 type ClientFactoryOptions struct {
-	buildConfig func(string) (*rest.Config, error)
+	buildConfig func(config.KubernetesConfig) (*rest.Config, error)
 	newClient   func(*rest.Config, ctrlclient.Options) (*RuntimeClient, error)
 	newScheme   func() (*runtime.Scheme, error)
 }
@@ -64,9 +64,14 @@ func NewClient(cfg config.KubernetesConfig, opts *ClientFactoryOptions) (*Runtim
 		return nil, fmt.Errorf("build scheme: %w", err)
 	}
 
-	restCfg, err := opts.buildConfig(cfg.KubeconfigPath)
+	restCfg, err := opts.buildConfig(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("build Kubernetes REST config from %q: %w", cfg.KubeconfigPath, err)
+		return nil, fmt.Errorf(
+			"build Kubernetes REST config from kubeconfig %q with context %q: %w",
+			cfg.KubeconfigPath,
+			cfg.Context,
+			err,
+		)
 	}
 
 	restCfg.UserAgent = defaultClientUserAgent
@@ -79,15 +84,17 @@ func NewClient(cfg config.KubernetesConfig, opts *ClientFactoryOptions) (*Runtim
 	return client, nil
 }
 
-func buildRESTConfig(kubeconfigPath string) (*rest.Config, error) {
+func buildRESTConfig(cfg config.KubernetesConfig) (*rest.Config, error) {
 	loader := clientcmd.NewDefaultClientConfigLoadingRules()
-	if kubeconfigPath != "" {
-		loader.ExplicitPath = kubeconfigPath
+	if cfg.KubeconfigPath != "" {
+		loader.ExplicitPath = cfg.KubeconfigPath
 	}
 
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		loader,
-		&clientcmd.ConfigOverrides{},
+		&clientcmd.ConfigOverrides{
+			CurrentContext: cfg.Context,
+		},
 	).ClientConfig()
 }
 

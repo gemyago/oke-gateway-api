@@ -34,8 +34,9 @@ Repository rules:
 - Do not assume the Kubernetes cluster is disposable.
 - Keep live e2e execution opt-in and separate from root `make test`.
 - Use the root-pinned `bin/golangci-lint` for e2e linting.
-- The e2e test command assumes the controller binary already exists at the configured path. It
-  must not build the controller as part of `go test`.
+- Direct live `go test` execution may assume the controller binary already exists at the configured
+  path, but the explicit e2e Make target `run-e2e-tests` must build the controller before running
+  live tests.
 
 Model policy:
 - Use `gpt-5.4` with high reasoning for the orchestrator, implementation sub-agents, and reviewer
@@ -47,10 +48,11 @@ Primary design source:
 - Read `docs/e2e-http-design.md`.
 
 Overall objective:
-Build the standalone HTTP e2e project, including a manual cleanup command, HTTP e2e test, local
-controller process management, Kubernetes resource builders, OCI helpers, probe helpers, README,
-AGENTS.md, env files, and Makefile targets. The first live test should verify HTTP routing through
-a disposable OCI Load Balancer and route cleanup.
+Continue the standalone HTTP e2e project and implement the current runner/test refactor described
+in `docs/e2e-http-design.md`. The refactor must keep support-package tests separate from live e2e,
+add an explicit `run-e2e-tests` live Make target that builds the controller first, require an
+explicit Kubernetes context, fail rather than skip when live config is missing, split HTTP e2e into
+startup and route lifecycle cases, and update the docs/rules to match.
 
 Shared progress file:
 - Use `e2e/implementation-progress.md`.
@@ -80,17 +82,20 @@ Orchestration loop:
      sub-agents.
 
 2. Create an implementation checklist:
-   - E2E module bootstrap.
-   - E2E `AGENTS.md`, `.envrc`, `.gitignore`, and progress file.
-   - Logging/config helpers.
-   - OCI client, work request waiter, disposable cleanup.
-   - Kubernetes client, resource builders, waiters.
-   - Controller binary start/stop helper that assumes the binary is already built.
-   - HTTP probe helper.
-   - HTTP MVP test.
-   - Manual cleanup command.
-   - README and Makefile targets.
-   - Lint/compile verification.
+   - Make `make -C e2e test` run only support-package tests under `./internal/...`.
+   - Add `make -C e2e run-e2e-tests` to build the controller and run the package-level live e2e
+     tests.
+   - Update `e2e/AGENTS.md` and README for the new test target split.
+   - Add required `OKE_E2E_KUBE_CONTEXT` config while keeping `KUBECONFIG` optional.
+   - Ensure e2e Kubernetes client creation uses the required context.
+   - Ensure the launched controller process uses the same Kubernetes context.
+   - Refactor `e2e/http_test.go` so support logic moves into focused e2e-local files.
+   - Change live e2e config behavior from skip-on-missing to fail-on-missing.
+   - Add the HTTP `Startup` case that waits for the `Starting controller manager` log line and
+     gracefully stops the controller.
+   - Preserve the existing HTTP route lifecycle behavior.
+   - Add Kubernetes manual connectivity pre-checks to README.
+   - Run lint/test/compile verification that does not require live infrastructure.
 
 3. Dispatch one implementation sub-agent at a time with a narrow assignment. Each sub-agent must:
    - make only its assigned changes,
@@ -132,14 +137,17 @@ Assignment:
 - Use dependencies needed for controller-runtime, Gateway API, OCI SDK, testify, and faker if tests
   need generated names.
 - Do not add live e2e targets to root default `make test`.
-- Do not make the e2e test target build the controller binary.
+- Do not make the support-only e2e `test` target build the controller binary.
+- If resuming after bootstrap already exists, skip this assignment and dispatch the current
+  refactor assignments instead.
 
 Sub-agent: Diagnostics And Config
 Assignment:
 - Create `e2e/internal/diag` by copying the spirit of root slog helpers, not importing them.
 - Create `e2e/internal/config` for env parsing.
 - Validate required env vars with clear errors.
-- Require `OKE_E2E_LOAD_BALANCER_ID` and `KUBECONFIG`.
+- Require `OKE_E2E_LOAD_BALANCER_ID` and `OKE_E2E_KUBE_CONTEXT`.
+- Keep `KUBECONFIG` optional and use default kubeconfig loading when it is unset.
 - Use OCI to derive the public IP from the load balancer ID.
 - Default `OKE_E2E_CONTROLLER_BIN` to `../dist/bin/controller` and fail fast if it is missing.
 - Use structured logging with `log/slog`.
@@ -164,7 +172,8 @@ Assignment:
 Sub-agent: Kubernetes Fixtures
 Assignment:
 - Create `e2e/internal/e2ek8s`.
-- Build controller-runtime client from `KUBECONFIG`.
+- Build controller-runtime client from optional `KUBECONFIG` and required
+  `OKE_E2E_KUBE_CONTEXT`.
 - Register core Kubernetes, apps, discovery, Gateway API, and unstructured support.
 - Create helpers for:
   - unique namespace creation and prefix cleanup,
@@ -183,11 +192,13 @@ Sub-agent: Controller Process
 Assignment:
 - Add helper to verify and start the prebuilt controller binary from `OKE_E2E_CONTROLLER_BIN`.
 - Start controller as a child process with:
-  - caller's `KUBECONFIG`,
+  - caller's Kubernetes config,
+  - the required `OKE_E2E_KUBE_CONTEXT`,
   - caller's OCI SDK env,
   - `APP_K8SAPI_NOOP=false`,
   - `APP_OCIAPI_NOOP=false`.
 - Capture stdout/stderr into test logs.
+- Provide a way for tests to wait for a controller log line such as `Starting controller manager`.
 - Stop the process during cleanup.
 - Support `OKE_E2E_SKIP_CONTROLLER_START=true`.
 
@@ -196,17 +207,32 @@ Assignment:
 - Create `e2e/internal/probe`.
 - Implement HTTP client helpers for probing `http://<public-ip>/<path>`.
 - Decode the echo server JSON shape locally in e2e; do not import root API packages.
-- Implement `http_test.go` MVP:
-  - create unique namespace,
-  - create GatewayClass, GatewayConfig, Gateway, backend Deployment/Service, HTTPRoute,
-  - wait for ready/programmed conditions,
-  - probe `/echo`,
-  - capture programmed OCI policy rule names from the HTTPRoute annotation,
-  - delete route,
-  - verify `/echo` no longer returns echo response,
-  - verify captured OCI policy rules are gone,
-  - namespace cleanup.
+- Refactor `http_test.go` so package-level live test flow is readable and support logic lives in
+  focused e2e-local files.
+- Implement two HTTP live cases:
+  - `Startup`: start the controller, wait for `Starting controller manager`, then gracefully stop.
+  - route lifecycle: create unique namespace; create GatewayClass, GatewayConfig, Gateway, backend
+    Deployment/Service, and HTTPRoute; wait for ready/programmed conditions; probe `/echo`;
+    capture programmed OCI policy rule names from the HTTPRoute annotation; delete the route;
+    verify `/echo` no longer returns echo response; verify captured OCI policy rules are gone; and
+    clean up the namespace.
+- Live tests must fail when required config is missing; they must not skip missing live inputs.
 - Do not run full disposable load balancer reset inside the initial test body.
+
+Sub-agent: E2E Runner Refactor
+Assignment:
+- Update `e2e/Makefile` so:
+  - `test` runs only support-package tests, e.g. `go test -count=1 ./internal/...`,
+  - `run-e2e-tests` builds the controller first and then runs live package tests,
+  - `compile` remains a no-infrastructure compile check.
+- Update `e2e/AGENTS.md` so it matches the new split and explicitly allows
+  `run-e2e-tests` to build the controller.
+- Update `e2e/README.md` with:
+  - `test` as support-only,
+  - `run-e2e-tests` as live,
+  - required `OKE_E2E_KUBE_CONTEXT`,
+  - manual Kubernetes connectivity checks alongside OCI checks.
+- Append a completion entry to `e2e/implementation-progress.md`.
 
 Sub-agent: Verification Reviewer
 Assignment:
@@ -225,10 +251,12 @@ Assignment:
 - Run:
   - `direnv exec . make lint`
   - `direnv exec . make test`
-  - `direnv exec . make e2e-lint` if root target exists, otherwise `cd e2e && ../bin/golangci-lint run ./...`
-  - e2e compile checks that do not require live infrastructure.
+  - `direnv exec . make -C e2e lint`
+  - `direnv exec . make -C e2e test`
+  - `direnv exec . make -C e2e compile`
 - Do not run live e2e unless all required infrastructure env vars are present and the user has
-  explicitly asked for it.
+  explicitly asked for it. When live verification is approved, run
+  `direnv exec . make -C e2e run-e2e-tests`.
 
 Integration rules:
 - Integrate sub-agent output incrementally.

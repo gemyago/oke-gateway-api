@@ -2,6 +2,7 @@ package e2ek8s
 
 import (
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -28,12 +31,15 @@ func TestNewClient(t *testing.T) {
 	t.Run("allows empty kubeconfig path and falls back to default loading", func(t *testing.T) {
 		t.Parallel()
 
-		var gotPath string
-		cfg := config.KubernetesConfig{}
+		var gotConfig config.KubernetesConfig
+		cfg := config.KubernetesConfig{
+			KubeconfigPath: "",
+			Context:        "oke-live",
+		}
 
 		client, err := NewClient(cfg, &ClientFactoryOptions{
-			buildConfig: func(path string) (*rest.Config, error) {
-				gotPath = path
+			buildConfig: func(kubeConfig config.KubernetesConfig) (*rest.Config, error) {
+				gotConfig = kubeConfig
 				return &rest.Config{}, nil
 			},
 			newClient: func(_ *rest.Config, options ctrlclient.Options) (*RuntimeClient, error) {
@@ -43,16 +49,21 @@ func TestNewClient(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.NotNil(t, client)
-		assert.Empty(t, gotPath)
+		assert.Equal(t, cfg, gotConfig)
 	})
 
 	t.Run("wraps kubeconfig build errors with context", func(t *testing.T) {
 		t.Parallel()
 
 		wantErr := errors.New("boom")
-		_, err := NewClient(config.KubernetesConfig{}, &ClientFactoryOptions{
-			buildConfig: func(path string) (*rest.Config, error) {
-				assert.Empty(t, path)
+		cfg := config.KubernetesConfig{
+			KubeconfigPath: "/tmp/kubeconfig",
+			Context:        "oke-live",
+		}
+
+		_, err := NewClient(cfg, &ClientFactoryOptions{
+			buildConfig: func(kubeConfig config.KubernetesConfig) (*rest.Config, error) {
+				assert.Equal(t, cfg, kubeConfig)
 				return nil, wantErr
 			},
 			newClient: newControllerRuntimeClient,
@@ -61,6 +72,67 @@ func TestNewClient(t *testing.T) {
 		require.Error(t, err)
 		require.ErrorIs(t, err, wantErr)
 		assert.Contains(t, err.Error(), "build Kubernetes REST config")
+		assert.Contains(t, err.Error(), cfg.KubeconfigPath)
+		assert.Contains(t, err.Error(), cfg.Context)
+	})
+}
+
+func TestBuildRESTConfig(t *testing.T) {
+	t.Parallel()
+
+	t.Run("overrides current context from config", func(t *testing.T) {
+		t.Parallel()
+
+		kubeconfigPath := filepath.Join(t.TempDir(), "config")
+		kubeconfig := clientcmdapi.Config{
+			Clusters: map[string]*clientcmdapi.Cluster{
+				"cluster-a": {Server: "https://127.0.0.1:6443"},
+				"cluster-b": {Server: "https://192.0.2.42:6443"},
+			},
+			AuthInfos: map[string]*clientcmdapi.AuthInfo{
+				"user-a": {},
+				"user-b": {},
+			},
+			Contexts: map[string]*clientcmdapi.Context{
+				"ctx-a": {Cluster: "cluster-a", AuthInfo: "user-a"},
+				"ctx-b": {Cluster: "cluster-b", AuthInfo: "user-b"},
+			},
+			CurrentContext: "ctx-a",
+		}
+		require.NoError(t, clientcmd.WriteToFile(kubeconfig, kubeconfigPath))
+
+		restConfig, err := buildRESTConfig(config.KubernetesConfig{
+			KubeconfigPath: kubeconfigPath,
+			Context:        "ctx-b",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "https://192.0.2.42:6443", restConfig.Host)
+	})
+
+	t.Run("fails when the requested context is missing", func(t *testing.T) {
+		t.Parallel()
+
+		kubeconfigPath := filepath.Join(t.TempDir(), "config")
+		kubeconfig := clientcmdapi.Config{
+			Clusters: map[string]*clientcmdapi.Cluster{
+				"cluster-a": {Server: "https://127.0.0.1:6443"},
+			},
+			AuthInfos: map[string]*clientcmdapi.AuthInfo{
+				"user-a": {},
+			},
+			Contexts: map[string]*clientcmdapi.Context{
+				"ctx-a": {Cluster: "cluster-a", AuthInfo: "user-a"},
+			},
+			CurrentContext: "ctx-a",
+		}
+		require.NoError(t, clientcmd.WriteToFile(kubeconfig, kubeconfigPath))
+
+		_, err := buildRESTConfig(config.KubernetesConfig{
+			KubeconfigPath: kubeconfigPath,
+			Context:        "missing-context",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing-context")
 	})
 }
 

@@ -258,6 +258,41 @@
     backend sets, waits for the OCI work request after each successful mutation, never deletes the
     load balancer itself, and keeps logs limited to non-secret operational fields.
   - Confirmed preflight inspection requires a load balancer id, resolves the load balancer, and
+
+## 2026-06-08 Reviewer Verification - Slice 1 E2E Refactor
+
+- Timestamp: 2026-06-08 00:50:57 CEST
+- Reviewer: Codex reviewer sub-agent
+- Objective:
+  - Verify only slice 1 of the OKE Gateway API e2e refactor:
+    - `make -C e2e test` stays support-only under `./internal/...`
+    - `make -C e2e run-e2e-tests` exists and builds the controller before package-level live tests
+    - `OKE_E2E_KUBE_CONTEXT` is required while `KUBECONFIG` remains optional
+    - the e2e Kubernetes client forces the requested context
+    - focused tests for the above are present and passing
+- Files changed:
+  - `e2e/implementation-progress.md`
+- Commands run:
+  - `direnv exec . make -C e2e lint`
+  - `direnv exec . make -C e2e test`
+  - `direnv exec . make -C e2e compile`
+  - `direnv exec . make -C e2e -n run-e2e-tests`
+  - `direnv exec . bash -lc 'cd e2e && go test -count=1 ./internal/config -run "TestLoadFromEnv/(uses_defaults_and_preferred_oci_env_names|returns_clear_validation_errors)"'`
+  - `direnv exec . bash -lc 'cd e2e && go test -count=1 ./internal/e2ek8s -run "TestBuildRESTConfig|TestNewClient"'`
+- Result:
+  - Status: green
+  - Verified `e2e/Makefile` keeps `test` scoped to `./internal/...` and keeps live package tests
+    separate in `run-e2e-tests`.
+  - Verified `run-e2e-tests` builds the controller first via `make -C .. dist/bin` and then runs
+    `go test -count=1 .`.
+  - Verified `e2e/internal/config/env.go` requires `OKE_E2E_KUBE_CONTEXT` and treats
+    `KUBECONFIG` as optional.
+  - Verified `e2e/internal/e2ek8s/client.go` forces the configured kube context through
+    `clientcmd.ConfigOverrides{CurrentContext: ...}`.
+  - Verified focused coverage exists in `e2e/internal/config/env_test.go` and
+    `e2e/internal/e2ek8s/e2ek8s_test.go`, and the targeted tests passed.
+- Open issues / next action:
+  - None for this slice.
     selects a stable public IP by sorting the discovered public addresses.
 - Verification run:
   - `direnv exec . make lint`
@@ -530,3 +565,274 @@
   - `direnv exec . make -C e2e test`
 - Live e2e status: not run.
 - Root repo files changed: none.
+
+## 2026-06-08 00:48:06 CEST - Implementation Worker 1
+
+- Agent: implementation worker 1
+- Objective:
+  - Refactor the e2e runner/config plumbing for the current design inside the owned Makefile,
+    config, and Kubernetes client files.
+- Files changed:
+  - `e2e/Makefile`
+  - `e2e/internal/config/env.go`
+  - `e2e/internal/config/env_test.go`
+  - `e2e/internal/e2ek8s/client.go`
+  - `e2e/internal/e2ek8s/e2ek8s_test.go`
+  - `e2e/implementation-progress.md`
+- Commands run:
+  - `direnv exec . make -C e2e lint`
+  - `direnv exec . make -C e2e test`
+  - `direnv exec . make -C e2e compile`
+- Result:
+  - `make -C e2e test` now runs only support-package tests via `go test -count=1 ./internal/...`.
+  - Added `make -C e2e run-e2e-tests` to build the controller through the root `dist/bin` target
+    and then run the package-level live tests in `.`.
+  - `OKE_E2E_KUBE_CONTEXT` is now required config, `KUBECONFIG` remains optional, config logging
+    includes the selected Kubernetes context, and the Kubernetes client now forces that context via
+    `clientcmd.ConfigOverrides{CurrentContext: ...}` with focused coverage.
+  - Verification status: green. Live e2e not run.
+- Open issues / next action:
+  - The child controller process still needs the same explicit kube-context enforcement in its own
+    slice; this worker did not touch `controllerproc` per scope.
+
+## 2026-06-08 01:02:31 CEST - Implementation Worker 2
+
+- Agent: implementation worker 2
+- Objective:
+  - Refactor the controller-process and root HTTP live-test slice so the child controller honors
+    `OKE_E2E_KUBE_CONTEXT`, exposes log-waiting for startup assertions, and splits the live HTTP
+    coverage into focused startup and route-lifecycle cases.
+- Files changed:
+  - `e2e/internal/controllerproc/controller.go`
+  - `e2e/internal/controllerproc/controller_test.go`
+  - `e2e/http_test.go`
+  - `e2e/http_startup_test.go`
+  - `e2e/http_route_lifecycle_test.go`
+  - `e2e/implementation-progress.md`
+- Commands run:
+  - `direnv exec . bash -lc 'cd e2e && go test -count=1 ./internal/controllerproc'`
+  - `direnv exec . bash -lc 'cd e2e && go test -count=1 -short .'`
+  - `direnv exec . make -C e2e lint`
+  - `direnv exec . make -C e2e test`
+  - `direnv exec . make -C e2e compile`
+- Result:
+  - The controller child process now gets a generated kubeconfig pinned to the requested context,
+    records forwarded stdout/stderr lines, and lets tests wait for log fragments such as
+    `Starting controller manager`.
+  - The root live HTTP test is split into `Startup` and `RouteLifecycle` cases, with the startup
+    case waiting for the controller-manager log line before stopping the process and the route
+    lifecycle preserving the existing create/probe/delete assertions.
+  - Live HTTP config loading now fails immediately on missing required inputs or a missing
+    controller binary instead of skipping in the live path.
+  - Verification status: green. Live e2e not run.
+- Open issues / next action:
+  - No known code issues in this slice. The remaining next step is a real `run-e2e-tests`
+    execution against live infrastructure when that environment is ready.
+
+## 2026-06-08 01:07:04 CEST - Reviewer Sub-Agent (Slice 2)
+
+- Agent: reviewer sub-agent
+- Objective:
+  - Verify the slice-2 e2e refactor: controller/context alignment, startup log waiting, split live
+    HTTP cases, fail-fast live config loading, preserved route lifecycle behavior, and no live e2e
+    execution.
+- Files changed:
+  - `e2e/implementation-progress.md`
+- Commands run:
+  - `direnv exec . make -C e2e lint`
+  - `direnv exec . make -C e2e test`
+  - `direnv exec . make -C e2e compile`
+  - `direnv exec . bash -lc 'cd e2e && go test -race ./internal/controllerproc -run "Test(ProcessWaitForLog|Start)" -count=10'`
+  - `direnv exec . bash -lc 'cd e2e && go test -count=1 -run "^TestHTTP$" ./...'`
+  - `direnv exec . bash -lc 'cd e2e && go test ./internal/e2ek8s -run "TestBuildRESTConfig" -count=1 -v'`
+- Result:
+  - `make -C e2e lint`, `make -C e2e test`, and `make -C e2e compile` passed.
+  - Verified the e2e client still forces `OKE_E2E_KUBE_CONTEXT` through
+    `clientcmd.ConfigOverrides{CurrentContext: ...}`, and `controllerproc` now shapes a temporary
+    kubeconfig for the same explicit context before launching the child controller.
+  - Verified the root live HTTP suite is split into `Startup` and `RouteLifecycle`, and that a
+    direct root-package `go test` now fails immediately on missing live config instead of skipping.
+  - Verified no live e2e execution occurred: the normal `make -C e2e test` target still runs only
+    `./internal/...`, while the focused root-package check failed during config validation before
+    any cluster or OCI actions.
+  - Verification status: not green.
+- Open issues / next action:
+  - `e2e/internal/controllerproc/controller.go` has a real data race in the new `WaitForLog`
+    implementation: `appendLogLine` writes `p.logWait` under `logMu`, while `WaitForLog` reads
+    `p.logWait` without synchronization. The focused race run reproduced this repeatedly.
+  - Smallest focused fix: make `WaitForLog` read the wait channel under the same lock used by
+    `appendLogLine` and check the buffered log lines in the same critical section, or replace the
+    channel-swapping scheme with a `sync.Cond`/single-notification channel design that cannot miss
+    a wake-up.
+
+## 2026-06-08 01:10:23 CEST - Implementation Worker 2 Follow-Up
+
+- Agent: implementation worker 2
+- Objective:
+  - Fix the reviewer-reported `WaitForLog` race and missed-wake-up window inside
+    `e2e/internal/controllerproc`.
+- Files changed:
+  - `e2e/internal/controllerproc/controller.go`
+  - `e2e/internal/controllerproc/controller_test.go`
+  - `e2e/implementation-progress.md`
+- Commands run:
+  - `direnv exec . bash -lc 'cd e2e && go test -race ./internal/controllerproc -run "Test(ProcessWaitForLog|Start)" -count=10'`
+  - `direnv exec . make -C e2e lint`
+  - `direnv exec . make -C e2e test`
+  - `direnv exec . make -C e2e compile`
+- Result:
+  - `WaitForLog` now snapshots the buffered log state and the current wait channel while holding
+    `logMu`, which removes the unsynchronized channel read and closes the missed-notification gap
+    between checking the log buffer and waiting for the next append.
+  - Added a focused concurrent multi-waiter test that repeatedly races `WaitForLog` callers
+    against `appendLogLine` and passed the repeated `-race` run.
+  - Verification status: green. Live e2e not run.
+- Open issues / next action:
+  - No known remaining issue in this focused slice.
+
+## 2026-06-08 01:11:42 CEST - Reviewer Re-Review (Slice 2 WaitForLog Fix)
+
+- Agent: reviewer sub-agent
+- Objective:
+  - Re-review only the focused `WaitForLog` race and missed-wakeup fix in
+    `e2e/internal/controllerproc`.
+- Files changed:
+  - `e2e/implementation-progress.md`
+- Commands run:
+  - `direnv exec . bash -lc 'cd e2e && go test -race ./internal/controllerproc -run "Test(ProcessWaitForLog|Start)" -count=10'`
+  - `direnv exec . make -C e2e lint`
+  - `direnv exec . make -C e2e test`
+  - `direnv exec . make -C e2e compile`
+- Result:
+  - Verified `WaitForLog` now snapshots both the current log buffer state and the active wait
+    channel while holding `logMu`, eliminating the earlier unsynchronized `p.logWait` read and the
+    check-then-wait missed-notification gap.
+  - Verified the focused concurrent regression test in
+    `e2e/internal/controllerproc/controller_test.go` repeatedly exercises multi-waiter wake-ups.
+  - All requested verification commands passed, including the repeated `-race` run.
+  - Verification status: green. Live e2e not run.
+- Open issues / next action:
+  - None for this focused fix.
+
+## 2026-06-08 01:18:56 CEST - Final Reviewer Pass (Assembled E2E Refactor)
+
+- Agent: reviewer sub-agent
+- Objective:
+  - Final non-live review of the assembled e2e refactor across workflow wiring, config handling,
+    explicit kube-context enforcement, split live HTTP cases, and e2e docs.
+- Files changed:
+  - `e2e/implementation-progress.md`
+- Commands run:
+  - `direnv exec . make lint`
+  - `direnv exec . make test`
+  - `direnv exec . make -C e2e lint`
+  - `direnv exec . make -C e2e test`
+  - `direnv exec . make -C e2e compile`
+  - `direnv exec . bash -lc 'cd e2e && go test -race ./internal/controllerproc -run "Test(ProcessWaitForLog|Start)" -count=10'`
+  - `direnv exec . make -C e2e -n run-e2e-tests`
+  - `direnv exec . bash -lc 'cd e2e && go test -count=1 -run "^TestHTTP$" ./...'`
+  - `direnv exec . bash -lc 'cd e2e && go test -race ./internal/controllerproc -run "Test(ProcessWaitForLog|Start)" -count=10'`
+- Result:
+  - Root `make lint` and `make test` passed.
+  - `make -C e2e lint`, `make -C e2e test`, and `make -C e2e compile` passed.
+  - Verified `make -C e2e test` remains support-only via `go test -count=1 ./internal/...`.
+  - Verified `make -C e2e run-e2e-tests` exists and dry-runs as:
+    `make -C .. dist/bin` followed by `go test -count=1 .`.
+  - Verified `OKE_E2E_KUBE_CONTEXT` is required while `KUBECONFIG` remains optional in
+    `e2e/internal/config/env.go`.
+  - Verified the e2e client forces `clientcmd.ConfigOverrides{CurrentContext: ...}` and the child
+    controller shapes a kubeconfig pinned to the same explicit context.
+  - Verified the root live HTTP suite is split into `Startup` and `RouteLifecycle`, and a focused
+    root-package `go test` fails immediately on missing live config instead of skipping.
+  - Verified `e2e/README.md` and `e2e/AGENTS.md` document the support-only `test` target, the live
+    `run-e2e-tests` target, required `OKE_E2E_KUBE_CONTEXT`, optional `KUBECONFIG`, and the
+    Kubernetes manual pre-check commands.
+  - No live e2e execution was performed. The live target was only dry-run, and the focused
+    root-package check failed during config validation before any cluster or OCI actions.
+  - Verification status: not green.
+- Open issues / next action:
+  - The assembled refactor has one remaining blocker in verification stability: the first run of
+    `go test -race ./internal/controllerproc -run "Test(ProcessWaitForLog|Start)" -count=10`
+    failed with `require.Eventually(...)` timeouts in
+    `TestStart/shapes_kubeconfig_for_the_requested_Kubernetes_context`,
+    `TestStart/allows_empty_kubeconfig_so_the_controller_can_use_default_loading`, and
+    `TestStart/forced_stop_accepts_the_expected_signaled_wait_result_after_kill`, while the second
+    run of the exact same command passed. That makes the reviewer-grade race verification flaky.
+  - Smallest focused fix: de-flake the `controllerproc` package tests under repeated `-race`
+    execution by reducing contention from `t.Parallel()` in the heavy subprocess cases and/or by
+    replacing the polling-style `require.Eventually(...)` waits with direct synchronization on the
+    relevant process/log events.
+
+## 2026-06-08 01:15:44 CEST - Implementation Worker 3 Docs Alignment
+
+- Agent: implementation worker 3
+- Objective:
+  - Update the e2e docs and scoped rules to match the implemented live-test refactor without
+    changing code.
+- Files changed:
+  - `e2e/README.md`
+  - `e2e/AGENTS.md`
+  - `e2e/implementation-progress.md`
+- Commands run:
+  - `direnv exec . make -C e2e test`
+  - `direnv exec . make -C e2e compile`
+  - `direnv exec . make -C e2e -n run-e2e-tests`
+- Result:
+  - Documented `make -C e2e test` as support-only and `make -C e2e run-e2e-tests` as the explicit
+    opt-in live path.
+  - Documented that `run-e2e-tests` builds the controller first, while support-only targets do not.
+  - Documented that `OKE_E2E_KUBE_CONTEXT` is required, `KUBECONFIG` is optional, and both the
+    e2e client and child controller use the explicit context.
+  - Added Kubernetes manual connectivity pre-checks that align with the explicit-context workflow.
+  - Verification status: green for the requested support-only checks and live-target dry run. Live
+    e2e not run.
+- Open issues / next action:
+  - The live cluster and OCI path was not exercised in this slice, so the new wording is aligned to
+    the current implementation and dry-run output rather than a fresh live run.
+
+## 2026-06-08 01:21:28 CEST - Implementation Worker 2 Final Controllerproc Test De-flake
+
+- Agent: implementation worker 2
+- Objective:
+  - De-flake the repeated `controllerproc` race verification with the smallest focused test-side
+    change.
+- Files changed:
+  - `e2e/internal/controllerproc/controller_test.go`
+  - `e2e/implementation-progress.md`
+- Commands run:
+  - `direnv exec . bash -lc 'cd e2e && go test -race ./internal/controllerproc -run "Test(ProcessWaitForLog|Start)" -count=10'`
+  - `direnv exec . make -C e2e lint`
+  - `direnv exec . make -C e2e test`
+  - `direnv exec . make -C e2e compile`
+- Result:
+  - Replaced the subprocess-heavy `require.Eventually(...)` polling in `TestStart` with direct
+    `proc.WaitForLog(...)` synchronization.
+  - Removed `t.Parallel()` from the three flaky subprocess-heavy subtests that were timing out
+    under repeated `-race` execution while keeping the rest of the package structure intact.
+  - Verification status: green, including the repeated `-race` run. Live e2e not run.
+- Open issues / next action:
+  - No known remaining issue in this focused slice.
+
+## 2026-06-08 01:22:58 CEST - Reviewer Re-Review (Controllerproc Test Stability)
+
+- Agent: reviewer sub-agent
+- Objective:
+  - Re-review only the focused `controllerproc` test-stability fix so the repeated `-race`
+    verification can be trusted for the assembled e2e refactor.
+- Files changed:
+  - `e2e/implementation-progress.md`
+- Commands run:
+  - `direnv exec . bash -lc 'cd e2e && go test -race ./internal/controllerproc -run "Test(ProcessWaitForLog|Start)" -count=10'`
+  - `direnv exec . make -C e2e lint`
+  - `direnv exec . make -C e2e test`
+  - `direnv exec . make -C e2e compile`
+- Result:
+  - Verified the flaky subprocess-heavy `TestStart` cases now wait on direct
+    `proc.WaitForLog(...)` synchronization via the local helper instead of polling with
+    `require.Eventually(...)`.
+  - Verified the repeated `-race` controllerproc command passed cleanly.
+  - Verified the requested `e2e` lint, support-only test, and compile checks also passed.
+  - Verification status: green. Live e2e not run.
+- Open issues / next action:
+  - Residual risk is low and limited to ordinary subprocess timing variance, but the previously
+    failing reviewer-grade repeated `-race` command is now passing in this worktree.

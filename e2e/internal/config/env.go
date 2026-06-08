@@ -19,6 +19,7 @@ const (
 const (
 	envLoadBalancerID      = "OKE_E2E_LOAD_BALANCER_ID"
 	envKubeconfig          = "KUBECONFIG"
+	envKubeContext         = "OKE_E2E_KUBE_CONTEXT"
 	envNamespacePrefix     = "OKE_E2E_NAMESPACE_PREFIX"
 	envGatewayClassName    = "OKE_E2E_GATEWAY_CLASS_NAME"
 	envHTTPPort            = "OKE_E2E_HTTP_PORT"
@@ -41,6 +42,7 @@ type Config struct {
 
 type KubernetesConfig struct {
 	KubeconfigPath string
+	Context        string
 }
 
 type OCIConfig struct {
@@ -59,6 +61,7 @@ func (cfg Config) LogAttrs() []slog.Attr {
 		slog.String("namespacePrefix", cfg.NamespacePrefix),
 		slog.String("gatewayClassName", cfg.GatewayClassName),
 		slog.Int("httpPort", cfg.HTTPPort),
+		slog.String("kubeContext", cfg.Kubernetes.Context),
 		slog.String("controllerBin", cfg.Controller.BinPath),
 		slog.Bool("skipControllerStart", cfg.Controller.SkipStart),
 		slog.Bool("kubeconfigSet", cfg.Kubernetes.KubeconfigPath != ""),
@@ -110,6 +113,7 @@ func LoadFromEnv(opts *LoadOptions) (*Config, error) {
 
 	cfg.OCI.LoadBalancerID = requiredEnv(opts.lookupEnv, envLoadBalancerID, &problems)
 	cfg.Kubernetes.KubeconfigPath = firstEnv(opts.lookupEnv, envKubeconfig)
+	cfg.Kubernetes.Context = requiredEnv(opts.lookupEnv, envKubeContext, &problems)
 
 	if value, ok := optionalEnv(opts.lookupEnv, envNamespacePrefix); ok {
 		cfg.NamespacePrefix = value

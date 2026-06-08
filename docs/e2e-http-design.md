@@ -84,7 +84,7 @@ The HTTP MVP should require these environment variables:
 
 ```text
 OKE_E2E_LOAD_BALANCER_ID
-KUBECONFIG
+OKE_E2E_KUBE_CONTEXT
 ```
 
 OCI SDK configuration should use the same default mechanism as the controller:
@@ -99,6 +99,7 @@ OCI_CLI_CONFIG_PROFILE
 Optional inputs:
 
 ```text
+KUBECONFIG
 OKE_E2E_NAMESPACE_PREFIX=oke-gw-e2e-
 OKE_E2E_GATEWAY_CLASS_NAME=oke-gateway-api-e2e
 OKE_E2E_HTTP_PORT=80
@@ -111,12 +112,17 @@ The e2e project should derive the public IP from `GetLoadBalancer` using
 one by sorting the discovered public addresses and using the first. Fail clearly if no public IP is
 present.
 
-`OKE_E2E_CONTROLLER_BIN` defaults to the expected root build output. The test command should assume
-the controller has already been built and fail fast if the binary is missing. Building the
-controller is an explicit step outside `go test`, for example from the repo root:
+`KUBECONFIG` may be set to a specific kubeconfig path. When unset, the standard Kubernetes
+kubeconfig loading rules apply. `OKE_E2E_KUBE_CONTEXT` is still required so live e2e always targets
+an explicit cluster context.
+
+`OKE_E2E_CONTROLLER_BIN` defaults to the expected root build output. The live e2e Make target should
+build the controller before invoking `go test`, so normal live runs use the current source tree
+without requiring a separate manual build step. Direct `go test` execution may still fail fast if
+the binary is missing.
 
 ```sh
-direnv exec . make dist/bin
+direnv exec . make -C e2e run-e2e-tests
 ```
 
 `OKE_E2E_SKIP_CONTROLLER_START=true` is useful only when a developer wants to run the tests against
@@ -134,16 +140,19 @@ The e2e module should include its own `.envrc` and an ignored `.envrc.local`.
 - set safe non-secret defaults such as namespace prefix and controller binary path.
 
 `e2e/.envrc.local` should not be committed. It is where developers put live environment values such
-as `OKE_E2E_LOAD_BALANCER_ID`, `KUBECONFIG`, and OCI SDK config/profile variables.
+as `OKE_E2E_LOAD_BALANCER_ID`, `OKE_E2E_KUBE_CONTEXT`, optional `KUBECONFIG`, and OCI SDK
+config/profile variables.
 
 ## Runtime Model
 
 The test should run the controller locally from the current source tree:
 
-1. Verify the prebuilt controller binary exists at `OKE_E2E_CONTROLLER_BIN`.
-2. Start the binary with the caller's `KUBECONFIG` and OCI SDK environment.
-3. Run test resources in a unique namespace.
-4. Stop the child process during test cleanup.
+1. Build the controller through the explicit live e2e Make target.
+2. Verify the controller binary exists at `OKE_E2E_CONTROLLER_BIN`.
+3. Start the binary with the caller's Kubernetes and OCI SDK environment.
+4. Force the configured Kubernetes context for both the e2e client and the child controller.
+5. Run test resources in a unique namespace.
+6. Stop the child process during test cleanup.
 
 This avoids testing whatever controller image happens to be installed in the cluster.
 
@@ -170,6 +179,12 @@ creating the exact custom resource the controller expects:
 apiVersion: oke-gateway-api.gemyago.github.io/v1
 kind: GatewayConfig
 ```
+
+Build the REST config from the optional `KUBECONFIG` path and required
+`OKE_E2E_KUBE_CONTEXT`, using `clientcmd.ConfigOverrides{CurrentContext: ...}`. The child
+controller process must use the same context as the e2e Kubernetes client. If the controller has no
+direct kube-context option, generate or otherwise provide a kubeconfig to the child process whose
+current context is the requested `OKE_E2E_KUBE_CONTEXT`.
 
 ## Resource Definitions
 
@@ -243,7 +258,16 @@ trusted.
 
 ## HTTP MVP Scenario
 
-The first test should cover a single happy path plus route removal:
+The HTTP e2e entry point should contain two live cases:
+
+1. `Startup`: start the controller, wait until logs contain `Starting controller manager`, then
+   gracefully stop it.
+2. Route lifecycle: cover a single happy path plus route removal.
+
+Live e2e tests should fail when required configuration is missing. They should not silently skip
+missing `OKE_E2E_LOAD_BALANCER_ID`, `OKE_E2E_KUBE_CONTEXT`, controller binary validation failures,
+or other required live inputs. Offline support-package tests are separated into the `test` Make
+target and should not execute these live cases.
 
 Before running the test during early development, use the manual cleanup command if the disposable
 load balancer may not be empty. This happens outside `go test`.
@@ -340,15 +364,25 @@ cd e2e
 The root `Makefile` can later add convenience targets:
 
 ```make
-.PHONY: e2e-lint e2e-test-http
+.PHONY: e2e-lint e2e-test run-e2e-tests
 e2e-lint: bin/golangci-lint
 	cd e2e && ../bin/golangci-lint run ./...
 
-e2e-test-http:
-	cd e2e && go test -count=1 -timeout=30m ./...
+e2e-test:
+	cd e2e && go test -count=1 ./internal/...
+
+run-e2e-tests:
+	$(MAKE) dist/bin
+	cd e2e && go test -count=1 -timeout=30m .
 ```
 
-Do not wire `e2e-test-http` into the default `make test` target.
+Do not wire live e2e execution into the default `make test` target.
+
+The e2e-local `Makefile` should use the same split:
+
+- `test`: support-package tests only, e.g. `go test -count=1 ./internal/...`.
+- `run-e2e-tests`: build the controller and run package-level live tests.
+- `compile`: compile-only checks that do not require live infrastructure.
 
 ## Completion Before Live Infrastructure Exists
 

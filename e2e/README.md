@@ -8,7 +8,8 @@ controller.
 - Keep e2e code isolated from controller production code.
 - Do not import root repo `internal/...` packages from this module.
 - Keep live e2e execution opt-in and separate from the root `make test` workflow.
-- Assume the controller binary already exists before running live e2e tests.
+- Treat `make -C e2e test` as a support-only local check for e2e-owned helper packages.
+- Use `make -C e2e run-e2e-tests` as the explicit live entrypoint.
 
 ## Local Environment
 
@@ -17,6 +18,7 @@ Put developer-specific live values in `e2e/.envrc.local`. That file is intention
 Common live inputs:
 
 - `OKE_E2E_LOAD_BALANCER_ID`
+- `OKE_E2E_KUBE_CONTEXT`
 - `KUBECONFIG` (optional; when unset, the default kubeconfig loading rules are used)
 - `OCI_CONFIG_FILE` or `OCI_CLI_CONFIG_FILE`
 - `OCI_CLI_PROFILE` or `OCI_CLI_CONFIG_PROFILE`
@@ -29,11 +31,44 @@ Safe defaults come from `e2e/.envrc`, including:
 - `OKE_E2E_CONTROLLER_BIN=../dist/bin/controller`
 - `OKE_E2E_SKIP_CONTROLLER_START=false`
 
-**Env Check**:
+Required live config:
+
+- `OKE_E2E_LOAD_BALANCER_ID` is required.
+- `OKE_E2E_KUBE_CONTEXT` is required.
+- `KUBECONFIG` is optional.
+- Missing required live config fails `make -C e2e run-e2e-tests` during test startup; live e2e does
+  not silently fall back to offline behavior.
+
+**OCI Pre-check**:
 
 ```sh
 direnv exec . oci lb load-balancer get --load-balancer-id ${OKE_E2E_LOAD_BALANCER_ID}
 ```
+
+## Kubernetes Manual Pre-checks
+
+Before the live path, confirm that the kubeconfig you intend to use contains the required context
+and that the cluster is reachable.
+
+When `KUBECONFIG` is set:
+
+```sh
+direnv exec . kubectl --kubeconfig "${KUBECONFIG}" config get-contexts
+direnv exec . kubectl --kubeconfig "${KUBECONFIG}" --context "${OKE_E2E_KUBE_CONTEXT}" cluster-info
+direnv exec . kubectl --kubeconfig "${KUBECONFIG}" --context "${OKE_E2E_KUBE_CONTEXT}" auth can-i get namespaces
+```
+
+When `KUBECONFIG` is unset and you want the default loading rules:
+
+```sh
+direnv exec . kubectl config get-contexts
+direnv exec . kubectl --context "${OKE_E2E_KUBE_CONTEXT}" cluster-info
+direnv exec . kubectl --context "${OKE_E2E_KUBE_CONTEXT}" auth can-i get namespaces
+```
+
+The live e2e client and the child controller both use the explicit `OKE_E2E_KUBE_CONTEXT`. If the
+context is missing from the selected kubeconfig, the live run fails.
+
 ## Commands
 
 Run e2e commands from the repo root via `direnv exec .`:
@@ -42,6 +77,7 @@ Run e2e commands from the repo root via `direnv exec .`:
 direnv exec . make -C e2e lint
 direnv exec . make -C e2e test
 direnv exec . make -C e2e compile
+direnv exec . make -C e2e run-e2e-tests
 direnv exec . make -C e2e cleanup
 ```
 
@@ -52,16 +88,20 @@ root.
 The e2e module currently provides:
 
 - local linting via the root-pinned `../bin/golangci-lint`,
-- local `go test` execution for e2e-owned packages,
+- support-only local `go test` execution for e2e-owned helper packages under `make -C e2e test`,
 - compile-only checks that do not require live infrastructure,
+- an explicit live entrypoint under `make -C e2e run-e2e-tests`, which builds the controller first
+  and then runs `go test -count=1 .`,
 - an OCI cleanup command for operator-driven disposable load balancer resets,
 - a controller process helper under `e2e/internal/controllerproc` that launches the prebuilt
-  controller binary from `OKE_E2E_CONTROLLER_BIN`, forwards `KUBECONFIG` plus the caller OCI SDK
+  controller binary from `OKE_E2E_CONTROLLER_BIN`, shapes the selected kubeconfig down to
+  `OKE_E2E_KUBE_CONTEXT` for the child controller, forwards `KUBECONFIG` plus the caller OCI SDK
   env into the child process, forces `APP_K8SAPI_NOOP=false` and `APP_OCIAPI_NOOP=false`, streams
   controller stdout/stderr into test logs, and shuts the child down during test cleanup,
 - Kubernetes fixture helpers under `e2e/internal/e2ek8s` for controller-runtime client creation,
   typed resource builders, unstructured `GatewayConfig` fixtures, readiness waiters, and
-  namespace-prefix-scoped cleanup for shared clusters,
+  namespace-prefix-scoped cleanup for shared clusters, using the explicit
+  `OKE_E2E_KUBE_CONTEXT` override with optional `KUBECONFIG`,
 - HTTP probe helpers under `e2e/internal/probe` for polling `http://<public-ip>/<path>` and
   decoding the echo server JSON shape without importing root repo internals,
 - a live `e2e/http_test.go` MVP that creates a unique namespace plus Gateway API resources, probes
@@ -94,19 +134,24 @@ start with the configured `OKE_E2E_NAMESPACE_PREFIX`.
 
 ## Controller Binary
 
-Live e2e must not build the controller binary as part of the test target. Build it explicitly from
-the repo root when needed:
+`direnv exec . make -C e2e run-e2e-tests` builds `../dist/bin/controller` before it starts the
+live Go test run.
+
+Build the controller explicitly from the repo root when you want that artifact ahead of time:
 
 ```sh
 direnv exec . make dist/bin
 ```
 
-The e2e config loader validates that `OKE_E2E_CONTROLLER_BIN` points to an existing file before a
-live workflow continues.
+Support-only targets such as `make -C e2e test` and `make -C e2e compile` do not build the
+controller binary.
+
+The live config loader validates that `OKE_E2E_CONTROLLER_BIN` points to an existing file before
+the live workflow continues when `OKE_E2E_SKIP_CONTROLLER_START=false`.
 
 When `OKE_E2E_SKIP_CONTROLLER_START=true`, the helper skips child-process startup so a live test can
 target an already running controller without requiring a local binary during offline verification.
 
-If `OKE_E2E_LOAD_BALANCER_ID` is not set, `e2e/http_test.go` skips with a clear message instead of
-attempting live infrastructure access during offline verification. When `KUBECONFIG` is unset, the
-e2e helpers fall back to the default kubeconfig loading rules.
+When `KUBECONFIG` is unset, the e2e helpers fall back to the default kubeconfig loading rules.
+Both the e2e client and the child controller still require `OKE_E2E_KUBE_CONTEXT` and use that
+explicit context.

@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -19,16 +17,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/gemyago/oke-gateway-api/e2e/internal/config"
-	"github.com/gemyago/oke-gateway-api/e2e/internal/controllerproc"
-	"github.com/gemyago/oke-gateway-api/e2e/internal/e2ek8s"
-	"github.com/gemyago/oke-gateway-api/e2e/internal/e2eoci"
-	"github.com/gemyago/oke-gateway-api/e2e/internal/probe"
 )
 
 const (
 	httpRouteProgrammedPolicyRulesAnnotation = "oke-gateway-api.gemyago.github.io/http-route-programmed-lb-policy-rules"
 	liveHTTPTestTimeout                      = 20 * time.Minute
 	cleanupTimeout                           = 2 * time.Minute
+	controllerStartupTimeout                 = 2 * time.Minute
 	probePath                                = "/echo"
 	gatewayName                              = "gateway"
 	gatewayConfigName                        = "gateway-config"
@@ -37,133 +32,8 @@ const (
 )
 
 func TestHTTP(t *testing.T) {
-	cfg := requireLiveHTTPConfig(t)
-
-	ctx, cancel := context.WithTimeout(t.Context(), liveHTTPTestTimeout)
-	t.Cleanup(cancel)
-
-	kubeClient, err := e2ek8s.NewClient(cfg.Kubernetes, nil)
-	require.NoError(t, err)
-
-	ociClient, err := e2eoci.NewLoadBalancerClient(cfg.OCI, nil)
-	require.NoError(t, err)
-
-	inspector := e2eoci.NewLoadBalancerCleaner(ociClient, slog.New(slog.DiscardHandler), nil)
-	loadBalancer, err := inspector.Inspect(ctx, cfg.OCI.LoadBalancerID)
-	require.NoError(t, err)
-
-	probeClient, err := probe.NewClient(loadBalancer.PublicIP, cfg.HTTPPort, nil)
-	require.NoError(t, err)
-
-	_, err = controllerproc.Start(t, *cfg, nil)
-	require.NoError(t, err)
-
-	namespace, err := e2ek8s.CreateUniqueNamespace(ctx, kubeClient.Client, cfg.NamespacePrefix)
-	require.NoError(t, err)
-
-	var cleanupOnce sync.Once
-	gatewayClassName := uniqueGatewayClassName(cfg.GatewayClassName, namespace.Name)
-	registerCleanup(t, &cleanupOnce, kubeClient.Client, namespace.Name, gatewayClassName)
-
-	gatewayClass := e2ek8s.NewGatewayClass(e2ek8s.GatewayClassOptions{
-		Name: gatewayClassName,
-	})
-	require.NoError(t, kubeClient.Create(ctx, gatewayClass))
-
-	_, err = e2ek8s.WaitForGatewayClassAccepted(ctx, kubeClient.Client, gatewayClassName, nil)
-	require.NoError(t, err)
-
-	gatewayConfig := e2ek8s.NewGatewayConfig(e2ek8s.GatewayConfigOptions{
-		Namespace:      namespace.Name,
-		Name:           gatewayConfigName,
-		LoadBalancerID: cfg.OCI.LoadBalancerID,
-	})
-	require.NoError(t, kubeClient.Create(ctx, gatewayConfig))
-
-	gateway := e2ek8s.NewHTTPGateway(e2ek8s.HTTPGatewayOptions{
-		Namespace:         namespace.Name,
-		Name:              gatewayName,
-		GatewayClassName:  gatewayClassName,
-		GatewayConfigName: gatewayConfigName,
-		Port:              gatewayv1.PortNumber(cfg.HTTPPort),
-	})
-	require.NoError(t, kubeClient.Create(ctx, gateway))
-
-	_, err = e2ek8s.WaitForGatewayAccepted(ctx, kubeClient.Client, namespace.Name, gatewayName, nil)
-	require.NoError(t, err)
-
-	_, err = e2ek8s.WaitForGatewayProgrammed(ctx, kubeClient.Client, namespace.Name, gatewayName, nil)
-	require.NoError(t, err)
-
-	deployment := e2ek8s.NewEchoDeployment(e2ek8s.EchoDeploymentOptions{
-		Namespace: namespace.Name,
-		Name:      backendName,
-	})
-	require.NoError(t, kubeClient.Create(ctx, deployment))
-
-	service := e2ek8s.NewEchoService(e2ek8s.EchoServiceOptions{
-		Namespace: namespace.Name,
-		Name:      backendName,
-	})
-	require.NoError(t, kubeClient.Create(ctx, service))
-
-	_, err = e2ek8s.WaitForDeploymentReady(ctx, kubeClient.Client, namespace.Name, backendName, nil)
-	require.NoError(t, err)
-
-	_, err = e2ek8s.WaitForServiceEndpointsReady(ctx, kubeClient.Client, namespace.Name, backendName, nil)
-	require.NoError(t, err)
-
-	httpRoute := e2ek8s.NewHTTPRoute(e2ek8s.HTTPRouteOptions{
-		Namespace:    namespace.Name,
-		Name:         httpRouteName,
-		GatewayName:  gatewayName,
-		ListenerName: e2ek8s.DefaultHTTPListenerName,
-		ServiceName:  backendName,
-		ServicePort:  e2ek8s.DefaultEchoPort,
-		PathPrefix:   probePath,
-	})
-	require.NoError(t, kubeClient.Create(ctx, httpRoute))
-
-	_, err = e2ek8s.WaitForHTTPRouteAccepted(ctx, kubeClient.Client, namespace.Name, httpRouteName, gatewayName, nil)
-	require.NoError(t, err)
-
-	resolvedRoute, err := e2ek8s.WaitForHTTPRouteResolvedRefs(
-		ctx,
-		kubeClient.Client,
-		namespace.Name,
-		httpRouteName,
-		gatewayName,
-		nil,
-	)
-	require.NoError(t, err)
-
-	_, err = probe.WaitForEcho(ctx, probeClient, probePath, nil)
-	require.NoError(t, err)
-
-	programmedPolicyRules, err := programmedPolicyRuleNames(resolvedRoute)
-	require.NoError(t, err)
-	require.NotEmpty(t, programmedPolicyRules)
-
-	err = kubeClient.Delete(ctx, &gatewayv1.HTTPRoute{
-		ObjectMeta: resolvedRoute.ObjectMeta,
-	})
-	require.NoError(t, err)
-
-	err = e2ek8s.WaitForHTTPRouteDeleted(ctx, kubeClient.Client, namespace.Name, httpRouteName, nil)
-	require.NoError(t, err)
-
-	_, err = probe.WaitForEchoGone(ctx, probeClient, probePath, nil)
-	require.NoError(t, err)
-
-	err = e2eoci.WaitForRoutingPolicyRuleNamesAbsent(
-		ctx,
-		ociClient,
-		cfg.OCI.LoadBalancerID,
-		string(e2ek8s.DefaultHTTPListenerName),
-		programmedPolicyRules,
-		nil,
-	)
-	require.NoError(t, err)
+	t.Run("Startup", testHTTPStartup)
+	t.Run("RouteLifecycle", testHTTPRouteLifecycle)
 }
 
 func requireLiveHTTPConfig(t *testing.T) *config.Config {
@@ -173,42 +43,25 @@ func requireLiveHTTPConfig(t *testing.T) *config.Config {
 		t.Skip("skipping live HTTP e2e in short mode")
 	}
 
-	missing := missingLiveHTTPInputs()
-	if len(missing) > 0 {
-		t.Skipf(
-			"live HTTP e2e requires %s; set them in e2e/.envrc.local and rerun `direnv exec . make -C e2e test`",
-			strings.Join(missing, ", "),
-		)
-	}
-
 	cfg, err := config.LoadFromEnv(nil)
-	if err != nil {
-		if strings.Contains(err.Error(), "OKE_E2E_CONTROLLER_BIN points to missing file") {
-			t.Skipf(
-				"skipping live HTTP e2e until the controller binary exists; build it with `direnv exec . make dist/bin`: %v",
-				err,
-			)
-		}
-
-		require.NoError(t, err)
-	}
+	require.NoError(
+		t,
+		err,
+		"set the required live e2e inputs in e2e/.envrc.local before running `direnv exec . make -C e2e run-e2e-tests`",
+	)
 
 	return cfg
 }
 
-func missingLiveHTTPInputs() []string {
-	required := []string{
-		"OKE_E2E_LOAD_BALANCER_ID",
-	}
+func newLiveHTTPContext(t *testing.T) (context.Context, *config.Config) {
+	t.Helper()
 
-	missing := make([]string, 0, len(required))
-	for _, key := range required {
-		if strings.TrimSpace(os.Getenv(key)) == "" {
-			missing = append(missing, key)
-		}
-	}
+	cfg := requireLiveHTTPConfig(t)
 
-	return missing
+	ctx, cancel := context.WithTimeout(t.Context(), liveHTTPTestTimeout)
+	t.Cleanup(cancel)
+
+	return ctx, cfg
 }
 
 func programmedPolicyRuleNames(route *gatewayv1.HTTPRoute) ([]string, error) {

@@ -1,9 +1,11 @@
 package controllerproc
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -11,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
 	"github.com/gemyago/oke-gateway-api/e2e/internal/config"
 )
@@ -57,13 +61,11 @@ func TestStart(t *testing.T) {
 		require.NotZero(t, proc.PID())
 		require.Equal(t, 1, logSink.CleanupCount())
 
-		require.Eventually(t, func() bool {
-			return logSink.Contains("controller stdout: stdout KUBECONFIG=/tmp/controllerproc-kubeconfig") &&
-				logSink.Contains("controller stdout: stdout OCI_CONFIG_FILE=/tmp/controllerproc-oci-config") &&
-				logSink.Contains("controller stdout: stdout APP_K8SAPI_NOOP=false") &&
-				logSink.Contains("controller stderr: stderr APP_OCIAPI_NOOP=false") &&
-				logSink.Contains("controller stderr: stderr OCI_CLI_PROFILE=TEAM")
-		}, 5*time.Second, 50*time.Millisecond)
+		waitForControllerLog(t, proc, "controller stdout: stdout KUBECONFIG=/tmp/controllerproc-kubeconfig")
+		waitForControllerLog(t, proc, "controller stdout: stdout OCI_CONFIG_FILE=/tmp/controllerproc-oci-config")
+		waitForControllerLog(t, proc, "controller stdout: stdout APP_K8SAPI_NOOP=false")
+		waitForControllerLog(t, proc, "controller stderr: stderr APP_OCIAPI_NOOP=false")
+		waitForControllerLog(t, proc, "controller stderr: stderr OCI_CLI_PROFILE=TEAM")
 
 		logSink.RunCleanups()
 		assert.Empty(t, logSink.Errors())
@@ -111,9 +113,57 @@ func TestStart(t *testing.T) {
 		assert.Contains(t, err.Error(), envControllerBin+" points to missing file")
 	})
 
-	t.Run("allows empty kubeconfig so the controller can use default loading", func(t *testing.T) {
-		t.Parallel()
+	t.Run("shapes kubeconfig for the requested Kubernetes context", func(t *testing.T) {
+		controllerPath := writeControllerStub(t, strings.Join([]string{
+			"#!/bin/sh",
+			"echo \"stdout current-context=$(awk '/^current-context:/ {print $2}' \"$KUBECONFIG\")\"",
+			"echo \"stdout kubeconfig-path=${KUBECONFIG}\"",
+			"trap 'exit 0' TERM INT",
+			"while :; do sleep 1; done",
+		}, "\n")+"\n")
 
+		sourceKubeconfigPath := writeKubeconfig(t, &clientcmdapi.Config{
+			CurrentContext: "ctx-a",
+			Clusters: map[string]*clientcmdapi.Cluster{
+				"cluster-a": {Server: "https://cluster-a.example.com"},
+				"cluster-b": {Server: "https://cluster-b.example.com"},
+			},
+			AuthInfos: map[string]*clientcmdapi.AuthInfo{
+				"user-a": {Token: "token-a"},
+				"user-b": {Token: "token-b"},
+			},
+			Contexts: map[string]*clientcmdapi.Context{
+				"ctx-a": {Cluster: "cluster-a", AuthInfo: "user-a"},
+				"ctx-b": {Cluster: "cluster-b", AuthInfo: "user-b"},
+			},
+		})
+
+		logSink := &fakeTestLogSink{}
+		cfg := config.Config{
+			Kubernetes: config.KubernetesConfig{
+				KubeconfigPath: sourceKubeconfigPath,
+				Context:        "ctx-b",
+			},
+			Controller: config.ControllerConfig{
+				BinPath: controllerPath,
+			},
+		}
+
+		proc, err := Start(logSink, cfg, NewStartOptions().WithEnviron([]string{
+			"PATH=" + os.Getenv("PATH"),
+		}))
+		require.NoError(t, err)
+		require.NotNil(t, proc)
+
+		waitForControllerLog(t, proc, "controller stdout: stdout current-context=ctx-b")
+		waitForControllerLog(t, proc, "controller stdout: stdout kubeconfig-path=")
+		assert.False(t, logSink.Contains("controller stdout: stdout kubeconfig-path="+sourceKubeconfigPath))
+
+		logSink.RunCleanups()
+		assert.Empty(t, logSink.Errors())
+	})
+
+	t.Run("allows empty kubeconfig so the controller can use default loading", func(t *testing.T) {
 		controllerPath := writeControllerStub(t, strings.Join([]string{
 			"#!/bin/sh",
 			"echo \"stdout default kubeconfig path allowed\"",
@@ -132,17 +182,13 @@ func TestStart(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, proc.Skipped())
 		require.NotZero(t, proc.PID())
-		require.Eventually(t, func() bool {
-			return logSink.Contains("controller stdout: stdout default kubeconfig path allowed")
-		}, 5*time.Second, 50*time.Millisecond)
+		waitForControllerLog(t, proc, "controller stdout: stdout default kubeconfig path allowed")
 
 		logSink.RunCleanups()
 		assert.Empty(t, logSink.Errors())
 	})
 
 	t.Run("forced stop accepts the expected signaled wait result after kill", func(t *testing.T) {
-		t.Parallel()
-
 		controllerPath := writeControllerStub(t, strings.Join([]string{
 			"#!/usr/bin/env python3",
 			"import signal",
@@ -167,14 +213,118 @@ func TestStart(t *testing.T) {
 			WithEnviron([]string{"PATH=" + os.Getenv("PATH")}).
 			WithStopTimeout(100*time.Millisecond))
 		require.NoError(t, err)
-		require.Eventually(t, func() bool {
-			return logSink.Contains("controller stdout: ready")
-		}, 5*time.Second, 50*time.Millisecond)
+		waitForControllerLog(t, proc, "controller stdout: ready")
 
 		logSink.RunCleanups()
 		assert.Empty(t, logSink.Errors())
 		assert.True(t, logSink.Contains("did not stop within 100ms; killing"))
 		require.NoError(t, proc.Stop())
+	})
+}
+
+func TestProcessWaitForLog(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns when the requested log line is observed", func(t *testing.T) {
+		t.Parallel()
+
+		controllerPath := writeControllerStub(t, strings.Join([]string{
+			"#!/bin/sh",
+			"echo \"Starting controller manager\"",
+			"trap 'exit 0' TERM INT",
+			"while :; do sleep 1; done",
+		}, "\n")+"\n")
+
+		logSink := &fakeTestLogSink{}
+		proc, err := Start(logSink, config.Config{
+			Controller: config.ControllerConfig{BinPath: controllerPath},
+		}, NewStartOptions().WithEnviron([]string{
+			"PATH=" + os.Getenv("PATH"),
+		}))
+		require.NoError(t, err)
+
+		waitCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+
+		require.NoError(t, proc.WaitForLog(waitCtx, "Starting controller manager"))
+
+		logSink.RunCleanups()
+		assert.Empty(t, logSink.Errors())
+	})
+
+	t.Run("returns early when the process exits before the requested log line", func(t *testing.T) {
+		t.Parallel()
+
+		controllerPath := writeControllerStub(t, strings.Join([]string{
+			"#!/bin/sh",
+			"echo \"different log line\"",
+			"exit 0",
+		}, "\n")+"\n")
+
+		logSink := &fakeTestLogSink{}
+		proc, err := Start(logSink, config.Config{
+			Controller: config.ControllerConfig{BinPath: controllerPath},
+		}, NewStartOptions().WithEnviron([]string{
+			"PATH=" + os.Getenv("PATH"),
+		}))
+		require.NoError(t, err)
+
+		waitCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+
+		err = proc.WaitForLog(waitCtx, "Starting controller manager")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "Starting controller manager")
+		assert.Contains(t, err.Error(), "exited before log")
+
+		logSink.RunCleanups()
+		assert.Empty(t, logSink.Errors())
+	})
+
+	t.Run("does not miss concurrent log wake ups", func(t *testing.T) {
+		t.Parallel()
+
+		const (
+			iterations = 100
+			waiters    = 4
+		)
+
+		for range iterations {
+			proc := &Process{
+				exitDone:    make(chan struct{}),
+				streamsDone: closedSignalChannel(),
+				logWait:     make(chan struct{}),
+			}
+
+			start := make(chan struct{})
+			errs := make(chan error, waiters)
+			var waitersDone sync.WaitGroup
+			waitersDone.Add(waiters)
+
+			for range waiters {
+				go func() {
+					defer waitersDone.Done()
+
+					<-start
+
+					waitCtx, cancel := context.WithTimeout(t.Context(), time.Second)
+					defer cancel()
+
+					errs <- proc.WaitForLog(waitCtx, "Starting controller manager")
+				}()
+			}
+
+			close(start)
+			runtime.Gosched()
+			go proc.appendLogLine("controller stdout: Starting controller manager")
+
+			waitersDone.Wait()
+			close(errs)
+
+			for err := range errs {
+				require.NoError(t, err)
+			}
+		}
 	})
 }
 
@@ -201,7 +351,7 @@ func TestBuildControllerEnv(t *testing.T) {
 			envOCIConfigProfileAlt + "=FALLBACK",
 			envK8sAPINoop + "=true",
 			envOCIAPINoop + "=true",
-		})
+		}, "/tmp/test-kubeconfig")
 
 		assertEnvValue(t, env, envKubeconfig, "/tmp/test-kubeconfig")
 		assertEnvValue(t, env, envOCIConfigFile, "/tmp/test-oci-config")
@@ -218,7 +368,7 @@ func TestBuildControllerEnv(t *testing.T) {
 		env := buildControllerEnv(config.Config{}, []string{
 			"PATH=/usr/bin",
 			envKubeconfig + "=/tmp/original-kubeconfig",
-		})
+		}, "")
 
 		assertEnvValue(t, env, envKubeconfig, "/tmp/original-kubeconfig")
 		assertEnvValue(t, env, envK8sAPINoop, "false")
@@ -232,6 +382,24 @@ func writeControllerStub(t *testing.T, body string) string {
 	path := filepath.Join(t.TempDir(), "controller-stub.sh")
 	require.NoError(t, os.WriteFile(path, []byte(body), 0o755))
 	return path
+}
+
+func writeKubeconfig(t *testing.T, cfg *clientcmdapi.Config) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "kubeconfig")
+	require.NotNil(t, cfg)
+	require.NoError(t, clientcmd.WriteToFile(*cfg, path))
+	return path
+}
+
+func waitForControllerLog(t *testing.T, proc *Process, fragment string) {
+	t.Helper()
+
+	waitCtx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	require.NoError(t, proc.WaitForLog(waitCtx, fragment))
 }
 
 func assertEnvValue(t *testing.T, environ []string, key string, want string) {

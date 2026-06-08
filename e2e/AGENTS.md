@@ -17,12 +17,17 @@
 ## Live Test Rules
 
 - Live e2e stays opt-in and separate from the root `make test` flow.
-- The e2e test command must assume the controller binary already exists.
-- Do not make e2e test targets build the controller binary.
+- Treat `direnv exec . make -C e2e test` as a support-only check for e2e-owned helper packages.
+- Use `direnv exec . make -C e2e run-e2e-tests` as the explicit live path.
+- The live `run-e2e-tests` target builds the controller binary before running `go test .`.
+- Do not make support-only targets such as `test` or `compile` build the controller binary.
 - Use `OKE_E2E_SKIP_CONTROLLER_START=true` only when intentionally testing against an already
   running controller.
 - Treat the OCI load balancer as disposable test infrastructure.
 - Treat the Kubernetes cluster as shared infrastructure and scope cleanup carefully.
+- Required live Kubernetes config is `OKE_E2E_KUBE_CONTEXT`; `KUBECONFIG` is optional.
+- The e2e client and any child controller process must use the explicit
+  `OKE_E2E_KUBE_CONTEXT`.
 
 ## Environment
 
@@ -35,7 +40,8 @@
 ## Local Commands
 
 - Lint: `direnv exec . make -C e2e lint`
-- Test: `direnv exec . make -C e2e test`
+- Test: `direnv exec . make -C e2e test` (support-only)
+- Live e2e: `direnv exec . make -C e2e run-e2e-tests`
 - Compile: `direnv exec . make -C e2e compile`
 - Cleanup: `direnv exec . make -C e2e cleanup`
 
@@ -44,5 +50,6 @@
 For bootstrap or code changes under `e2e/`:
 1. Run the relevant `e2e` make targets through `direnv exec .` from the repo root.
 2. Do not run live e2e unless the required infrastructure inputs are present and the task asks for
-   it.
+   it. Missing required live config should fail the live path instead of downgrading it into an
+   offline check.
 3. Append a completion entry to `e2e/implementation-progress.md`.
