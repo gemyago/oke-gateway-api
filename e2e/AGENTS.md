@@ -38,11 +38,34 @@
 
 ## Local Commands
 
-- Lint: `direnv exec . make -C e2e lint`
-- Test: `direnv exec . make -C e2e test` (support-only)
-- Live e2e: `direnv exec . make -C e2e run-e2e-tests`
-- Compile: `direnv exec . make -C e2e compile`
-- Infra cleanup: `direnv exec . make -C e2e infra-cleanup`
+By default assume you have to run any project specific command via `direnv exec <working-dir> <command>` to make sure env is loaded.
+
+Assuming commands are run from the repo root:
+- Lint: `make -C e2e lint`
+- Test: `make -C e2e test` (support-only)
+- Compile: `make -C e2e compile`
+- Infra cleanup: `make -C e2e infra-cleanup`
+
+## Running e2e tests
+
+To run e2e tests, use `make -C e2e run-e2e-tests`. Do not run them automatically, only when user explicitly asks for it.
+
+### Run individual e2e tests
+
+Build the controller binary first:
+
+```sh
+# Always force just to be safe.
+make -B dist/bin
+```
+
+Then run the tests (from e2e directory):
+```sh
+go test -v . --run TestHTTP/Startup
+go test -v . --run TestHTTP/RouteLifecycle
+```
+
+When iterating on a single test, if anything fails, you may consider cleanup: `make -C e2e infra-cleanup` and try again.
 
 ## Task Completion Protocol
 
