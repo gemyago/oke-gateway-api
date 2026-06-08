@@ -9,12 +9,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	apitypes "k8s.io/apimachinery/pkg/types"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
+	"github.com/gemyago/oke-gateway-api/internal/types"
 )
 
 func TestGatewayController(t *testing.T) {
@@ -432,6 +439,130 @@ func TestGatewayController(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("clears accepted false after previously missing TLS secret exists", func(t *testing.T) {
+			fakeData := faker.New()
+			scheme := runtime.NewScheme()
+			require.NoError(t, clientgoscheme.AddToScheme(scheme))
+			require.NoError(t, gatewayv1.Install(scheme))
+			require.NoError(t, types.AddKnownTypes(scheme))
+
+			secretName := "tls-" + fakeData.Internet().Slug()
+			configName := "config-" + fakeData.Internet().Slug()
+			loadBalancerID := fakeData.UUID().V4()
+			secretUID := apitypes.UID(fakeData.UUID().V4())
+			secretResourceVersion := fakeData.UUID().V4()
+
+			gateway := newRandomGateway(
+				randomGatewayWithListenersOpt(gatewayv1.Listener{
+					Name:     "https",
+					Port:     443,
+					Protocol: gatewayv1.HTTPSProtocolType,
+					TLS: &gatewayv1.GatewayTLSConfig{
+						CertificateRefs: []gatewayv1.SecretObjectReference{
+							{Name: gatewayv1.ObjectName(secretName)},
+						},
+					},
+				}),
+			)
+			gateway.Spec.Infrastructure = &gatewayv1.GatewayInfrastructure{
+				ParametersRef: &gatewayv1.LocalParametersReference{
+					Group: ConfigRefGroup,
+					Kind:  ConfigRefKind,
+					Name:  configName,
+				},
+			}
+			gateway.Status.Conditions = []metav1.Condition{
+				{
+					Type:               string(gatewayv1.GatewayConditionAccepted),
+					Status:             metav1.ConditionFalse,
+					Reason:             string(gatewayv1.GatewayReasonInvalidParameters),
+					Message:            fmt.Sprintf("referenced secret %s/%s not found", gateway.Namespace, secretName),
+					ObservedGeneration: gateway.Generation,
+					LastTransitionTime: metav1.Now(),
+				},
+				{
+					Type:               string(gatewayv1.GatewayConditionProgrammed),
+					Status:             metav1.ConditionTrue,
+					Reason:             string(gatewayv1.GatewayReasonProgrammed),
+					Message:            fmt.Sprintf("Gateway %s programmed by %s", gateway.Name, ControllerClassName),
+					ObservedGeneration: gateway.Generation,
+					LastTransitionTime: metav1.Now(),
+				},
+			}
+			gateway.Annotations = map[string]string{
+				GatewayProgrammingRevisionAnnotation:                         GatewayProgrammingRevisionValue,
+				GatewayUsedSecretsAnnotationPrefix + "/" + string(secretUID): secretResourceVersion,
+			}
+
+			gatewayClass := newRandomGatewayClass(
+				randomGatewayClassWithControllerNameOpt(ControllerClassName),
+			)
+			gateway.Spec.GatewayClassName = gatewayv1.ObjectName(gatewayClass.Name)
+
+			gatewayConfig := &types.GatewayConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      configName,
+					Namespace: gateway.Namespace,
+				},
+				Spec: types.GatewayConfigSpec{
+					LoadBalancerID: loadBalancerID,
+				},
+			}
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            secretName,
+					Namespace:       gateway.Namespace,
+					UID:             secretUID,
+					ResourceVersion: secretResourceVersion,
+				},
+				Type: corev1.SecretTypeTLS,
+				Data: map[string][]byte{
+					corev1.TLSCertKey:       []byte(fakeData.Lorem().Sentence(10)),
+					corev1.TLSPrivateKeyKey: []byte(fakeData.Lorem().Sentence(10)),
+				},
+			}
+
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(&gatewayv1.Gateway{}).
+				WithObjects(gateway, gatewayClass, gatewayConfig, secret).
+				Build()
+
+			resourcesModel := newResourcesModel(resourcesModelDeps{
+				K8sClient:  k8sClient,
+				RootLogger: diag.RootTestLogger(),
+			})
+			gatewayModel := newGatewayModel(gatewayModelDeps{
+				K8sClient:            k8sClient,
+				ResourcesModel:       resourcesModel,
+				RootLogger:           diag.RootTestLogger(),
+				OciClient:            NewMockociLoadBalancerClient(t),
+				OciLoadBalancerModel: NewMockociLoadBalancerModel(t),
+			})
+			controller := NewGatewayController(GatewayControllerDeps{
+				K8sClient:      k8sClient,
+				ResourcesModel: resourcesModel,
+				GatewayModel:   gatewayModel,
+				RootLogger:     diag.RootTestLogger(),
+			})
+
+			result, err := controller.Reconcile(t.Context(), reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(gateway),
+			})
+
+			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, result)
+
+			var updatedGateway gatewayv1.Gateway
+			require.NoError(t, k8sClient.Get(t.Context(), client.ObjectKeyFromObject(gateway), &updatedGateway))
+			accepted := meta.FindStatusCondition(
+				updatedGateway.Status.Conditions,
+				string(gatewayv1.GatewayConditionAccepted),
+			)
+			require.NotNil(t, accepted)
+			assert.Equal(t, metav1.ConditionTrue, accepted.Status)
 		})
 
 		t.Run("ignore irrelevant requests", func(t *testing.T) {
