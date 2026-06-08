@@ -22,6 +22,23 @@ kubectl apply -n oke-gw -f manifests/examples/serverdeployment.yaml
 kubectl apply -n oke-gw -f manifests/examples/serverroutes.yaml
 ```
 
+## Helm install options
+
+The chart installs both the CRD and the controller resources by default.
+
+```sh
+# Install everything (default behavior)
+helm install oke-gateway-api-controller ./helm/controller
+
+# Install only the CRD
+helm install oke-gateway-api-controller ./helm/controller \
+  --set deployment.enabled=false
+
+# Install only the controller resources
+helm install oke-gateway-api-controller ./helm/controller \
+  --set crds.install=false
+```
+
 ## OCI certificate example
 
 Use these manifests when the HTTPS listener should reference an OCI Certificates Service

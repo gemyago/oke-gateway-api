@@ -8,6 +8,10 @@
 nameOverride: ""
 fullnameOverride: ""
 
+crds:
+  # Specifies whether CRDs should be installed with this chart
+  install: true
+
 serviceAccount:
   # Specifies whether a service account should be created
   create: true
@@ -19,6 +23,9 @@ serviceAccount:
 
 # Deployment configuration
 deployment:
+  # Specifies whether the controller deployment resources should be installed
+  enabled: true
+
   image:
     repository: ghcr.io/gemyago/oke-gateway-api-controller
     pullPolicy: IfNotPresent
@@ -35,4 +42,4 @@ deployment:
   # Node selector, tolerations, and affinity settings can be added here if needed.
   nodeSelector: {}
   tolerations: []
-  affinity: {} 
+  affinity: {}
