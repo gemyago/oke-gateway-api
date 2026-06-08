@@ -8,10 +8,6 @@
 nameOverride: ""
 fullnameOverride: ""
 
-crds:
-  # Specifies whether CRDs should be installed with this chart
-  install: true
-
 serviceAccount:
   # Specifies whether a service account should be created
   create: true

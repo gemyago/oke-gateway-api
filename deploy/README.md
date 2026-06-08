@@ -24,7 +24,7 @@ kubectl apply -n oke-gw -f manifests/examples/serverroutes.yaml
 
 ## Helm install options
 
-The chart installs both the CRD and the controller resources by default.
+The chart always installs the CRD. Controller resources are installed by default and can be disabled.
 
 ```sh
 # Install everything (default behavior)
@@ -33,10 +33,6 @@ helm install oke-gateway-api-controller ./helm/controller
 # Install only the CRD
 helm install oke-gateway-api-controller ./helm/controller \
   --set deployment.enabled=false
-
-# Install only the controller resources
-helm install oke-gateway-api-controller ./helm/controller \
-  --set crds.install=false
 ```
 
 ## OCI certificate example
