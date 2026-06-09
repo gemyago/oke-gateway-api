@@ -11,8 +11,8 @@
 
 - Do not import root repo `internal/...` packages from the e2e module.
 - Prefer public upstream packages and e2e-local helpers under `e2e/internal/...`.
-- Keep root-level non-test Go code out of this module unless it is needed for the e2e module
-  itself.
+- Keep root-level non-test Go code out of this module unless it is needed for the e2e module itself.
+- Never export any root level code in the e2e tests.
 
 ## Module Shape
 
@@ -34,9 +34,8 @@
 ## Local Commands
 
 **Shell usage notes**
-- If shell is persistent (e.g human controlled terminal), then `direnv allow` and then run all commands directly in the shell.
-- If shell is ephemeral (most typical in AI agents), then run most commands via `direnv exec <working_dir> <command>`.
-- All commands mentioned here are assumed run from the `e2e/` working directory. If your shell is ephemeral, you would normally need to `direnv exec e2e <command>`. Keep in mind that <working_dir> doesn't change cwd, just loads the env from the specified working dir.
+- Follow root AGENTS.md for shell usage notes as base guidance.
+- All commands mentioned here are assumed run from the `e2e/` working directory. If your shell is ephemeral, you would normally need to `direnv exec e2e <command>`.
 
 Assuming commands are run from the repo root:
 - Lint: `make lint`

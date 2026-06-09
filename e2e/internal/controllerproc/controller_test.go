@@ -37,6 +37,7 @@ func TestStart(t *testing.T) {
 		}, "\n")+"\n")
 
 		logSink := &fakeTestLogSink{}
+		controllerLogPath := filepath.Join(t.TempDir(), "controller.log")
 		cfg := config.Config{
 			Kubernetes: config.KubernetesConfig{
 				KubeconfigPath: "/tmp/controllerproc-kubeconfig",
@@ -55,7 +56,7 @@ func TestStart(t *testing.T) {
 			"OCI_CLI_CONFIG_FILE=/tmp/wrong-config",
 			"OCI_CLI_CONFIG_PROFILE=WRONG",
 			"SOME_OTHER_ENV=present",
-		}))
+		}).WithLogFilePath(controllerLogPath))
 		require.NoError(t, err)
 		require.False(t, proc.Skipped())
 		require.NotZero(t, proc.PID())
@@ -69,7 +70,31 @@ func TestStart(t *testing.T) {
 
 		logSink.RunCleanups()
 		assert.Empty(t, logSink.Errors())
-		assert.True(t, logSink.Contains("controller stdout: stdout received SIGTERM"))
+		assertControllerLogContains(
+			t,
+			controllerLogPath,
+			"controller stdout: stdout KUBECONFIG=/tmp/controllerproc-kubeconfig",
+		)
+		assertControllerLogContains(
+			t,
+			controllerLogPath,
+			"controller stdout: stdout OCI_CONFIG_FILE=/tmp/controllerproc-oci-config",
+		)
+		assertControllerLogContains(
+			t,
+			controllerLogPath,
+			"controller stderr: stderr APP_OCIAPI_NOOP=false",
+		)
+		assertControllerLogContains(
+			t,
+			controllerLogPath,
+			"controller stderr: stderr OCI_CLI_PROFILE=TEAM",
+		)
+		assertControllerLogContains(
+			t,
+			controllerLogPath,
+			"controller stdout: stdout received SIGTERM",
+		)
 		assert.True(t, logSink.Contains("controller process pid="))
 	})
 
@@ -139,6 +164,7 @@ func TestStart(t *testing.T) {
 		})
 
 		logSink := &fakeTestLogSink{}
+		controllerLogPath := filepath.Join(t.TempDir(), "controller.log")
 		cfg := config.Config{
 			Kubernetes: config.KubernetesConfig{
 				KubeconfigPath: sourceKubeconfigPath,
@@ -151,13 +177,17 @@ func TestStart(t *testing.T) {
 
 		proc, err := Start(logSink, cfg, NewStartOptions().WithEnviron([]string{
 			"PATH=" + os.Getenv("PATH"),
-		}))
+		}).WithLogFilePath(controllerLogPath))
 		require.NoError(t, err)
 		require.NotNil(t, proc)
 
 		waitForControllerLog(t, proc, "controller stdout: stdout current-context=ctx-b")
 		waitForControllerLog(t, proc, "controller stdout: stdout kubeconfig-path=")
-		assert.False(t, logSink.Contains("controller stdout: stdout kubeconfig-path="+sourceKubeconfigPath))
+		assertControllerLogNotContains(
+			t,
+			controllerLogPath,
+			"controller stdout: stdout kubeconfig-path="+sourceKubeconfigPath,
+		)
 
 		logSink.RunCleanups()
 		assert.Empty(t, logSink.Errors())
@@ -170,6 +200,7 @@ func TestStart(t *testing.T) {
 		}, "\n")+"\n")
 
 		logSink := &fakeTestLogSink{}
+		controllerLogPath := filepath.Join(t.TempDir(), "controller.log")
 		cfg := config.Config{
 			Controller: config.ControllerConfig{
 				BinPath: controllerPath,
@@ -178,7 +209,7 @@ func TestStart(t *testing.T) {
 
 		proc, err := Start(logSink, cfg, NewStartOptions().WithEnviron([]string{
 			"PATH=" + os.Getenv("PATH"),
-		}))
+		}).WithLogFilePath(controllerLogPath))
 		require.NoError(t, err)
 		require.False(t, proc.Skipped())
 		require.NotZero(t, proc.PID())
@@ -186,6 +217,7 @@ func TestStart(t *testing.T) {
 
 		logSink.RunCleanups()
 		assert.Empty(t, logSink.Errors())
+		assertControllerLogContains(t, controllerLogPath, "controller stdout: stdout default kubeconfig path allowed")
 	})
 
 	t.Run("forced stop accepts the expected signaled wait result after kill", func(t *testing.T) {
@@ -200,6 +232,7 @@ func TestStart(t *testing.T) {
 		}, "\n")+"\n")
 
 		logSink := &fakeTestLogSink{}
+		controllerLogPath := filepath.Join(t.TempDir(), "controller.log")
 		cfg := config.Config{
 			Kubernetes: config.KubernetesConfig{
 				KubeconfigPath: "/tmp/controllerproc-kubeconfig",
@@ -211,6 +244,7 @@ func TestStart(t *testing.T) {
 
 		proc, err := Start(logSink, cfg, NewStartOptions().
 			WithEnviron([]string{"PATH=" + os.Getenv("PATH")}).
+			WithLogFilePath(controllerLogPath).
 			WithStopTimeout(100*time.Millisecond))
 		require.NoError(t, err)
 		waitForControllerLog(t, proc, "controller stdout: ready")
@@ -236,17 +270,19 @@ func TestProcessWaitForLog(t *testing.T) {
 		}, "\n")+"\n")
 
 		logSink := &fakeTestLogSink{}
+		controllerLogPath := filepath.Join(t.TempDir(), "controller.log")
 		proc, err := Start(logSink, config.Config{
 			Controller: config.ControllerConfig{BinPath: controllerPath},
 		}, NewStartOptions().WithEnviron([]string{
 			"PATH=" + os.Getenv("PATH"),
-		}))
+		}).WithLogFilePath(controllerLogPath))
 		require.NoError(t, err)
 
 		waitCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		defer cancel()
 
 		require.NoError(t, proc.WaitForLog(waitCtx, "Starting controller manager"))
+		assertControllerLogContains(t, controllerLogPath, "controller stdout: Starting controller manager")
 
 		logSink.RunCleanups()
 		assert.Empty(t, logSink.Errors())
@@ -262,11 +298,12 @@ func TestProcessWaitForLog(t *testing.T) {
 		}, "\n")+"\n")
 
 		logSink := &fakeTestLogSink{}
+		controllerLogPath := filepath.Join(t.TempDir(), "controller.log")
 		proc, err := Start(logSink, config.Config{
 			Controller: config.ControllerConfig{BinPath: controllerPath},
 		}, NewStartOptions().WithEnviron([]string{
 			"PATH=" + os.Getenv("PATH"),
-		}))
+		}).WithLogFilePath(controllerLogPath))
 		require.NoError(t, err)
 
 		waitCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -276,6 +313,7 @@ func TestProcessWaitForLog(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "Starting controller manager")
 		assert.Contains(t, err.Error(), "exited before log")
+		assertControllerLogContains(t, controllerLogPath, "controller stdout: different log line")
 
 		logSink.RunCleanups()
 		assert.Empty(t, logSink.Errors())
@@ -414,6 +452,27 @@ func assertEnvValue(t *testing.T, environ []string, key string, want string) {
 	}
 
 	t.Fatalf("expected env key %q to exist", key)
+}
+
+func assertControllerLogContains(t *testing.T, path string, fragment string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return false
+		}
+
+		return strings.Contains(string(content), fragment)
+	}, 5*time.Second, 50*time.Millisecond)
+}
+
+func assertControllerLogNotContains(t *testing.T, path string, fragment string) {
+	t.Helper()
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.NotContains(t, string(content), fragment)
 }
 
 type fakeTestLogSink struct {

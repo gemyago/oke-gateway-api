@@ -19,6 +19,7 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
 	"github.com/gemyago/oke-gateway-api/e2e/internal/config"
+	"github.com/gemyago/oke-gateway-api/e2e/internal/diag"
 )
 
 const (
@@ -36,6 +37,7 @@ const (
 const (
 	defaultStopTimeout      = 10 * time.Second
 	controllerStreamCount   = 2
+	controllerLogFileMode   = 0o600
 	streamScannerBufferSize = 64 * 1024
 	streamScannerMaxToken   = 1024 * 1024
 )
@@ -50,6 +52,8 @@ type TestLogSink interface {
 type StartOptions struct {
 	command     func(string, ...string) *exec.Cmd
 	environ     []string
+	openFile    func(string, int, fs.FileMode) (*os.File, error)
+	logFilePath string
 	stat        func(string) (fs.FileInfo, error)
 	stopTimeout time.Duration
 }
@@ -70,11 +74,14 @@ type Process struct {
 	logMu       sync.Mutex
 	logLines    []string
 	logWait     chan struct{}
+	streamLog   *os.File
+	streamLogMu sync.Mutex
 }
 
 func NewStartOptions() *StartOptions {
 	return &StartOptions{
 		command:     exec.Command,
+		openFile:    os.OpenFile,
 		stat:        os.Stat,
 		stopTimeout: defaultStopTimeout,
 	}
@@ -87,6 +94,16 @@ func (opts *StartOptions) WithCommand(fn func(string, ...string) *exec.Cmd) *Sta
 
 func (opts *StartOptions) WithEnviron(env []string) *StartOptions {
 	opts.environ = append([]string(nil), env...)
+	return opts
+}
+
+func (opts *StartOptions) WithLogFilePath(path string) *StartOptions {
+	opts.logFilePath = path
+	return opts
+}
+
+func (opts *StartOptions) WithOpenFile(fn func(string, int, fs.FileMode) (*os.File, error)) *StartOptions {
+	opts.openFile = fn
 	return opts
 }
 
@@ -119,8 +136,14 @@ func Start(t TestLogSink, cfg config.Config, opts *StartOptions) (*Process, erro
 		}, nil
 	}
 
+	logFile, logFilePath, err := openControllerLogFile(opts)
+	if err != nil {
+		return nil, err
+	}
+
 	cmd, stdout, stderr, cleanupControllerKubeconfig, err := prepareStartedCommand(cfg, opts)
 	if err != nil {
+		_ = logFile.Close()
 		return nil, err
 	}
 
@@ -135,12 +158,13 @@ func Start(t TestLogSink, cfg config.Config, opts *StartOptions) (*Process, erro
 		streamsDone: streamsDone,
 		cleanup:     cleanupControllerKubeconfig,
 		logWait:     make(chan struct{}),
+		streamLog:   logFile,
 	}
 
 	var streamGroup sync.WaitGroup
 	streamGroup.Add(controllerStreamCount)
-	go copyToTestLog(t, proc, "stdout", stdout, &streamGroup)
-	go copyToTestLog(t, proc, "stderr", stderr, &streamGroup)
+	go copyToControllerLog(proc, "stdout", stdout, &streamGroup)
+	go copyToControllerLog(proc, "stderr", stderr, &streamGroup)
 	go func() {
 		streamGroup.Wait()
 		close(streamsDone)
@@ -151,7 +175,7 @@ func Start(t TestLogSink, cfg config.Config, opts *StartOptions) (*Process, erro
 		close(proc.exitDone)
 	}()
 
-	t.Logf("started controller process pid=%d path=%q", proc.pid, proc.path)
+	t.Logf("started controller process pid=%d path=%q controllerLog=%q", proc.pid, proc.path, logFilePath)
 	t.Cleanup(func() {
 		stopErr := proc.Stop()
 		if stopErr != nil {
@@ -169,6 +193,10 @@ func normalizeStartOptions(opts *StartOptions) *StartOptions {
 
 	if opts.command == nil {
 		opts.command = exec.Command
+	}
+
+	if opts.openFile == nil {
+		opts.openFile = os.OpenFile
 	}
 
 	if opts.stat == nil {
@@ -402,12 +430,19 @@ func (p *Process) containsLogLine(fragment string) bool {
 }
 
 func (p *Process) cleanupResources() {
-	if p == nil || p.cleanup == nil {
+	if p == nil {
 		return
 	}
 
-	p.cleanup()
-	p.cleanup = nil
+	if p.cleanup != nil {
+		p.cleanup()
+		p.cleanup = nil
+	}
+
+	if p.streamLog != nil {
+		_ = p.streamLog.Close()
+		p.streamLog = nil
+	}
 }
 
 func validateControllerBinary(path string, stat func(string) (fs.FileInfo, error)) error {
@@ -624,7 +659,21 @@ func envValue(environ []string, key string) (string, bool) {
 	return "", false
 }
 
-func copyToTestLog(t TestLogSink, proc *Process, streamName string, reader io.Reader, wg *sync.WaitGroup) {
+func openControllerLogFile(opts *StartOptions) (*os.File, string, error) {
+	logFilePath := strings.TrimSpace(opts.logFilePath)
+	if logFilePath == "" {
+		logFilePath = diag.ProjectPath("controller.log")
+	}
+
+	logFile, err := opts.openFile(logFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, controllerLogFileMode)
+	if err != nil {
+		return nil, "", fmt.Errorf("open controller log file %q: %w", logFilePath, err)
+	}
+
+	return logFile, logFilePath, nil
+}
+
+func copyToControllerLog(proc *Process, streamName string, reader io.Reader, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	scanner := bufio.NewScanner(reader)
@@ -632,13 +681,13 @@ func copyToTestLog(t TestLogSink, proc *Process, streamName string, reader io.Re
 	for scanner.Scan() {
 		line := fmt.Sprintf("controller %s: %s", streamName, scanner.Text())
 		proc.appendLogLine(line)
-		t.Logf("%s", line)
+		proc.writeStreamLogLine(line)
 	}
 
 	if err := scanner.Err(); err != nil {
 		line := fmt.Sprintf("controller %s read error: %v", streamName, err)
 		proc.appendLogLine(line)
-		t.Logf("%s", line)
+		proc.writeStreamLogLine(line)
 	}
 }
 
@@ -646,4 +695,15 @@ func closedSignalChannel() chan struct{} {
 	done := make(chan struct{})
 	close(done)
 	return done
+}
+
+func (p *Process) writeStreamLogLine(line string) {
+	if p == nil || p.streamLog == nil {
+		return
+	}
+
+	p.streamLogMu.Lock()
+	defer p.streamLogMu.Unlock()
+
+	_, _ = fmt.Fprintln(p.streamLog, line)
 }
