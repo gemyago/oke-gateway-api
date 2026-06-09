@@ -44,10 +44,12 @@ type StartManagerDeps struct {
 func httpRouteObjectPredicate() predicate.Funcs {
 	generationChanged := predicate.GenerationChangedPredicate{}
 	labelChanged := predicate.LabelChangedPredicate{}
+	annotationChanged := predicate.AnnotationChangedPredicate{}
 	return predicate.Funcs{
 		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
 			return generationChanged.Update(updateEvent) ||
-				labelChanged.Update(updateEvent)
+				labelChanged.Update(updateEvent) ||
+				annotationChanged.Update(updateEvent)
 		},
 	}
 }
