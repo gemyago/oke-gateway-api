@@ -14,6 +14,23 @@
 - Keep root-level non-test Go code out of this module unless it is needed for the e2e module
   itself.
 
+## Module Shape
+
+- Keep shared live-test setup and cleanup helpers in `e2e/http_test.go`.
+- Keep concrete live cases in separate top-level test files such as:
+  - `e2e/http_startup_test.go`
+  - `e2e/http_route_lifecycle_test.go`
+- Keep reusable support code under `e2e/internal/...`:
+  - `internal/config` for env parsing and validation
+  - `internal/controllerproc` for child controller lifecycle
+  - `internal/e2ek8s` for Kubernetes clients, fixtures, and waiters
+  - `internal/e2eoci` for OCI inspection and cleanup helpers
+  - `internal/probe` for HTTP probing
+  - `internal/diag` for local slog helpers
+- Normal test cleanup should remove only test-created Kubernetes resources.
+- Broader OCI load balancer reset belongs in the explicit `make -C e2e infra-cleanup` operator
+  path, not the default live test flow.
+
 ## Live Test Rules
 
 - Live e2e stays opt-in and separate from the root `make test` flow.
