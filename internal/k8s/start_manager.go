@@ -41,6 +41,19 @@ type StartManagerDeps struct {
 	ReconcileHTTPRoute    bool `name:"config.features.reconcileHTTPRoute"`
 }
 
+func httpRouteObjectPredicate() predicate.Funcs {
+	generationChanged := predicate.GenerationChangedPredicate{}
+	labelChanged := predicate.LabelChangedPredicate{}
+	annotationChanged := predicate.AnnotationChangedPredicate{}
+	return predicate.Funcs{
+		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
+			return generationChanged.Update(updateEvent) ||
+				labelChanged.Update(updateEvent) ||
+				annotationChanged.Update(updateEvent)
+		},
+	}
+}
+
 // StartManager starts the controller manager.
 func StartManager(ctx context.Context, deps StartManagerDeps) error { // coverage-ignore -- challenging to test
 	logger := deps.RootLogger.WithGroup("k8s")
@@ -114,7 +127,7 @@ func StartManager(ctx context.Context, deps StartManagerDeps) error { // coverag
 				&discoveryv1.EndpointSlice{},
 				handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapEndpointSliceToHTTPRoute),
 			).
-			WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
+			WithEventFilter(httpRouteObjectPredicate()).
 			Complete(wireupReconciler(deps.HTTPRouteCtrl, middlewares...)); err != nil {
 			return fmt.Errorf("failed to setup HTTPRoute controller: %w", err)
 		}
