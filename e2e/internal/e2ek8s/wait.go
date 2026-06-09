@@ -158,6 +158,43 @@ func WaitForHTTPRouteDeleted(
 	)
 }
 
+func WaitForNamespacesDeleted(
+	ctx context.Context,
+	kubeClient ctrlclient.Client,
+	names []string,
+	opts *WaitOptions,
+) error {
+	for _, name := range names {
+		resource := &corev1.Namespace{}
+		key := ctrlclient.ObjectKey{Name: name}
+
+		if err := waitFor(
+			ctx,
+			fmt.Sprintf("wait for Namespace %q deletion", name),
+			opts,
+			func(ctx context.Context) (bool, string, error) {
+				if err := kubeClient.Get(ctx, key, resource); err != nil {
+					if apierrors.IsNotFound(err) {
+						return true, "", nil
+					}
+
+					return false, "", err
+				}
+
+				if resource.DeletionTimestamp != nil {
+					return false, "namespace is terminating", nil
+				}
+
+				return false, "namespace still exists", nil
+			},
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func WaitForDeploymentReady(
 	ctx context.Context,
 	kubeClient ctrlclient.Client,

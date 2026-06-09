@@ -47,6 +47,7 @@ Assuming commands are run from the repo root:
 - Test: `make -C e2e test` (support-only)
 - Compile: `make -C e2e compile`
 - Infra cleanup: `make -C e2e infra-cleanup`
+  - Requires both `OKE_E2E_LOAD_BALANCER_ID` and `OKE_E2E_KUBE_CONTEXT`
 
 ## Running e2e tests
 

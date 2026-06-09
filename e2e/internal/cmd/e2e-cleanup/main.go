@@ -5,19 +5,17 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strings"
+	"time"
 
 	"github.com/gemyago/oke-gateway-api/e2e/internal/config"
 	"github.com/gemyago/oke-gateway-api/e2e/internal/diag"
+	"github.com/gemyago/oke-gateway-api/e2e/internal/e2ek8s"
 	"github.com/gemyago/oke-gateway-api/e2e/internal/e2eoci"
 )
 
 const (
-	envLoadBalancerID      = "OKE_E2E_LOAD_BALANCER_ID"
-	envOCIConfigFile       = "OCI_CONFIG_FILE"
-	envOCIConfigFileAlt    = "OCI_CLI_CONFIG_FILE"
-	envOCIConfigProfile    = "OCI_CLI_PROFILE"
-	envOCIConfigProfileAlt = "OCI_CLI_CONFIG_PROFILE"
+	defaultCleanupTimeout = 20 * time.Minute
+	envSkipController     = "OKE_E2E_SKIP_CONTROLLER_START"
 )
 
 func main() {
@@ -26,67 +24,78 @@ func main() {
 			WithLogLevel(slog.LevelInfo),
 	)
 
-	ociConfig, err := loadCleanupOCIConfig()
+	ctx, cancel := context.WithTimeout(context.Background(), defaultCleanupTimeout)
+	err := run(ctx, logger)
+	cancel()
 	if err != nil {
-		logger.Error("failed to load OCI cleanup configuration", diag.ErrAttr(err))
+		logger.Error("cleanup failed", diag.ErrAttr(err))
 		os.Exit(1)
 	}
+}
 
-	client, err := e2eoci.NewLoadBalancerClient(ociConfig, nil)
+func run(ctx context.Context, logger *slog.Logger) error {
+	cfg, err := loadCleanupConfig(os.LookupEnv)
 	if err != nil {
-		logger.Error("failed to create OCI load balancer client", diag.ErrAttr(err))
-		os.Exit(1)
+		return fmt.Errorf("load cleanup configuration: %w", err)
 	}
 
-	cleaner := e2eoci.NewLoadBalancerCleaner(client, logger, nil)
-	result, err := cleaner.Cleanup(context.Background(), ociConfig.LoadBalancerID)
+	kubeClient, err := e2ek8s.NewClient(cfg.Kubernetes, nil)
 	if err != nil {
-		logger.Error("failed to reset disposable load balancer", diag.ErrAttr(err))
-		os.Exit(1)
+		return fmt.Errorf("create Kubernetes cleanup client: %w", err)
 	}
 
-	logger.Info(
+	deletedNamespaces, err := e2ek8s.DeleteNamespacesWithPrefix(ctx, kubeClient.Client, cfg.NamespacePrefix)
+	if err != nil {
+		return fmt.Errorf("delete e2e namespaces: %w", err)
+	}
+
+	err = e2ek8s.WaitForNamespacesDeleted(ctx, kubeClient.Client, deletedNamespaces, nil)
+	if err != nil {
+		return fmt.Errorf("wait for e2e namespace cleanup: %w", err)
+	}
+
+	logger.InfoContext(
+		ctx,
+		"e2e namespace cleanup completed",
+		slog.String("namespacePrefix", cfg.NamespacePrefix),
+		slog.Any("deletedNamespaces", deletedNamespaces),
+	)
+
+	loadBalancerClient, err := e2eoci.NewLoadBalancerClient(cfg.OCI, nil)
+	if err != nil {
+		return fmt.Errorf("create OCI load balancer client: %w", err)
+	}
+
+	cleaner := e2eoci.NewLoadBalancerCleaner(loadBalancerClient, logger, nil)
+	result, err := cleaner.Cleanup(ctx, cfg.OCI.LoadBalancerID)
+	if err != nil {
+		return fmt.Errorf("reset disposable load balancer: %w", err)
+	}
+
+	logger.InfoContext(
+		ctx,
 		"disposable load balancer cleanup completed",
 		slog.String("publicIP", result.PublicIP),
 		slog.Any("deletedListeners", result.DeletedListeners),
 		slog.Any("deletedRoutingPolicies", result.DeletedRoutingPolicies),
 		slog.Any("deletedBackendSets", result.DeletedBackendSets),
 	)
+
+	return nil
 }
 
-func loadCleanupOCIConfig() (config.OCIConfig, error) {
-	loadBalancerID, ok := optionalEnv(envLoadBalancerID)
-	if !ok {
-		return config.OCIConfig{}, fmt.Errorf("%s is required", envLoadBalancerID)
+func loadCleanupConfig(lookupEnv func(string) (string, bool)) (*config.Config, error) {
+	if lookupEnv == nil {
+		lookupEnv = os.LookupEnv
 	}
 
-	return config.OCIConfig{
-		LoadBalancerID: loadBalancerID,
-		ConfigFile:     firstEnv(envOCIConfigFile, envOCIConfigFileAlt),
-		ConfigProfile:  firstEnv(envOCIConfigProfile, envOCIConfigProfileAlt),
-	}, nil
-}
+	return config.LoadFromEnv(
+		config.NewLoadOptions().WithLookupEnv(func(key string) (string, bool) {
+			if key == envSkipController {
+				return "true", true
+			}
 
-func firstEnv(keys ...string) string {
-	for _, key := range keys {
-		if value, ok := optionalEnv(key); ok {
-			return value
-		}
-	}
-
-	return ""
-}
-
-func optionalEnv(key string) (string, bool) {
-	value, ok := os.LookupEnv(key)
-	if !ok {
-		return "", false
-	}
-
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", false
-	}
-
-	return value, true
+			return lookupEnv(key)
+		}),
+	)
 }

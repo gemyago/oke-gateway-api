@@ -314,6 +314,21 @@ func TestWaiters(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("waits for namespace deletion", func(t *testing.T) {
+		scheme := makeTestScheme(t)
+		kubeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			Build()
+
+		err := WaitForNamespacesDeleted(
+			t.Context(),
+			kubeClient,
+			[]string{"oke-gw-e2e-12345", "oke-gw-e2e-67890"},
+			waitOpts,
+		)
+		require.NoError(t, err)
+	})
+
 	t.Run("waits for deployment availability", func(t *testing.T) {
 		scheme := makeTestScheme(t)
 		replicas := int32(1)

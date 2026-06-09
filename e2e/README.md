@@ -105,7 +105,8 @@ The e2e module currently provides:
 - compile-only checks that do not require live infrastructure,
 - an explicit live entrypoint under `make -C e2e run-e2e-tests`, which builds the controller first
   and then runs `go test -count=1 .`,
-- an OCI cleanup command for operator-driven disposable load balancer resets,
+- an operator cleanup command that removes e2e namespaces from the selected cluster and resets the
+  disposable OCI load balancer,
 - a controller process helper under `e2e/internal/controllerproc` that launches the prebuilt
   controller binary from `OKE_E2E_CONTROLLER_BIN`, shapes the selected kubeconfig down to
   `OKE_E2E_KUBE_CONTEXT` for the child controller, forwards `KUBECONFIG` plus the caller OCI SDK
@@ -125,11 +126,15 @@ The e2e module currently provides:
 
 ## Infra Cleanup Command
 
-`direnv exec . make -C e2e infra-cleanup` is an operator command for resetting disposable OCI load
-balancer state outside the initial live test run.
+`direnv exec . make -C e2e infra-cleanup` is an operator command for cleaning up e2e namespaces in
+the selected cluster and resetting disposable OCI load balancer state outside the initial live test
+run.
 
 Current cleanup behavior:
 
+- builds a Kubernetes controller-runtime client from `OKE_E2E_KUBE_CONTEXT` with optional
+  `KUBECONFIG`, deletes namespaces whose names start with `OKE_E2E_NAMESPACE_PREFIX`, and waits for
+  those namespaces to disappear so Kubernetes can finish removing the resources inside them,
 - builds an OCI load balancer client from the default SDK config flow, with optional config file and
   profile overrides from the documented OCI env vars,
 - validates that `OKE_E2E_LOAD_BALANCER_ID` exists and that the load balancer has at least one
@@ -139,11 +144,9 @@ Current cleanup behavior:
 - waits for the OCI work request after each successful mutation,
 - does not delete the load balancer itself.
 
-The cleanup command only needs OCI-related inputs. It does not require Kubernetes helper wiring or
-controller process management.
-
-For Kubernetes-side cleanup, the `e2e/internal/e2ek8s` helper only deletes namespaces whose names
-start with the configured `OKE_E2E_NAMESPACE_PREFIX`.
+The cleanup command requires both `OKE_E2E_LOAD_BALANCER_ID` and `OKE_E2E_KUBE_CONTEXT`. It does
+not require controller process management, and it forces
+`OKE_E2E_SKIP_CONTROLLER_START=true` internally so the controller binary is not needed for cleanup.
 
 ## Controller Binary
 
