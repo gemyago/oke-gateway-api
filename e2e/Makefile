@@ -1,7 +1,7 @@
 SHELL := bash
 .SHELLFLAGS := -eu -o pipefail -c
 
-.PHONY: lint test run-e2e-tests compile infra-cleanup
+.PHONY: lint test preflight run-e2e-tests compile infra-cleanup
 
 GOLANGCI_LINT ?= ../bin/golangci-lint
 DIRENV ?= direnv
@@ -17,8 +17,12 @@ lint:
 test:
 	@$(E2E_ENV) go test -count=1 ./internal/...
 
+preflight:
+	@$(E2E_ENV) go run ./internal/cmd/e2e-check
+
 run-e2e-tests:
 	@$(MAKE) -C .. dist/bin
+	@$(MAKE) preflight
 	@$(E2E_ENV) go test -count=1 .
 
 compile:

@@ -13,6 +13,7 @@ See also:
 - Do not import root repo `internal/...` packages from this module.
 - Keep live e2e execution opt-in and separate from the root `make test` workflow.
 - Treat `make -C e2e test` as a support-only local check for e2e-owned helper packages.
+- Use `make -C e2e preflight` for read-only live environment checks before the live path.
 - Use `make -C e2e run-e2e-tests` as the explicit live entrypoint.
 
 ## Local Environment
@@ -42,16 +43,40 @@ Required live config:
 - `KUBECONFIG` is optional.
 - The selected cluster must already have the `GatewayConfig` CRD installed.
 
-**OCI Pre-check**:
+## Preflight Checks
+
+Before the live path, run:
+
+```sh
+direnv exec e2e make -C e2e preflight
+```
+
+The preflight command uses the same Go client paths as the live e2e helpers and checks:
+
+- live config loads successfully,
+- the controller binary exists unless `OKE_E2E_SKIP_CONTROLLER_START=true`,
+- the configured Kubernetes context can read namespaces,
+- the `gateway-configs.oke-gateway-api.gemyago.github.io` CRD exists,
+- the configured OCI load balancer is reachable and has a public IP.
+
+`direnv exec e2e make -C e2e run-e2e-tests` also runs this preflight automatically after it builds
+the controller binary.
+
+## Manual Troubleshooting Checks
+
+If `preflight` fails and you want to isolate whether the problem is Kubernetes or OCI, these manual
+commands are still useful.
+
+**OCI manual check**:
 
 ```sh
 oci lb load-balancer get --load-balancer-id ${OKE_E2E_LOAD_BALANCER_ID}
 ```
 
-## Kubernetes Manual Pre-checks
+## Kubernetes Manual Checks
 
-Before the live path, confirm that the kubeconfig you intend to use contains the required context
-and that the cluster is reachable.
+Confirm that the kubeconfig you intend to use contains the required context and that the cluster is
+reachable.
 
 When `KUBECONFIG` is set:
 
@@ -86,27 +111,31 @@ kubectl apply -f deploy/helm/controller/templates/gateway-config-crd.yaml
 
 ## Commands
 
-Run e2e commands from the repo root via `direnv exec .`:
+Run e2e commands from the repo root:
 
 ```sh
-make -C e2e lint
-make -C e2e test
-make -C e2e compile
-make -C e2e run-e2e-tests
-make -C e2e infra-cleanup
+direnv exec . make -C e2e lint
+direnv exec . make -C e2e test
+direnv exec e2e make -C e2e preflight
+direnv exec . make -C e2e compile
+direnv exec e2e make -C e2e run-e2e-tests
+direnv exec . make -C e2e infra-cleanup
 ```
 
-These Make targets load `e2e/.envrc` in the `e2e/` working directory, so its safe defaults and
-ignored `e2e/.envrc.local` live overrides are applied even when the command starts from the repo
-root.
+These Make targets load `e2e/.envrc` in the `e2e/` working directory. For the live preflight and
+the live test path, prefer `direnv exec e2e ...` so the top-level direnv environment also matches
+the e2e module.
 
 The e2e module currently provides:
 
 - local linting via the root-pinned `../bin/golangci-lint`,
 - support-only local `go test` execution for e2e-owned helper packages under `make -C e2e test`,
+- a read-only live preflight command under `make -C e2e preflight` that validates the configured
+  controller binary, Kubernetes context, required `GatewayConfig` CRD, and disposable OCI load
+  balancer using the same Go client paths as the live helpers,
 - compile-only checks that do not require live infrastructure,
 - an explicit live entrypoint under `make -C e2e run-e2e-tests`, which builds the controller first
-  and then runs `go test -count=1 .`,
+  then runs the read-only preflight checks, and then runs `go test -count=1 .`,
 - an operator cleanup command that removes e2e namespaces from the selected cluster and resets the
   disposable OCI load balancer,
 - a controller process helper under `e2e/internal/controllerproc` that launches the prebuilt
