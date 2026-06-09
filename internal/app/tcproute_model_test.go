@@ -88,6 +88,23 @@ func (s stubNetworkLoadBalancerGatewayModel) setProgrammed(
 }
 
 func TestTCPRouteModel(t *testing.T) {
+	t.Run("tcpBackendsEqual detects port changes", func(t *testing.T) {
+		assert.False(t, tcpBackendsEqual(
+			[]networkloadbalancer.Backend{{
+				IpAddress: new("10.0.0.10"),
+				Port:      new(1935),
+				IsDrain:   new(false),
+				Weight:    new(1),
+			}},
+			[]networkloadbalancer.BackendDetails{{
+				IpAddress: new("10.0.0.10"),
+				Port:      new(8080),
+				IsDrain:   new(false),
+				Weight:    new(1),
+			}},
+		))
+	})
+
 	t.Run("desired backend sets ignore non gateway parent refs", func(t *testing.T) {
 		otherGroup := gatewayv1.Group("example.com")
 		details := resolvedTCPRouteDetails{
