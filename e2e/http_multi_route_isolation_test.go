@@ -33,7 +33,12 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 		slog.String("suffix", suffix),
 	)
 
-	logger.InfoContext(ctx, "Creating Kubernetes and OCI clients")
+	logTestProgressContext(
+		ctx,
+		t,
+		logger,
+		"Creating Kubernetes and OCI clients",
+	)
 	kubeClient, err := e2ek8s.NewClient(cfg.Kubernetes, nil)
 	require.NoError(t, err)
 
@@ -47,13 +52,20 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 	probeClient, err := probe.NewClient(loadBalancer.PublicIP, cfg.HTTPPort, nil)
 	require.NoError(t, err)
 
-	logger.InfoContext(ctx, "Starting controller and waiting for readiness")
+	logTestProgressContext(
+		ctx,
+		t,
+		logger,
+		"Starting controller and waiting for readiness",
+	)
 	_ = startHTTPController(t, cfg, logger)
 
 	namespace, err := e2ek8s.CreateUniqueNamespace(ctx, kubeClient.Client, cfg.NamespacePrefix)
 	require.NoError(t, err)
-	logger.InfoContext(
+	logTestProgressContext(
 		ctx,
+		t,
+		logger,
 		"Created isolated test namespace",
 		slog.String("namespace", namespace.Name),
 	)
@@ -105,8 +117,10 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 
 	_, err = e2ek8s.WaitForGatewayProgrammed(ctx, kubeClient.Client, namespace.Name, gatewayName, nil)
 	require.NoError(t, err)
-	logger.InfoContext(
+	logTestProgressContext(
 		ctx,
+		t,
+		logger,
 		"Gateway accepted and programmed",
 		slog.String("namespace", namespace.Name),
 		slog.String("gateway", gatewayName),
@@ -143,8 +157,10 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 
 	_, err = e2ek8s.WaitForServiceEndpointsReady(ctx, kubeClient.Client, namespace.Name, backendAName, nil)
 	require.NoError(t, err)
-	logger.InfoContext(
+	logTestProgressContext(
 		ctx,
+		t,
+		logger,
 		"First backend is ready",
 		slog.String("namespace", namespace.Name),
 		slog.String("backend", backendAName),
@@ -188,7 +204,13 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 
 	_, err = e2ek8s.WaitForHTTPRouteAccepted(ctx, kubeClient.Client, namespace.Name, httpRouteAName, gatewayName, nil)
 	require.NoError(t, err)
-	logger.InfoContext(ctx, "First route accepted and resolved", slog.String("httpRoute", httpRouteAName))
+	logTestProgressContext(
+		ctx,
+		t,
+		logger,
+		"First route accepted and resolved",
+		slog.String("httpRoute", httpRouteAName),
+	)
 	resolvedRouteA, err := e2ek8s.WaitForHTTPRouteResolvedRefs(
 		ctx,
 		kubeClient.Client,
@@ -210,16 +232,30 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 		nil,
 	)
 	require.NoError(t, err)
-	logger.InfoContext(ctx, "Second route accepted and resolved", slog.String("httpRoute", httpRouteBName))
+	logTestProgressContext(
+		ctx,
+		t,
+		logger,
+		"Second route accepted and resolved",
+		slog.String("httpRoute", httpRouteBName),
+	)
 
 	_, err = probe.WaitForEcho(ctx, probeClient, probePathA, nil)
 	require.NoError(t, err)
-	logger.InfoContext(ctx, "First route is serving traffic", slog.String("probePath", probePathA))
+	logTestProgressContext(
+		ctx,
+		t,
+		logger,
+		"First route is serving traffic",
+		slog.String("probePath", probePathA),
+	)
 
 	_, err = probe.WaitForEchoGone(ctx, probeClient, probePathB, nil)
 	require.NoError(t, err)
-	logger.InfoContext(
+	logTestProgressContext(
 		ctx,
+		t,
+		logger,
 		"Second route correctly remains isolated until its backend is ready",
 		slog.String("probePath", probePathB),
 	)
@@ -241,8 +277,10 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 
 	_, err = e2ek8s.WaitForServiceEndpointsReady(ctx, kubeClient.Client, namespace.Name, backendBName, nil)
 	require.NoError(t, err)
-	logger.InfoContext(
+	logTestProgressContext(
 		ctx,
+		t,
+		logger,
 		"Second backend is ready",
 		slog.String("namespace", namespace.Name),
 		slog.String("backend", backendBName),
@@ -250,7 +288,13 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 
 	_, err = probe.WaitForEcho(ctx, probeClient, probePathB, nil)
 	require.NoError(t, err)
-	logger.InfoContext(ctx, "Second route is now serving traffic", slog.String("probePath", probePathB))
+	logTestProgressContext(
+		ctx,
+		t,
+		logger,
+		"Second route is now serving traffic",
+		slog.String("probePath", probePathB),
+	)
 
 	programmedPolicyRulesA, err := waitForHTTPRouteProgrammedPolicyRuleNames(
 		ctx,
@@ -296,8 +340,10 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	logger.InfoContext(
+	logTestProgressContext(
 		ctx,
+		t,
+		logger,
 		"Deleting first HTTPRoute to verify rule isolation",
 		slog.String("httpRoute", httpRouteAName),
 	)
@@ -334,7 +380,11 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 		nil,
 	)
 	require.NoError(t, err)
-	logger.InfoContext(ctx, "Multi-route isolation validated successfully",
+	logTestProgressContext(
+		ctx,
+		t,
+		logger,
+		"Multi-route isolation validated successfully",
 		slog.String("removedRoute", httpRouteAName),
 		slog.String("remainingRoute", httpRouteBName),
 	)

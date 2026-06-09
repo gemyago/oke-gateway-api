@@ -61,6 +61,18 @@ Live tests are tests that run against real infrastructure (e.g the actual e2e te
 - The e2e client and any child controller process must use the explicit
   `OKE_E2E_KUBE_CONTEXT`.
 
+## Logs
+
+- E2E test logs written via the shared test logger go to `e2e/test.log`.
+- Child controller stdout/stderr captured by `internal/controllerproc` go to
+  `e2e/controller.log`.
+- If you need to adjust test logging behavior, start with `e2e/testing.go` and
+  `e2e/internal/diag/testing.go`.
+- If you need to adjust child controller logging behavior, start with
+  `e2e/internal/controllerproc/controller.go`.
+
+Use `logTestProgress` or `logTestProgressContext` to log progress inside of the test. Use it for a high-level overview of the test progress, don't go verbose on very line.
+
 ## Run individual e2e tests
 
 Build the controller binary first:

@@ -22,7 +22,7 @@ func testHTTPRouteLifecycle(t *testing.T) {
 		slog.Int("httpPort", cfg.HTTPPort),
 	)
 
-	logger.InfoContext(ctx, "Creating Kubernetes and OCI clients")
+	logTestProgressContext(ctx, t, logger, "Creating Kubernetes and OCI clients")
 	kubeClient, err := e2ek8s.NewClient(cfg.Kubernetes, nil)
 	require.NoError(t, err)
 
@@ -36,13 +36,15 @@ func testHTTPRouteLifecycle(t *testing.T) {
 	probeClient, err := probe.NewClient(loadBalancer.PublicIP, cfg.HTTPPort, nil)
 	require.NoError(t, err)
 
-	logger.InfoContext(ctx, "Starting controller and waiting for readiness")
+	logTestProgressContext(ctx, t, logger, "Starting controller and waiting for readiness")
 	_ = startHTTPController(t, cfg, logger)
 
 	namespace, err := e2ek8s.CreateUniqueNamespace(ctx, kubeClient.Client, cfg.NamespacePrefix)
 	require.NoError(t, err)
-	logger.InfoContext(
+	logTestProgressContext(
 		ctx,
+		t,
+		logger,
 		"Created isolated test namespace",
 		slog.String("namespace", namespace.Name),
 	)
@@ -94,8 +96,10 @@ func testHTTPRouteLifecycle(t *testing.T) {
 
 	_, err = e2ek8s.WaitForGatewayProgrammed(ctx, kubeClient.Client, namespace.Name, gatewayName, nil)
 	require.NoError(t, err)
-	logger.InfoContext(
+	logTestProgressContext(
 		ctx,
+		t,
+		logger,
 		"Gateway accepted and programmed",
 		slog.String("namespace", namespace.Name),
 		slog.String("gateway", gatewayName),
@@ -130,8 +134,10 @@ func testHTTPRouteLifecycle(t *testing.T) {
 
 	_, err = e2ek8s.WaitForServiceEndpointsReady(ctx, kubeClient.Client, namespace.Name, backendName, nil)
 	require.NoError(t, err)
-	logger.InfoContext(
+	logTestProgressContext(
 		ctx,
+		t,
+		logger,
 		"Echo backend is ready",
 		slog.String("namespace", namespace.Name),
 		slog.String("backend", backendName),
@@ -167,8 +173,10 @@ func testHTTPRouteLifecycle(t *testing.T) {
 		nil,
 	)
 	require.NoError(t, err)
-	logger.InfoContext(
+	logTestProgressContext(
 		ctx,
+		t,
+		logger,
 		"HTTPRoute accepted and resolved",
 		slog.String("namespace", namespace.Name),
 		slog.String("httpRoute", httpRouteName),
@@ -176,7 +184,13 @@ func testHTTPRouteLifecycle(t *testing.T) {
 
 	_, err = probe.WaitForEcho(ctx, probeClient, probePath, nil)
 	require.NoError(t, err)
-	logger.InfoContext(ctx, "Probe received backend response", slog.String("probePath", probePath))
+	logTestProgressContext(
+		ctx,
+		t,
+		logger,
+		"Probe received backend response",
+		slog.String("probePath", probePath),
+	)
 
 	programmedPolicyRules, err := waitForHTTPRouteProgrammedPolicyRuleNames(
 		ctx,
@@ -189,8 +203,10 @@ func testHTTPRouteLifecycle(t *testing.T) {
 	require.NotEmpty(t, programmedPolicyRules)
 	logger.InfoContext(ctx, "Captured programmed routing policy rules", slog.Any("ruleNames", programmedPolicyRules))
 
-	logger.InfoContext(
+	logTestProgressContext(
 		ctx,
+		t,
+		logger,
 		"Deleting HTTPRoute",
 		slog.String("namespace", namespace.Name),
 		slog.String("httpRoute", httpRouteName),
@@ -215,8 +231,10 @@ func testHTTPRouteLifecycle(t *testing.T) {
 		nil,
 	)
 	require.NoError(t, err)
-	logger.InfoContext(
+	logTestProgressContext(
 		ctx,
+		t,
+		logger,
 		"HTTP route lifecycle completed",
 		slog.String("namespace", namespace.Name),
 		slog.String("httpRoute", httpRouteName),

@@ -8,6 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
+
+	"github.com/go-logr/logr"
+	ctrlog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 func projectRoot() string {
@@ -43,8 +47,16 @@ func mustOpenProjectLogFile(name string) *os.File {
 
 var testOutput = mustOpenProjectLogFile("test.log") //nolint:gochecknoglobals // it's ok for tests
 
+var controllerRuntimeLoggerOnce sync.Once //nolint:gochecknoglobals // shared test logger setup
+
 func RootTestLogger() *slog.Logger {
-	return SetupRootLogger(
+	logger := SetupRootLogger(
 		NewRootLoggerOpts().WithOutput(testOutput).WithLogLevel(slog.LevelDebug).WithJSONLogs(true),
 	)
+
+	controllerRuntimeLoggerOnce.Do(func() {
+		ctrlog.SetLogger(logr.FromSlogHandler(logger.Handler()))
+	})
+
+	return logger
 }
