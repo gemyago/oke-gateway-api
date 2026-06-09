@@ -26,7 +26,7 @@ type HTTPRouteControllerDeps struct {
 	RootLogger       *slog.Logger
 	HTTPRouteModel   httpRouteModel
 	HTTPBackendModel httpBackendModel
-	DriftInterval    time.Duration `name:"config.reconcile.driftInterval"`
+	DriftInterval    time.Duration `name:"config.reconcile.drift-interval"`
 }
 
 // NewHTTPRouteController creates a new HTTPRouteController.

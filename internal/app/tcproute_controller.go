@@ -25,7 +25,7 @@ type TCPRouteControllerDeps struct {
 
 	RootLogger    *slog.Logger
 	TCPRouteModel tcpRouteModel
-	DriftInterval time.Duration `name:"config.reconcile.driftInterval"`
+	DriftInterval time.Duration `name:"config.reconcile.drift-interval"`
 }
 
 func NewTCPRouteController(deps TCPRouteControllerDeps) *TCPRouteController {

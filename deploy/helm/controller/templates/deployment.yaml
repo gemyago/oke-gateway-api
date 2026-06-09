@@ -50,7 +50,7 @@ spec:
         - name: OCI_CONFIG_FILE
           value: /etc/oci/config
         - name: APP_RECONCILE_DRIFT_INTERVAL
-          value: {{ .Values.reconcile.driftInterval | quote }}
+          value: {{ index .Values.reconcile "drift-interval" | quote }}
         volumeMounts:
         - name: oci-config-volume
           mountPath: "/etc/oci"

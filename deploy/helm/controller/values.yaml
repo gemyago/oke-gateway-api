@@ -10,7 +10,7 @@ fullnameOverride: ""
 
 reconcile:
   # Periodic OCI drift reconciliation interval. Use 0s to disable.
-  driftInterval: 0s
+  drift-interval: 0s
 
 serviceAccount:
   # Specifies whether a service account should be created

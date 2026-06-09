@@ -23,7 +23,7 @@ type UDPRouteControllerDeps struct {
 
 	RootLogger    *slog.Logger
 	UDPRouteModel udpRouteModel
-	DriftInterval time.Duration `name:"config.reconcile.driftInterval"`
+	DriftInterval time.Duration `name:"config.reconcile.drift-interval"`
 }
 
 func NewUDPRouteController(deps UDPRouteControllerDeps) *UDPRouteController {

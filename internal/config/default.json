@@ -19,7 +19,7 @@
     "noop": false
   },
   "reconcile": {
-    "driftInterval": "0s"
+    "drift-interval": "0s"
   },
   "features": {
     "reconcileGatewayClass": true,

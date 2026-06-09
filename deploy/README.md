@@ -43,7 +43,7 @@ helm install oke-gateway-api-controller ./helm/controller \
 
 # Enable periodic OCI drift reconciliation
 helm install oke-gateway-api-controller ./helm/controller \
-  --set reconcile.driftInterval=5m
+  --set reconcile.drift-interval=5m
 ```
 
 ## OCI certificate example

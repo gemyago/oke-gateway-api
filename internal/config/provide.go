@@ -63,7 +63,7 @@ func Provide(container *dig.Container, cfg *viper.Viper) error {
 		provideConfigValue(cfg, "ociapi.noop").asBool(),
 
 		// reconcile config
-		provideConfigValue(cfg, "reconcile.driftInterval").asDuration(),
+		provideConfigValue(cfg, "reconcile.drift-interval").asDuration(),
 
 		// features config
 		provideConfigValue(cfg, "features.reconcileGatewayClass").asBool(),

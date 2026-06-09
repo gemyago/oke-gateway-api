@@ -31,7 +31,7 @@ type GatewayControllerDeps struct {
 	K8sClient      k8sClient
 	ResourcesModel resourcesModel
 	GatewayModel   gatewayModel
-	DriftInterval  time.Duration `name:"config.reconcile.driftInterval"`
+	DriftInterval  time.Duration `name:"config.reconcile.drift-interval"`
 }
 
 // NewGatewayController creates a new GatewayController.

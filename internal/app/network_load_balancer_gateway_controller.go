@@ -28,7 +28,7 @@ type NetworkLoadBalancerGatewayControllerDeps struct {
 	RootLogger     *slog.Logger
 	ResourcesModel resourcesModel
 	GatewayModel   networkLoadBalancerGatewayModel
-	DriftInterval  time.Duration `name:"config.reconcile.driftInterval"`
+	DriftInterval  time.Duration `name:"config.reconcile.drift-interval"`
 }
 
 func NewNetworkLoadBalancerGatewayController(
