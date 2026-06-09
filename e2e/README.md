@@ -3,6 +3,10 @@
 This directory is a standalone Go module for live end-to-end testing of the OKE Gateway API
 controller.
 
+See also:
+
+- `TEST_PLAN.md` for the prioritized live e2e scenario backlog.
+
 ## Scope
 
 - Keep e2e code isolated from controller production code.
