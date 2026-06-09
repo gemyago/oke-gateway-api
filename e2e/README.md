@@ -37,13 +37,11 @@ Required live config:
 - `OKE_E2E_KUBE_CONTEXT` is required.
 - `KUBECONFIG` is optional.
 - The selected cluster must already have the `GatewayConfig` CRD installed.
-- Missing required live config fails `make -C e2e run-e2e-tests` during test startup; live e2e does
-  not silently fall back to offline behavior.
 
 **OCI Pre-check**:
 
 ```sh
-direnv exec . oci lb load-balancer get --load-balancer-id ${OKE_E2E_LOAD_BALANCER_ID}
+oci lb load-balancer get --load-balancer-id ${OKE_E2E_LOAD_BALANCER_ID}
 ```
 
 ## Kubernetes Manual Pre-checks
@@ -54,17 +52,17 @@ and that the cluster is reachable.
 When `KUBECONFIG` is set:
 
 ```sh
-direnv exec . kubectl --kubeconfig "${KUBECONFIG}" config get-contexts
-direnv exec . kubectl --kubeconfig "${KUBECONFIG}" --context "${OKE_E2E_KUBE_CONTEXT}" cluster-info
-direnv exec . kubectl --kubeconfig "${KUBECONFIG}" --context "${OKE_E2E_KUBE_CONTEXT}" auth can-i get namespaces
+kubectl --kubeconfig "${KUBECONFIG}" config get-contexts
+kubectl --kubeconfig "${KUBECONFIG}" --context "${OKE_E2E_KUBE_CONTEXT}" cluster-info
+kubectl --kubeconfig "${KUBECONFIG}" --context "${OKE_E2E_KUBE_CONTEXT}" auth can-i get namespaces
 ```
 
 When `KUBECONFIG` is unset and you want the default loading rules:
 
 ```sh
-direnv exec . kubectl config get-contexts
-direnv exec . kubectl --context "${OKE_E2E_KUBE_CONTEXT}" cluster-info
-direnv exec . kubectl --context "${OKE_E2E_KUBE_CONTEXT}" auth can-i get namespaces
+kubectl config get-contexts
+kubectl --context "${OKE_E2E_KUBE_CONTEXT}" cluster-info
+kubectl --context "${OKE_E2E_KUBE_CONTEXT}" auth can-i get namespaces
 ```
 
 The live e2e client and the child controller both use the explicit `OKE_E2E_KUBE_CONTEXT`. If the
@@ -73,13 +71,13 @@ context is missing from the selected kubeconfig, the live run fails.
 Confirm the CRD is present before the live path:
 
 ```sh
-direnv exec . kubectl --context "${OKE_E2E_KUBE_CONTEXT}" get crd gateway-configs.oke-gateway-api.gemyago.github.io
+kubectl --context "${OKE_E2E_KUBE_CONTEXT}" get crd gateway-configs.oke-gateway-api.gemyago.github.io
 ```
 
 If it is missing, install it explicitly before running the live test:
 
 ```sh
-direnv exec . kubectl apply -f deploy/helm/controller/templates/gateway-config-crd.yaml
+kubectl apply -f deploy/helm/controller/templates/gateway-config-crd.yaml
 ```
 
 ## Commands
@@ -87,11 +85,11 @@ direnv exec . kubectl apply -f deploy/helm/controller/templates/gateway-config-c
 Run e2e commands from the repo root via `direnv exec .`:
 
 ```sh
-direnv exec . make -C e2e lint
-direnv exec . make -C e2e test
-direnv exec . make -C e2e compile
-direnv exec . make -C e2e run-e2e-tests
-direnv exec . make -C e2e infra-cleanup
+make -C e2e lint
+make -C e2e test
+make -C e2e compile
+make -C e2e run-e2e-tests
+make -C e2e infra-cleanup
 ```
 
 These Make targets load `e2e/.envrc` in the `e2e/` working directory, so its safe defaults and
