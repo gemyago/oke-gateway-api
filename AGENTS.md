@@ -48,6 +48,7 @@ If you touch deployment assets:
 Release versioning:
 - Helm chart `version` tracks the controller release without a leading `v`.
 - Helm chart `appVersion` tracks the controller release tag with the leading `v`.
+- Helm CRDs live under `deploy/helm/controller/crds`; keep them as plain manifests so they can be applied with `kubectl` and installed by Helm via the `crds/` mechanism.
 
 ## Safe Local Runs
 
