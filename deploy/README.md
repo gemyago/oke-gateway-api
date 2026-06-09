@@ -40,6 +40,10 @@ helm install oke-gateway-api-controller ./helm/controller \
 # Install only the controller when the CRD is already managed separately
 helm install oke-gateway-api-controller ./helm/controller \
   --skip-crds
+
+# Enable periodic OCI drift reconciliation
+helm install oke-gateway-api-controller ./helm/controller \
+  --set reconcile.driftInterval=5m
 ```
 
 ## OCI certificate example
