@@ -403,6 +403,43 @@ func TestWaiters(t *testing.T) {
 		require.Len(t, slices, 1)
 		assert.Equal(t, "echo-abcde", slices[0].Name)
 	})
+
+	t.Run("waits for endpoint slices to stop publishing ready addresses", func(t *testing.T) {
+		scheme := makeTestScheme(t)
+		ready := false
+		kubeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(&discoveryv1.EndpointSlice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "echo-abcde",
+					Namespace: "oke-gw-e2e-12345",
+					Labels: map[string]string{
+						discoveryv1.LabelServiceName: "echo",
+					},
+				},
+				AddressType: discoveryv1.AddressTypeIPv4,
+				Endpoints: []discoveryv1.Endpoint{
+					{
+						Addresses: []string{"10.0.0.12"},
+						Conditions: discoveryv1.EndpointConditions{
+							Ready: &ready,
+						},
+					},
+				},
+			}).
+			Build()
+
+		slices, err := WaitForServiceEndpointsGone(
+			t.Context(),
+			kubeClient,
+			"oke-gw-e2e-12345",
+			"echo",
+			waitOpts,
+		)
+		require.NoError(t, err)
+		require.Len(t, slices, 1)
+		assert.Equal(t, "echo-abcde", slices[0].Name)
+	})
 }
 
 func makeTestScheme(t *testing.T) *runtime.Scheme {

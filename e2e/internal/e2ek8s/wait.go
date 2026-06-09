@@ -256,11 +256,69 @@ func WaitForServiceEndpointsReady(
 	serviceName string,
 	opts *WaitOptions,
 ) ([]discoveryv1.EndpointSlice, error) {
+	return waitForServiceEndpointSlices(
+		ctx,
+		kubeClient,
+		namespace,
+		serviceName,
+		opts,
+		fmt.Sprintf("wait for Service %s/%s ready endpoint slices", namespace, serviceName),
+		func(endpointSlices []discoveryv1.EndpointSlice) (bool, string) {
+			if len(endpointSlices) == 0 {
+				return false, "no EndpointSlices found for Service"
+			}
+
+			if hasReadyEndpointAddress(endpointSlices) {
+				return true, ""
+			}
+
+			return false, "no ready endpoint addresses published yet"
+		},
+	)
+}
+
+func WaitForServiceEndpointsGone(
+	ctx context.Context,
+	kubeClient ctrlclient.Client,
+	namespace string,
+	serviceName string,
+	opts *WaitOptions,
+) ([]discoveryv1.EndpointSlice, error) {
+	return waitForServiceEndpointSlices(
+		ctx,
+		kubeClient,
+		namespace,
+		serviceName,
+		opts,
+		fmt.Sprintf(
+			"wait for Service %s/%s endpoint slices to stop publishing ready addresses",
+			namespace,
+			serviceName,
+		),
+		func(endpointSlices []discoveryv1.EndpointSlice) (bool, string) {
+			if hasReadyEndpointAddress(endpointSlices) {
+				return false, "ready endpoint addresses are still published"
+			}
+
+			return true, ""
+		},
+	)
+}
+
+func waitForServiceEndpointSlices(
+	ctx context.Context,
+	kubeClient ctrlclient.Client,
+	namespace string,
+	serviceName string,
+	opts *WaitOptions,
+	description string,
+	check func([]discoveryv1.EndpointSlice) (bool, string),
+) ([]discoveryv1.EndpointSlice, error) {
 	var endpointSlices discoveryv1.EndpointSliceList
 
 	err := waitFor(
 		ctx,
-		fmt.Sprintf("wait for Service %s/%s ready endpoint slices", namespace, serviceName),
+		description,
 		opts,
 		func(ctx context.Context) (bool, string, error) {
 			endpointSlices = discoveryv1.EndpointSliceList{}
@@ -273,23 +331,8 @@ func WaitForServiceEndpointsReady(
 				return false, "", err
 			}
 
-			if len(endpointSlices.Items) == 0 {
-				return false, "no EndpointSlices found for Service", nil
-			}
-
-			for _, endpointSlice := range endpointSlices.Items {
-				for _, endpoint := range endpointSlice.Endpoints {
-					if len(endpoint.Addresses) == 0 {
-						continue
-					}
-
-					if endpoint.Conditions.Ready == nil || *endpoint.Conditions.Ready {
-						return true, "", nil
-					}
-				}
-			}
-
-			return false, "no ready endpoint addresses published yet", nil
+			done, message := check(endpointSlices.Items)
+			return done, message, nil
 		},
 	)
 	if err != nil {
@@ -297,6 +340,22 @@ func WaitForServiceEndpointsReady(
 	}
 
 	return endpointSlices.Items, nil
+}
+
+func hasReadyEndpointAddress(endpointSlices []discoveryv1.EndpointSlice) bool {
+	for _, endpointSlice := range endpointSlices {
+		for _, endpoint := range endpointSlice.Endpoints {
+			if len(endpoint.Addresses) == 0 {
+				continue
+			}
+
+			if endpoint.Conditions.Ready == nil || *endpoint.Conditions.Ready {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func waitForGatewayCondition(

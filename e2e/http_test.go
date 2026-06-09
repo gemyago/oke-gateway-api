@@ -36,6 +36,7 @@ func TestHTTP(t *testing.T) {
 	t.Run("Startup", testHTTPStartup)
 	t.Run("RouteLifecycle", testHTTPRouteLifecycle)
 	t.Run("MultiRouteIsolation", testHTTPMultiRouteIsolation)
+	t.Run("BackendEndpointChange", testHTTPBackendEndpointChange)
 }
 
 func requireLiveHTTPConfig(t *testing.T) *config.Config {
