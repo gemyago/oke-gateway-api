@@ -628,6 +628,42 @@ func TestHTTPBackendModel(t *testing.T) {
 			assert.Equal(t, expectedResult.drainingCount, result.drainingCount)
 		})
 
+		t.Run("port update", func(t *testing.T) {
+			model := newHTTPBackendModel(newMockDeps(t))
+			currentPort := 80
+			desiredPort := int32(8080)
+
+			endpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(new(true), new(false)))
+			currentBackends := []loadbalancer.Backend{
+				{
+					Name:      new("backend-port-update"),
+					IpAddress: &endpoint.Addresses[0],
+					Port:      new(currentPort),
+					Drain:     new(false),
+				},
+			}
+			endpointSlices := []discoveryv1.EndpointSlice{
+				{Endpoints: []discoveryv1.Endpoint{endpoint}},
+			}
+
+			result, err := model.identifyBackendsToUpdate(t.Context(), identifyBackendsToUpdateParams{
+				endpointPort:    desiredPort,
+				currentBackends: currentBackends,
+				endpointSlices:  endpointSlices,
+			})
+
+			require.NoError(t, err)
+			assert.True(t, result.updateRequired)
+			assert.ElementsMatch(t, []loadbalancer.BackendDetails{
+				{
+					IpAddress: &endpoint.Addresses[0],
+					Port:      new(int(desiredPort)),
+					Drain:     new(false),
+				},
+			}, result.updatedBackends)
+			assert.Equal(t, 0, result.drainingCount)
+		})
+
 		t.Run("drain status update - stop draining", func(t *testing.T) {
 			fake := faker.New()
 			model := newHTTPBackendModel(newMockDeps(t))

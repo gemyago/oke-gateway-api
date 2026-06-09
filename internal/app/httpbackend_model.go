@@ -38,6 +38,11 @@ type identifyBackendsToUpdateResult struct {
 	drainingCount   int
 }
 
+type httpBackendAddressKey struct {
+	ipAddress string
+	port      int
+}
+
 // httpBackendModel defines the interface for managing OCI backend sets based on HTTPRoute definitions.
 type httpBackendModel interface {
 	// syncRouteEndpoints synchronizes the OCI Load Balancer Backend Sets associated with the
@@ -109,7 +114,7 @@ func (m *httpBackendModelImpl) identifyBackendsToUpdate(
 	ctx context.Context,
 	params identifyBackendsToUpdateParams,
 ) (identifyBackendsToUpdateResult, error) {
-	desiredBackendsMap := make(map[string]loadbalancer.BackendDetails)
+	desiredBackendsMap := make(map[httpBackendAddressKey]loadbalancer.BackendDetails)
 	var drainingCount int
 
 	for _, slice := range params.endpointSlices {
@@ -128,7 +133,10 @@ func (m *httpBackendModelImpl) identifyBackendsToUpdate(
 				drainingCount++
 			}
 
-			desiredBackendsMap[ipAddress] = loadbalancer.BackendDetails{
+			desiredBackendsMap[httpBackendAddressKey{
+				ipAddress: ipAddress,
+				port:      int(params.endpointPort),
+			}] = loadbalancer.BackendDetails{
 				Port:      new(int(params.endpointPort)),
 				IpAddress: &ipAddress,
 				Drain:     new(isDraining),
@@ -141,8 +149,11 @@ func (m *httpBackendModelImpl) identifyBackendsToUpdate(
 		lo.Filter(params.currentBackends, func(b loadbalancer.Backend, _ int) bool {
 			return b.IpAddress != nil
 		}),
-		func(b loadbalancer.Backend) (string, loadbalancer.Backend) {
-			return *b.IpAddress, b
+		func(b loadbalancer.Backend) (httpBackendAddressKey, loadbalancer.Backend) {
+			return httpBackendAddressKey{
+				ipAddress: *b.IpAddress,
+				port:      lo.FromPtr(b.Port),
+			}, b
 		},
 	)
 
