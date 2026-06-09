@@ -113,7 +113,13 @@ func testHTTPRouteLifecycle(t *testing.T) {
 	_, err = probe.WaitForEcho(ctx, probeClient, probePath, nil)
 	require.NoError(t, err)
 
-	programmedPolicyRules, err := programmedPolicyRuleNames(resolvedRoute)
+	programmedPolicyRules, err := waitForHTTPRouteProgrammedPolicyRuleNames(
+		ctx,
+		kubeClient.Client,
+		namespace.Name,
+		httpRouteName,
+		nil,
+	)
 	require.NoError(t, err)
 	require.NotEmpty(t, programmedPolicyRules)
 

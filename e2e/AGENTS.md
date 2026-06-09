@@ -31,52 +31,38 @@
 - Broader OCI load balancer reset belongs in the explicit `make -C e2e infra-cleanup` operator
   path, not the default live test flow.
 
+## Local Commands
+
+**Shell usage notes**
+- If shell is persistent (e.g human controlled terminal), then `direnv allow` and then run all commands directly in the shell.
+- If shell is ephemeral (most typical in AI agents), then run most commands via `direnv exec <working_dir> <command>`.
+- All commands mentioned here are assumed run from the `e2e/` working directory. If your shell is ephemeral, you would normally need to `direnv exec e2e <command>`. Keep in mind that <working_dir> doesn't change cwd, just loads the env from the specified working dir.
+
+Assuming commands are run from the repo root:
+- Lint: `make lint`
+- Test: `make test` (support-only)
+- Preflight: `make preflight`
+  - Uses the real Kubernetes and OCI Go clients in read-only mode
+- Compile: `make compile`
+- Infra cleanup: `make infra-cleanup`
+  - Requires both `OKE_E2E_LOAD_BALANCER_ID` and `OKE_E2E_KUBE_CONTEXT`
+
 ## Live Test Rules
 
+Live tests are tests that run against real infrastructure (e.g the actual e2e tests)
+
 - Live e2e stays opt-in and separate from the root `make test` flow.
-- Treat `direnv exec . make -C e2e test` as a support-only check for e2e-owned helper packages.
-- Use `direnv exec e2e make -C e2e preflight` for read-only live environment checks.
-- Use `direnv exec e2e make -C e2e run-e2e-tests` as the explicit live path.
-- The live `run-e2e-tests` target builds the controller binary, runs preflight, and then runs
-  `go test .`.
-- The selected cluster must already have the `GatewayConfig` CRD installed before live HTTP e2e
-  runs; missing CRDs should fail the live test rather than being created by the helper.
-- Do not make support-only targets such as `test` or `compile` build the controller binary.
-- Use `OKE_E2E_SKIP_CONTROLLER_START=true` only when intentionally testing against an already
-  running controller.
+- Treat `make test` as a support-only check for e2e-owned helper packages.
+- Use `make preflight` for read-only live environment checks.
+- Use `make run-e2e-tests` as the explicit live path.
+- The live `run-e2e-tests` target builds the controller binary, runs preflight, and then runs `go test .`.
 - Treat the OCI load balancer as disposable test infrastructure.
 - Treat the Kubernetes cluster as shared infrastructure and scope cleanup carefully.
 - Required live Kubernetes config is `OKE_E2E_KUBE_CONTEXT`; `KUBECONFIG` is optional.
 - The e2e client and any child controller process must use the explicit
   `OKE_E2E_KUBE_CONTEXT`.
 
-## Environment
-
-- Run project shell commands from the repo root via `direnv exec <working-dir> <command>`.
-- User must prepare `e2e/.envrc.local` with actual values. **DO NOT** read this file.
-- The `e2e` Make targets load `e2e/.envrc` from the `e2e/` working directory so those values load under the root workflow.
-- Keep only safe defaults in committed files.
-
-## Local Commands
-
-By default assume you have to run any project specific command via `direnv exec <working-dir> <command>` to make sure env is loaded.
-
-Assuming commands are run from the repo root:
-- Lint: `direnv exec . make -C e2e lint`
-- Test: `direnv exec . make -C e2e test` (support-only)
-- Preflight: `direnv exec e2e make -C e2e preflight`
-  - Uses the real Kubernetes and OCI Go clients in read-only mode
-- Compile: `direnv exec . make -C e2e compile`
-- Infra cleanup: `direnv exec . make -C e2e infra-cleanup`
-  - Requires both `OKE_E2E_LOAD_BALANCER_ID` and `OKE_E2E_KUBE_CONTEXT`
-
-## Running e2e tests
-
-To run e2e tests, use `direnv exec e2e make -C e2e run-e2e-tests`. That target builds the
-controller, runs `make -C e2e preflight`, and then starts the live test. Do not run it
-automatically, only when user explicitly asks for it.
-
-### Run individual e2e tests
+## Run individual e2e tests
 
 Build the controller binary first:
 

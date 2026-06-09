@@ -553,3 +553,65 @@ func TestWaitForRoutingPolicyRuleNamesAbsent(t *testing.T) {
 		assertErrorContains(t, err, "at least one rule name is required")
 	})
 }
+
+func TestWaitForRoutingPolicyRuleNamesPresent(t *testing.T) {
+	t.Parallel()
+
+	t.Run("waits until the captured rules are present", func(t *testing.T) {
+		t.Parallel()
+
+		callCount := 0
+		client := &fakeLoadBalancerClient{
+			getRoutingPolicy: func(
+				_ context.Context,
+				request loadbalancer.GetRoutingPolicyRequest,
+			) (loadbalancer.GetRoutingPolicyResponse, error) {
+				callCount++
+				assertEqual(t, "ocid1.loadbalancer.oc1..rules", stringValue(request.LoadBalancerId))
+				assertEqual(t, "http_policy", stringValue(request.RoutingPolicyName))
+
+				ruleNames := []string{"other-rule"}
+				if callCount > 1 {
+					ruleNames = append(ruleNames, "captured-rule")
+				}
+
+				rules := make([]loadbalancer.RoutingRule, 0, len(ruleNames))
+				for _, ruleName := range ruleNames {
+					name := ruleName
+					rules = append(rules, loadbalancer.RoutingRule{Name: &name})
+				}
+
+				return loadbalancer.GetRoutingPolicyResponse{
+					RoutingPolicy: loadbalancer.RoutingPolicy{
+						Rules: rules,
+					},
+				}, nil
+			},
+		}
+
+		err := WaitForRoutingPolicyRuleNamesPresent(
+			t.Context(),
+			client,
+			"ocid1.loadbalancer.oc1..rules",
+			"http",
+			[]string{"captured-rule"},
+			&RoutingPolicyWaitOptions{PollInterval: time.Millisecond},
+		)
+		assertNoError(t, err)
+		assertEqual(t, 2, callCount)
+	})
+
+	t.Run("rejects empty rule names", func(t *testing.T) {
+		t.Parallel()
+
+		err := WaitForRoutingPolicyRuleNamesPresent(
+			t.Context(),
+			&fakeLoadBalancerClient{},
+			"ocid1.loadbalancer.oc1..rules",
+			"http",
+			nil,
+			nil,
+		)
+		assertErrorContains(t, err, "at least one rule name is required")
+	})
+}

@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/gemyago/oke-gateway-api/e2e/internal/config"
+	"github.com/gemyago/oke-gateway-api/e2e/internal/e2ek8s"
 )
 
 const (
@@ -34,6 +35,7 @@ const (
 func TestHTTP(t *testing.T) {
 	t.Run("Startup", testHTTPStartup)
 	t.Run("RouteLifecycle", testHTTPRouteLifecycle)
+	t.Run("MultiRouteIsolation", testHTTPMultiRouteIsolation)
 }
 
 func requireLiveHTTPConfig(t *testing.T) *config.Config {
@@ -100,6 +102,62 @@ func programmedPolicyRuleNames(route *gatewayv1.HTTPRoute) ([]string, error) {
 	}
 
 	return ruleNames, nil
+}
+
+func waitForHTTPRouteProgrammedPolicyRuleNames(
+	ctx context.Context,
+	kubeClient ctrlclient.Client,
+	namespace string,
+	name string,
+	opts *e2ek8s.WaitOptions,
+) ([]string, error) {
+	pollInterval := 2 * time.Second
+	if opts != nil && opts.PollInterval > 0 {
+		pollInterval = opts.PollInterval
+	}
+
+	resource := &gatewayv1.HTTPRoute{}
+	key := ctrlclient.ObjectKey{Namespace: namespace, Name: name}
+	var lastErr error
+
+	for {
+		if err := kubeClient.Get(ctx, key, resource); err != nil {
+			if apierrors.IsNotFound(err) {
+				lastErr = err
+			} else {
+				return nil, err
+			}
+		} else {
+			ruleNames, ruleErr := programmedPolicyRuleNames(resource)
+			if ruleErr == nil {
+				return ruleNames, nil
+			}
+
+			lastErr = ruleErr
+		}
+
+		timer := time.NewTimer(pollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			if lastErr != nil {
+				return nil, fmt.Errorf(
+					"wait for HTTPRoute %s/%s programmed policy rule names: %w",
+					namespace,
+					name,
+					lastErr,
+				)
+			}
+
+			return nil, fmt.Errorf(
+				"wait for HTTPRoute %s/%s programmed policy rule names: %w",
+				namespace,
+				name,
+				ctx.Err(),
+			)
+		case <-timer.C:
+		}
+	}
 }
 
 func uniqueGatewayClassName(prefix string, namespaceName string) string {

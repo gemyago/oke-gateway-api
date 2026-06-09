@@ -3,6 +3,7 @@ module github.com/gemyago/oke-gateway-api/e2e
 go 1.26
 
 require (
+	github.com/jaswdr/faker/v2 v2.9.1
 	github.com/oracle/oci-go-sdk/v65 v65.91.0
 	github.com/stretchr/testify v1.11.1
 	k8s.io/api v0.32.3
