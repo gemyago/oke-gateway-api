@@ -19,6 +19,9 @@ serviceAccount:
 
 # Deployment configuration
 deployment:
+  # Specifies whether the controller deployment resources should be installed
+  enabled: true
+
   image:
     repository: ghcr.io/gemyago/oke-gateway-api-controller
     pullPolicy: IfNotPresent
@@ -35,4 +38,4 @@ deployment:
   # Node selector, tolerations, and affinity settings can be added here if needed.
   nodeSelector: {}
   tolerations: []
-  affinity: {} 
+  affinity: {}

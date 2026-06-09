@@ -1323,6 +1323,39 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			assert.Equal(t, !checkResult, required)
 		})
 
+		t.Run("ProgrammingRequired/ProgrammingRevisionChanged", func(t *testing.T) {
+			deps := newMockDeps(t)
+			deps.ResourcesModel = newResourcesModel(resourcesModelDeps{
+				K8sClient:  deps.K8sClient,
+				RootLogger: diag.RootTestLogger(),
+			})
+			model := newHTTPRouteModel(deps)
+			controllerName, details := newIsProgrammingRequiredDetails()
+
+			if details.httpRoute.Annotations == nil {
+				details.httpRoute.Annotations = map[string]string{}
+			}
+			details.httpRoute.Annotations[HTTPRouteProgrammingRevisionAnnotation] = "2"
+			details.httpRoute.Status.Parents = []gatewayv1.RouteParentStatus{
+				{
+					ControllerName: controllerName,
+					ParentRef:      details.matchedRef,
+					Conditions: []metav1.Condition{
+						{
+							Type:               string(gatewayv1.RouteConditionResolvedRefs),
+							Status:             metav1.ConditionTrue,
+							ObservedGeneration: details.httpRoute.Generation,
+						},
+					},
+				},
+			}
+
+			required, err := model.isProgrammingRequired(details)
+
+			require.NoError(t, err)
+			assert.True(t, required)
+		})
+
 		t.Run("ProgrammingRequired/ParentRefMismatch", func(t *testing.T) {
 			fake := faker.New()
 			deps := newMockDeps(t)
