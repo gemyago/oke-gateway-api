@@ -18,6 +18,9 @@
   "ociapi": {
     "noop": false
   },
+  "reconcile": {
+    "driftInterval": "0s"
+  },
   "features": {
     "reconcileGatewayClass": true,
     "reconcileGateway": true,

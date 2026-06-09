@@ -23,7 +23,7 @@ const (
 	// The revision may be incremented if additional programming steps are introduced by the controller.
 	HTTPRouteProgrammingRevisionAnnotation = "oke-gateway-api.gemyago.github.io/http-route-programming-revision"
 
-	// HTTPRouteProgrammedPolicyRulesAnnotation is a comma-separated list of load balancer listener policy rule names.
+	// HTTPRouteProgrammedPolicyRulesAnnotation is a comma-separated list of load balancer listener/policy rule names.
 	// The value is set by the controller when the http route is programmed.
 	HTTPRouteProgrammedPolicyRulesAnnotation = "oke-gateway-api.gemyago.github.io/http-route-programmed-lb-policy-rules"
 
@@ -70,7 +70,7 @@ const (
 
 	// HTTPRouteProgrammingRevisionValue is the value for the http route programming revision.
 	// Incremented when the controller programming steps are changed.
-	HTTPRouteProgrammingRevisionValue = "3"
+	HTTPRouteProgrammingRevisionValue = "4"
 )
 
 const ConfigRefGroup = "oke-gateway-api.gemyago.github.io"

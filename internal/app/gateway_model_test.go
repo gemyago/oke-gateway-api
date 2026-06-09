@@ -23,6 +23,7 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
+	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
 	"github.com/gemyago/oke-gateway-api/internal/types"
 )
 
@@ -972,6 +973,39 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			require.Error(t, err)
 			require.ErrorIs(t, err, wantErr)
+		})
+		t.Run("returns programmed false status error when OCI Load Balancer is not found", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			config := makeRandomGatewayConfig()
+			gateway := newRandomGateway(
+				randomGatewayWithRandomListenersOpt(),
+			)
+
+			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+				}).
+				Return(
+					loadbalancer.GetLoadBalancerResponse{},
+					ociapi.NewRandomServiceError(ociapi.RandomServiceErrorWithStatusCode(404)),
+				)
+
+			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
+				gateway: *gateway,
+				config:  config,
+			})
+
+			var statusErr *resourceStatusError
+			require.ErrorAs(t, err, &statusErr)
+			assert.Equal(t, string(gatewayv1.GatewayConditionProgrammed), statusErr.conditionType)
+			assert.Equal(t, string(gatewayv1.GatewayReasonPending), statusErr.reason)
+			assert.Equal(t,
+				fmt.Sprintf("referenced OCI Load Balancer %s not found", config.Spec.LoadBalancerID),
+				statusErr.message,
+			)
 		})
 		t.Run("failed to reconcile default backend set", func(t *testing.T) {
 			fake := faker.New()

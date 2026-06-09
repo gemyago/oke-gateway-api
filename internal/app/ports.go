@@ -81,6 +81,12 @@ type workRequestsWatcher interface {
 	WaitFor(ctx context.Context, workRequestID string) error
 }
 
+type noopWorkRequestsWatcher struct{}
+
+func (noopWorkRequestsWatcher) WaitFor(context.Context, string) error {
+	return nil
+}
+
 // ociNetworkLoadBalancerClient defines the interface for OCI Network Load Balancer operations.
 type ociNetworkLoadBalancerClient interface {
 	GetNetworkLoadBalancer(ctx context.Context, request networkloadbalancer.GetNetworkLoadBalancerRequest) (

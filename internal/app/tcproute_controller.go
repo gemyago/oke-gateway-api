@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"go.uber.org/dig"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -16,6 +17,7 @@ import (
 type TCPRouteController struct {
 	logger        *slog.Logger
 	tcpRouteModel tcpRouteModel
+	driftInterval time.Duration
 }
 
 type TCPRouteControllerDeps struct {
@@ -23,12 +25,14 @@ type TCPRouteControllerDeps struct {
 
 	RootLogger    *slog.Logger
 	TCPRouteModel tcpRouteModel
+	DriftInterval time.Duration `name:"config.reconcile.driftInterval"`
 }
 
 func NewTCPRouteController(deps TCPRouteControllerDeps) *TCPRouteController {
 	return &TCPRouteController{
 		logger:        deps.RootLogger.WithGroup("tcproute-controller"),
 		tcpRouteModel: deps.TCPRouteModel,
+		driftInterval: deps.DriftInterval,
 	}
 }
 
@@ -44,6 +48,7 @@ func (r *TCPRouteController) Reconcile(ctx context.Context, req reconcile.Reques
 		deprovision:   r.tcpRouteModel.deprovisionRoute,
 		program:       r.tcpRouteModel.programRoute,
 		setProgrammed: r.tcpRouteModel.setProgrammed,
+		driftInterval: r.driftInterval,
 		setRejected: func(details resolvedTCPRouteDetails, err error) (bool, error) {
 			var statusErr tcpRouteStatusError
 			if errors.As(err, &statusErr) {
@@ -65,6 +70,7 @@ type reconcileL4RouteParams[D any] struct {
 	deprovision   func(context.Context, D) error
 	program       func(context.Context, D) error
 	setProgrammed func(context.Context, D) error
+	driftInterval time.Duration
 	setRejected   func(D, error) (bool, error)
 }
 
@@ -99,7 +105,7 @@ func reconcileL4Route[D any](ctx context.Context, params reconcileL4RouteParams[
 		}
 	}
 
-	return reconcile.Result{}, nil
+	return driftRequeue(params.driftInterval), nil
 }
 
 func reconcileResolvedL4Route[D any](

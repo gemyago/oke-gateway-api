@@ -254,6 +254,9 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 	if err != nil {
 		return fmt.Errorf("failed to update backend set %s: %w", backendSetName, err)
 	}
+	if ociUpdateResp.OpcWorkRequestId == nil {
+		return fmt.Errorf("failed to update backend set %s: missing work request id", backendSetName)
+	}
 
 	err = m.workRequestsWatcher.WaitFor(ctx, *ociUpdateResp.OpcWorkRequestId)
 	if err != nil {

@@ -46,6 +46,13 @@ type stubNetworkLoadBalancerClient struct {
 	deleteListenerErr        error
 	deleteBackendSetErr      error
 	getErr                   error
+
+	omitCreateBackendSetWorkRequest bool
+	omitUpdateBackendSetWorkRequest bool
+	omitCreateListenerWorkRequest   bool
+	omitUpdateListenerWorkRequest   bool
+	omitDeleteListenerWorkRequest   bool
+	omitDeleteBackendSetWorkRequest bool
 }
 
 func TestNetworkLoadBalancerGatewayModelResolveAndProgramStatus(t *testing.T) {
@@ -344,6 +351,11 @@ func (s *stubNetworkLoadBalancerClient) CreateListener(
 	request networkloadbalancer.CreateListenerRequest,
 ) (networkloadbalancer.CreateListenerResponse, error) {
 	s.createListenerRequests = append(s.createListenerRequests, request)
+	if s.createListenerResponse.OpcWorkRequestId == nil &&
+		s.createListenerErr == nil &&
+		!s.omitCreateListenerWorkRequest {
+		s.createListenerResponse.OpcWorkRequestId = new("create-listener-work-request")
+	}
 	return s.createListenerResponse, s.createListenerErr
 }
 
@@ -352,6 +364,11 @@ func (s *stubNetworkLoadBalancerClient) UpdateListener(
 	request networkloadbalancer.UpdateListenerRequest,
 ) (networkloadbalancer.UpdateListenerResponse, error) {
 	s.updateListenerRequests = append(s.updateListenerRequests, request)
+	if s.updateListenerResponse.OpcWorkRequestId == nil &&
+		s.updateListenerErr == nil &&
+		!s.omitUpdateListenerWorkRequest {
+		s.updateListenerResponse.OpcWorkRequestId = new("update-listener-work-request")
+	}
 	return s.updateListenerResponse, s.updateListenerErr
 }
 
@@ -360,6 +377,11 @@ func (s *stubNetworkLoadBalancerClient) DeleteListener(
 	request networkloadbalancer.DeleteListenerRequest,
 ) (networkloadbalancer.DeleteListenerResponse, error) {
 	s.deleteListenerRequests = append(s.deleteListenerRequests, request)
+	if s.deleteListenerResponse.OpcWorkRequestId == nil &&
+		s.deleteListenerErr == nil &&
+		!s.omitDeleteListenerWorkRequest {
+		s.deleteListenerResponse.OpcWorkRequestId = new("delete-listener-work-request")
+	}
 	return s.deleteListenerResponse, s.deleteListenerErr
 }
 
@@ -368,6 +390,11 @@ func (s *stubNetworkLoadBalancerClient) CreateBackendSet(
 	request networkloadbalancer.CreateBackendSetRequest,
 ) (networkloadbalancer.CreateBackendSetResponse, error) {
 	s.createBackendSetRequests = append(s.createBackendSetRequests, request)
+	if s.createBackendSetResponse.OpcWorkRequestId == nil &&
+		s.createBackendSetErr == nil &&
+		!s.omitCreateBackendSetWorkRequest {
+		s.createBackendSetResponse.OpcWorkRequestId = new("create-backend-set-work-request")
+	}
 	return s.createBackendSetResponse, s.createBackendSetErr
 }
 
@@ -376,6 +403,11 @@ func (s *stubNetworkLoadBalancerClient) UpdateBackendSet(
 	request networkloadbalancer.UpdateBackendSetRequest,
 ) (networkloadbalancer.UpdateBackendSetResponse, error) {
 	s.updateBackendSetRequests = append(s.updateBackendSetRequests, request)
+	if s.updateBackendSetResponse.OpcWorkRequestId == nil &&
+		s.updateBackendSetErr == nil &&
+		!s.omitUpdateBackendSetWorkRequest {
+		s.updateBackendSetResponse.OpcWorkRequestId = new("update-backend-set-work-request")
+	}
 	return s.updateBackendSetResponse, s.updateBackendSetErr
 }
 
@@ -384,6 +416,11 @@ func (s *stubNetworkLoadBalancerClient) DeleteBackendSet(
 	request networkloadbalancer.DeleteBackendSetRequest,
 ) (networkloadbalancer.DeleteBackendSetResponse, error) {
 	s.deleteBackendSetRequests = append(s.deleteBackendSetRequests, request)
+	if s.deleteBackendSetResponse.OpcWorkRequestId == nil &&
+		s.deleteBackendSetErr == nil &&
+		!s.omitDeleteBackendSetWorkRequest {
+		s.deleteBackendSetResponse.OpcWorkRequestId = new("delete-backend-set-work-request")
+	}
 	return s.deleteBackendSetResponse, s.deleteBackendSetErr
 }
 
@@ -418,6 +455,28 @@ func (s *stubWorkRequestsWatcher) WaitFor(_ context.Context, workRequestID strin
 	return s.err
 }
 
+func nlbHealthCheckerFromDetails(
+	details networkloadbalancer.HealthCheckerDetails,
+) *networkloadbalancer.HealthChecker {
+	return &networkloadbalancer.HealthChecker{
+		Protocol:         details.Protocol,
+		Port:             details.Port,
+		Retries:          details.Retries,
+		TimeoutInMillis:  details.TimeoutInMillis,
+		IntervalInMillis: details.IntervalInMillis,
+	}
+}
+
+func matchingNLBBackendSet(listener gatewayv1.Listener) networkloadbalancer.BackendSet {
+	healthChecker := networkLoadBalancerHealthCheckerDetails(listener.Protocol, new(int(listener.Port)))
+	return networkloadbalancer.BackendSet{
+		Name:             new(networkLoadBalancerBackendSetName(listener)),
+		Policy:           networkloadbalancer.NetworkLoadBalancingPolicyFiveTuple,
+		HealthChecker:    nlbHealthCheckerFromDetails(healthChecker),
+		IsPreserveSource: new(false),
+	}
+}
+
 func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 	newModel := func(
 		client *stubNetworkLoadBalancerClient,
@@ -429,6 +488,52 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 			WorkRequestsWatcher: watcher,
 		})
 	}
+
+	t.Run("matches network load balancer listener and backend set desired state", func(t *testing.T) {
+		listener := gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: 1935}
+		healthChecker := networkLoadBalancerHealthCheckerDetails(listener.Protocol, new(int(listener.Port)))
+		assert.False(t, networkLoadBalancerHealthCheckerMatches(nil, healthChecker))
+		assert.True(t, networkLoadBalancerHealthCheckerMatches(
+			nlbHealthCheckerFromDetails(healthChecker),
+			healthChecker,
+		))
+
+		assert.True(t, networkLoadBalancerBackendSetMatches(
+			matchingNLBBackendSet(listener),
+			networkloadbalancer.NetworkLoadBalancingPolicyFiveTuple,
+			healthChecker,
+		))
+		assert.False(t, networkLoadBalancerBackendSetMatches(
+			networkloadbalancer.BackendSet{
+				Policy:           networkloadbalancer.NetworkLoadBalancingPolicyFiveTuple,
+				HealthChecker:    nlbHealthCheckerFromDetails(healthChecker),
+				IsPreserveSource: new(true),
+			},
+			networkloadbalancer.NetworkLoadBalancingPolicyFiveTuple,
+			healthChecker,
+		))
+
+		assert.True(t, networkLoadBalancerListenerMatches(
+			networkloadbalancer.Listener{
+				Protocol:              networkloadbalancer.ListenerProtocolsTcp,
+				Port:                  new(1935),
+				DefaultBackendSetName: new("bs_rtmp"),
+			},
+			networkloadbalancer.ListenerProtocolsTcp,
+			1935,
+			"bs_rtmp",
+		))
+		assert.False(t, networkLoadBalancerListenerMatches(
+			networkloadbalancer.Listener{
+				Protocol:              networkloadbalancer.ListenerProtocolsUdp,
+				Port:                  new(1935),
+				DefaultBackendSetName: new("bs_rtmp"),
+			},
+			networkloadbalancer.ListenerProtocolsTcp,
+			1935,
+			"bs_rtmp",
+		))
+	})
 
 	newDetails := func() *resolvedGatewayDetails {
 		return &resolvedGatewayDetails{
@@ -450,6 +555,12 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 					Id:          new("ocid1.networkloadbalancer.oc1..existing"),
 					DisplayName: new("shared-nlb"),
 				},
+			},
+			createBackendSetResponse: networkloadbalancer.CreateBackendSetResponse{
+				OpcWorkRequestId: new("create-backend-set-work"),
+			},
+			createListenerResponse: networkloadbalancer.CreateListenerResponse{
+				OpcWorkRequestId: new("create-listener-work"),
 			},
 		}
 		model := newModel(client, &stubWorkRequestsWatcher{})
@@ -476,6 +587,25 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 
 		require.Nil(t, got)
 		require.ErrorContains(t, err, "failed to get OCI Network Load Balancer")
+	})
+
+	t.Run("returns programmed false status error when network load balancer is not found", func(t *testing.T) {
+		details := newDetails()
+		model := newModel(&stubNetworkLoadBalancerClient{
+			getErr: ociapi.NewRandomServiceError(ociapi.RandomServiceErrorWithStatusCode(404)),
+		}, &stubWorkRequestsWatcher{})
+
+		got, err := model.ensureNetworkLoadBalancer(t.Context(), details)
+
+		require.Nil(t, got)
+		var statusErr *resourceStatusError
+		require.ErrorAs(t, err, &statusErr)
+		assert.Equal(t, string(gatewayv1.GatewayConditionProgrammed), statusErr.conditionType)
+		assert.Equal(t, string(gatewayv1.GatewayReasonPending), statusErr.reason)
+		assert.Equal(t,
+			"referenced OCI Network Load Balancer ocid1.networkloadbalancer.oc1..existing not found",
+			statusErr.message,
+		)
 	})
 
 	t.Run("returns invalid parameters for missing load balancer id", func(t *testing.T) {
@@ -505,6 +635,12 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 					Id:          new("ocid1.networkloadbalancer.oc1..existing"),
 					DisplayName: new("shared-nlb"),
 				},
+			},
+			createBackendSetResponse: networkloadbalancer.CreateBackendSetResponse{
+				OpcWorkRequestId: new("create-backend-set-work"),
+			},
+			createListenerResponse: networkloadbalancer.CreateListenerResponse{
+				OpcWorkRequestId: new("create-listener-work"),
 			},
 		}
 		model := newModel(client, &stubWorkRequestsWatcher{})
@@ -562,6 +698,12 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 					BackendSets: map[string]networkloadbalancer.BackendSet{},
 				},
 			},
+			createBackendSetResponse: networkloadbalancer.CreateBackendSetResponse{
+				OpcWorkRequestId: new("create-backend-set-work"),
+			},
+			createListenerResponse: networkloadbalancer.CreateListenerResponse{
+				OpcWorkRequestId: new("create-listener-work"),
+			},
 		}
 		model := newModel(client, &stubWorkRequestsWatcher{})
 		details := newDetails()
@@ -597,6 +739,12 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 					},
 				},
 			},
+			updateBackendSetResponse: networkloadbalancer.UpdateBackendSetResponse{
+				OpcWorkRequestId: new("update-backend-set-work"),
+			},
+			updateListenerResponse: networkloadbalancer.UpdateListenerResponse{
+				OpcWorkRequestId: new("update-listener-work"),
+			},
 		}
 		model := newModel(client, &stubWorkRequestsWatcher{})
 		details := newDetails()
@@ -610,6 +758,111 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 		require.Len(t, client.updateBackendSetRequests, 1)
 		require.Len(t, client.updateListenerRequests, 1)
 		assert.Equal(t, "rtmp", lo.FromPtr(client.updateListenerRequests[0].ListenerName))
+	})
+
+	t.Run("skips existing listener and backend set when they already match", func(t *testing.T) {
+		healthChecker := networkLoadBalancerHealthCheckerDetails(gatewayv1.TCPProtocolType, new(1935))
+		client := &stubNetworkLoadBalancerClient{
+			getResponse: networkloadbalancer.GetNetworkLoadBalancerResponse{
+				NetworkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id:          new("ocid1.networkloadbalancer.oc1..existing"),
+					DisplayName: new("shared-nlb"),
+					Listeners: map[string]networkloadbalancer.Listener{
+						"rtmp": {
+							Name:                  new("rtmp"),
+							DefaultBackendSetName: new("bs_rtmp"),
+							Port:                  new(1935),
+							Protocol:              networkloadbalancer.ListenerProtocolsTcp,
+						},
+					},
+					BackendSets: map[string]networkloadbalancer.BackendSet{
+						"bs_rtmp": {
+							Name:             new("bs_rtmp"),
+							Policy:           networkloadbalancer.NetworkLoadBalancingPolicyFiveTuple,
+							HealthChecker:    nlbHealthCheckerFromDetails(healthChecker),
+							IsPreserveSource: new(false),
+						},
+					},
+				},
+			},
+			updateBackendSetResponse: networkloadbalancer.UpdateBackendSetResponse{
+				OpcWorkRequestId: new("update-backend-set-work"),
+			},
+			updateListenerResponse: networkloadbalancer.UpdateListenerResponse{
+				OpcWorkRequestId: new("update-listener-work"),
+			},
+		}
+		model := newModel(client, &stubWorkRequestsWatcher{})
+		details := newDetails()
+		details.gateway.Spec.Listeners = []gatewayv1.Listener{
+			{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: 1935},
+		}
+
+		err := model.programGateway(t.Context(), details)
+
+		require.NoError(t, err)
+		assert.Empty(t, client.updateBackendSetRequests)
+		assert.Empty(t, client.updateListenerRequests)
+		assert.Empty(t, client.createBackendSetRequests)
+		assert.Empty(t, client.createListenerRequests)
+	})
+
+	t.Run("updates drifted listener and backend set fields", func(t *testing.T) {
+		client := &stubNetworkLoadBalancerClient{
+			getResponse: networkloadbalancer.GetNetworkLoadBalancerResponse{
+				NetworkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id:          new("ocid1.networkloadbalancer.oc1..existing"),
+					DisplayName: new("shared-nlb"),
+					Listeners: map[string]networkloadbalancer.Listener{
+						"rtmp": {
+							Name:                  new("rtmp"),
+							DefaultBackendSetName: new("wrong"),
+							Port:                  new(80),
+							Protocol:              networkloadbalancer.ListenerProtocolsUdp,
+						},
+					},
+					BackendSets: map[string]networkloadbalancer.BackendSet{
+						"bs_rtmp": {
+							Name:   new("bs_rtmp"),
+							Policy: networkloadbalancer.NetworkLoadBalancingPolicyTwoTuple,
+							HealthChecker: &networkloadbalancer.HealthChecker{
+								Protocol: networkloadbalancer.HealthCheckProtocolsUdp,
+							},
+							IsPreserveSource: new(true),
+						},
+					},
+				},
+			},
+			updateBackendSetResponse: networkloadbalancer.UpdateBackendSetResponse{
+				OpcWorkRequestId: new("update-backend-set-work"),
+			},
+			updateListenerResponse: networkloadbalancer.UpdateListenerResponse{
+				OpcWorkRequestId: new("update-listener-work"),
+			},
+		}
+		model := newModel(client, &stubWorkRequestsWatcher{})
+		details := newDetails()
+		details.gateway.Spec.Listeners = []gatewayv1.Listener{
+			{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: 1935},
+		}
+
+		err := model.programGateway(t.Context(), details)
+
+		require.NoError(t, err)
+		require.Len(t, client.updateBackendSetRequests, 1)
+		assert.Equal(t, string(networkloadbalancer.NetworkLoadBalancingPolicyFiveTuple),
+			lo.FromPtr(client.updateBackendSetRequests[0].Policy))
+		assert.False(t, lo.FromPtr(client.updateBackendSetRequests[0].IsPreserveSource))
+		assert.Equal(t, networkloadbalancer.HealthCheckProtocolsTcp,
+			client.updateBackendSetRequests[0].HealthChecker.Protocol)
+		assert.Equal(t, 1935, lo.FromPtr(client.updateBackendSetRequests[0].HealthChecker.Port))
+
+		require.Len(t, client.updateListenerRequests, 1)
+		assert.Equal(t, networkloadbalancer.ListenerProtocolsTcp,
+			client.updateListenerRequests[0].UpdateListenerDetails.Protocol)
+		assert.Equal(t, 1935, lo.FromPtr(client.updateListenerRequests[0].UpdateListenerDetails.Port))
+		assert.Equal(t, "bs_rtmp",
+			lo.FromPtr(client.updateListenerRequests[0].UpdateListenerDetails.DefaultBackendSetName))
 	})
 
 	t.Run("rejects unsupported gateway listener protocol and empty load balancer id", func(t *testing.T) {
@@ -665,6 +918,12 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 			deleteBackendSetResponse: networkloadbalancer.DeleteBackendSetResponse{
 				OpcWorkRequestId: new("delete-backend-set-work-request"),
 			},
+			updateBackendSetResponse: networkloadbalancer.UpdateBackendSetResponse{
+				OpcWorkRequestId: new("update-backend-set-work-request"),
+			},
+			updateListenerResponse: networkloadbalancer.UpdateListenerResponse{
+				OpcWorkRequestId: new("update-listener-work-request"),
+			},
 		}
 		model := newModel(client, watcher)
 		details := newDetails()
@@ -684,7 +943,12 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 		require.Len(t, client.deleteBackendSetRequests, 1)
 		assert.Equal(t, "bs_old", lo.FromPtr(client.deleteBackendSetRequests[0].BackendSetName))
 		assert.ElementsMatch(t,
-			[]string{"delete-listener-work-request", "delete-backend-set-work-request"},
+			[]string{
+				"update-backend-set-work-request",
+				"update-listener-work-request",
+				"delete-listener-work-request",
+				"delete-backend-set-work-request",
+			},
 			watcher.waited,
 		)
 	})
@@ -920,6 +1184,9 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 			},
 			"create listener": {
 				client: &stubNetworkLoadBalancerClient{
+					createBackendSetResponse: networkloadbalancer.CreateBackendSetResponse{
+						OpcWorkRequestId: new("create-backend-set-work"),
+					},
 					createListenerResponse: networkloadbalancer.CreateListenerResponse{
 						OpcWorkRequestId: new("create-listener-work"),
 					},
@@ -929,6 +1196,9 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 			},
 			"update listener": {
 				client: &stubNetworkLoadBalancerClient{
+					updateBackendSetResponse: networkloadbalancer.UpdateBackendSetResponse{
+						OpcWorkRequestId: new("update-backend-set-work"),
+					},
 					updateListenerResponse: networkloadbalancer.UpdateListenerResponse{
 						OpcWorkRequestId: new("update-listener-work"),
 					},
@@ -956,6 +1226,47 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 					require.NoError(t, err)
 				}
 				assert.Contains(t, watcher.waited, tc.waited)
+			})
+		}
+	})
+
+	t.Run("returns errors when listener or backend set work request id is missing", func(t *testing.T) {
+		listener := gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: 1935}
+		for name, nlb := range map[string]networkloadbalancer.NetworkLoadBalancer{
+			"create backend set": {
+				Id: new("nlb-id"),
+			},
+			"update backend set": {
+				Id:          new("nlb-id"),
+				BackendSets: map[string]networkloadbalancer.BackendSet{"bs_rtmp": {Name: new("bs_rtmp")}},
+			},
+			"create listener": {
+				Id:          new("nlb-id"),
+				BackendSets: map[string]networkloadbalancer.BackendSet{"bs_rtmp": matchingNLBBackendSet(listener)},
+			},
+			"update listener": {
+				Id:          new("nlb-id"),
+				BackendSets: map[string]networkloadbalancer.BackendSet{"bs_rtmp": matchingNLBBackendSet(listener)},
+				Listeners:   map[string]networkloadbalancer.Listener{"rtmp": {Name: new("rtmp")}},
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				client := &stubNetworkLoadBalancerClient{}
+				switch name {
+				case "create backend set":
+					client.omitCreateBackendSetWorkRequest = true
+				case "update backend set":
+					client.omitUpdateBackendSetWorkRequest = true
+				case "create listener":
+					client.omitCreateListenerWorkRequest = true
+				case "update listener":
+					client.omitUpdateListenerWorkRequest = true
+				}
+				model := newModel(client, &stubWorkRequestsWatcher{})
+
+				err := mustNetworkLoadBalancerGatewayModelImpl(t, model).reconcileListener(t.Context(), nlb, listener)
+
+				require.ErrorContains(t, err, "missing work request id")
 			})
 		}
 	})
@@ -991,6 +1302,28 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 			BackendSets: map[string]networkloadbalancer.BackendSet{"bs_old": {Name: new("bs_old")}},
 		}, nil)
 		require.ErrorContains(t, err, "failed waiting for stale backend set bs_old deletion")
+
+		model = newModel(
+			&stubNetworkLoadBalancerClient{omitDeleteListenerWorkRequest: true},
+			&stubWorkRequestsWatcher{},
+		)
+		modelImpl = mustNetworkLoadBalancerGatewayModelImpl(t, model)
+		err = modelImpl.removeMissingListeners(t.Context(), networkloadbalancer.NetworkLoadBalancer{
+			Id:        new("nlb-id"),
+			Listeners: map[string]networkloadbalancer.Listener{"old": {Name: new("old")}},
+		}, nil)
+		require.ErrorContains(t, err, "missing work request id")
+
+		model = newModel(
+			&stubNetworkLoadBalancerClient{omitDeleteBackendSetWorkRequest: true},
+			&stubWorkRequestsWatcher{},
+		)
+		modelImpl = mustNetworkLoadBalancerGatewayModelImpl(t, model)
+		err = modelImpl.removeMissingBackendSets(t.Context(), networkloadbalancer.NetworkLoadBalancer{
+			Id:          new("nlb-id"),
+			BackendSets: map[string]networkloadbalancer.BackendSet{"bs_old": {Name: new("bs_old")}},
+		}, nil)
+		require.ErrorContains(t, err, "missing work request id")
 
 		model = newModel(
 			&stubNetworkLoadBalancerClient{deleteListenerErr: busyErr},

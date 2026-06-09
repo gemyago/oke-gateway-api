@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/samber/lo"
 	"go.uber.org/dig"
@@ -18,6 +19,7 @@ type NetworkLoadBalancerGatewayController struct {
 	logger         *slog.Logger
 	resourcesModel resourcesModel
 	gatewayModel   networkLoadBalancerGatewayModel
+	driftInterval  time.Duration
 }
 
 type NetworkLoadBalancerGatewayControllerDeps struct {
@@ -26,6 +28,7 @@ type NetworkLoadBalancerGatewayControllerDeps struct {
 	RootLogger     *slog.Logger
 	ResourcesModel resourcesModel
 	GatewayModel   networkLoadBalancerGatewayModel
+	DriftInterval  time.Duration `name:"config.reconcile.driftInterval"`
 }
 
 func NewNetworkLoadBalancerGatewayController(
@@ -35,6 +38,7 @@ func NewNetworkLoadBalancerGatewayController(
 		logger:         deps.RootLogger.WithGroup("network-load-balancer-gateway-controller"),
 		resourcesModel: deps.ResourcesModel,
 		gatewayModel:   deps.GatewayModel,
+		driftInterval:  deps.DriftInterval,
 	}
 }
 
@@ -63,7 +67,7 @@ func (r *NetworkLoadBalancerGatewayController) processResourceError(
 		}); err != nil {
 			return reconcile.Result{}, fmt.Errorf("failed to set condition for Gateway %s: %w", gateway.Name, err)
 		}
-		return reconcile.Result{}, nil
+		return driftRequeue(r.driftInterval), nil
 	}
 	return reconcile.Result{}, fmt.Errorf("failed to program Network Load Balancer Gateway %s: %w", gateway.Name, err)
 }
@@ -119,7 +123,7 @@ func (r *NetworkLoadBalancerGatewayController) Reconcile(
 		}
 	}
 
-	if r.gatewayModel.isProgrammed(ctx, &data) {
+	if r.gatewayModel.isProgrammed(ctx, &data) && r.driftInterval <= 0 {
 		r.logger.DebugContext(ctx, "Network Load Balancer Gateway already programmed",
 			slog.String("gateway", req.NamespacedName.String()),
 		)
@@ -131,10 +135,14 @@ func (r *NetworkLoadBalancerGatewayController) Reconcile(
 	}
 	nlb, err := r.gatewayModel.getNetworkLoadBalancer(ctx, &data)
 	if err != nil {
+		var statusErr *resourceStatusError
+		if errors.As(err, &statusErr) {
+			return r.processResourceError(ctx, err, &data.gateway)
+		}
 		return reconcile.Result{}, fmt.Errorf("failed to get programmed Network Load Balancer: %w", err)
 	}
 	if err = r.gatewayModel.setProgrammed(ctx, &data, nlb); err != nil {
 		return reconcile.Result{}, err
 	}
-	return reconcile.Result{}, nil
+	return driftRequeue(r.driftInterval), nil
 }

@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"go.uber.org/dig"
 	corev1 "k8s.io/api/core/v1"
@@ -271,6 +273,14 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 
 	response, err := m.ociClient.GetLoadBalancer(ctx, request)
 	if err != nil {
+		if serviceErr, ok := common.IsServiceError(err); ok &&
+			serviceErr.GetHTTPStatusCode() == http.StatusNotFound {
+			return &resourceStatusError{
+				conditionType: string(gatewayv1.GatewayConditionProgrammed),
+				reason:        string(gatewayv1.GatewayReasonPending),
+				message:       fmt.Sprintf("referenced OCI Load Balancer %s not found", loadBalancerID),
+			}
+		}
 		return fmt.Errorf("failed to get OCI Load Balancer %s: %w", loadBalancerID, err)
 	}
 	data.loadBalancer = &response.LoadBalancer

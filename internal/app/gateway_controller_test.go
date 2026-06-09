@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/jaswdr/faker/v2"
 	"github.com/stretchr/testify/assert"
@@ -328,6 +329,66 @@ func TestGatewayController(t *testing.T) {
 			assert.Equal(t, reconcile.Result{}, result)
 		})
 
+		t.Run("returns drift requeue for program resourceStatusError when drift is enabled", func(t *testing.T) {
+			fake := faker.New()
+			gateway := newRandomGateway()
+			markGatewayAccepted(gateway)
+			driftInterval := 23 * time.Minute
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: gateway.Namespace,
+					Name:      gateway.Name,
+				},
+			}
+
+			deps := newMockDeps(t)
+			deps.DriftInterval = driftInterval
+			controller := NewGatewayController(deps)
+
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+
+			mockGatewayModel.EXPECT().
+				resolveReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *resolvedGatewayDetails) bool {
+					receiver.gateway = *gateway
+					return true
+				})).
+				Return(true, nil).Once()
+
+			mockGatewayModel.EXPECT().
+				isProgrammed(t.Context(), &resolvedGatewayDetails{
+					gateway: *gateway,
+				}).
+				Return(false).Once()
+
+			wantErr := &resourceStatusError{
+				conditionType: string(gatewayv1.GatewayConditionProgrammed),
+				reason:        fake.Lorem().Word(),
+				message:       fake.Lorem().Sentence(10),
+			}
+
+			mockGatewayModel.EXPECT().
+				programGateway(t.Context(), mock.Anything).
+				Return(wantErr).Once()
+
+			mockResourcesModel.EXPECT().
+				setCondition(t.Context(), setConditionParams{
+					resource:      gateway,
+					conditions:    &gateway.Status.Conditions,
+					conditionType: wantErr.conditionType,
+					status:        metav1.ConditionFalse,
+					reason:        wantErr.reason,
+					message:       wantErr.message,
+				}).
+				Return(nil).Once()
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.NoError(t, err)
+			assertDriftRequeue(t, result, driftInterval)
+		})
+
 		t.Run("handle set programmed condition error", func(t *testing.T) {
 			fake := faker.New()
 			gateway := newRandomGateway()
@@ -410,6 +471,55 @@ func TestGatewayController(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("programs already programmed gateway when drift interval is enabled", func(t *testing.T) {
+			gateway := newRandomGateway()
+			markGatewayAccepted(gateway)
+			driftInterval := 7 * time.Minute
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: gateway.Namespace,
+					Name:      gateway.Name,
+				},
+			}
+
+			deps := newMockDeps(t)
+			deps.DriftInterval = driftInterval
+			controller := NewGatewayController(deps)
+
+			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+
+			mockGatewayModel.EXPECT().
+				resolveReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *resolvedGatewayDetails) bool {
+					receiver.gateway = *gateway
+					return true
+				})).
+				Return(true, nil).Once()
+
+			mockGatewayModel.EXPECT().
+				isProgrammed(t.Context(), &resolvedGatewayDetails{
+					gateway: *gateway,
+				}).
+				Return(true).Once()
+
+			mockGatewayModel.EXPECT().
+				programGateway(t.Context(), &resolvedGatewayDetails{
+					gateway: *gateway,
+				}).
+				Return(nil).Once()
+
+			mockGatewayModel.EXPECT().
+				setProgrammed(t.Context(), &resolvedGatewayDetails{
+					gateway: *gateway,
+				}).
+				Return(nil).Once()
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.NoError(t, err)
+			assertDriftRequeue(t, result, driftInterval)
 		})
 
 		t.Run("clears accepted false after previously missing TLS secret exists", func(t *testing.T) {

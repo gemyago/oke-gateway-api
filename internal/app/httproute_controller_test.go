@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/jaswdr/faker/v2"
 	"github.com/stretchr/testify/assert"
@@ -438,6 +439,53 @@ func TestHTTPRouteController(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("ProgrammingNotRequiredWithDriftInterval", func(t *testing.T) {
+			fake := faker.New()
+			driftInterval := 13 * time.Minute
+			deps := newMockDeps(t)
+			deps.DriftInterval = driftInterval
+			controller := NewHTTPRouteController(deps)
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: fake.Internet().Domain(),
+					Name:      fake.Lorem().Word(),
+				},
+			}
+
+			wantResolvedData := resolvedRouteDetails{
+				httpRoute: makeRandomHTTPRoute(),
+				gatewayDetails: resolvedGatewayDetails{
+					gateway: *newRandomGateway(),
+					config:  makeRandomGatewayConfig(),
+				},
+			}
+
+			mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+			mockModel.EXPECT().resolveRequest(
+				t.Context(),
+				req,
+			).Return(map[types.NamespacedName]resolvedRouteDetails{
+				req.NamespacedName: wantResolvedData,
+			}, (error)(nil))
+
+			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, nil)
+
+			mockBackendModel, _ := deps.HTTPBackendModel.(*MockhttpBackendModel)
+			mockBackendModel.EXPECT().syncRouteEndpoints(
+				t.Context(),
+				syncRouteEndpointsParams{
+					httpRoute: wantResolvedData.httpRoute,
+					config:    wantResolvedData.gatewayDetails.config,
+				},
+			).Return(nil)
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.NoError(t, err)
+			assertDriftRequeue(t, result, driftInterval)
 		})
 
 		t.Run("SetProgrammedError", func(t *testing.T) {

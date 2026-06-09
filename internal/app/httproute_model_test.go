@@ -39,6 +39,45 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		}
 	}
 
+	t.Run("programmedHTTPRoutePolicyRulesAnnotation", func(t *testing.T) {
+		t.Run("formats listener scoped policy rules", func(t *testing.T) {
+			listenerA := makeRandomListener()
+			listenerB := makeRandomListener()
+			ruleNames := []string{
+				"rule-a-" + faker.New().Lorem().Word(),
+				"rule-b-" + faker.New().Lorem().Word(),
+			}
+
+			assert.Equal(t, []string{
+				fmt.Sprintf("%s/%s", listenerA.Name, ruleNames[0]),
+				fmt.Sprintf("%s/%s", listenerA.Name, ruleNames[1]),
+				fmt.Sprintf("%s/%s", listenerB.Name, ruleNames[0]),
+				fmt.Sprintf("%s/%s", listenerB.Name, ruleNames[1]),
+			}, programmedHTTPRoutePolicyRulesAnnotation([]gatewayv1.Listener{listenerA, listenerB}, ruleNames))
+		})
+	})
+
+	t.Run("parseProgrammedHTTPRoutePolicyRules", func(t *testing.T) {
+		t.Run("parses listener scoped and legacy policy rules", func(t *testing.T) {
+			fake := faker.New()
+			listenerName := "listener-" + fake.Lorem().Word()
+			scopedRule := "scoped-" + fake.Lorem().Word()
+			legacyRule := "legacy-" + fake.Lorem().Word()
+
+			assert.Equal(t, []programmedHTTPRoutePolicyRule{
+				{
+					listenerName: listenerName,
+					ruleName:     scopedRule,
+				},
+				{
+					ruleName: legacyRule,
+				},
+			}, parseProgrammedHTTPRoutePolicyRules(
+				fmt.Sprintf(" %s/%s , %s ,,", listenerName, scopedRule, legacyRule),
+			))
+		})
+	})
+
 	t.Run("resolveRequest", func(t *testing.T) {
 		t.Run("relevant parent", func(t *testing.T) {
 			fake := faker.New()
@@ -1122,6 +1161,79 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("removes previously programmed rules from no longer matched listeners", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			gateway := newRandomGateway()
+			config := makeRandomGatewayConfig()
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(makeRandomHTTPRouteRule()),
+			)
+
+			currentListener := makeRandomListener()
+			staleListenerName := "stale-" + fake.Lorem().Word()
+			staleRules := []string{
+				"stale-rule-a-" + fake.Lorem().Word(),
+				"stale-rule-b-" + fake.Lorem().Word(),
+			}
+			httpRoute.Annotations = map[string]string{
+				HTTPRouteProgrammedPolicyRulesAnnotation: strings.Join([]string{
+					fmt.Sprintf("%s/%s", staleListenerName, staleRules[0]),
+					fmt.Sprintf("%s/%s", staleListenerName, staleRules[1]),
+				}, ","),
+			}
+
+			service := makeRandomService()
+			knownServicesByName := map[string]corev1.Service{
+				types.NamespacedName{
+					Namespace: service.Namespace,
+					Name:      service.Name,
+				}.String(): service,
+			}
+
+			params := programRouteParams{
+				gateway:          *gateway,
+				config:           config,
+				httpRoute:        httpRoute,
+				knownBackends:    knownServicesByName,
+				matchedListeners: []gatewayv1.Listener{currentListener},
+			}
+
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			ociLBModel.EXPECT().reconcileBackendSet(t.Context(), reconcileBackendSetParams{
+				loadBalancerID: config.Spec.LoadBalancerID,
+				service:        service,
+			}).Return(nil)
+
+			rule := makeRandomOCIRoutingRule()
+			rule.Name = new(ociListerPolicyRuleName(httpRoute, 0))
+			ociLBModel.EXPECT().makeRoutingRule(t.Context(), makeRoutingRuleParams{
+				httpRoute:          httpRoute,
+				httpRouteRuleIndex: 0,
+			}).Return(rule, nil)
+
+			currentCommit := ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID: config.Spec.LoadBalancerID,
+				listenerName:   string(currentListener.Name),
+				policyRules:    []loadbalancer.RoutingRule{rule},
+			}).Return(nil).Once()
+
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  config.Spec.LoadBalancerID,
+				listenerName:    staleListenerName,
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: staleRules,
+			}).Return(nil).Once().NotBefore(currentCommit)
+
+			result, err := model.programRoute(t.Context(), params)
+			require.NoError(t, err)
+			assert.Equal(t, []string{
+				fmt.Sprintf("%s/%s", currentListener.Name, lo.FromPtr(rule.Name)),
+			}, result.programmedPolicyRules)
+		})
+
 		t.Run("fails when reconcile backend set fails", func(t *testing.T) {
 			fake := faker.New()
 			deps := newMockDeps(t)
@@ -1624,6 +1736,57 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
 			// Expect commitRoutingPolicy NOT to be called
 			ociLBModel.AssertNotCalled(t, "commitRoutingPolicy", mock.Anything, mock.Anything)
+
+			err := model.deprovisionRoute(t.Context(), params)
+			require.NoError(t, err)
+		})
+
+		t.Run("deprovisions listener scoped previous rules", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			config := makeRandomGatewayConfig()
+			httpRoute := makeRandomHTTPRoute()
+			httpRoute.Finalizers = []string{HTTPRouteProgrammedFinalizer}
+
+			currentListener := makeRandomListener()
+			staleListenerName := "stale-" + fake.Lorem().Word()
+			currentRule := "current-rule-" + fake.Lorem().Word()
+			staleRule := "stale-rule-" + fake.Lorem().Word()
+			httpRoute.Annotations = map[string]string{
+				HTTPRouteProgrammedPolicyRulesAnnotation: strings.Join([]string{
+					fmt.Sprintf("%s/%s", currentListener.Name, currentRule),
+					fmt.Sprintf("%s/%s", staleListenerName, staleRule),
+				}, ","),
+			}
+
+			params := deprovisionRouteParams{
+				gateway:          *newRandomGateway(),
+				config:           config,
+				httpRoute:        httpRoute,
+				matchedListeners: []gatewayv1.Listener{currentListener},
+			}
+
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			currentCommit := ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  config.Spec.LoadBalancerID,
+				listenerName:    string(currentListener.Name),
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{currentRule},
+			}).Return(nil).Once()
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  config.Spec.LoadBalancerID,
+				listenerName:    staleListenerName,
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{staleRule},
+			}).Return(nil).Once().NotBefore(currentCommit)
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				updatedRoute, ok := obj.(*gatewayv1.HTTPRoute)
+				return ok && assert.NotContains(t, updatedRoute.Finalizers, HTTPRouteProgrammedFinalizer)
+			})).Return(nil)
 
 			err := model.deprovisionRoute(t.Context(), params)
 			require.NoError(t, err)

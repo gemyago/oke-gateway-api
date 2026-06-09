@@ -1299,6 +1299,10 @@ func TestTCPRouteModel(t *testing.T) {
 				client: &stubNetworkLoadBalancerClient{updateBackendSetErr: errors.New("update failed")},
 				err:    "failed to update Network Load Balancer backend set",
 			},
+			"missing work request": {
+				client: &stubNetworkLoadBalancerClient{omitUpdateBackendSetWorkRequest: true},
+				err:    "missing work request id",
+			},
 			"wait": {
 				client: &stubNetworkLoadBalancerClient{
 					updateBackendSetResponse: networkloadbalancer.UpdateBackendSetResponse{
@@ -1588,6 +1592,21 @@ func TestTCPRouteModel(t *testing.T) {
 		modelImpl = mustTCPRouteModelImpl(t, model)
 		err = modelImpl.clearBackendSetByName(t.Context(), resolvedGatewayDetails{}, "iot/rtmp", "bs_rtmp", nil)
 		require.ErrorContains(t, err, "failed waiting for backend set bs_rtmp clear")
+
+		model = newTCPRouteModel(tcpRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{
+				networkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id:          new("nlb-id"),
+					BackendSets: map[string]networkloadbalancer.BackendSet{"bs_rtmp": {Name: new("bs_rtmp")}},
+				},
+			},
+			OciNetworkLoadBalancerAPI: &stubNetworkLoadBalancerClient{omitUpdateBackendSetWorkRequest: true},
+			WorkRequestsWatcher:       &stubWorkRequestsWatcher{},
+		})
+		modelImpl = mustTCPRouteModelImpl(t, model)
+		err = modelImpl.clearBackendSetByName(t.Context(), resolvedGatewayDetails{}, "iot/rtmp", "bs_rtmp", nil)
+		require.ErrorContains(t, err, "missing work request id")
 
 		model = newTCPRouteModel(tcpRouteModelDeps{
 			RootLogger: diag.RootTestLogger(),

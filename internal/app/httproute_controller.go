@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"go.uber.org/dig"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -15,6 +16,7 @@ type HTTPRouteController struct {
 	logger           *slog.Logger
 	httpRouteModel   httpRouteModel
 	httpBackendModel httpBackendModel
+	driftInterval    time.Duration
 }
 
 // HTTPRouteControllerDeps contains the dependencies for the HTTPRouteController.
@@ -24,6 +26,7 @@ type HTTPRouteControllerDeps struct {
 	RootLogger       *slog.Logger
 	HTTPRouteModel   httpRouteModel
 	HTTPBackendModel httpBackendModel
+	DriftInterval    time.Duration `name:"config.reconcile.driftInterval"`
 }
 
 // NewHTTPRouteController creates a new HTTPRouteController.
@@ -32,6 +35,7 @@ func NewHTTPRouteController(deps HTTPRouteControllerDeps) *HTTPRouteController {
 		logger:           deps.RootLogger.WithGroup("httproute-controller"),
 		httpRouteModel:   deps.HTTPRouteModel,
 		httpBackendModel: deps.HTTPBackendModel,
+		driftInterval:    deps.DriftInterval,
 	}
 }
 
@@ -164,5 +168,5 @@ func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Reque
 
 	r.logger.InfoContext(ctx, fmt.Sprintf("Reconciled HTTProute %s", req.NamespacedName))
 
-	return reconcile.Result{}, nil
+	return driftRequeue(r.driftInterval), nil
 }
