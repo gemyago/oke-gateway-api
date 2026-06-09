@@ -54,6 +54,13 @@ type ociLoadBalancerRoutingRulesMapper interface {
 	// mapHTTPRouteMatchesToCondition translates a Gateway API HTTPRouteMatches
 	// to a list of OCI Load Balancer conditions as a string..
 	mapHTTPRouteMatchesToCondition(matches []gatewayv1.HTTPRouteMatch) (string, error)
+
+	// mapHTTPRouteHostnamesAndMatchesToCondition translates Gateway API hostnames and matches
+	// to an OCI Load Balancer routing policy condition.
+	mapHTTPRouteHostnamesAndMatchesToCondition(
+		hostnames []gatewayv1.Hostname,
+		matches []gatewayv1.HTTPRouteMatch,
+	) (string, error)
 }
 
 type ociLoadBalancerRoutingRulesMapperImpl struct{}
@@ -168,24 +175,61 @@ func mapRegexHeaderMatchToCondition(headerMatch gatewayv1.HTTPHeaderMatch) (stri
 func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchesToCondition(
 	matches []gatewayv1.HTTPRouteMatch,
 ) (string, error) {
-	if len(matches) == 0 {
+	conditions, err := r.mapHTTPRouteMatchesToConditions(matches)
+	if err != nil {
+		return "", err
+	}
+	if len(conditions) == 0 {
 		return "", nil
+	}
+
+	return fmt.Sprintf("any(%s)", strings.Join(conditions, ", ")), nil
+}
+
+func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchesToConditions(
+	matches []gatewayv1.HTTPRouteMatch,
+) ([]string, error) {
+	if len(matches) == 0 {
+		return nil, nil
 	}
 
 	var conditions []string
 	for _, match := range matches {
 		condition, err := r.mapHTTPRouteMatchToCondition(match)
 		if err != nil {
-			return "", err // Propagate error if any single match fails
+			return nil, err // Propagate error if any single match fails
 		}
 		if condition != "" {
 			conditions = append(conditions, condition)
 		}
 	}
 
-	if len(conditions) == 0 {
-		// TODO: Investigate if empty is possible, if no - return error here
-		return "", nil
+	return conditions, nil
+}
+
+func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteHostnamesAndMatchesToCondition(
+	hostnames []gatewayv1.Hostname,
+	matches []gatewayv1.HTTPRouteMatch,
+) (string, error) {
+	if len(hostnames) == 0 {
+		return r.mapHTTPRouteMatchesToCondition(matches)
+	}
+
+	matchConditions, err := r.mapHTTPRouteMatchesToConditions(matches)
+	if err != nil {
+		return "", err
+	}
+
+	conditions := make([]string, 0, len(hostnames)*max(1, len(matchConditions)))
+	for _, hostname := range hostnames {
+		hostCondition := fmt.Sprintf(`http.request.headers[(i 'host')] eq (i '%s')`, hostname)
+		if len(matchConditions) == 0 {
+			conditions = append(conditions, hostCondition)
+			continue
+		}
+		for _, matchCondition := range matchConditions {
+			conditions = append(conditions, "all("+hostCondition+", "+matchCondition+")")
+		}
 	}
 
 	return fmt.Sprintf("any(%s)", strings.Join(conditions, ", ")), nil

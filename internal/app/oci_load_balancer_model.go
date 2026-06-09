@@ -675,7 +675,10 @@ func (m *ociLoadBalancerModelImpl) makeRoutingRule(
 		return ociBackendSetNameFromBackendRef(params.httpRoute, backendRef)
 	})
 
-	condition, err := m.routingRulesMapper.mapHTTPRouteMatchesToCondition(rule.Matches)
+	condition, err := m.routingRulesMapper.mapHTTPRouteHostnamesAndMatchesToCondition(
+		params.httpRoute.Spec.Hostnames,
+		rule.Matches,
+	)
 	if err != nil {
 		return loadbalancer.RoutingRule{}, fmt.Errorf("failed to map http route matches to condition: %w", err)
 	}

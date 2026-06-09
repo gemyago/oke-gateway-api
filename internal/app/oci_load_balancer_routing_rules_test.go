@@ -561,4 +561,87 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("mapHTTPRouteHostnamesAndMatchesToCondition", func(t *testing.T) {
+		t.Run("uses route matches when no hostnames are configured", func(t *testing.T) {
+			fake := faker.New()
+			pathValue := "/" + fake.Lorem().Word()
+
+			rs := newOciLoadBalancerRoutingRulesMapper()
+			actual, err := rs.mapHTTPRouteHostnamesAndMatchesToCondition(
+				nil,
+				[]gatewayv1.HTTPRouteMatch{
+					{
+						Path: &gatewayv1.HTTPPathMatch{
+							Type:  lo.ToPtr(gatewayv1.PathMatchExact),
+							Value: &pathValue,
+						},
+					},
+				},
+			)
+
+			require.NoError(t, err)
+			assert.Equal(t, fmt.Sprintf("any(http.request.url.path eq '%s')", pathValue), actual)
+		})
+
+		t.Run("combines each hostname with each route match", func(t *testing.T) {
+			fake := faker.New()
+			host1 := gatewayv1.Hostname("auth-" + fake.Internet().Domain())
+			host2 := gatewayv1.Hostname("api-" + fake.Internet().Domain())
+			pathValue := "/" + fake.Lorem().Word()
+
+			rs := newOciLoadBalancerRoutingRulesMapper()
+			actual, err := rs.mapHTTPRouteHostnamesAndMatchesToCondition(
+				[]gatewayv1.Hostname{host1, host2},
+				[]gatewayv1.HTTPRouteMatch{
+					{
+						Path: &gatewayv1.HTTPPathMatch{
+							Type:  lo.ToPtr(gatewayv1.PathMatchPathPrefix),
+							Value: &pathValue,
+						},
+					},
+				},
+			)
+
+			require.NoError(t, err)
+			want := fmt.Sprintf(
+				"any("+
+					"all(http.request.headers[(i 'host')] eq (i '%s'), http.request.url.path sw '%s'), "+
+					"all(http.request.headers[(i 'host')] eq (i '%s'), http.request.url.path sw '%s')"+
+					")",
+				host1,
+				pathValue,
+				host2,
+				pathValue,
+			)
+			assert.Equal(
+				t,
+				strings.Join(strings.Fields(want), " "),
+				strings.Join(strings.Fields(actual), " "),
+			)
+		})
+
+		t.Run("uses hostnames when matches are empty", func(t *testing.T) {
+			fake := faker.New()
+			host1 := gatewayv1.Hostname("auth-" + fake.Internet().Domain())
+			host2 := gatewayv1.Hostname("api-" + fake.Internet().Domain())
+
+			rs := newOciLoadBalancerRoutingRulesMapper()
+			actual, err := rs.mapHTTPRouteHostnamesAndMatchesToCondition(
+				[]gatewayv1.Hostname{host1, host2},
+				nil,
+			)
+
+			require.NoError(t, err)
+			assert.Equal(
+				t,
+				fmt.Sprintf(
+					"any(http.request.headers[(i 'host')] eq (i '%s'), http.request.headers[(i 'host')] eq (i '%s'))",
+					host1,
+					host2,
+				),
+				actual,
+			)
+		})
+	})
 }
