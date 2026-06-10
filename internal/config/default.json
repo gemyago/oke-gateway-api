@@ -27,6 +27,7 @@
     "reconcileNetworkLoadBalancerGateway": true,
     "reconcileTCPRoute": true,
     "reconcileUDPRoute": true,
+    "reconcileTLSRoute": true,
     "reconcileHTTPRoute": true,
     "reconcileGRPCRoute": true
   }

@@ -256,6 +256,89 @@ func TestUDPRouteModelResolveAndProgram(t *testing.T) {
 	assert.Len(t, updated.Status.Parents, 1)
 }
 
+func TestTLSRouteModelResolveAndProgramNLBPassthrough(t *testing.T) {
+	port := gatewayv1.PortNumber(443)
+	listener := gatewayv1.Listener{
+		Name:     "tls",
+		Protocol: gatewayv1.TLSProtocolType,
+		Port:     port,
+		TLS: &gatewayv1.ListenerTLSConfig{
+			Mode: lo.ToPtr(gatewayv1.TLSModePassthrough),
+		},
+	}
+	route := &gatewayv1.TLSRoute{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "tls", Generation: 7},
+		Spec: gatewayv1.TLSRouteSpec{
+			CommonRouteSpec: gatewayv1.CommonRouteSpec{
+				ParentRefs: []gatewayv1.ParentReference{
+					{Name: "edge", SectionName: lo.ToPtr(gatewayv1.SectionName("tls"))},
+				},
+			},
+			Hostnames: []gatewayv1.Hostname{"passthrough.example.com"},
+			Rules: []gatewayv1.TLSRouteRule{
+				{
+					BackendRefs: []gatewayv1.BackendRef{
+						{
+							BackendObjectReference: gatewayv1.BackendObjectReference{
+								Name: "backend",
+								Port: &port,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	objects := append(l4GatewayObjects(listener), route)
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(newL4TestScheme(t)).
+		WithRuntimeObjects(objects...).
+		WithStatusSubresource(&gatewayv1.TLSRoute{}).
+		Build()
+	nlbClient := &stubNetworkLoadBalancerClient{}
+	model := newTLSRouteModel(tlsRouteModelDeps{
+		RootLogger: diag.RootTestLogger(),
+		K8sClient:  k8sClient,
+		NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{
+			networkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+				Id: new("nlb-id"),
+				BackendSets: map[string]networkloadbalancer.BackendSet{
+					"bs_tls": {
+						Name: new("bs_tls"),
+					},
+				},
+			},
+		},
+		OciNetworkLoadBalancerAPI: nlbClient,
+		NLBWorkRequestsWatcher:    &stubWorkRequestsWatcher{},
+	})
+
+	resolved, err := model.resolveRequest(t.Context(), reconcile.Request{
+		NamespacedName: apitypes.NamespacedName{Namespace: "iot", Name: "tls"},
+	})
+	require.NoError(t, err)
+	require.Len(t, resolved, 1)
+
+	err = model.programRoute(t.Context(), resolved[0])
+	require.NoError(t, err)
+	require.Len(t, nlbClient.updateBackendSetRequests, 1)
+	update := nlbClient.updateBackendSetRequests[0]
+	assert.Equal(t, "bs_tls", lo.FromPtr(update.BackendSetName))
+	require.Len(t, update.UpdateBackendSetDetails.Backends, 1)
+	assert.False(t, lo.FromPtr(update.UpdateBackendSetDetails.IsPreserveSource))
+	assert.Equal(t, "10.0.0.10", lo.FromPtr(update.UpdateBackendSetDetails.Backends[0].IpAddress))
+	assert.Equal(t, 443, lo.FromPtr(update.UpdateBackendSetDetails.Backends[0].Port))
+	assert.Equal(t, 443, lo.FromPtr(update.UpdateBackendSetDetails.HealthChecker.Port))
+
+	err = model.setProgrammed(t.Context(), resolved[0])
+	require.NoError(t, err)
+	var updated gatewayv1.TLSRoute
+	require.NoError(t, k8sClient.Get(t.Context(), apitypes.NamespacedName{Namespace: "iot", Name: "tls"}, &updated))
+	assert.Contains(t, updated.Finalizers, NetworkLoadBalancerTLSRouteProgrammedFinalizer)
+	assert.Len(t, updated.Status.Parents, 1)
+}
+
 func TestL4RouteEndpointBackendResolution(t *testing.T) {
 	port := gatewayv1.PortNumber(1935)
 	objects := []runtime.Object{
