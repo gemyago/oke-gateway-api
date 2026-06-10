@@ -57,6 +57,13 @@ func TestWatchesModel(t *testing.T) {
 
 			mockIndexer.EXPECT().IndexField(
 				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
 				&gatewayv1alpha2.TCPRoute{},
 				tcpRouteBackendServiceIndexKey,
 				mock.AnythingOfType("client.IndexerFunc"),
@@ -89,6 +96,13 @@ func TestWatchesModel(t *testing.T) {
 				t.Context(),
 				&gatewayv1.HTTPRoute{},
 				httpRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteBackendServiceIndexKey,
 				mock.AnythingOfType("client.IndexerFunc"),
 			).Return(nil)
 
@@ -130,6 +144,13 @@ func TestWatchesModel(t *testing.T) {
 				t.Context(),
 				&gatewayv1.HTTPRoute{},
 				httpRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteBackendServiceIndexKey,
 				mock.AnythingOfType("client.IndexerFunc"),
 			).Return(nil)
 
@@ -177,6 +198,12 @@ func TestWatchesModel(t *testing.T) {
 						t.Context(),
 						&gatewayv1.HTTPRoute{},
 						httpRouteBackendServiceIndexKey,
+						mock.AnythingOfType("client.IndexerFunc"),
+					).Return(nil)
+					mockIndexer.EXPECT().IndexField(
+						t.Context(),
+						&gatewayv1.GRPCRoute{},
+						grpcRouteBackendServiceIndexKey,
 						mock.AnythingOfType("client.IndexerFunc"),
 					).Return(nil)
 					if tc.failTCP {
@@ -431,6 +458,73 @@ func TestWatchesModel(t *testing.T) {
 		})
 	})
 
+	t.Run("indexGRPCRouteByBackendService", func(t *testing.T) {
+		withRelevantGRPCRouteParentStatus := func(route *gatewayv1.GRPCRoute) {
+			route.Status.Parents = append(route.Status.Parents,
+				makeRandomRouteParentStatus(),
+				makeRandomRouteParentStatus(
+					randomRouteParentStatusWithConditionOpt(
+						string(gatewayv1.RouteConditionResolvedRefs),
+						metav1.ConditionTrue,
+					),
+					randomRouteParentStatusWithControllerNameOpt(ControllerClassName),
+				),
+			)
+		}
+
+		t.Run("build index of all backend refs", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			refs := []gatewayv1.GRPCBackendRef{
+				makeRandomGRPCBackendRef(),
+				makeRandomGRPCBackendRef(randomGRPCBackendRefWithNilNamespaceOpt()),
+			}
+
+			grpcRoute := makeRandomGRPCRoute(
+				withRelevantGRPCRouteParentStatus,
+				randomGRPCRouteWithRulesOpt(
+					makeRandomGRPCRouteRule(randomGRPCRouteRuleWithRandomBackendRefsOpt(refs...)),
+				),
+			)
+
+			wantIndices := lo.Map(refs, func(ref gatewayv1.GRPCBackendRef, _ int) string {
+				namespace := grpcRoute.Namespace
+				if ref.BackendObjectReference.Namespace != nil {
+					namespace = string(*ref.BackendObjectReference.Namespace)
+				}
+				return fmt.Sprintf("%v/%v", namespace, ref.BackendObjectReference.Name)
+			})
+
+			result := model.indexGRPCRouteByBackendService(t.Context(), &grpcRoute)
+			require.ElementsMatch(t, wantIndices, result)
+		})
+
+		t.Run("ignores routes without relevant parent status", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			grpcRoute := makeRandomGRPCRoute(
+				randomGRPCRouteWithRulesOpt(
+					makeRandomGRPCRouteRule(randomGRPCRouteRuleWithRandomBackendRefsOpt(
+						makeRandomGRPCBackendRef(),
+					)),
+				),
+			)
+
+			result := model.indexGRPCRouteByBackendService(t.Context(), &grpcRoute)
+			require.Nil(t, result)
+		})
+
+		t.Run("ignores non route objects", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			result := model.indexGRPCRouteByBackendService(t.Context(), &corev1.Service{})
+			require.Nil(t, result)
+		})
+	})
+
 	t.Run("MapEndpointSliceToHTTPRoute", func(t *testing.T) {
 		t.Run("finds matching HTTPRoutes based on service index", func(t *testing.T) {
 			deps := makeMockDeps(t)
@@ -590,6 +684,165 @@ func TestWatchesModel(t *testing.T) {
 			model := NewWatchesModel(deps)
 
 			result := model.MapEndpointSliceToHTTPRoute(t.Context(), &discoveryv1.EndpointSlice{})
+			require.Nil(t, result)
+		})
+	})
+
+	t.Run("MapEndpointSliceToGRPCRoute", func(t *testing.T) {
+		t.Run("finds matching GRPCRoutes and ignores deleted routes", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			svcName := faker.New().Internet().Domain()
+			ns := faker.New().Internet().User()
+			indexKey := fmt.Sprintf("%v/%v", ns, svcName)
+
+			endpointSlice := makeRandomEndpointSlice(
+				randomEndpointSliceWithNamespaceOpt(ns),
+				randomEndpointSliceWithServiceNameOpt(svcName),
+			)
+
+			validRoute := makeRandomGRPCRoute()
+			routeToDelete := makeRandomGRPCRoute()
+			deletionTimestamp := metav1.Now()
+			routeToDelete.DeletionTimestamp = &deletionTimestamp
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.GRPCRouteList{},
+				client.MatchingFields{grpcRouteBackendServiceIndexKey: indexKey},
+			).RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.GRPCRoute{
+					validRoute,
+					routeToDelete,
+				}))
+				return nil
+			})
+
+			result := model.MapEndpointSliceToGRPCRoute(t.Context(), &endpointSlice)
+			require.ElementsMatch(t, []reconcile.Request{{
+				NamespacedName: apitypes.NamespacedName{
+					Name:      validRoute.Name,
+					Namespace: validRoute.Namespace,
+				},
+			}}, result)
+		})
+
+		t.Run("returns nil if k8s client returns error", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			svcName := faker.New().Internet().Domain()
+			ns := faker.New().Internet().User()
+			indexKey := fmt.Sprintf("%v/%v", ns, svcName)
+
+			endpointSlice := makeRandomEndpointSlice(
+				randomEndpointSliceWithNamespaceOpt(ns),
+				randomEndpointSliceWithServiceNameOpt(svcName),
+			)
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.GRPCRouteList{},
+				client.MatchingFields{grpcRouteBackendServiceIndexKey: indexKey},
+			).Return(wantErr)
+
+			result := model.MapEndpointSliceToGRPCRoute(t.Context(), &endpointSlice)
+			require.Nil(t, result)
+		})
+	})
+
+	t.Run("MapHTTPRouteToGRPCRoute", func(t *testing.T) {
+		t.Run("queues existing GRPCRoutes", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			deletedRoute := makeRandomGRPCRoute()
+			deletionTimestamp := metav1.Now()
+			deletedRoute.DeletionTimestamp = &deletionTimestamp
+			wantRoutes := []gatewayv1.GRPCRoute{makeRandomGRPCRoute(), makeRandomGRPCRoute()}
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.GRPCRouteList{}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().FieldByName("Items").Set(
+						reflect.ValueOf(append(wantRoutes, deletedRoute)),
+					)
+					return nil
+				})
+
+			result := model.MapHTTPRouteToGRPCRoute(t.Context(), &gatewayv1.HTTPRoute{})
+
+			require.ElementsMatch(t, lo.Map(wantRoutes, func(route gatewayv1.GRPCRoute, _ int) reconcile.Request {
+				return reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&route)}
+			}), result)
+		})
+
+		t.Run("returns nil for non HTTPRoute objects", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			result := model.MapHTTPRouteToGRPCRoute(t.Context(), &corev1.Service{})
+
+			require.Nil(t, result)
+		})
+
+		t.Run("returns nil when GRPCRoute list fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.GRPCRouteList{}).
+				Return(errors.New(faker.New().Lorem().Sentence(10)))
+
+			result := model.MapHTTPRouteToGRPCRoute(t.Context(), &gatewayv1.HTTPRoute{})
+
+			require.Nil(t, result)
+		})
+	})
+
+	t.Run("MapGRPCRouteToHTTPRoute", func(t *testing.T) {
+		t.Run("queues existing HTTPRoutes", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			deletedRoute := makeRandomHTTPRoute()
+			deletionTimestamp := metav1.Now()
+			deletedRoute.DeletionTimestamp = &deletionTimestamp
+			wantRoutes := []gatewayv1.HTTPRoute{makeRandomHTTPRoute(), makeRandomHTTPRoute()}
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.HTTPRouteList{}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().FieldByName("Items").Set(
+						reflect.ValueOf(append(wantRoutes, deletedRoute)),
+					)
+					return nil
+				})
+
+			result := model.MapGRPCRouteToHTTPRoute(t.Context(), &gatewayv1.GRPCRoute{})
+
+			require.ElementsMatch(t, lo.Map(wantRoutes, func(route gatewayv1.HTTPRoute, _ int) reconcile.Request {
+				return reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&route)}
+			}), result)
+		})
+
+		t.Run("returns nil for non GRPCRoute objects", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			result := model.MapGRPCRouteToHTTPRoute(t.Context(), &corev1.Service{})
+
+			require.Nil(t, result)
+		})
+
+		t.Run("returns nil when HTTPRoute list fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.HTTPRouteList{}).
+				Return(errors.New(faker.New().Lorem().Sentence(10)))
+
+			result := model.MapGRPCRouteToHTTPRoute(t.Context(), &gatewayv1.GRPCRoute{})
+
 			require.Nil(t, result)
 		})
 	})

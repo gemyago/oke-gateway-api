@@ -65,9 +65,11 @@ func TestHTTPBackendModel(t *testing.T) {
 					mockSelf.EXPECT().syncRouteBackendRefEndpoints(
 						t.Context(),
 						syncRouteBackendRefEndpointsParams{
-							httpRoute:  httpRoute,
+							routeKind:  "HTTPRoute",
+							routeName:  httpRoute.Name,
+							routeNS:    httpRoute.Namespace,
 							config:     config,
-							backendRef: ref,
+							backendRef: ref.BackendRef,
 						},
 					).Return(nil).Once()
 				}
@@ -142,9 +144,11 @@ func TestHTTPBackendModel(t *testing.T) {
 				mockSelf.EXPECT().syncRouteBackendRefEndpoints(
 					t.Context(),
 					syncRouteBackendRefEndpointsParams{
-						httpRoute:  httpRoute,
+						routeKind:  "HTTPRoute",
+						routeName:  httpRoute.Name,
+						routeNS:    httpRoute.Namespace,
 						config:     config,
-						backendRef: ref,
+						backendRef: ref.BackendRef,
 					},
 				).Return(nil).Once()
 			}
@@ -184,9 +188,11 @@ func TestHTTPBackendModel(t *testing.T) {
 			mockSelf.EXPECT().syncRouteBackendRefEndpoints(
 				t.Context(),
 				syncRouteBackendRefEndpointsParams{
-					httpRoute:  httpRoute,
+					routeKind:  "HTTPRoute",
+					routeName:  httpRoute.Name,
+					routeNS:    httpRoute.Namespace,
 					config:     config,
-					backendRef: rules[0].BackendRefs[0],
+					backendRef: rules[0].BackendRefs[0].BackendRef,
 				},
 			).Return(nil).Once()
 
@@ -194,9 +200,11 @@ func TestHTTPBackendModel(t *testing.T) {
 			mockSelf.EXPECT().syncRouteBackendRefEndpoints(
 				t.Context(),
 				syncRouteBackendRefEndpointsParams{
-					httpRoute:  httpRoute,
+					routeKind:  "HTTPRoute",
+					routeName:  httpRoute.Name,
+					routeNS:    httpRoute.Namespace,
 					config:     config,
-					backendRef: rules[1].BackendRefs[0],
+					backendRef: rules[1].BackendRefs[0].BackendRef,
 				},
 			).Return(expectedErr).Once()
 
@@ -207,6 +215,44 @@ func TestHTTPBackendModel(t *testing.T) {
 
 			require.Error(t, err)
 			require.ErrorIs(t, err, expectedErr)
+		})
+	})
+
+	t.Run("syncGRPCRouteEndpoints", func(t *testing.T) {
+		t.Run("syncs distinct grpc backend refs", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPBackendModel(deps)
+
+			duplicateRef := makeRandomGRPCBackendRef(randomGRPCBackendRefWithNilNamespaceOpt())
+			uniqueRef := makeRandomGRPCBackendRef()
+			grpcRoute := makeRandomGRPCRoute(
+				randomGRPCRouteWithRulesOpt(
+					makeRandomGRPCRouteRule(randomGRPCRouteRuleWithRandomBackendRefsOpt(duplicateRef, uniqueRef)),
+					makeRandomGRPCRouteRule(randomGRPCRouteRuleWithRandomBackendRefsOpt(duplicateRef)),
+				),
+			)
+			config := makeRandomGatewayConfig()
+
+			mockSelf, _ := deps.self.(*MockhttpBackendModel)
+			for _, ref := range []gatewayv1.GRPCBackendRef{duplicateRef, uniqueRef} {
+				mockSelf.EXPECT().syncRouteBackendRefEndpoints(
+					t.Context(),
+					syncRouteBackendRefEndpointsParams{
+						routeKind:  "GRPCRoute",
+						routeName:  grpcRoute.Name,
+						routeNS:    grpcRoute.Namespace,
+						config:     config,
+						backendRef: ref.BackendRef,
+					},
+				).Return(nil).Once()
+			}
+
+			err := model.syncGRPCRouteEndpoints(t.Context(), syncGRPCRouteEndpointsParams{
+				grpcRoute: grpcRoute,
+				config:    config,
+			})
+
+			require.NoError(t, err)
 		})
 	})
 
@@ -318,9 +364,11 @@ func TestHTTPBackendModel(t *testing.T) {
 			mockWorkRequestsWatcher.EXPECT().WaitFor(t.Context(), wantOperationID).Return(nil).Once()
 
 			err := model.syncRouteBackendRefEndpoints(t.Context(), syncRouteBackendRefEndpointsParams{
-				httpRoute:  httpRoute,
+				routeKind:  "HTTPRoute",
+				routeName:  httpRoute.Name,
+				routeNS:    httpRoute.Namespace,
 				config:     config,
-				backendRef: backendRef,
+				backendRef: backendRef.BackendRef,
 			})
 
 			require.NoError(t, err)
@@ -394,9 +442,11 @@ func TestHTTPBackendModel(t *testing.T) {
 			mockWorkRequestsWatcher.EXPECT().WaitFor(t.Context(), wantOperationID).Return(nil).Once()
 
 			err := model.syncRouteBackendRefEndpoints(t.Context(), syncRouteBackendRefEndpointsParams{
-				httpRoute:  httpRoute,
+				routeKind:  "HTTPRoute",
+				routeName:  httpRoute.Name,
+				routeNS:    httpRoute.Namespace,
 				config:     config,
-				backendRef: backendRef,
+				backendRef: backendRef.BackendRef,
 			})
 
 			require.NoError(t, err)
@@ -461,9 +511,11 @@ func TestHTTPBackendModel(t *testing.T) {
 			}, nil).Once()
 
 			err := model.syncRouteBackendRefEndpoints(t.Context(), syncRouteBackendRefEndpointsParams{
-				httpRoute:  httpRoute,
+				routeKind:  "HTTPRoute",
+				routeName:  httpRoute.Name,
+				routeNS:    httpRoute.Namespace,
 				config:     config,
-				backendRef: backendRef,
+				backendRef: backendRef.BackendRef,
 			})
 
 			require.NoError(t, err)
@@ -645,9 +697,11 @@ func TestHTTPBackendModel(t *testing.T) {
 					setup(deps, config, httpRoute, backendRef, backendSet, wantErr)
 
 					err := model.syncRouteBackendRefEndpoints(t.Context(), syncRouteBackendRefEndpointsParams{
-						httpRoute:  httpRoute,
+						routeKind:  "HTTPRoute",
+						routeName:  httpRoute.Name,
+						routeNS:    httpRoute.Namespace,
 						config:     config,
-						backendRef: backendRef,
+						backendRef: backendRef.BackendRef,
 					})
 
 					if name == "update backend set missing work request id" {

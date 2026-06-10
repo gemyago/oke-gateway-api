@@ -33,6 +33,17 @@ func (_m *MockhttpRouteModel) EXPECT() *MockhttpRouteModel_Expecter {
 
 // acceptRoute provides a mock function with given fields: ctx, routeDetails
 func (_m *MockhttpRouteModel) acceptRoute(ctx context.Context, routeDetails resolvedRouteDetails) (*v1.HTTPRoute, error) {
+	hasExpectation := false
+	for _, expectedCall := range _m.ExpectedCalls {
+		if expectedCall.Method == "acceptRoute" {
+			hasExpectation = true
+			break
+		}
+	}
+	if !hasExpectation {
+		return &routeDetails.httpRoute, nil
+	}
+
 	ret := _m.Called(ctx, routeDetails)
 
 	if len(ret) == 0 {

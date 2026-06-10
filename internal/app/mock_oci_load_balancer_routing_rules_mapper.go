@@ -191,6 +191,63 @@ func (_c *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesT
 	return _c
 }
 
+// mapGRPCRouteHostnamesAndMatchesToCondition provides a mock function with given fields: hostnames, matches
+func (_m *MockociLoadBalancerRoutingRulesMapper) mapGRPCRouteHostnamesAndMatchesToCondition(hostnames []v1.Hostname, matches []v1.GRPCRouteMatch) (string, error) {
+	ret := _m.Called(hostnames, matches)
+
+	if len(ret) == 0 {
+		panic("no return value specified for mapGRPCRouteHostnamesAndMatchesToCondition")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func([]v1.Hostname, []v1.GRPCRouteMatch) (string, error)); ok {
+		return rf(hostnames, matches)
+	}
+	if rf, ok := ret.Get(0).(func([]v1.Hostname, []v1.GRPCRouteMatch) string); ok {
+		r0 = rf(hostnames, matches)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func([]v1.Hostname, []v1.GRPCRouteMatch) error); ok {
+		r1 = rf(hostnames, matches)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'mapGRPCRouteHostnamesAndMatchesToCondition'
+type MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call struct {
+	*mock.Call
+}
+
+// mapGRPCRouteHostnamesAndMatchesToCondition is a helper method to define mock.On call
+//   - hostnames []v1.Hostname
+//   - matches []v1.GRPCRouteMatch
+func (_e *MockociLoadBalancerRoutingRulesMapper_Expecter) mapGRPCRouteHostnamesAndMatchesToCondition(hostnames interface{}, matches interface{}) *MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call {
+	return &MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call{Call: _e.mock.On("mapGRPCRouteHostnamesAndMatchesToCondition", hostnames, matches)}
+}
+
+func (_c *MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call) Run(run func(hostnames []v1.Hostname, matches []v1.GRPCRouteMatch)) *MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].([]v1.Hostname), args[1].([]v1.GRPCRouteMatch))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call) Return(_a0 string, _a1 error) *MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call) RunAndReturn(run func([]v1.Hostname, []v1.GRPCRouteMatch) (string, error)) *MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockociLoadBalancerRoutingRulesMapper creates a new instance of MockociLoadBalancerRoutingRulesMapper. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockociLoadBalancerRoutingRulesMapper(t interface {

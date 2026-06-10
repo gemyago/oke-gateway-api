@@ -258,8 +258,6 @@ func TestHTTPRouteController(t *testing.T) {
 				req.NamespacedName: wantResolvedData,
 			}, (error)(nil))
 
-			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
-
 			wantErr := fmt.Errorf("accept error: %s", fake.Lorem().Sentence(10))
 			mockModel.EXPECT().acceptRoute(
 				t.Context(),

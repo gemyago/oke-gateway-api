@@ -1,0 +1,18 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: grpc-example
+spec:
+  parentRefs:
+    - name: oke-gateway-oci-certificate
+      sectionName: https
+  hostnames:
+    - grpc.example.com
+  rules:
+    - matches:
+        - method:
+            service: com.example.User
+            method: Login
+      backendRefs:
+        - name: grpc-example-server
+          port: 50051

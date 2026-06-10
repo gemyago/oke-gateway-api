@@ -47,6 +47,206 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		}
 	}
 
+	t.Run("helper functions", func(t *testing.T) {
+		t.Run("compares health checkers", func(t *testing.T) {
+			fake := faker.New()
+			protocol := "TCP"
+			port := rand.IntN(60000) + 1
+			assert.False(t, loadBalancerHealthCheckerMatches(nil, loadbalancer.HealthCheckerDetails{
+				Protocol: &protocol,
+				Port:     &port,
+			}))
+			assert.False(t, loadBalancerHealthCheckerMatches(&loadbalancer.HealthChecker{
+				Protocol: &protocol,
+				Port:     new(port + 1),
+			}, loadbalancer.HealthCheckerDetails{
+				Protocol: &protocol,
+				Port:     &port,
+			}))
+			assert.False(t, loadBalancerBackendSetMatches(
+				loadbalancer.BackendSet{
+					Policy: new("IP_HASH"),
+					HealthChecker: &loadbalancer.HealthChecker{
+						Protocol: &protocol,
+						Port:     &port,
+					},
+				},
+				"ROUND_ROBIN",
+				loadbalancer.HealthCheckerDetails{Protocol: &protocol, Port: &port},
+			))
+			assert.NotEmpty(t, fake.Lorem().Word())
+		})
+
+		t.Run("copies backend and ssl details", func(t *testing.T) {
+			fake := faker.New()
+			backend := loadbalancer.Backend{
+				Backup:         new(true),
+				Drain:          new(false),
+				IpAddress:      new(fake.Internet().Ipv4()),
+				Offline:        new(false),
+				Port:           new(rand.IntN(60000) + 1),
+				Weight:         new(rand.IntN(100) + 1),
+				MaxConnections: new(rand.IntN(1000) + 1),
+			}
+
+			assert.Equal(t, loadbalancer.BackendDetails{
+				Backup:         backend.Backup,
+				Drain:          backend.Drain,
+				IpAddress:      backend.IpAddress,
+				Offline:        backend.Offline,
+				Port:           backend.Port,
+				Weight:         backend.Weight,
+				MaxConnections: backend.MaxConnections,
+			}, ociBackendToDetails(backend, 0))
+			assert.Nil(t, sslConfigurationDetailsFromBackendSet(nil))
+
+			certificateID := fake.UUID().V4()
+			config := loadbalancer.SslConfiguration{
+				VerifyDepth:                    new(rand.IntN(5) + 1),
+				VerifyPeerCertificate:          new(true),
+				HasSessionResumption:           new(true),
+				TrustedCertificateAuthorityIds: []string{fake.UUID().V4()},
+				CertificateIds:                 []string{certificateID},
+				CertificateName:                new("cert-" + fake.Lorem().Word()),
+				Protocols:                      []string{"TLSv1.2"},
+				CipherSuiteName:                new("cipher-" + fake.Lorem().Word()),
+				ServerOrderPreference:          loadbalancer.SslConfigurationServerOrderPreferenceEnabled,
+			}
+
+			got := sslConfigurationDetailsFromBackendSet(&config)
+
+			require.NotNil(t, got)
+			assert.Equal(t, config.VerifyDepth, got.VerifyDepth)
+			assert.Equal(t, config.VerifyPeerCertificate, got.VerifyPeerCertificate)
+			assert.Equal(t, config.HasSessionResumption, got.HasSessionResumption)
+			assert.Equal(t, config.TrustedCertificateAuthorityIds, got.TrustedCertificateAuthorityIds)
+			assert.Equal(t, config.CertificateIds, got.CertificateIds)
+			assert.Equal(t, config.CertificateName, got.CertificateName)
+			assert.Equal(t, config.Protocols, got.Protocols)
+			assert.Equal(t, config.CipherSuiteName, got.CipherSuiteName)
+			assert.Equal(t, loadbalancer.SslConfigurationDetailsServerOrderPreferenceEnabled, got.ServerOrderPreference)
+		})
+
+		t.Run("detects routing default rule shape", func(t *testing.T) {
+			fake := faker.New()
+			defaultBackendSetName := "default-" + fake.Lorem().Word()
+			assert.False(t, routingRuleForwardsToBackendSet(loadbalancer.RoutingRule{}, defaultBackendSetName))
+			assert.False(t, routingRuleForwardsToBackendSet(loadbalancer.RoutingRule{
+				Actions: []loadbalancer.Action{loadbalancer.RedirectRule{}},
+			}, defaultBackendSetName))
+			assert.True(t, routingPolicyDefaultRuleDrifted(loadbalancer.RoutingPolicy{
+				Rules: []loadbalancer.RoutingRule{makeRandomOCIRoutingRule()},
+			}, defaultBackendSetName))
+			assert.False(t, routingPolicyDefaultRuleDrifted(loadbalancer.RoutingPolicy{
+				Rules: []loadbalancer.RoutingRule{defaultCatchAllRoutingRule(defaultBackendSetName)},
+			}, defaultBackendSetName))
+		})
+
+		t.Run("includes grpc rule name when present", func(t *testing.T) {
+			fake := faker.New()
+			ruleName := gatewayv1.SectionName("grpc-" + fake.Lorem().Word())
+			route := makeRandomGRPCRoute(randomGRPCRouteWithRulesOpt(
+				makeRandomGRPCRouteRule(func(rule *gatewayv1.GRPCRouteRule) {
+					rule.Name = &ruleName
+				}),
+			))
+
+			got := ociGRPCListenerPolicyRuleName(route, 0)
+
+			assert.Equal(
+				t,
+				ociListenerPolicyRuleNameFromParts(0, "grpc", route.Namespace, route.Name, string(ruleName)),
+				got,
+			)
+			assert.NotEqual(
+				t,
+				ociListenerPolicyRuleNameFromParts(0, "grpc", route.Namespace, route.Name),
+				got,
+			)
+		})
+	})
+
+	t.Run("updateBackendSetConfig", func(t *testing.T) {
+		t.Run("returns update errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			wantErr := errors.New(fake.Lorem().Sentence(10))
+
+			ociLoadBalancerClient.EXPECT().UpdateBackendSet(t.Context(), mock.Anything).
+				Return(loadbalancer.UpdateBackendSetResponse{}, wantErr).
+				Once()
+
+			err := model.updateBackendSetConfig(
+				t.Context(),
+				fake.UUID().V4(),
+				"backend-"+fake.Lorem().Word(),
+				makeRandomOCIBackendSet(),
+				"ROUND_ROBIN",
+				loadBalancerBackendSetHealthChecker(rand.IntN(60000)+1),
+			)
+
+			require.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("returns missing work request id errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			loadBalancerID := fake.UUID().V4()
+			backendSetName := "backend-" + fake.Lorem().Word()
+
+			ociLoadBalancerClient.EXPECT().UpdateBackendSet(
+				t.Context(),
+				mock.MatchedBy(func(req loadbalancer.UpdateBackendSetRequest) bool {
+					return lo.FromPtr(req.LoadBalancerId) == loadBalancerID &&
+						lo.FromPtr(req.BackendSetName) == backendSetName
+				}),
+			).Return(loadbalancer.UpdateBackendSetResponse{}, nil).Once()
+
+			err := model.updateBackendSetConfig(
+				t.Context(),
+				loadBalancerID,
+				backendSetName,
+				makeRandomOCIBackendSet(),
+				"ROUND_ROBIN",
+				loadBalancerBackendSetHealthChecker(rand.IntN(60000)+1),
+			)
+
+			require.ErrorContains(t, err, "missing work request id")
+		})
+
+		t.Run("returns wait errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+			loadBalancerID := fake.UUID().V4()
+			backendSetName := "backend-" + fake.Lorem().Word()
+			workRequestID := fake.UUID().V4()
+			wantErr := errors.New(fake.Lorem().Sentence(10))
+
+			ociLoadBalancerClient.EXPECT().UpdateBackendSet(t.Context(), mock.Anything).
+				Return(loadbalancer.UpdateBackendSetResponse{OpcWorkRequestId: &workRequestID}, nil).
+				Once()
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(wantErr).Once()
+
+			err := model.updateBackendSetConfig(
+				t.Context(),
+				loadBalancerID,
+				backendSetName,
+				makeRandomOCIBackendSet(),
+				"ROUND_ROBIN",
+				loadBalancerBackendSetHealthChecker(rand.IntN(60000)+1),
+			)
+
+			require.ErrorIs(t, err, wantErr)
+		})
+	})
+
 	t.Run("reconcileDefaultBackendSet", func(t *testing.T) {
 		t.Run("when backend set exists", func(t *testing.T) {
 			fake := faker.New()
@@ -2419,6 +2619,136 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			_, err := model.makeRoutingRule(t.Context(), params)
 			require.Error(t, err)
 			require.ErrorIs(t, err, expectedErr)
+		})
+	})
+
+	t.Run("makeGRPCRoutingRule", func(t *testing.T) {
+		t.Run("uses a route-kind-specific rule name", func(t *testing.T) {
+			namespace := "default"
+			name := "shared-route-name"
+			ruleIndex := 0
+
+			httpRoute := gatewayv1.HTTPRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: namespace,
+					Name:      name,
+				},
+				Spec: gatewayv1.HTTPRouteSpec{
+					Rules: []gatewayv1.HTTPRouteRule{{}},
+				},
+			}
+			grpcRoute := gatewayv1.GRPCRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: namespace,
+					Name:      name,
+				},
+				Spec: gatewayv1.GRPCRouteSpec{
+					Rules: []gatewayv1.GRPCRouteRule{{}},
+				},
+			}
+
+			assert.NotEqual(
+				t,
+				ociListerPolicyRuleName(httpRoute, ruleIndex),
+				ociGRPCListenerPolicyRuleName(grpcRoute, ruleIndex),
+			)
+		})
+
+		t.Run("successfully creates a grpc routing rule", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			routingRulesMapper, _ := deps.RoutingRulesMapper.(*MockociLoadBalancerRoutingRulesMapper)
+
+			refs := []gatewayv1.GRPCBackendRef{
+				{BackendRef: gatewayv1.BackendRef{BackendObjectReference: gatewayv1.BackendObjectReference{
+					Name: gatewayv1.ObjectName("svc-" + fake.Lorem().Word() + "-a"),
+					Port: lo.ToPtr(gatewayv1.PortNumber(50051)),
+				}}},
+				{BackendRef: gatewayv1.BackendRef{BackendObjectReference: gatewayv1.BackendObjectReference{
+					Name: gatewayv1.ObjectName("svc-" + fake.Lorem().Word() + "-b"),
+					Port: lo.ToPtr(gatewayv1.PortNumber(50052)),
+				}}},
+			}
+			methodService := fmt.Sprintf("%s.%s", fake.Lorem().Word(), fake.Lorem().Word())
+			methodName := fake.Lorem().Word()
+			grpcRoute := gatewayv1.GRPCRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns-" + fake.Lorem().Word(),
+					Name:      "grpc-" + fake.Lorem().Word(),
+				},
+				Spec: gatewayv1.GRPCRouteSpec{
+					Hostnames: []gatewayv1.Hostname{gatewayv1.Hostname("grpc-" + fake.Internet().Domain())},
+					Rules: []gatewayv1.GRPCRouteRule{
+						{
+							Matches: []gatewayv1.GRPCRouteMatch{
+								{Method: &gatewayv1.GRPCMethodMatch{
+									Service: &methodService,
+									Method:  &methodName,
+								}},
+							},
+							BackendRefs: refs,
+						},
+					},
+				},
+			}
+			ruleIndex := 0
+
+			expectedCondition := fake.Lorem().Sentence(10)
+			routingRulesMapper.EXPECT().mapGRPCRouteHostnamesAndMatchesToCondition(
+				grpcRoute.Spec.Hostnames,
+				grpcRoute.Spec.Rules[ruleIndex].Matches,
+			).Return(expectedCondition, nil).Once()
+
+			expectedRuleName := ociGRPCListenerPolicyRuleName(grpcRoute, ruleIndex)
+			expectedBackendSets := lo.Map(refs, func(ref gatewayv1.GRPCBackendRef, _ int) string {
+				return ociBackendSetNameFromGRPCBackendRef(grpcRoute, ref)
+			})
+			expectedRule := loadbalancer.RoutingRule{
+				Name:      new(expectedRuleName),
+				Condition: new(expectedCondition),
+				Actions: lo.Map(expectedBackendSets, func(backendSet string, _ int) loadbalancer.Action {
+					return loadbalancer.ForwardToBackendSet{
+						BackendSetName: new(backendSet),
+					}
+				}),
+			}
+
+			actualRule, err := model.makeGRPCRoutingRule(t.Context(), makeGRPCRoutingRuleParams{
+				grpcRoute:          grpcRoute,
+				grpcRouteRuleIndex: ruleIndex,
+			})
+
+			require.NoError(t, err)
+			assert.Equal(t, expectedRule, actualRule)
+		})
+
+		t.Run("fails when grpc match mapping fails", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			routingRulesMapper, _ := deps.RoutingRulesMapper.(*MockociLoadBalancerRoutingRulesMapper)
+			grpcRoute := gatewayv1.GRPCRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns-" + fake.Lorem().Word(),
+					Name:      "grpc-" + fake.Lorem().Word(),
+				},
+				Spec: gatewayv1.GRPCRouteSpec{
+					Rules: []gatewayv1.GRPCRouteRule{{}},
+				},
+			}
+			wantErr := errors.New(fake.Lorem().Sentence(10))
+			routingRulesMapper.EXPECT().mapGRPCRouteHostnamesAndMatchesToCondition(
+				grpcRoute.Spec.Hostnames,
+				grpcRoute.Spec.Rules[0].Matches,
+			).Return("", wantErr).Once()
+
+			_, err := model.makeGRPCRoutingRule(t.Context(), makeGRPCRoutingRuleParams{
+				grpcRoute:          grpcRoute,
+				grpcRouteRuleIndex: 0,
+			})
+
+			require.ErrorIs(t, err, wantErr)
 		})
 	})
 

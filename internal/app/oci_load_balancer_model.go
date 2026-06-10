@@ -84,6 +84,22 @@ type makeRoutingRuleParams struct {
 	httpRouteRuleIndex int
 }
 
+type makeGRPCRoutingRuleParams struct {
+	grpcRoute          gatewayv1.GRPCRoute
+	grpcRouteRuleIndex int
+}
+
+type makeBackendRoutingRuleParams[T any] struct {
+	ruleName            string
+	routeKind           string
+	routeName           string
+	routeRuleIndex      int
+	backendRefs         []T
+	backendSetName      func(T) string
+	mapCondition        func() (string, error)
+	conditionErrContext string
+}
+
 type commitRoutingPolicyParams struct {
 	loadBalancerID string
 	listenerName   string
@@ -138,6 +154,11 @@ type ociLoadBalancerModel interface {
 	makeRoutingRule(
 		ctx context.Context,
 		params makeRoutingRuleParams,
+	) (loadbalancer.RoutingRule, error)
+
+	makeGRPCRoutingRule(
+		ctx context.Context,
+		params makeGRPCRoutingRuleParams,
 	) (loadbalancer.RoutingRule, error)
 
 	commitRoutingPolicy(
@@ -951,37 +972,102 @@ func (m *ociLoadBalancerModelImpl) makeRoutingRule(
 	ctx context.Context,
 	params makeRoutingRuleParams,
 ) (loadbalancer.RoutingRule, error) {
-	ruleName := ociListerPolicyRuleName(params.httpRoute, params.httpRouteRuleIndex)
 	rule := params.httpRoute.Spec.Rules[params.httpRouteRuleIndex]
+	return makeBackendRoutingRule(ctx, makeBackendRoutingRuleParams[gatewayv1.HTTPBackendRef]{
+		ruleName:       ociListerPolicyRuleName(params.httpRoute, params.httpRouteRuleIndex),
+		routeKind:      "httpRoute",
+		routeName:      fmt.Sprintf("%s/%s", params.httpRoute.Namespace, params.httpRoute.Name),
+		routeRuleIndex: params.httpRouteRuleIndex,
+		backendRefs:    rule.BackendRefs,
+		backendSetName: func(backendRef gatewayv1.HTTPBackendRef) string {
+			return ociBackendSetNameFromBackendRef(params.httpRoute, backendRef)
+		},
+		mapCondition: func() (string, error) {
+			return m.routingRulesMapper.mapHTTPRouteHostnamesAndMatchesToCondition(
+				params.httpRoute.Spec.Hostnames,
+				rule.Matches,
+			)
+		},
+		conditionErrContext: "failed to map http route matches to condition",
+	}, m.buildForwardRoutingRule)
+}
 
-	targetBackends := lo.Map(rule.BackendRefs, func(backendRef gatewayv1.HTTPBackendRef, _ int) string {
-		return ociBackendSetNameFromBackendRef(params.httpRoute, backendRef)
+func (m *ociLoadBalancerModelImpl) makeGRPCRoutingRule(
+	ctx context.Context,
+	params makeGRPCRoutingRuleParams,
+) (loadbalancer.RoutingRule, error) {
+	rule := params.grpcRoute.Spec.Rules[params.grpcRouteRuleIndex]
+	return makeBackendRoutingRule(ctx, makeBackendRoutingRuleParams[gatewayv1.GRPCBackendRef]{
+		ruleName:       ociGRPCListenerPolicyRuleName(params.grpcRoute, params.grpcRouteRuleIndex),
+		routeKind:      "grpcRoute",
+		routeName:      fmt.Sprintf("%s/%s", params.grpcRoute.Namespace, params.grpcRoute.Name),
+		routeRuleIndex: params.grpcRouteRuleIndex,
+		backendRefs:    rule.BackendRefs,
+		backendSetName: func(backendRef gatewayv1.GRPCBackendRef) string {
+			return ociBackendSetNameFromGRPCBackendRef(params.grpcRoute, backendRef)
+		},
+		mapCondition: func() (string, error) {
+			return m.routingRulesMapper.mapGRPCRouteHostnamesAndMatchesToCondition(
+				params.grpcRoute.Spec.Hostnames,
+				rule.Matches,
+			)
+		},
+		conditionErrContext: "failed to map grpc route matches to condition",
+	}, m.buildForwardRoutingRule)
+}
+
+type buildForwardRoutingRuleParams struct {
+	routeKind      string
+	routeName      string
+	routeRuleIndex int
+	ruleName       string
+	condition      string
+	targetBackends []string
+}
+
+func makeBackendRoutingRule[T any](
+	ctx context.Context,
+	params makeBackendRoutingRuleParams[T],
+	buildForwardRoutingRule func(context.Context, buildForwardRoutingRuleParams) loadbalancer.RoutingRule,
+) (loadbalancer.RoutingRule, error) {
+	targetBackends := lo.Map(params.backendRefs, func(backendRef T, _ int) string {
+		return params.backendSetName(backendRef)
 	})
 
-	condition, err := m.routingRulesMapper.mapHTTPRouteHostnamesAndMatchesToCondition(
-		params.httpRoute.Spec.Hostnames,
-		rule.Matches,
-	)
+	condition, err := params.mapCondition()
 	if err != nil {
-		return loadbalancer.RoutingRule{}, fmt.Errorf("failed to map http route matches to condition: %w", err)
+		return loadbalancer.RoutingRule{}, fmt.Errorf("%s: %w", params.conditionErrContext, err)
 	}
 
-	m.logger.DebugContext(ctx, "Building OCI routing rule",
-		slog.String("httpRoute", fmt.Sprintf("%s/%s", params.httpRoute.Namespace, params.httpRoute.Name)),
-		slog.Int("httpRouteRuleIndex", params.httpRouteRuleIndex),
-		slog.String("ruleName", ruleName),
-		slog.Any("targetBackends", targetBackends),
-	)
+	return buildForwardRoutingRule(ctx, buildForwardRoutingRuleParams{
+		routeKind:      params.routeKind,
+		routeName:      params.routeName,
+		routeRuleIndex: params.routeRuleIndex,
+		ruleName:       params.ruleName,
+		condition:      condition,
+		targetBackends: targetBackends,
+	}), nil
+}
 
+func (m *ociLoadBalancerModelImpl) buildForwardRoutingRule(
+	ctx context.Context,
+	params buildForwardRoutingRuleParams,
+) loadbalancer.RoutingRule {
+	m.logger.DebugContext(ctx, "Building OCI routing rule",
+		slog.String(params.routeKind, params.routeName),
+		slog.Int(params.routeKind+"RuleIndex", params.routeRuleIndex),
+		slog.String("ruleName", params.ruleName),
+		slog.Any("targetBackends", params.targetBackends),
+	)
 	return loadbalancer.RoutingRule{
-		Name:      new(ruleName),
-		Condition: new(condition),
-		Actions: lo.Map(targetBackends, func(backendSetName string, _ int) loadbalancer.Action {
+		Name:      new(params.ruleName),
+		Condition: new(params.condition),
+		Actions: lo.Map(params.targetBackends, func(backendSetName string, _ int) loadbalancer.Action {
 			return loadbalancer.ForwardToBackendSet{
 				BackendSetName: new(backendSetName),
 			}
 		}),
-	}, nil
+	}
 }
 
 func (m *ociLoadBalancerModelImpl) deleteMissingListener(
@@ -1336,6 +1422,21 @@ func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string {
 		nameParts = append(nameParts, string(*rule.Name))
 	}
 
+	return ociListenerPolicyRuleNameFromParts(ruleIndex, nameParts...)
+}
+
+func ociGRPCListenerPolicyRuleName(route gatewayv1.GRPCRoute, ruleIndex int) string {
+	rule := route.Spec.Rules[ruleIndex]
+	nameParts := []string{"grpc", route.Namespace, route.Name}
+
+	if rule.Name != nil {
+		nameParts = append(nameParts, string(*rule.Name))
+	}
+
+	return ociListenerPolicyRuleNameFromParts(ruleIndex, nameParts...)
+}
+
+func ociListenerPolicyRuleNameFromParts(ruleIndex int, nameParts ...string) string {
 	resultingName := fmt.Sprintf(
 		"p%04d_%08x_%s",
 		ruleIndex,
@@ -1362,11 +1463,21 @@ func ociListenerPolicyRuleIdentity(ruleIndex int, nameParts ...string) string {
 // It's expected that the backend set name is unique within the load balancer for every route.
 // Sorting is not required, but keeping padding for consistency and readability.
 func ociBackendSetNameFromBackendRef(httpRoute gatewayv1.HTTPRoute, backendRef gatewayv1.HTTPBackendRef) string {
-	// TODO: Check if namespace is populated in the route if it's not in the spec
+	return ociBackendSetNameFromBackendObjectRef(httpRoute.Namespace, backendRef.BackendObjectReference)
+}
+
+func ociBackendSetNameFromGRPCBackendRef(grpcRoute gatewayv1.GRPCRoute, backendRef gatewayv1.GRPCBackendRef) string {
+	return ociBackendSetNameFromBackendObjectRef(grpcRoute.Namespace, backendRef.BackendObjectReference)
+}
+
+func ociBackendSetNameFromBackendObjectRef(
+	defaultNamespace string,
+	backendRef gatewayv1.BackendObjectReference,
+) string {
 	refName := string(backendRef.Name)
 	refNamespace := string(lo.FromPtr(backendRef.Namespace))
 	if refNamespace == "" {
-		refNamespace = httpRoute.Namespace
+		refNamespace = defaultNamespace
 	}
 
 	originalName := refNamespace + "-" + refName

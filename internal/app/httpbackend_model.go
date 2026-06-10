@@ -20,10 +20,26 @@ type syncRouteEndpointsParams struct {
 	config    types.GatewayConfig
 }
 
+type syncGRPCRouteEndpointsParams struct {
+	grpcRoute gatewayv1.GRPCRoute
+	config    types.GatewayConfig
+}
+
+type syncL7RouteEndpointsParams struct {
+	routeKind    string
+	routeName    string
+	routeNS      string
+	backendRefs  []gatewayv1.BackendRef
+	config       types.GatewayConfig
+	backendLabel string
+}
+
 type syncRouteBackendRefEndpointsParams struct {
 	config     types.GatewayConfig
-	httpRoute  gatewayv1.HTTPRoute
-	backendRef gatewayv1.HTTPBackendRef
+	routeKind  string
+	routeName  string
+	routeNS    string
+	backendRef gatewayv1.BackendRef
 }
 
 type identifyBackendsToUpdateParams struct {
@@ -49,6 +65,10 @@ type httpBackendModel interface {
 	// provided HTTPRoute, ensuring they contain the correct set of ready endpoints
 	// derived from the referenced Kubernetes Services' EndpointSlices.
 	syncRouteEndpoints(ctx context.Context, params syncRouteEndpointsParams) error
+
+	// syncGRPCRouteEndpoints synchronizes the OCI Load Balancer Backend Sets associated with
+	// the provided GRPCRoute.
+	syncGRPCRouteEndpoints(ctx context.Context, params syncGRPCRouteEndpointsParams) error
 
 	// identifyBackendsToUpdate identifies the backends that need to be updated in the OCI Load Balancer Backend Set.
 	// It will correctly handle endpoint status changes, including draining endpoints.
@@ -76,35 +96,72 @@ func (m *httpBackendModelImpl) syncRouteEndpoints(
 	ctx context.Context,
 	params syncRouteEndpointsParams,
 ) error {
+	backendRefs := make([]gatewayv1.BackendRef, 0)
+	for _, rule := range params.httpRoute.Spec.Rules {
+		for _, backendRef := range rule.BackendRefs {
+			backendRefs = append(backendRefs, backendRef.BackendRef)
+		}
+	}
+	return m.syncL7RouteEndpoints(ctx, syncL7RouteEndpointsParams{
+		routeKind:    "HTTPRoute",
+		routeName:    params.httpRoute.Name,
+		routeNS:      params.httpRoute.Namespace,
+		backendRefs:  backendRefs,
+		config:       params.config,
+		backendLabel: "httpRoute",
+	})
+}
+
+func (m *httpBackendModelImpl) syncGRPCRouteEndpoints(
+	ctx context.Context,
+	params syncGRPCRouteEndpointsParams,
+) error {
+	backendRefs := make([]gatewayv1.BackendRef, 0)
+	for _, rule := range params.grpcRoute.Spec.Rules {
+		for _, backendRef := range rule.BackendRefs {
+			backendRefs = append(backendRefs, backendRef.BackendRef)
+		}
+	}
+	return m.syncL7RouteEndpoints(ctx, syncL7RouteEndpointsParams{
+		routeKind:    "GRPCRoute",
+		routeName:    params.grpcRoute.Name,
+		routeNS:      params.grpcRoute.Namespace,
+		backendRefs:  backendRefs,
+		config:       params.config,
+		backendLabel: "grpcRoute",
+	})
+}
+
+func (m *httpBackendModelImpl) syncL7RouteEndpoints(
+	ctx context.Context,
+	params syncL7RouteEndpointsParams,
+) error {
 	m.logger.InfoContext(ctx, "Syncing backend endpoints",
-		slog.String("httpRoute", params.httpRoute.Name),
+		slog.String(params.backendLabel, params.routeName),
 		slog.String("config", params.config.Name),
 	)
 
 	processedBackendRefs := make(map[string]bool)
-
-	for index, rule := range params.httpRoute.Spec.Rules {
-		for _, backendRef := range rule.BackendRefs {
-			refNamespace := lo.Ternary(
-				backendRef.Namespace != nil,
-				string(lo.FromPtr(backendRef.Namespace)),
-				params.httpRoute.Namespace,
-			)
-			refKey := refNamespace + "/" + string(backendRef.Name)
-
-			if _, ok := processedBackendRefs[refKey]; ok {
-				continue
-			}
-
-			if err := m.self.syncRouteBackendRefEndpoints(ctx, syncRouteBackendRefEndpointsParams{
-				httpRoute:  params.httpRoute,
-				config:     params.config,
-				backendRef: backendRef,
-			}); err != nil {
-				return fmt.Errorf("failed to sync route backend endpoints for rule %d: %w", index, err)
-			}
-			processedBackendRefs[refKey] = true
+	for index, backendRef := range params.backendRefs {
+		refNamespace := lo.Ternary(
+			backendRef.Namespace != nil,
+			string(lo.FromPtr(backendRef.Namespace)),
+			params.routeNS,
+		)
+		refKey := refNamespace + "/" + string(backendRef.Name)
+		if _, ok := processedBackendRefs[refKey]; ok {
+			continue
 		}
+		if err := m.self.syncRouteBackendRefEndpoints(ctx, syncRouteBackendRefEndpointsParams{
+			routeKind:  params.routeKind,
+			routeName:  params.routeName,
+			routeNS:    params.routeNS,
+			config:     params.config,
+			backendRef: backendRef,
+		}); err != nil {
+			return fmt.Errorf("failed to sync route backend endpoints for backend ref %d: %w", index, err)
+		}
+		processedBackendRefs[refKey] = true
 	}
 
 	return nil
@@ -187,9 +244,9 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 	backendRefNamespace := lo.Ternary(
 		backendRef.Namespace != nil,
 		string(lo.FromPtr(backendRef.Namespace)),
-		params.httpRoute.Namespace,
+		params.routeNS,
 	)
-	backendSetName := ociBackendSetNameFromBackendRef(params.httpRoute, backendRef)
+	backendSetName := ociBackendSetNameFromBackendObjectRef(params.routeNS, backendRef.BackendObjectReference)
 
 	getResp, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
 		LoadBalancerId: &params.config.Spec.LoadBalancerID,
@@ -229,7 +286,8 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 	if !backendsToUpdate.updateRequired {
 		m.logger.InfoContext(ctx, "Backend set already up-to-date, skipping update",
 			slog.String("backendSetName", backendSetName),
-			slog.String("httpRoute", params.httpRoute.Name),
+			slog.String("routeKind", params.routeKind),
+			slog.String("route", params.routeName),
 			slog.String("backendRefName", string(backendRef.Name)),
 			slog.String("backendRefNamespace", backendRefNamespace),
 		)
@@ -237,7 +295,8 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 	}
 
 	m.logger.InfoContext(ctx, "Syncing backend endpoints for backendRef",
-		slog.String("httpRoute", params.httpRoute.Name),
+		slog.String("routeKind", params.routeKind),
+		slog.String("route", params.routeName),
 		slog.String("backendRefName", string(backendRef.Name)),
 		slog.String("backendRefNamespace", backendRefNamespace),
 		slog.String("backendSetName", backendSetName),

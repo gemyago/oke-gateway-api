@@ -175,6 +175,63 @@ func (_c *MockociLoadBalancerModel_makeRoutingRule_Call) RunAndReturn(run func(c
 	return _c
 }
 
+// makeGRPCRoutingRule provides a mock function with given fields: ctx, params
+func (_m *MockociLoadBalancerModel) makeGRPCRoutingRule(ctx context.Context, params makeGRPCRoutingRuleParams) (loadbalancer.RoutingRule, error) {
+	ret := _m.Called(ctx, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for makeGRPCRoutingRule")
+	}
+
+	var r0 loadbalancer.RoutingRule
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, makeGRPCRoutingRuleParams) (loadbalancer.RoutingRule, error)); ok {
+		return rf(ctx, params)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, makeGRPCRoutingRuleParams) loadbalancer.RoutingRule); ok {
+		r0 = rf(ctx, params)
+	} else {
+		r0 = ret.Get(0).(loadbalancer.RoutingRule)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, makeGRPCRoutingRuleParams) error); ok {
+		r1 = rf(ctx, params)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockociLoadBalancerModel_makeGRPCRoutingRule_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'makeGRPCRoutingRule'
+type MockociLoadBalancerModel_makeGRPCRoutingRule_Call struct {
+	*mock.Call
+}
+
+// makeGRPCRoutingRule is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params makeGRPCRoutingRuleParams
+func (_e *MockociLoadBalancerModel_Expecter) makeGRPCRoutingRule(ctx interface{}, params interface{}) *MockociLoadBalancerModel_makeGRPCRoutingRule_Call {
+	return &MockociLoadBalancerModel_makeGRPCRoutingRule_Call{Call: _e.mock.On("makeGRPCRoutingRule", ctx, params)}
+}
+
+func (_c *MockociLoadBalancerModel_makeGRPCRoutingRule_Call) Run(run func(ctx context.Context, params makeGRPCRoutingRuleParams)) *MockociLoadBalancerModel_makeGRPCRoutingRule_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(makeGRPCRoutingRuleParams))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_makeGRPCRoutingRule_Call) Return(_a0 loadbalancer.RoutingRule, _a1 error) *MockociLoadBalancerModel_makeGRPCRoutingRule_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_makeGRPCRoutingRule_Call) RunAndReturn(run func(context.Context, makeGRPCRoutingRuleParams) (loadbalancer.RoutingRule, error)) *MockociLoadBalancerModel_makeGRPCRoutingRule_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // reconcileBackendSet provides a mock function with given fields: ctx, params
 func (_m *MockociLoadBalancerModel) reconcileBackendSet(ctx context.Context, params reconcileBackendSetParams) error {
 	ret := _m.Called(ctx, params)
