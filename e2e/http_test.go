@@ -41,6 +41,7 @@ func TestHTTP(t *testing.T) {
 	t.Run("BackendEndpointChange", testHTTPBackendEndpointChange)
 	t.Run("HostMatching", testHTTPHostMatching)
 	t.Run("HeaderMatchingVariants", testHTTPHeaderMatchingVariants)
+	t.Run("PathExactVsPrefix", testHTTPPathExactVsPrefix)
 }
 
 func requireLiveHTTPConfig(t *testing.T) *config.Config {
