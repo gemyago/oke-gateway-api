@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -183,6 +184,7 @@ type ociLoadBalancerModelImpl struct {
 	logger              *slog.Logger
 	workRequestsWatcher workRequestsWatcher
 	routingRulesMapper  ociLoadBalancerRoutingRulesMapper
+	routingPolicyLocks  sync.Map
 }
 
 func loadBalancerHealthCheckerMatches(
@@ -1228,7 +1230,18 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 	params commitRoutingPolicyParams,
 ) error {
 	policyName := listenerPolicyName(params.listenerName)
+	policyLock := m.routingPolicyLock(params.loadBalancerID, policyName)
+	policyLock.Lock()
+	defer policyLock.Unlock()
 
+	return m.commitRoutingPolicyLocked(ctx, params, policyName)
+}
+
+func (m *ociLoadBalancerModelImpl) commitRoutingPolicyLocked(
+	ctx context.Context,
+	params commitRoutingPolicyParams,
+	policyName string,
+) error {
 	policyResponse, err := m.ociClient.GetRoutingPolicy(ctx, loadbalancer.GetRoutingPolicyRequest{
 		RoutingPolicyName: &policyName,
 		LoadBalancerId:    &params.loadBalancerID,
@@ -1308,6 +1321,15 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 		slog.String("routingPolicyName", policyName),
 	)
 	return nil
+}
+
+func (m *ociLoadBalancerModelImpl) routingPolicyLock(loadBalancerID, policyName string) *sync.Mutex {
+	lock, _ := m.routingPolicyLocks.LoadOrStore(loadBalancerID+"/"+policyName, &sync.Mutex{})
+	policyLock, ok := lock.(*sync.Mutex)
+	if !ok {
+		return &sync.Mutex{}
+	}
+	return policyLock
 }
 
 func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(

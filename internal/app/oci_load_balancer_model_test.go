@@ -7,9 +7,12 @@ import (
 	"hash/crc32"
 	"maps"
 	"math/rand/v2"
+	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/jaswdr/faker/v2"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -3035,6 +3038,103 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				policyRules:    []loadbalancer.RoutingRule{httpRule, grpcRule},
 			})
 			require.NoError(t, err)
+		})
+
+		t.Run("serializes concurrent commits for the same routing policy", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			loadBalancerID := fake.UUID().V4()
+			listenerName := fake.UUID().V4()
+			policyName := listenerPolicyName(listenerName)
+			defaultRule := defaultCatchAllRoutingRule("default-" + fake.Lorem().Word())
+			httpRule := loadbalancer.RoutingRule{
+				Name:      new("http-" + fake.Lorem().Word()),
+				Condition: new("http.request.url.path sw '/'"),
+			}
+			grpcRule := loadbalancer.RoutingRule{
+				Name:      new("grpc-" + fake.Lorem().Word()),
+				Condition: new(grpcContentTypeCondition()),
+			}
+
+			var policyMu sync.Mutex
+			currentPolicy := loadbalancer.RoutingPolicy{
+				Name:                     new(policyName),
+				Rules:                    []loadbalancer.RoutingRule{defaultRule},
+				ConditionLanguageVersion: loadbalancer.RoutingPolicyConditionLanguageVersionV1,
+			}
+			getCount := 0
+			secondGet := make(chan struct{})
+
+			ociLoadBalancerClient.EXPECT().GetRoutingPolicy(t.Context(), loadbalancer.GetRoutingPolicyRequest{
+				RoutingPolicyName: new(policyName),
+				LoadBalancerId:    &loadBalancerID,
+			}).RunAndReturn(func(context.Context, loadbalancer.GetRoutingPolicyRequest) (loadbalancer.GetRoutingPolicyResponse, error) {
+				policyMu.Lock()
+				getCount++
+				currentGet := getCount
+				if currentGet == 2 {
+					close(secondGet)
+				}
+				snapshot := currentPolicy
+				snapshot.Rules = slices.Clone(currentPolicy.Rules)
+				policyMu.Unlock()
+
+				if currentGet == 1 {
+					select {
+					case <-secondGet:
+					case <-time.After(50 * time.Millisecond):
+					}
+				}
+
+				return loadbalancer.GetRoutingPolicyResponse{RoutingPolicy: snapshot}, nil
+			}).Twice()
+
+			ociLoadBalancerClient.EXPECT().UpdateRoutingPolicy(t.Context(), mock.MatchedBy(
+				func(req loadbalancer.UpdateRoutingPolicyRequest) bool {
+					policyMu.Lock()
+					currentPolicy.Rules = slices.Clone(req.UpdateRoutingPolicyDetails.Rules)
+					policyMu.Unlock()
+					return true
+				},
+			)).Return(loadbalancer.UpdateRoutingPolicyResponse{
+				OpcWorkRequestId: new("wr-" + fake.UUID().V4()),
+			}, nil).Twice()
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), mock.Anything).Return(nil).Twice()
+
+			var wg sync.WaitGroup
+			wg.Add(2)
+			errs := make(chan error, 2)
+			go func() {
+				defer wg.Done()
+				errs <- model.commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+					loadBalancerID: loadBalancerID,
+					listenerName:   listenerName,
+					policyRules:    []loadbalancer.RoutingRule{httpRule},
+				})
+			}()
+			go func() {
+				defer wg.Done()
+				errs <- model.commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+					loadBalancerID: loadBalancerID,
+					listenerName:   listenerName,
+					policyRules:    []loadbalancer.RoutingRule{grpcRule},
+				})
+			}()
+			wg.Wait()
+			close(errs)
+
+			for err := range errs {
+				require.NoError(t, err)
+			}
+			policyMu.Lock()
+			gotRules := slices.Clone(currentPolicy.Rules)
+			policyMu.Unlock()
+
+			assert.ElementsMatch(t, []loadbalancer.RoutingRule{grpcRule, httpRule, defaultRule}, gotRules)
 		})
 
 		t.Run("skips update when routing policy already matches desired rules", func(t *testing.T) {
