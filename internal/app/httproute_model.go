@@ -116,6 +116,8 @@ type rejectL7RouteParams struct {
 type programL7RoutePolicyParams struct {
 	loadBalancerID      string
 	routeName           string
+	routeNamespace      string
+	backendRefs         []gatewayv1.BackendRef
 	knownBackends       map[string]v1.Service
 	matchedListeners    []gatewayv1.Listener
 	previousPolicyRules []programmedHTTPRoutePolicyRule
@@ -472,6 +474,12 @@ func backendObjectRefName(
 			func() string { return string(*backendRef.Namespace) },
 		).Else(defaultNamespace),
 	}
+}
+
+func l7BackendRefKey(backendRef gatewayv1.BackendRef, defaultNamespace string) string {
+	refName := backendObjectRefName(backendRef.BackendObjectReference, defaultNamespace)
+	port := lo.FromPtr(backendRef.BackendObjectReference.Port)
+	return fmt.Sprintf("%s/%s:%d", refName.Namespace, refName.Name, port)
 }
 
 func parseProgrammedHTTPRoutePolicyRules(annotationValue string) []programmedHTTPRoutePolicyRule {
@@ -903,14 +911,27 @@ func programL7RoutePolicy(
 	ociLoadBalancerModel ociLoadBalancerModel,
 	params programL7RoutePolicyParams,
 ) ([]string, error) {
-	for key, service := range params.knownBackends {
+	processedBackendRefs := make(map[string]struct{})
+	for _, backendRef := range params.backendRefs {
+		key := l7BackendRefKey(backendRef, params.routeNamespace)
+		if _, ok := processedBackendRefs[key]; ok {
+			continue
+		}
+		serviceName := backendObjectRefName(backendRef.BackendObjectReference, params.routeNamespace).String()
+		service, ok := params.knownBackends[serviceName]
+		if !ok {
+			return nil, fmt.Errorf("resolved backend service %s not found", serviceName)
+		}
 		err := ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
 			loadBalancerID: params.loadBalancerID,
 			service:        service,
+			routeNS:        params.routeNamespace,
+			backendRef:     backendRef,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to reconcile backend set for service %s: %w", key, err)
 		}
+		processedBackendRefs[key] = struct{}{}
 	}
 
 	policyRules := make([]loadbalancer.RoutingRule, 0, params.ruleCount)
@@ -977,6 +998,8 @@ func (m *httpRouteModelImpl) programRoute(
 	programmedPolicyRules, err := programL7RoutePolicy(ctx, m.ociLoadBalancerModel, programL7RoutePolicyParams{
 		loadBalancerID:      params.config.Spec.LoadBalancerID,
 		routeName:           params.httpRoute.Name,
+		routeNamespace:      params.httpRoute.Namespace,
+		backendRefs:         httpRouteBackendRefs(params.httpRoute),
 		knownBackends:       params.knownBackends,
 		matchedListeners:    params.matchedListeners,
 		previousPolicyRules: previousRules,
@@ -995,6 +1018,16 @@ func (m *httpRouteModelImpl) programRoute(
 	return programRouteResult{
 		programmedPolicyRules: programmedPolicyRules,
 	}, nil
+}
+
+func httpRouteBackendRefs(route gatewayv1.HTTPRoute) []gatewayv1.BackendRef {
+	backendRefs := make([]gatewayv1.BackendRef, 0)
+	for _, rule := range route.Spec.Rules {
+		for _, backendRef := range rule.BackendRefs {
+			backendRefs = append(backendRefs, backendRef.BackendRef)
+		}
+	}
+	return backendRefs
 }
 
 func (m *httpRouteModelImpl) deprovisionRoute(

@@ -390,9 +390,11 @@ func (m *grpcRouteModelImpl) programRoute(
 		previousRules = parseProgrammedHTTPRoutePolicyRules(prevPolicyRulesStr)
 	}
 
-	programmedPolicyRules, err := programL7RoutePolicy(ctx, m.ociLoadBalancerModel, programL7RoutePolicyParams{
+	routePolicyParams := programL7RoutePolicyParams{
 		loadBalancerID:      params.config.Spec.LoadBalancerID,
 		routeName:           params.grpcRoute.Name,
+		routeNamespace:      params.grpcRoute.Namespace,
+		backendRefs:         grpcRouteBackendRefs(params.grpcRoute),
 		knownBackends:       params.knownBackends,
 		matchedListeners:    params.matchedListeners,
 		previousPolicyRules: previousRules,
@@ -403,7 +405,9 @@ func (m *grpcRouteModelImpl) programRoute(
 				grpcRouteRuleIndex: ruleIndex,
 			})
 		},
-	})
+	}
+
+	programmedPolicyRules, err := programL7RoutePolicy(ctx, m.ociLoadBalancerModel, routePolicyParams)
 	if err != nil {
 		return programGRPCRouteResult{}, err
 	}
@@ -411,6 +415,16 @@ func (m *grpcRouteModelImpl) programRoute(
 	return programGRPCRouteResult{
 		programmedPolicyRules: programmedPolicyRules,
 	}, nil
+}
+
+func grpcRouteBackendRefs(route gatewayv1.GRPCRoute) []gatewayv1.BackendRef {
+	backendRefs := make([]gatewayv1.BackendRef, 0)
+	for _, rule := range route.Spec.Rules {
+		for _, backendRef := range rule.BackendRefs {
+			backendRefs = append(backendRefs, backendRef.BackendRef)
+		}
+	}
+	return backendRefs
 }
 
 func (m *grpcRouteModelImpl) deprovisionRoute(

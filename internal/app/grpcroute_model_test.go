@@ -837,6 +837,8 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		ociLBModel.EXPECT().reconcileBackendSet(t.Context(), reconcileBackendSetParams{
 			loadBalancerID: config.Spec.LoadBalancerID,
 			service:        service,
+			routeNS:        route.Namespace,
+			backendRef:     backendRef.BackendRef,
 		}).Return(nil).Once()
 		ociLBModel.EXPECT().makeGRPCRoutingRule(t.Context(), makeGRPCRoutingRuleParams{
 			grpcRoute:          route,

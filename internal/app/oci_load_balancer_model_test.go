@@ -1771,18 +1771,37 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 	})
 
 	t.Run("reconcileBackendSet", func(t *testing.T) {
+		makeParams := func(service corev1.Service, loadBalancerID string) reconcileBackendSetParams {
+			namespace := gatewayv1.Namespace(service.Namespace)
+			return reconcileBackendSetParams{
+				loadBalancerID: loadBalancerID,
+				service:        service,
+				routeNS:        service.Namespace,
+				backendRef: gatewayv1.BackendRef{
+					BackendObjectReference: gatewayv1.BackendObjectReference{
+						Name:      gatewayv1.ObjectName(service.Name),
+						Namespace: &namespace,
+						Port:      &service.Spec.Ports[0].Port,
+					},
+				},
+			}
+		}
+		backendSetNameFromParams := func(params reconcileBackendSetParams) string {
+			return ociBackendSetNameFromBackendObjectRef(
+				params.routeNS,
+				params.backendRef.BackendObjectReference,
+			)
+		}
+
 		t.Run("create new backend set", func(t *testing.T) {
 			fake := faker.New()
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 			service := makeRandomService()
 
-			params := reconcileBackendSetParams{
-				loadBalancerID: fake.UUID().V4(),
-				service:        service,
-			}
+			params := makeParams(service, fake.UUID().V4())
 
-			wantBsName := ociBackendSetNameFromService(service)
+			wantBsName := backendSetNameFromParams(params)
 
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 
@@ -1803,7 +1822,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					Name: &wantBsName,
 					HealthChecker: &loadbalancer.HealthCheckerDetails{
 						Protocol: new("TCP"),
-						Port:     new(service.Spec.Ports[0].TargetPort.IntValue()),
+						Port:     new(int(lo.FromPtr(params.backendRef.Port))),
 					},
 					Policy: new("ROUND_ROBIN"),
 				},
@@ -1826,12 +1845,10 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				},
 			)
 
-			params := reconcileBackendSetParams{
-				loadBalancerID: fake.UUID().V4(),
-				service:        service,
-			}
+			params := makeParams(service, fake.UUID().V4())
+			params.backendRef.Port = nil
 
-			wantBsName := ociBackendSetNameFromService(service)
+			wantBsName := backendSetNameFromParams(params)
 
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 
@@ -1872,20 +1889,16 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			model := newOciLoadBalancerModel(deps)
 
 			service := makeRandomService()
-			wantBsName := ociBackendSetNameFromService(service)
+			params := makeParams(service, fake.UUID().V4())
+			wantBsName := backendSetNameFromParams(params)
 			exitingBs := makeRandomOCIBackendSet(func(bs *loadbalancer.BackendSet) {
 				bs.Name = new(wantBsName)
 				bs.Policy = new("ROUND_ROBIN")
 				bs.HealthChecker = &loadbalancer.HealthChecker{
 					Protocol: new("TCP"),
-					Port:     new(service.Spec.Ports[0].TargetPort.IntValue()),
+					Port:     new(int(lo.FromPtr(params.backendRef.Port))),
 				}
 			})
-
-			params := reconcileBackendSetParams{
-				loadBalancerID: fake.UUID().V4(),
-				service:        service,
-			}
 
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 
@@ -1906,13 +1919,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			model := newOciLoadBalancerModel(deps)
 
 			service := makeRandomService()
-			wantBsName := ociBackendSetNameFromService(service)
+			params := makeParams(service, fake.UUID().V4())
+			wantBsName := backendSetNameFromParams(params)
 			existingBs := makeRandomOCIBackendSet(randomOCIBackendSetWithNameOpt(wantBsName))
-
-			params := reconcileBackendSetParams{
-				loadBalancerID: fake.UUID().V4(),
-				service:        service,
-			}
 
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
@@ -1932,7 +1941,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 						assert.Equal(t, wantBsName, *req.BackendSetName) &&
 						assert.Equal(t, "ROUND_ROBIN", *req.Policy) &&
 						assert.Equal(t, "TCP", *req.HealthChecker.Protocol) &&
-						assert.Equal(t, service.Spec.Ports[0].TargetPort.IntValue(), *req.HealthChecker.Port)
+						assert.Equal(t, int(lo.FromPtr(params.backendRef.Port)), *req.HealthChecker.Port)
 				}),
 			).Return(loadbalancer.UpdateBackendSetResponse{
 				OpcWorkRequestId: &workRequestID,
@@ -1948,12 +1957,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 			service := makeRandomService()
-			wantBsName := ociBackendSetNameFromService(service)
 			wantErr := errors.New(faker.New().Lorem().Sentence(10))
-			params := reconcileBackendSetParams{
-				loadBalancerID: faker.New().UUID().V4(),
-				service:        service,
-			}
+			params := makeParams(service, faker.New().UUID().V4())
+			wantBsName := backendSetNameFromParams(params)
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 
 			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
@@ -1970,12 +1976,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 			service := makeRandomService()
-			wantBsName := ociBackendSetNameFromService(service)
 			wantErr := ociapi.NewRandomServiceError(ociapi.RandomServiceErrorWithStatusCode(500))
-			params := reconcileBackendSetParams{
-				loadBalancerID: faker.New().UUID().V4(),
-				service:        service,
-			}
+			params := makeParams(service, faker.New().UUID().V4())
+			wantBsName := backendSetNameFromParams(params)
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 
 			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
@@ -1993,12 +1996,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 			service := makeRandomService()
-			wantBsName := ociBackendSetNameFromService(service)
 			wantErr := errors.New(faker.New().Lorem().Sentence(10))
-			params := reconcileBackendSetParams{
-				loadBalancerID: faker.New().UUID().V4(),
-				service:        service,
-			}
+			params := makeParams(service, faker.New().UUID().V4())
+			wantBsName := backendSetNameFromParams(params)
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 
 			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
@@ -2015,7 +2015,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					Name: &wantBsName,
 					HealthChecker: &loadbalancer.HealthCheckerDetails{
 						Protocol: new("TCP"),
-						Port:     new(service.Spec.Ports[0].TargetPort.IntValue()),
+						Port:     new(int(lo.FromPtr(params.backendRef.Port))),
 					},
 					Policy: new("ROUND_ROBIN"),
 				},
@@ -2030,11 +2030,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 			service := makeRandomService()
-			wantBsName := ociBackendSetNameFromService(service)
-			params := reconcileBackendSetParams{
-				loadBalancerID: faker.New().UUID().V4(),
-				service:        service,
-			}
+			params := makeParams(service, faker.New().UUID().V4())
+			wantBsName := backendSetNameFromParams(params)
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 
 			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
@@ -2051,7 +2048,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					Name: &wantBsName,
 					HealthChecker: &loadbalancer.HealthCheckerDetails{
 						Protocol: new("TCP"),
-						Port:     new(service.Spec.Ports[0].TargetPort.IntValue()),
+						Port:     new(int(lo.FromPtr(params.backendRef.Port))),
 					},
 					Policy: new("ROUND_ROBIN"),
 				},
@@ -2066,12 +2063,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 			service := makeRandomService()
-			wantBsName := ociBackendSetNameFromService(service)
 			wantErr := errors.New(faker.New().Lorem().Sentence(10))
-			params := reconcileBackendSetParams{
-				loadBalancerID: faker.New().UUID().V4(),
-				service:        service,
-			}
+			params := makeParams(service, faker.New().UUID().V4())
+			wantBsName := backendSetNameFromParams(params)
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
 			workRequestID := faker.New().UUID().V4()
@@ -2090,7 +2084,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					Name: &wantBsName,
 					HealthChecker: &loadbalancer.HealthCheckerDetails{
 						Protocol: new("TCP"),
-						Port:     new(service.Spec.Ports[0].TargetPort.IntValue()),
+						Port:     new(int(lo.FromPtr(params.backendRef.Port))),
 					},
 					Policy: new("ROUND_ROBIN"),
 				},
@@ -4509,7 +4503,7 @@ func Test_ociBackendSetNameFromBackendRef(t *testing.T) {
 					br.Namespace = new(gatewayv1.Namespace(refNamespace))
 				},
 			)
-			wantName := fmt.Sprintf("%s-%s", refNamespace, refName)
+			wantName := fmt.Sprintf("%s-%s-%d", refNamespace, refName, lo.FromPtr(backendRef.Port))
 			return testCase{
 				name:       "with namespace in backendRef",
 				httpRoute:  httpRoute,
@@ -4536,7 +4530,7 @@ func Test_ociBackendSetNameFromBackendRef(t *testing.T) {
 					br.Namespace = nil // No namespace in ref
 				},
 			)
-			wantName := fmt.Sprintf("%s-%s", routeNs, refName)
+			wantName := fmt.Sprintf("%s-%s-%d", routeNs, refName, lo.FromPtr(backendRef.Port))
 			return testCase{
 				name:       "without namespace in backendRef, uses route namespace",
 				httpRoute:  httpRoute,
@@ -4558,7 +4552,7 @@ func Test_ociBackendSetNameFromBackendRef(t *testing.T) {
 					br.Namespace = new(gatewayv1.Namespace(longRefNs))
 				},
 			)
-			originalName := fmt.Sprintf("%s-%s", longRefNs, longRefName)
+			originalName := fmt.Sprintf("%s-%s-%d", longRefNs, longRefName, lo.FromPtr(backendRef.Port))
 			assert.Greater(t, len(originalName), maxBackendSetNameLength)
 			return testCase{
 				name:       "long name truncated",

@@ -44,6 +44,8 @@ type reconcileDefaultBackendParams struct {
 type reconcileBackendSetParams struct {
 	loadBalancerID string
 	service        corev1.Service
+	routeNS        string
+	backendRef     gatewayv1.BackendRef
 }
 
 type deprovisionBackendSetParams struct {
@@ -853,8 +855,11 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 	ctx context.Context,
 	params reconcileBackendSetParams,
 ) error {
-	backendSetName := ociBackendSetNameFromService(params.service)
-	healthCheckerPort := params.service.Spec.Ports[0].TargetPort.IntValue()
+	backendSetName := ociBackendSetNameFromBackendObjectRef(params.routeNS, params.backendRef.BackendObjectReference)
+	healthCheckerPort := int(lo.FromPtr(params.backendRef.BackendObjectReference.Port))
+	if healthCheckerPort == 0 && len(params.service.Spec.Ports) > 0 {
+		healthCheckerPort = params.service.Spec.Ports[0].TargetPort.IntValue()
+	}
 	if healthCheckerPort == 0 {
 		// Not the best option. Potentially have to be refactored to use
 		// port from the backend ref. Some research is needed.
@@ -1492,7 +1497,10 @@ func ociBackendSetNameFromBackendObjectRef(
 		refNamespace = defaultNamespace
 	}
 
-	originalName := refNamespace + "-" + refName
+	originalName := fmt.Sprintf("%s-%s", refNamespace, refName)
+	if backendRef.Port != nil {
+		originalName = fmt.Sprintf("%s-%d", originalName, *backendRef.Port)
+	}
 
 	return ociapi.ConstructOCIResourceName(originalName, ociapi.OCIResourceNameConfig{
 		MaxLength: maxBackendSetNameLength,

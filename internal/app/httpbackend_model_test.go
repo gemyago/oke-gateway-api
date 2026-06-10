@@ -90,6 +90,11 @@ func TestHTTPBackendModel(t *testing.T) {
 			routeNs := fake.Internet().Domain() + "-route-ns"
 			sameRefName := fake.Internet().Domain() + "-same-name"
 			sameNameDefaultNs := fake.Internet().Domain() + "-same-name-default-ns"
+			sameServiceDifferentPortName := fake.Internet().Domain() + "-same-service-different-port"
+			sameServiceDifferentPortNamespace := fake.Internet().Domain() + "-same-service-different-port-ns"
+			firstPort := gatewayv1.PortNumber(8080)
+			firstPort += rand.Int32N(1000)
+			secondPort := firstPort + 1
 
 			uniqueRefs := []gatewayv1.HTTPBackendRef{
 				// fully unique
@@ -104,6 +109,20 @@ func TestHTTPBackendModel(t *testing.T) {
 					randomBackendRefWithNameOpt(sameRefName),
 				),
 			}
+			sameServiceFirstPortRef := makeRandomBackendRef(
+				randomBackendRefWithNameOpt(sameServiceDifferentPortName),
+				randomBackendRefWithNamespaceOpt(sameServiceDifferentPortNamespace),
+				func(ref *gatewayv1.HTTPBackendRef) {
+					ref.Port = &firstPort
+				},
+			)
+			sameServiceSecondPortRef := makeRandomBackendRef(
+				randomBackendRefWithNameOpt(sameServiceDifferentPortName),
+				randomBackendRefWithNamespaceOpt(sameServiceDifferentPortNamespace),
+				func(ref *gatewayv1.HTTPBackendRef) {
+					ref.Port = &secondPort
+				},
+			)
 
 			sameRefDefaultNsRef := makeRandomBackendRef(
 				randomBackendRefWithNameOpt(sameNameDefaultNs),
@@ -111,13 +130,18 @@ func TestHTTPBackendModel(t *testing.T) {
 			)
 			rule1Refs := append([]gatewayv1.HTTPBackendRef{
 				sameRefDefaultNsRef,
+				sameServiceFirstPortRef,
 			}, uniqueRefs...)
 
 			rule2Refs := append([]gatewayv1.HTTPBackendRef{
 				makeRandomBackendRef(
 					randomBackendRefWithNameOpt(sameNameDefaultNs),
 					randomBackendRefWithNamespaceOpt(routeNs),
+					func(ref *gatewayv1.HTTPBackendRef) {
+						ref.Port = sameRefDefaultNsRef.Port
+					},
 				),
+				sameServiceSecondPortRef,
 			}, uniqueRefs...)
 
 			rules := []gatewayv1.HTTPRouteRule{
@@ -138,6 +162,8 @@ func TestHTTPBackendModel(t *testing.T) {
 
 			wantDistinctRefs := append([]gatewayv1.HTTPBackendRef{
 				sameRefDefaultNsRef,
+				sameServiceFirstPortRef,
+				sameServiceSecondPortRef,
 			}, uniqueRefs...)
 
 			for _, ref := range wantDistinctRefs {

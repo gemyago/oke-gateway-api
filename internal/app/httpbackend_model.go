@@ -143,12 +143,7 @@ func (m *httpBackendModelImpl) syncL7RouteEndpoints(
 
 	processedBackendRefs := make(map[string]bool)
 	for index, backendRef := range params.backendRefs {
-		refNamespace := lo.Ternary(
-			backendRef.Namespace != nil,
-			string(lo.FromPtr(backendRef.Namespace)),
-			params.routeNS,
-		)
-		refKey := refNamespace + "/" + string(backendRef.Name)
+		refKey := l7BackendRefKey(backendRef, params.routeNS)
 		if _, ok := processedBackendRefs[refKey]; ok {
 			continue
 		}
@@ -246,7 +241,10 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 		string(lo.FromPtr(backendRef.Namespace)),
 		params.routeNS,
 	)
-	backendSetName := ociBackendSetNameFromBackendObjectRef(params.routeNS, backendRef.BackendObjectReference)
+	backendSetName := ociBackendSetNameFromBackendObjectRef(
+		params.routeNS,
+		backendRef.BackendObjectReference,
+	)
 
 	getResp, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
 		LoadBalancerId: &params.config.Spec.LoadBalancerID,
