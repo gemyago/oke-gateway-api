@@ -82,11 +82,12 @@ Build the controller binary first:
 make -B dist/bin
 ```
 
-Then run the tests (from e2e directory):
+Then run individual tests (from e2e directory):
 ```sh
-go test -v . --run TestHTTP/Startup
-go test -v . --run TestHTTP/RouteLifecycle
+go test -count=1 -v . --run TestHTTP/Startup
+go test -count=1 -v . --run TestHTTP/RouteLifecycle
 ```
+(-count=1 avoids caching and -v shows more detailed output that helps to see if things are moving)
 
 When iterating on a single test, if anything fails, you may consider cleanup: `make -C e2e infra-cleanup` and try again.
 
@@ -96,16 +97,19 @@ When iterating on a single test, if anything fails, you may consider cleanup: `m
 
 Apply this when any Go, YAML, config, or other code-related files changed.
 
-Always do all of the following before reporting completion:
-1. Run `direnv exec . make lint` and confirm no errors.
-2. Run `direnv exec . make compile` and confirm everything builds.
-3. Run `direnv exec . make test` and confirm all tests pass.
+Always do all of the following before reporting completion (from e2e directory):
+1. Run `make lint` and confirm no errors.
+2. Run `make compile` and confirm everything builds.
+3. Run `make test` and confirm all tests pass.
 4. Update this file if commands, workflows, or architecture changed.
 
 Report completion status:
 - Lint/Compile: ✓ no errors
 - Tests: ✓ all passing, coverage XX.XX%
 - AGENTS.md: ✓ updated / no changes needed
+
+If implementing a new e2e test, always verify that new test individually and report the result:
+- New test executed: ✓
 
 ### Non-Coding Task Completion Protocol
 

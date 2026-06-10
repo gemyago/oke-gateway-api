@@ -23,7 +23,7 @@ preflight:
 run-e2e-tests:
 	@$(MAKE) -C .. dist/bin
 	@$(MAKE) preflight
-	@$(E2E_ENV) go test -count=1 .
+	@$(E2E_ENV) go test -v -count=1 .
 
 compile:
 	@$(E2E_ENV) go test -run '^$$' ./...

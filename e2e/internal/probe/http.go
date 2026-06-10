@@ -25,9 +25,16 @@ type ClientOptions struct {
 	RequestTimeout time.Duration
 }
 
+type RequestOptions struct {
+	Host    string
+	Headers http.Header
+}
+
 type WaitOptions struct {
 	PollInterval time.Duration
 }
+
+type ResponseMatcher func(*Response) (bool, string)
 
 type Client struct {
 	baseURL    *url.URL
@@ -93,6 +100,10 @@ func (c *Client) Host() string {
 }
 
 func (c *Client) Probe(ctx context.Context, path string) (*Response, error) {
+	return c.ProbeRequest(ctx, path, nil)
+}
+
+func (c *Client) ProbeRequest(ctx context.Context, path string, opts *RequestOptions) (*Response, error) {
 	target, err := c.url(path)
 	if err != nil {
 		return nil, err
@@ -101,6 +112,18 @@ func (c *Client) Probe(ctx context.Context, path string) (*Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build probe request for %q: %w", target, err)
+	}
+
+	if opts != nil {
+		if host := strings.TrimSpace(opts.Host); host != "" {
+			req.Host = host
+		}
+
+		for key, values := range opts.Headers {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -138,23 +161,34 @@ func (c *Client) Probe(ctx context.Context, path string) (*Response, error) {
 }
 
 func WaitForEcho(ctx context.Context, client *Client, path string, opts *WaitOptions) (*Response, error) {
-	expectedHost := client.Host()
+	return WaitForEchoRequest(ctx, client, path, nil, opts)
+}
 
-	return waitFor(
+func WaitForEchoRequest(
+	ctx context.Context,
+	client *Client,
+	path string,
+	requestOpts *RequestOptions,
+	opts *WaitOptions,
+) (*Response, error) {
+	expectedHost := client.Host()
+	if requestOpts != nil && strings.TrimSpace(requestOpts.Host) != "" {
+		expectedHost = strings.TrimSpace(requestOpts.Host)
+	}
+
+	return WaitForResponse(
 		ctx,
+		client,
+		path,
+		requestOpts,
 		opts,
 		fmt.Sprintf("wait for HTTP echo response on %q", path),
-		func(ctx context.Context) (bool, *Response, string) {
-			response, probeErr := client.Probe(ctx, path)
-			if probeErr != nil {
-				return false, nil, probeErr.Error()
-			}
-
+		func(response *Response) (bool, string) {
 			if response.IsExpectedEcho(path, expectedHost) {
-				return true, response, ""
+				return true, ""
 			}
 
-			return false, response, response.describeExpectation(path, expectedHost)
+			return false, response.describeExpectation(path, expectedHost)
 		},
 	)
 }
@@ -165,23 +199,59 @@ func WaitForEchoGone(
 	path string,
 	opts *WaitOptions,
 ) (*Response, error) {
-	expectedHost := client.Host()
+	return WaitForEchoGoneRequest(ctx, client, path, nil, opts)
+}
 
+func WaitForEchoGoneRequest(
+	ctx context.Context,
+	client *Client,
+	path string,
+	requestOpts *RequestOptions,
+	opts *WaitOptions,
+) (*Response, error) {
+	expectedHost := client.Host()
+	if requestOpts != nil && strings.TrimSpace(requestOpts.Host) != "" {
+		expectedHost = strings.TrimSpace(requestOpts.Host)
+	}
+
+	return WaitForResponse(
+		ctx,
+		client,
+		path,
+		requestOpts,
+		opts,
+		fmt.Sprintf("wait for HTTP echo removal on %q", path),
+		func(response *Response) (bool, string) {
+			if !response.IsExpectedEcho(path, expectedHost) {
+				return true, ""
+			}
+
+			return false, "expected echo response is still being served"
+		},
+	)
+}
+
+func WaitForResponse(
+	ctx context.Context,
+	client *Client,
+	path string,
+	requestOpts *RequestOptions,
+	opts *WaitOptions,
+	description string,
+	matcher ResponseMatcher,
+) (*Response, error) {
 	return waitFor(
 		ctx,
 		opts,
-		fmt.Sprintf("wait for HTTP echo removal on %q", path),
+		description,
 		func(ctx context.Context) (bool, *Response, string) {
-			response, probeErr := client.Probe(ctx, path)
+			response, probeErr := client.ProbeRequest(ctx, path, requestOpts)
 			if probeErr != nil {
 				return false, nil, probeErr.Error()
 			}
 
-			if !response.IsExpectedEcho(path, expectedHost) {
-				return true, response, ""
-			}
-
-			return false, response, "expected echo response is still being served"
+			matched, message := matcher(response)
+			return matched, response, message
 		},
 	)
 }
@@ -195,6 +265,14 @@ func (r *Response) IsExpectedEcho(requestURL string, host string) bool {
 		r.Echo.RequestBody == "" &&
 		r.Echo.RequestURL == requestURL &&
 		r.Echo.Host == host
+}
+
+func (r *Response) BodyString() string {
+	if r == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(string(r.Body))
 }
 
 func (r *Response) describeExpectation(requestURL string, host string) string {

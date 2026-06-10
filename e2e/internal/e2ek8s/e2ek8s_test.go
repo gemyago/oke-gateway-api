@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jaswdr/faker/v2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
@@ -189,6 +190,70 @@ func TestNewGatewayConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, found)
 	assert.Equal(t, "ocid1.loadbalancer.oc1..example", loadBalancerID)
+}
+
+func TestNewStaticHTTPDeployment(t *testing.T) {
+	t.Parallel()
+
+	fake := faker.New()
+	namespace := "oke-gw-e2e-" + fake.UUID().V4()
+	name := "backend-a-" + fake.UUID().V4()
+	responseText := "backend-a-response-" + fake.UUID().V4()
+
+	deployment := NewStaticHTTPDeployment(StaticHTTPDeploymentOptions{
+		Namespace:    namespace,
+		Name:         name,
+		ResponseText: responseText,
+	})
+
+	require.NotNil(t, deployment.Spec.Replicas)
+	assert.Equal(t, int32(1), *deployment.Spec.Replicas)
+	assert.Equal(t, DefaultStaticHTTPImage, deployment.Spec.Template.Spec.Containers[0].Image)
+	assert.Equal(t, []string{"sh", "-ceu"}, deployment.Spec.Template.Spec.Containers[0].Command)
+	assert.Equal(t, namespace, deployment.Namespace)
+	assert.Equal(t, name, deployment.Name)
+	assert.Equal(
+		t,
+		responseText,
+		deployment.Spec.Template.Spec.Containers[0].Env[0].Value,
+	)
+	assert.Equal(
+		t,
+		int32(8080),
+		deployment.Spec.Template.Spec.Containers[0].Ports[0].ContainerPort,
+	)
+}
+
+func TestNewHTTPRoute(t *testing.T) {
+	t.Parallel()
+
+	fake := faker.New()
+	namespace := "oke-gw-e2e-" + fake.UUID().V4()
+	routeName := "echo-route-" + fake.UUID().V4()
+	gatewayName := "gateway-" + fake.UUID().V4()
+	serviceName := "backend-a-" + fake.UUID().V4()
+	hostname := gatewayv1.Hostname("route-a-" + fake.UUID().V4() + ".example.test")
+	pathPrefix := "/echo-" + fake.UUID().V4()
+
+	route := NewHTTPRoute(HTTPRouteOptions{
+		Namespace:    namespace,
+		Name:         routeName,
+		GatewayName:  gatewayName,
+		ServiceName:  serviceName,
+		ServicePort:  8080,
+		PathPrefix:   pathPrefix,
+		Hostnames:    []gatewayv1.Hostname{hostname},
+		ListenerName: DefaultHTTPListenerName,
+	})
+
+	require.Len(t, route.Spec.Hostnames, 1)
+	assert.Equal(t, namespace, route.Namespace)
+	assert.Equal(t, routeName, route.Name)
+	assert.Equal(t, hostname, route.Spec.Hostnames[0])
+	require.Len(t, route.Spec.Rules, 1)
+	require.Len(t, route.Spec.Rules[0].Matches, 1)
+	require.NotNil(t, route.Spec.Rules[0].Matches[0].Path)
+	assert.Equal(t, pathPrefix, *route.Spec.Rules[0].Matches[0].Path.Value)
 }
 
 func TestWaiters(t *testing.T) {

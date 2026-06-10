@@ -1,6 +1,7 @@
 package e2ek8s
 
 import (
+	"fmt"
 	"maps"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -22,6 +23,7 @@ const (
 	DefaultEchoImage                                         = "ghcr.io/gemyago/oke-gateway-api-server:main"
 	DefaultEchoPort                                          = int32(8080)
 	DefaultEchoReplicas                                      = int32(1)
+	DefaultStaticHTTPImage                                   = "busybox:1.36.1"
 )
 
 type GatewayClassOptions struct {
@@ -60,6 +62,17 @@ type EchoDeploymentOptions struct {
 	Annotations map[string]string
 }
 
+type StaticHTTPDeploymentOptions struct {
+	Namespace    string
+	Name         string
+	Image        string
+	Replicas     int32
+	Port         int32
+	ResponseText string
+	Labels       map[string]string
+	Annotations  map[string]string
+}
+
 type EchoServiceOptions struct {
 	Namespace   string
 	Name        string
@@ -75,6 +88,7 @@ type HTTPRouteOptions struct {
 	ListenerName gatewayv1.SectionName
 	ServiceName  string
 	ServicePort  int32
+	Hostnames    []gatewayv1.Hostname
 	PathPrefix   string
 	Labels       map[string]string
 	Annotations  map[string]string
@@ -229,6 +243,77 @@ func NewEchoDeployment(opts EchoDeploymentOptions) *appsv1.Deployment {
 	}
 }
 
+func NewStaticHTTPDeployment(opts StaticHTTPDeploymentOptions) *appsv1.Deployment {
+	image := opts.Image
+	if image == "" {
+		image = DefaultStaticHTTPImage
+	}
+
+	replicas := opts.Replicas
+	if replicas == 0 {
+		replicas = DefaultEchoReplicas
+	}
+
+	port := opts.Port
+	if port == 0 {
+		port = DefaultEchoPort
+	}
+
+	selector := map[string]string{"app": opts.Name}
+	podLabels := fixtureLabels(opts.Name, "backend", opts.Labels)
+	podLabels["app"] = opts.Name
+
+	return &appsv1.Deployment{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: appsv1.SchemeGroupVersion.String(),
+			Kind:       "Deployment",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        opts.Name,
+			Namespace:   opts.Namespace,
+			Labels:      cloneStringMap(podLabels),
+			Annotations: cloneStringMap(opts.Annotations),
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{MatchLabels: selector},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels:      cloneStringMap(podLabels),
+					Annotations: cloneStringMap(opts.Annotations),
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:    "http",
+							Image:   image,
+							Command: []string{"sh", "-ceu"},
+							Args: []string{
+								fmt.Sprintf(
+									"mkdir -p /www && printf '%%s' \"$RESPONSE_TEXT\" > /www/index.html && exec busybox httpd -f -p %d -h /www",
+									port,
+								),
+							},
+							Env: []corev1.EnvVar{
+								{
+									Name:  "RESPONSE_TEXT",
+									Value: opts.ResponseText,
+								},
+							},
+							Ports: []corev1.ContainerPort{
+								{
+									Name:          "http",
+									ContainerPort: port,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
 func NewEchoService(opts EchoServiceOptions) *corev1.Service {
 	port := opts.Port
 	if port == 0 {
@@ -301,6 +386,7 @@ func NewHTTPRoute(opts HTTPRouteOptions) *gatewayv1.HTTPRoute {
 					},
 				},
 			},
+			Hostnames: append([]gatewayv1.Hostname(nil), opts.Hostnames...),
 			Rules: []gatewayv1.HTTPRouteRule{
 				{
 					Matches: []gatewayv1.HTTPRouteMatch{
