@@ -118,6 +118,53 @@ func (_c *MockociLoadBalancerModel_deprovisionBackendSet_Call) RunAndReturn(run 
 	return _c
 }
 
+// ensureHTTP2ListenerProtocol provides a mock function with given fields: ctx, params
+func (_m *MockociLoadBalancerModel) ensureHTTP2ListenerProtocol(ctx context.Context, params ensureHTTP2ListenerProtocolParams) error {
+	ret := _m.Called(ctx, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ensureHTTP2ListenerProtocol")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, ensureHTTP2ListenerProtocolParams) error); ok {
+		r0 = rf(ctx, params)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockociLoadBalancerModel_ensureHTTP2ListenerProtocol_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ensureHTTP2ListenerProtocol'
+type MockociLoadBalancerModel_ensureHTTP2ListenerProtocol_Call struct {
+	*mock.Call
+}
+
+// ensureHTTP2ListenerProtocol is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params ensureHTTP2ListenerProtocolParams
+func (_e *MockociLoadBalancerModel_Expecter) ensureHTTP2ListenerProtocol(ctx interface{}, params interface{}) *MockociLoadBalancerModel_ensureHTTP2ListenerProtocol_Call {
+	return &MockociLoadBalancerModel_ensureHTTP2ListenerProtocol_Call{Call: _e.mock.On("ensureHTTP2ListenerProtocol", ctx, params)}
+}
+
+func (_c *MockociLoadBalancerModel_ensureHTTP2ListenerProtocol_Call) Run(run func(ctx context.Context, params ensureHTTP2ListenerProtocolParams)) *MockociLoadBalancerModel_ensureHTTP2ListenerProtocol_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(ensureHTTP2ListenerProtocolParams))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_ensureHTTP2ListenerProtocol_Call) Return(_a0 error) *MockociLoadBalancerModel_ensureHTTP2ListenerProtocol_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_ensureHTTP2ListenerProtocol_Call) RunAndReturn(run func(context.Context, ensureHTTP2ListenerProtocolParams) error) *MockociLoadBalancerModel_ensureHTTP2ListenerProtocol_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // makeRoutingRule provides a mock function with given fields: ctx, params
 func (_m *MockociLoadBalancerModel) makeRoutingRule(ctx context.Context, params makeRoutingRuleParams) (loadbalancer.RoutingRule, error) {
 	ret := _m.Called(ctx, params)

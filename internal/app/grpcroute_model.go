@@ -390,6 +390,19 @@ func (m *grpcRouteModelImpl) programRoute(
 		previousRules = parseProgrammedHTTPRoutePolicyRules(prevPolicyRulesStr)
 	}
 
+	for _, listener := range params.matchedListeners {
+		if err := m.ociLoadBalancerModel.ensureHTTP2ListenerProtocol(ctx, ensureHTTP2ListenerProtocolParams{
+			loadBalancerID: params.config.Spec.LoadBalancerID,
+			listenerName:   string(listener.Name),
+		}); err != nil {
+			return programGRPCRouteResult{}, fmt.Errorf(
+				"failed to ensure listener %s supports HTTP2: %w",
+				listener.Name,
+				err,
+			)
+		}
+	}
+
 	routePolicyParams := programL7RoutePolicyParams{
 		loadBalancerID:      params.config.Spec.LoadBalancerID,
 		routeName:           params.grpcRoute.Name,

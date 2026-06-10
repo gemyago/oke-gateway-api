@@ -35,6 +35,8 @@ const defaultCatchAllRuleName = "default_catch_all"
 const maxBackendSetNameLength = 32
 const maxListenerPolicyNameLength = 32
 const listenerPolicyNameHashLength = 16
+const ociListenerProtocolHTTP = "HTTP"
+const ociListenerProtocolHTTP2 = "HTTP2"
 
 type reconcileDefaultBackendParams struct {
 	loadBalancerID   string
@@ -143,6 +145,11 @@ type ociLoadBalancerModel interface {
 		params reconcileHTTPListenerParams,
 	) error
 
+	ensureHTTP2ListenerProtocol(
+		ctx context.Context,
+		params ensureHTTP2ListenerProtocolParams,
+	) error
+
 	reconcileBackendSet(
 		ctx context.Context,
 		params reconcileBackendSetParams,
@@ -185,6 +192,11 @@ type ociLoadBalancerModelImpl struct {
 	workRequestsWatcher workRequestsWatcher
 	routingRulesMapper  ociLoadBalancerRoutingRulesMapper
 	routingPolicyLocks  sync.Map
+}
+
+type ensureHTTP2ListenerProtocolParams struct {
+	loadBalancerID string
+	listenerName   string
 }
 
 func loadBalancerHealthCheckerMatches(
@@ -835,7 +847,7 @@ func (m *ociLoadBalancerModelImpl) createHTTPListener(
 			Name:                  new(listenerName),
 			DefaultBackendSetName: new(params.defaultBackendSetName),
 			Port:                  new(int(params.listenerSpec.Port)),
-			Protocol:              new("HTTP"),
+			Protocol:              new(ociListenerProtocolHTTP),
 			RoutingPolicyName:     new(listenerPolicyName(listenerName)),
 			SslConfiguration:      sslConfig,
 		},
@@ -848,6 +860,58 @@ func (m *ociLoadBalancerModelImpl) createHTTPListener(
 	}
 	if err = m.workRequestsWatcher.WaitFor(ctx, *createRes.OpcWorkRequestId); err != nil {
 		return fmt.Errorf("failed to wait for listener %s: %w", listenerName, err)
+	}
+
+	return nil
+}
+
+func (m *ociLoadBalancerModelImpl) ensureHTTP2ListenerProtocol(
+	ctx context.Context,
+	params ensureHTTP2ListenerProtocolParams,
+) error {
+	getRes, err := m.ociClient.GetLoadBalancer(ctx, loadbalancer.GetLoadBalancerRequest{
+		LoadBalancerId: new(params.loadBalancerID),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get load balancer %s: %w", params.loadBalancerID, err)
+	}
+
+	listener, ok := getRes.LoadBalancer.Listeners[params.listenerName]
+	if !ok {
+		return fmt.Errorf("listener %s not found", params.listenerName)
+	}
+	if lo.FromPtr(listener.Protocol) == ociListenerProtocolHTTP2 {
+		return nil
+	}
+
+	updateDetails := loadbalancer.UpdateListenerDetails{
+		DefaultBackendSetName:   listener.DefaultBackendSetName,
+		Port:                    listener.Port,
+		Protocol:                new(ociListenerProtocolHTTP2),
+		HostnameNames:           listener.HostnameNames,
+		PathRouteSetName:        listener.PathRouteSetName,
+		RoutingPolicyName:       listener.RoutingPolicyName,
+		SslConfiguration:        sslConfigurationDetailsFromBackendSet(listener.SslConfiguration),
+		ConnectionConfiguration: listener.ConnectionConfiguration,
+		RuleSetNames:            listener.RuleSetNames,
+	}
+
+	updateRes, err := m.ociClient.UpdateListener(ctx, loadbalancer.UpdateListenerRequest{
+		LoadBalancerId:        new(params.loadBalancerID),
+		ListenerName:          new(params.listenerName),
+		UpdateListenerDetails: updateDetails,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update listener %s protocol to HTTP2: %w", params.listenerName, err)
+	}
+	if updateRes.OpcWorkRequestId == nil {
+		return fmt.Errorf(
+			"failed to update listener %s protocol to HTTP2: missing work request id",
+			params.listenerName,
+		)
+	}
+	if err = m.workRequestsWatcher.WaitFor(ctx, *updateRes.OpcWorkRequestId); err != nil {
+		return fmt.Errorf("failed to wait for listener %s protocol update: %w", params.listenerName, err)
 	}
 
 	return nil
@@ -1547,7 +1611,9 @@ type makeOciListenerUpdateDetailsParams struct {
 func makeOciListenerUpdateDetails(
 	params makeOciListenerUpdateDetailsParams,
 ) (loadbalancer.UpdateListenerDetails, bool) {
-	hasChanges := params.existingListenerData.Protocol == nil || *params.existingListenerData.Protocol != "HTTP"
+	expectedProtocol := expectedHTTPListenerProtocol(params.existingListenerData)
+	hasChanges := params.existingListenerData.Protocol == nil ||
+		*params.existingListenerData.Protocol != expectedProtocol
 
 	if params.existingListenerData.Port == nil || *params.existingListenerData.Port != int(params.listenerSpec.Port) {
 		hasChanges = true
@@ -1590,12 +1656,19 @@ func makeOciListenerUpdateDetails(
 	}
 
 	return loadbalancer.UpdateListenerDetails{
-		Protocol:              new("HTTP"),
+		Protocol:              new(expectedProtocol),
 		Port:                  new(int(params.listenerSpec.Port)),
 		DefaultBackendSetName: new(params.defaultBackendSetName),
 		RoutingPolicyName:     new(expectedPolicyName),
 		SslConfiguration:      params.sslConfig,
 	}, true
+}
+
+func expectedHTTPListenerProtocol(existingListener loadbalancer.Listener) string {
+	if lo.FromPtr(existingListener.Protocol) == ociListenerProtocolHTTP2 {
+		return ociListenerProtocolHTTP2
+	}
+	return ociListenerProtocolHTTP
 }
 
 func normalizeCertificateIDs(certificateIDs []string) []string {

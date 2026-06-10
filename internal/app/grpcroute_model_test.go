@@ -834,6 +834,10 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		ruleName := "grpc_rule_" + fake.Lorem().Word()
 		routingRule := loadbalancer.RoutingRule{Name: &ruleName}
 
+		ociLBModel.EXPECT().ensureHTTP2ListenerProtocol(t.Context(), ensureHTTP2ListenerProtocolParams{
+			loadBalancerID: config.Spec.LoadBalancerID,
+			listenerName:   string(listener.Name),
+		}).Return(nil).Once()
 		ociLBModel.EXPECT().reconcileBackendSet(t.Context(), reconcileBackendSetParams{
 			loadBalancerID: config.Spec.LoadBalancerID,
 			service:        service,
@@ -864,6 +868,30 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			[]string{fmt.Sprintf("%s/%s", listener.Name, lo.FromPtr(routingRule.Name))},
 			got.programmedPolicyRules,
 		)
+	})
+
+	t.Run("programRoute returns listener protocol update errors", func(t *testing.T) {
+		fake := faker.New()
+		deps := newMockDeps(t)
+		model := newGRPCRouteModel(deps)
+		ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+		route := makeGRPCRoute()
+		config := makeRandomGatewayConfig()
+		listener := gatewayv1.Listener{Name: gatewayv1.SectionName("grpc"), Port: 50051}
+		wantErr := errors.New(fake.Lorem().Sentence(10))
+
+		ociLBModel.EXPECT().ensureHTTP2ListenerProtocol(t.Context(), ensureHTTP2ListenerProtocolParams{
+			loadBalancerID: config.Spec.LoadBalancerID,
+			listenerName:   string(listener.Name),
+		}).Return(wantErr).Once()
+
+		_, err := model.programRoute(t.Context(), programGRPCRouteParams{
+			config:           config,
+			grpcRoute:        route,
+			matchedListeners: []gatewayv1.Listener{listener},
+		})
+
+		require.ErrorIs(t, err, wantErr)
 	})
 
 	t.Run("programRoute returns routing rule errors", func(t *testing.T) {
