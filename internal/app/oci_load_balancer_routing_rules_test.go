@@ -684,6 +684,18 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 	})
 
 	t.Run("mapGRPCRouteHostnamesAndMatchesToCondition", func(t *testing.T) {
+		grpcBranches := func(prefix []string, suffix ...string) string {
+			branches := make([]string, 0, len(grpcContentTypeConditions()))
+			for _, contentTypeCondition := range grpcContentTypeConditions() {
+				conditions := make([]string, 0, len(prefix)+1+len(suffix))
+				conditions = append(conditions, prefix...)
+				conditions = append(conditions, contentTypeCondition)
+				conditions = append(conditions, suffix...)
+				branches = append(branches, allRoutingConditions(conditions...))
+			}
+			return strings.Join(branches, ", ")
+		}
+
 		t.Run("maps service and method to exact grpc path", func(t *testing.T) {
 			fake := faker.New()
 			service := fmt.Sprintf("%s.%s", fake.Lorem().Word(), fake.Lorem().Word())
@@ -706,10 +718,8 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			assert.Equal(
 				t,
 				fmt.Sprintf(
-					"any(all(%s, http.request.url.path eq '/%s/%s'))",
-					grpcContentTypeCondition(),
-					service,
-					method,
+					"any(%s)",
+					grpcBranches(nil, fmt.Sprintf("http.request.url.path eq '/%s/%s'", service, method)),
 				),
 				actual,
 			)
@@ -734,7 +744,10 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(
 				t,
-				fmt.Sprintf("any(all(%s, http.request.url.path sw '/%s/'))", grpcContentTypeCondition(), service),
+				fmt.Sprintf(
+					"any(%s)",
+					grpcBranches(nil, fmt.Sprintf("http.request.url.path sw '/%s/'", service)),
+				),
 				actual,
 			)
 		})
@@ -758,7 +771,10 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(
 				t,
-				fmt.Sprintf("any(all(%s, http.request.url.path ew '/%s'))", grpcContentTypeCondition(), method),
+				fmt.Sprintf(
+					"any(%s)",
+					grpcBranches(nil, fmt.Sprintf("http.request.url.path ew '/%s'", method)),
+				),
 				actual,
 			)
 		})
@@ -791,15 +807,17 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			)
 
 			require.NoError(t, err)
-			want := fmt.Sprintf(
-				"any(all(http.request.headers[(i 'host')] eq (i '%s'), "+
-					"%s, all(http.request.url.path eq '/%s/%s', http.request.headers[(i '%s')] eq (i '%s'))))",
-				hostname,
-				grpcContentTypeCondition(),
+			hostCondition := fmt.Sprintf("http.request.headers[(i 'host')] eq (i '%s')", hostname)
+			matchCondition := fmt.Sprintf(
+				"all(http.request.url.path eq '/%s/%s', http.request.headers[(i '%s')] eq (i '%s'))",
 				service,
 				method,
 				headerName,
 				headerValue,
+			)
+			want := fmt.Sprintf(
+				"any(%s)",
+				grpcBranches([]string{hostCondition}, matchCondition),
 			)
 			assert.Equal(t, want, actual)
 		})
@@ -816,15 +834,14 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			)
 
 			require.NoError(t, err)
+			hostCondition1 := fmt.Sprintf("http.request.headers[(i 'host')] eq (i '%s')", host1)
+			hostCondition2 := fmt.Sprintf("http.request.headers[(i 'host')] eq (i '%s')", host2)
 			assert.Equal(
 				t,
 				fmt.Sprintf(
-					"any(all(http.request.headers[(i 'host')] eq (i '%s'), %s), "+
-						"all(http.request.headers[(i 'host')] eq (i '%s'), %s))",
-					host1,
-					grpcContentTypeCondition(),
-					host2,
-					grpcContentTypeCondition(),
+					"any(%s, %s)",
+					grpcBranches([]string{hostCondition1}),
+					grpcBranches([]string{hostCondition2}),
 				),
 				actual,
 			)

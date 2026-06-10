@@ -256,18 +256,22 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapGRPCRouteHostnamesAndMatchesT
 		return "", err
 	}
 
-	conditions := make([]string, 0, len(hostnames)*max(1, len(matchConditions)))
+	conditions := make([]string, 0, len(hostnames)*max(1, len(matchConditions))*len(grpcContentTypeConditions()))
 	for _, hostname := range hostnames {
 		hostCondition := fmt.Sprintf(`http.request.headers[(i 'host')] eq (i '%s')`, hostname)
 		if len(matchConditions) == 0 {
-			conditions = append(conditions, allRoutingConditions(hostCondition, grpcContentTypeCondition()))
+			for _, contentTypeCondition := range grpcContentTypeConditions() {
+				conditions = append(conditions, allRoutingConditions(hostCondition, contentTypeCondition))
+			}
 			continue
 		}
 		for _, matchCondition := range matchConditions {
-			conditions = append(
-				conditions,
-				allRoutingConditions(hostCondition, grpcContentTypeCondition(), matchCondition),
-			)
+			for _, contentTypeCondition := range grpcContentTypeConditions() {
+				conditions = append(
+					conditions,
+					allRoutingConditions(hostCondition, contentTypeCondition, matchCondition),
+				)
+			}
 		}
 	}
 
@@ -275,11 +279,15 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapGRPCRouteHostnamesAndMatchesT
 }
 
 func grpcContentTypeCondition() string {
-	return "any(" +
-		"http.request.headers[(i 'content-type')][0] eq (i 'application/grpc'), " +
-		"http.request.headers[(i 'content-type')][0] sw (i 'application/grpc+'), " +
-		"http.request.headers[(i 'content-type')][0] sw (i 'application/grpc;')" +
-		")"
+	return "any(" + strings.Join(grpcContentTypeConditions(), ", ") + ")"
+}
+
+func grpcContentTypeConditions() []string {
+	return []string{
+		"http.request.headers[(i 'content-type')][0] eq (i 'application/grpc')",
+		"http.request.headers[(i 'content-type')][0] sw (i 'application/grpc+')",
+		"http.request.headers[(i 'content-type')][0] sw (i 'application/grpc;')",
+	}
 }
 
 func allRoutingConditions(conditions ...string) string {
@@ -303,12 +311,14 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapGRPCRouteMatchesToCondition(
 		return grpcContentTypeCondition(), nil
 	}
 
-	return fmt.Sprintf(
-		"any(%s)",
-		strings.Join(lo.Map(conditions, func(condition string, _ int) string {
-			return allRoutingConditions(grpcContentTypeCondition(), condition)
-		}), ", "),
-	), nil
+	grpcConditions := make([]string, 0, len(conditions)*len(grpcContentTypeConditions()))
+	for _, condition := range conditions {
+		for _, contentTypeCondition := range grpcContentTypeConditions() {
+			grpcConditions = append(grpcConditions, allRoutingConditions(contentTypeCondition, condition))
+		}
+	}
+
+	return fmt.Sprintf("any(%s)", strings.Join(grpcConditions, ", ")), nil
 }
 
 func (r *ociLoadBalancerRoutingRulesMapperImpl) mapGRPCRouteMatchesToConditions(
