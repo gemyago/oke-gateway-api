@@ -63,6 +63,14 @@ func (r *GRPCRouteController) reconcileResolvedRoute(
 		return false, nil
 	}
 
+	err = r.grpcRouteModel.ensureGRPCListenersProtocol(ctx, ensureGRPCListenersProtocolParams{
+		config:           resolvedData.gatewayDetails.config,
+		matchedListeners: resolvedData.matchedListeners,
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to ensure GRPCRoute listener protocol: %w", err)
+	}
+
 	programmingRequired := r.grpcRouteModel.isProgrammingRequired(resolvedData)
 	if !programmingRequired {
 		return true, nil

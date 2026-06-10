@@ -44,6 +44,11 @@ type programGRPCRouteResult struct {
 	programmedPolicyRules []string
 }
 
+type ensureGRPCListenersProtocolParams struct {
+	config           types.GatewayConfig
+	matchedListeners []gatewayv1.Listener
+}
+
 type deprovisionGRPCRouteParams struct {
 	config           types.GatewayConfig
 	grpcRoute        gatewayv1.GRPCRoute
@@ -76,6 +81,11 @@ type grpcRouteModel interface {
 	) (map[string]corev1.Service, error)
 
 	isProgrammingRequired(details resolvedGRPCRouteDetails) bool
+
+	ensureGRPCListenersProtocol(
+		ctx context.Context,
+		params ensureGRPCListenersProtocolParams,
+	) error
 
 	programRoute(
 		ctx context.Context,
@@ -390,19 +400,6 @@ func (m *grpcRouteModelImpl) programRoute(
 		previousRules = parseProgrammedHTTPRoutePolicyRules(prevPolicyRulesStr)
 	}
 
-	for _, listener := range params.matchedListeners {
-		if err := m.ociLoadBalancerModel.ensureHTTP2ListenerProtocol(ctx, ensureHTTP2ListenerProtocolParams{
-			loadBalancerID: params.config.Spec.LoadBalancerID,
-			listenerName:   string(listener.Name),
-		}); err != nil {
-			return programGRPCRouteResult{}, fmt.Errorf(
-				"failed to ensure listener %s supports HTTP2: %w",
-				listener.Name,
-				err,
-			)
-		}
-	}
-
 	routePolicyParams := programL7RoutePolicyParams{
 		loadBalancerID:      params.config.Spec.LoadBalancerID,
 		routeName:           params.grpcRoute.Name,
@@ -428,6 +425,26 @@ func (m *grpcRouteModelImpl) programRoute(
 	return programGRPCRouteResult{
 		programmedPolicyRules: programmedPolicyRules,
 	}, nil
+}
+
+func (m *grpcRouteModelImpl) ensureGRPCListenersProtocol(
+	ctx context.Context,
+	params ensureGRPCListenersProtocolParams,
+) error {
+	for _, listener := range params.matchedListeners {
+		if err := m.ociLoadBalancerModel.ensureHTTP2ListenerProtocol(ctx, ensureHTTP2ListenerProtocolParams{
+			loadBalancerID: params.config.Spec.LoadBalancerID,
+			listenerName:   string(listener.Name),
+		}); err != nil {
+			return fmt.Errorf(
+				"failed to ensure listener %s supports HTTP2: %w",
+				listener.Name,
+				err,
+			)
+		}
+	}
+
+	return nil
 }
 
 func grpcRouteBackendRefs(route gatewayv1.GRPCRoute) []gatewayv1.BackendRef {

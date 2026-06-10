@@ -24,6 +24,7 @@ type fakeGRPCRouteModel struct {
 	acceptRouteFunc         func(context.Context, resolvedGRPCRouteDetails) (*gatewayv1.GRPCRoute, error)
 	resolveBackendRefsFunc  func(context.Context, resolveGRPCBackendRefsParams) (map[string]corev1.Service, error)
 	isProgrammingRequiredFn func(resolvedGRPCRouteDetails) bool
+	ensureProtocolFunc      func(context.Context, ensureGRPCListenersProtocolParams) error
 	programRouteFunc        func(context.Context, programGRPCRouteParams) (programGRPCRouteResult, error)
 	deprovisionRouteFunc    func(context.Context, deprovisionGRPCRouteParams) error
 	setProgrammedFunc       func(context.Context, setGRPCRouteProgrammedParams) error
@@ -55,6 +56,16 @@ func (m fakeGRPCRouteModel) resolveBackendRefs(
 
 func (m fakeGRPCRouteModel) isProgrammingRequired(details resolvedGRPCRouteDetails) bool {
 	return m.isProgrammingRequiredFn(details)
+}
+
+func (m fakeGRPCRouteModel) ensureGRPCListenersProtocol(
+	ctx context.Context,
+	params ensureGRPCListenersProtocolParams,
+) error {
+	if m.ensureProtocolFunc == nil {
+		return nil
+	}
+	return m.ensureProtocolFunc(ctx, params)
 }
 
 func (m fakeGRPCRouteModel) programRoute(
@@ -180,6 +191,11 @@ func TestGRPCRouteController(t *testing.T) {
 				return resolvedMap(route, resolved), nil
 			},
 			isProgrammingRequiredFn: func(resolvedGRPCRouteDetails) bool { return false },
+			ensureProtocolFunc: func(_ context.Context, params ensureGRPCListenersProtocolParams) error {
+				assert.Equal(t, resolved.gatewayDetails.config.Spec.LoadBalancerID, params.config.Spec.LoadBalancerID)
+				assert.Equal(t, resolved.matchedListeners, params.matchedListeners)
+				return nil
+			},
 		}
 		backendModel.EXPECT().syncGRPCRouteEndpoints(t.Context(), syncGRPCRouteEndpointsParams{
 			grpcRoute: route,
@@ -189,6 +205,30 @@ func TestGRPCRouteController(t *testing.T) {
 		_, err := newController(routeModel, backendModel).Reconcile(t.Context(), reconcile.Request{})
 
 		require.NoError(t, err)
+	})
+
+	t.Run("returns listener protocol errors", func(t *testing.T) {
+		route := makeRoute()
+		resolved := makeResolved(route)
+		wantErr := errors.New(faker.New().Lorem().Sentence(10))
+		routeModel := fakeGRPCRouteModel{
+			resolveRequestFunc: func(
+				_ context.Context,
+				_ reconcile.Request,
+			) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+				return resolvedMap(route, resolved), nil
+			},
+			acceptRouteFunc: func(_ context.Context, details resolvedGRPCRouteDetails) (*gatewayv1.GRPCRoute, error) {
+				return &details.grpcRoute, nil
+			},
+			ensureProtocolFunc: func(context.Context, ensureGRPCListenersProtocolParams) error {
+				return wantErr
+			},
+		}
+
+		_, err := newController(routeModel, NewMockhttpBackendModel(t)).Reconcile(t.Context(), reconcile.Request{})
+
+		require.ErrorIs(t, err, wantErr)
 	})
 
 	t.Run("returns programming errors", func(t *testing.T) {

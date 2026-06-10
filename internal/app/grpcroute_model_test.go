@@ -834,10 +834,6 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		ruleName := "grpc_rule_" + fake.Lorem().Word()
 		routingRule := loadbalancer.RoutingRule{Name: &ruleName}
 
-		ociLBModel.EXPECT().ensureHTTP2ListenerProtocol(t.Context(), ensureHTTP2ListenerProtocolParams{
-			loadBalancerID: config.Spec.LoadBalancerID,
-			listenerName:   string(listener.Name),
-		}).Return(nil).Once()
 		ociLBModel.EXPECT().reconcileBackendSet(t.Context(), reconcileBackendSetParams{
 			loadBalancerID: config.Spec.LoadBalancerID,
 			service:        service,
@@ -870,12 +866,37 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		)
 	})
 
-	t.Run("programRoute returns listener protocol update errors", func(t *testing.T) {
+	t.Run("ensureGRPCListenersProtocol updates matched listeners to HTTP2", func(t *testing.T) {
 		fake := faker.New()
 		deps := newMockDeps(t)
 		model := newGRPCRouteModel(deps)
 		ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
-		route := makeGRPCRoute()
+		config := makeRandomGatewayConfig()
+		listeners := []gatewayv1.Listener{
+			{Name: gatewayv1.SectionName("grpc-" + fake.Lorem().Word()), Port: gatewayv1.PortNumber(443)},
+			{Name: gatewayv1.SectionName("grpc-" + fake.Lorem().Word()), Port: gatewayv1.PortNumber(8443)},
+		}
+
+		for _, listener := range listeners {
+			ociLBModel.EXPECT().ensureHTTP2ListenerProtocol(t.Context(), ensureHTTP2ListenerProtocolParams{
+				loadBalancerID: config.Spec.LoadBalancerID,
+				listenerName:   string(listener.Name),
+			}).Return(nil).Once()
+		}
+
+		err := model.ensureGRPCListenersProtocol(t.Context(), ensureGRPCListenersProtocolParams{
+			config:           config,
+			matchedListeners: listeners,
+		})
+
+		require.NoError(t, err)
+	})
+
+	t.Run("ensureGRPCListenersProtocol returns listener protocol update errors", func(t *testing.T) {
+		fake := faker.New()
+		deps := newMockDeps(t)
+		model := newGRPCRouteModel(deps)
+		ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
 		config := makeRandomGatewayConfig()
 		listener := gatewayv1.Listener{Name: gatewayv1.SectionName("grpc"), Port: 50051}
 		wantErr := errors.New(fake.Lorem().Sentence(10))
@@ -885,9 +906,8 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			listenerName:   string(listener.Name),
 		}).Return(wantErr).Once()
 
-		_, err := model.programRoute(t.Context(), programGRPCRouteParams{
+		err := model.ensureGRPCListenersProtocol(t.Context(), ensureGRPCListenersProtocolParams{
 			config:           config,
-			grpcRoute:        route,
 			matchedListeners: []gatewayv1.Listener{listener},
 		})
 
