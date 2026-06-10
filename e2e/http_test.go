@@ -25,7 +25,7 @@ import (
 const (
 	httpRouteProgrammedPolicyRulesAnnotation = "oke-gateway-api.gemyago.github.io/http-route-programmed-lb-policy-rules"
 	liveHTTPTestTimeout                      = 20 * time.Minute
-	cleanupTimeout                           = 2 * time.Minute
+	cleanupTimeout                           = 4 * time.Minute
 	controllerStartupTimeout                 = 2 * time.Minute
 	probePath                                = "/echo"
 	gatewayName                              = "gateway"
@@ -40,6 +40,7 @@ func TestHTTP(t *testing.T) {
 	t.Run("MultiRouteIsolation", testHTTPMultiRouteIsolation)
 	t.Run("BackendEndpointChange", testHTTPBackendEndpointChange)
 	t.Run("HostMatching", testHTTPHostMatching)
+	t.Run("HeaderMatchingVariants", testHTTPHeaderMatchingVariants)
 }
 
 func requireLiveHTTPConfig(t *testing.T) *config.Config {
@@ -292,7 +293,7 @@ func uniqueGatewayClassName(prefix string, namespaceName string) string {
 func registerCleanup(
 	t *testing.T,
 	cleanupOnce *sync.Once,
-	kubeClient ctrlclient.Client,
+	kubeClient ctrlclient.WithWatch,
 	namespaceName string,
 	gatewayClassName string,
 ) {
@@ -303,8 +304,23 @@ func registerCleanup(
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
 			defer cancel()
 
+			if err := deleteNamespaceHTTPRoutes(cleanupCtx, kubeClient, namespaceName); err != nil {
+				t.Errorf("delete namespace %q HTTPRoutes: %v", namespaceName, err)
+			}
+
 			if err := deleteNamespace(cleanupCtx, kubeClient, namespaceName); err != nil {
 				t.Errorf("delete namespace %q: %v", namespaceName, err)
+			}
+
+			if strings.TrimSpace(namespaceName) != "" {
+				if err := e2ek8s.WaitForNamespacesDeleted(
+					cleanupCtx,
+					kubeClient,
+					[]string{namespaceName},
+					nil,
+				); err != nil {
+					t.Errorf("wait for namespace %q deletion: %v", namespaceName, err)
+				}
 			}
 
 			if err := deleteGatewayClass(cleanupCtx, kubeClient, gatewayClassName); err != nil {
@@ -312,6 +328,40 @@ func registerCleanup(
 			}
 		})
 	})
+}
+
+func deleteNamespaceHTTPRoutes(
+	ctx context.Context,
+	kubeClient ctrlclient.WithWatch,
+	namespaceName string,
+) error {
+	if strings.TrimSpace(namespaceName) == "" {
+		return nil
+	}
+
+	routeList := &gatewayv1.HTTPRouteList{}
+	if err := kubeClient.List(ctx, routeList, ctrlclient.InNamespace(namespaceName)); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+
+		return fmt.Errorf("list HTTPRoutes in namespace %q: %w", namespaceName, err)
+	}
+
+	for i := range routeList.Items {
+		route := &routeList.Items[i]
+		if err := kubeClient.Delete(ctx, route); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("delete HTTPRoute %s/%s: %w", route.Namespace, route.Name, err)
+		}
+	}
+
+	for _, route := range routeList.Items {
+		if err := e2ek8s.WaitForHTTPRouteDeleted(ctx, kubeClient, route.Namespace, route.Name, nil); err != nil {
+			return fmt.Errorf("wait for HTTPRoute %s/%s deletion: %w", route.Namespace, route.Name, err)
+		}
+	}
+
+	return nil
 }
 
 func deleteNamespace(ctx context.Context, kubeClient ctrlclient.Client, namespaceName string) error {

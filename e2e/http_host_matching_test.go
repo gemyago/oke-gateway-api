@@ -69,7 +69,7 @@ func testHTTPHostMatching(t *testing.T) {
 
 	var cleanupOnce sync.Once
 	gatewayClassName := uniqueGatewayClassName(cfg.GatewayClassName, namespace.Name)
-	registerCleanup(t, &cleanupOnce, kubeClient.Client, namespace.Name, gatewayClassName)
+	registerCleanup(t, &cleanupOnce, kubeClient.WithWatch, namespace.Name, gatewayClassName)
 
 	gatewayClass := e2ek8s.NewGatewayClass(e2ek8s.GatewayClassOptions{
 		Name: gatewayClassName,

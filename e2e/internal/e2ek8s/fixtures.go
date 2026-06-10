@@ -82,16 +82,19 @@ type EchoServiceOptions struct {
 }
 
 type HTTPRouteOptions struct {
-	Namespace    string
-	Name         string
-	GatewayName  string
-	ListenerName gatewayv1.SectionName
-	ServiceName  string
-	ServicePort  int32
-	Hostnames    []gatewayv1.Hostname
-	PathPrefix   string
-	Labels       map[string]string
-	Annotations  map[string]string
+	Namespace     string
+	Name          string
+	GatewayName   string
+	ListenerName  gatewayv1.SectionName
+	ServiceName   string
+	ServicePort   int32
+	Hostnames     []gatewayv1.Hostname
+	PathPrefix    string
+	PathMatch     *gatewayv1.HTTPPathMatch
+	OmitPathMatch bool
+	HeaderMatches []gatewayv1.HTTPHeaderMatch
+	Labels        map[string]string
+	Annotations   map[string]string
 }
 
 func NewGatewayClass(opts GatewayClassOptions) *gatewayv1.GatewayClass {
@@ -358,13 +361,20 @@ func NewHTTPRoute(opts HTTPRouteOptions) *gatewayv1.HTTPRoute {
 		servicePort = DefaultEchoPort
 	}
 
-	pathPrefix := opts.PathPrefix
-	if pathPrefix == "" {
-		pathPrefix = "/"
-	}
-
-	pathMatchType := gatewayv1.PathMatchPathPrefix
 	portNumber := gatewayv1.PortNumber(servicePort)
+	pathMatch := cloneHTTPPathMatch(opts.PathMatch)
+	if pathMatch == nil && !opts.OmitPathMatch {
+		pathPrefix := opts.PathPrefix
+		if pathPrefix == "" {
+			pathPrefix = "/"
+		}
+
+		pathMatchType := gatewayv1.PathMatchPathPrefix
+		pathMatch = &gatewayv1.HTTPPathMatch{
+			Type:  &pathMatchType,
+			Value: &pathPrefix,
+		}
+	}
 
 	return &gatewayv1.HTTPRoute{
 		TypeMeta: metav1.TypeMeta{
@@ -391,10 +401,8 @@ func NewHTTPRoute(opts HTTPRouteOptions) *gatewayv1.HTTPRoute {
 				{
 					Matches: []gatewayv1.HTTPRouteMatch{
 						{
-							Path: &gatewayv1.HTTPPathMatch{
-								Type:  &pathMatchType,
-								Value: &pathPrefix,
-							},
+							Path:    pathMatch,
+							Headers: append([]gatewayv1.HTTPHeaderMatch(nil), opts.HeaderMatches...),
 						},
 					},
 					BackendRefs: []gatewayv1.HTTPBackendRef{
@@ -434,6 +442,25 @@ func cloneStringMap(source map[string]string) map[string]string {
 
 	clone := make(map[string]string, len(source))
 	maps.Copy(clone, source)
+
+	return clone
+}
+
+func cloneHTTPPathMatch(source *gatewayv1.HTTPPathMatch) *gatewayv1.HTTPPathMatch {
+	if source == nil {
+		return nil
+	}
+
+	clone := &gatewayv1.HTTPPathMatch{}
+	if source.Type != nil {
+		matchType := *source.Type
+		clone.Type = &matchType
+	}
+
+	if source.Value != nil {
+		value := *source.Value
+		clone.Value = &value
+	}
 
 	return clone
 }

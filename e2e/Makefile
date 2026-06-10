@@ -4,29 +4,27 @@ SHELL := bash
 .PHONY: lint test preflight run-e2e-tests compile infra-cleanup
 
 GOLANGCI_LINT ?= ../bin/golangci-lint
-DIRENV ?= direnv
-E2E_ENV = eval "$$($(DIRENV) stdlib)"; source .envrc;
 
 lint:
 	@test -x "$(GOLANGCI_LINT)" || { \
 		echo "missing $(GOLANGCI_LINT); build the root-pinned linter first"; \
 		exit 1; \
 	}
-	@$(E2E_ENV) $(GOLANGCI_LINT) run ./...
+	$(GOLANGCI_LINT) run ./...
 
 test:
-	@$(E2E_ENV) go test -count=1 ./internal/...
+	go test -count=1 ./internal/...
 
 preflight:
-	@$(E2E_ENV) go run ./internal/cmd/e2e-check
+	go run ./internal/cmd/e2e-check
 
 run-e2e-tests:
 	@$(MAKE) -C .. dist/bin
 	@$(MAKE) preflight
-	@$(E2E_ENV) go test -v -count=1 .
+	go test -v -count=1 .
 
 compile:
-	@$(E2E_ENV) go test -run '^$$' ./...
+	go test -run '^$$' ./...
 
 infra-cleanup:
-	@$(E2E_ENV) go run ./internal/cmd/e2e-cleanup
+	go run ./internal/cmd/e2e-cleanup

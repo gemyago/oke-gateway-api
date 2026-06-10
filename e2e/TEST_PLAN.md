@@ -80,50 +80,34 @@ Why this is valuable:
 - OCI interprets the generated host header condition,
 - unit tests can validate generated strings but not real LB behavior.
 
-### 4. Header exact match
+### 4. Header matching variants
 
-Create a route using an exact header match and verify:
+Create one shared scenario that provisions several static backends and three related routes on the
+same listener:
 
-- requests with the expected header reach the backend,
-- requests without the header do not match,
-- requests with the wrong header value do not match.
+- one route using an exact header match,
+- one route using a supported regular-expression form that maps to OCI starts-with,
+- one route using a supported regular-expression form that maps to OCI ends-with.
 
-Why this is valuable:
+Example regexp forms:
 
-- proves real header-condition behavior in OCI, not just local mapping.
+- starts-with: `^foo`, `^foo.*`, `^foo\\..*`
+- ends-with: `foo$`, `.*foo$`
 
-### 5. Header regexp starts-with
+Verify with live traffic that:
 
-Create a route using one of the supported regular-expression forms that maps to OCI starts-with,
-for example:
-
-- `^foo`
-- `^foo.*`
-- `^foo\\..*`
-
-Verify matching and non-matching header values with live traffic.
+- each matching request reaches the intended backend,
+- requests with the header omitted do not hit any of the header-specific backends,
+- requests with the wrong value do not fall through into one of the other header routes,
+- the exact, starts-with, and ends-with variants remain distinguishable by backend identity.
 
 Why this is valuable:
 
-- this is a controller-specific compatibility contract layered on top of OCI limitations,
-- the most important question is whether the resulting OCI condition behaves as intended.
+- amortizes slow live setup across three closely related OCI condition behaviors,
+- proves real header-condition behavior in OCI, not just local mapping,
+- validates the controller's regex-compatibility contract against actual OCI routing behavior.
 
-### 6. Header regexp ends-with
-
-Create a route using one of the supported regular-expression forms that maps to OCI ends-with,
-for example:
-
-- `foo$`
-- `.*foo$`
-
-Verify matching and non-matching header values with live traffic.
-
-Why this is valuable:
-
-- same rationale as starts-with regex coverage,
-- validates the OCI side of the compatibility behavior.
-
-### 7. Path exact vs prefix
+### 5. Path exact vs prefix
 
 Create a small scenario that proves OCI respects the behavioral difference between:
 
@@ -157,11 +141,16 @@ They should be addressed after the routing-rule and dynamic-backend coverage abo
 
 The current live probe helper is too limited for several routing-rule scenarios.
 
-Before implementing the header- and host-based cases, the e2e harness will likely need:
+The combined header-matching scenario now relies on:
 
-- support for custom request headers in the HTTP probe client,
-- support for asserting backend identity more explicitly than only path/host echo shape,
-- optional helpers for negative-match probing where a request must not hit the target backend.
+- HTTPRoute fixture helpers that can express header-based matches without inlining raw objects in
+  each test,
+- distinct static backend responses to assert backend identity explicitly.
+
+Remaining useful harness improvements:
+
+- optional reusable helpers for negative-match probing where a request must not hit any of the
+  header-specific backends.
 
 ## Execution Notes
 

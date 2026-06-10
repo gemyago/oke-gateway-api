@@ -261,33 +261,123 @@ func TestNewStaticHTTPDeployment(t *testing.T) {
 func TestNewHTTPRoute(t *testing.T) {
 	t.Parallel()
 
-	fake := faker.New()
-	namespace := "oke-gw-e2e-" + fake.UUID().V4()
-	routeName := "echo-route-" + fake.UUID().V4()
-	gatewayName := "gateway-" + fake.UUID().V4()
-	serviceName := "backend-a-" + fake.UUID().V4()
-	hostname := gatewayv1.Hostname("route-a-" + fake.UUID().V4() + ".example.test")
-	pathPrefix := "/echo-" + fake.UUID().V4()
+	t.Run("builds route with default prefix path", func(t *testing.T) {
+		t.Parallel()
 
-	route := NewHTTPRoute(HTTPRouteOptions{
-		Namespace:    namespace,
-		Name:         routeName,
-		GatewayName:  gatewayName,
-		ServiceName:  serviceName,
-		ServicePort:  8080,
-		PathPrefix:   pathPrefix,
-		Hostnames:    []gatewayv1.Hostname{hostname},
-		ListenerName: DefaultHTTPListenerName,
+		fake := faker.New()
+		namespace := "oke-gw-e2e-" + fake.UUID().V4()
+		routeName := "echo-route-" + fake.UUID().V4()
+		gatewayName := "gateway-" + fake.UUID().V4()
+		serviceName := "backend-a-" + fake.UUID().V4()
+		hostname := gatewayv1.Hostname("route-a-" + fake.UUID().V4() + ".example.test")
+		pathPrefix := "/echo-" + fake.UUID().V4()
+
+		route := NewHTTPRoute(HTTPRouteOptions{
+			Namespace:    namespace,
+			Name:         routeName,
+			GatewayName:  gatewayName,
+			ServiceName:  serviceName,
+			ServicePort:  8080,
+			PathPrefix:   pathPrefix,
+			Hostnames:    []gatewayv1.Hostname{hostname},
+			ListenerName: DefaultHTTPListenerName,
+		})
+
+		require.Len(t, route.Spec.Hostnames, 1)
+		assert.Equal(t, namespace, route.Namespace)
+		assert.Equal(t, routeName, route.Name)
+		assert.Equal(t, hostname, route.Spec.Hostnames[0])
+		require.Len(t, route.Spec.Rules, 1)
+		require.Len(t, route.Spec.Rules[0].Matches, 1)
+		require.NotNil(t, route.Spec.Rules[0].Matches[0].Path)
+		assert.Equal(t, pathPrefix, *route.Spec.Rules[0].Matches[0].Path.Value)
+		assert.Empty(t, route.Spec.Rules[0].Matches[0].Headers)
 	})
 
-	require.Len(t, route.Spec.Hostnames, 1)
-	assert.Equal(t, namespace, route.Namespace)
-	assert.Equal(t, routeName, route.Name)
-	assert.Equal(t, hostname, route.Spec.Hostnames[0])
-	require.Len(t, route.Spec.Rules, 1)
-	require.Len(t, route.Spec.Rules[0].Matches, 1)
-	require.NotNil(t, route.Spec.Rules[0].Matches[0].Path)
-	assert.Equal(t, pathPrefix, *route.Spec.Rules[0].Matches[0].Path.Value)
+	t.Run("builds route with custom path and header matches", func(t *testing.T) {
+		t.Parallel()
+
+		fake := faker.New()
+		namespace := "oke-gw-e2e-" + fake.UUID().V4()
+		routeName := "echo-route-" + fake.UUID().V4()
+		gatewayName := "gateway-" + fake.UUID().V4()
+		serviceName := "backend-b-" + fake.UUID().V4()
+		pathValue := "/exact-" + fake.UUID().V4()
+		pathType := gatewayv1.PathMatchExact
+		headerType := gatewayv1.HeaderMatchRegularExpression
+		headerName := gatewayv1.HTTPHeaderName("X-Route-" + fake.UUID().V4())
+		headerValue := "^prefix-" + fake.UUID().V4()
+
+		route := NewHTTPRoute(HTTPRouteOptions{
+			Namespace:   namespace,
+			Name:        routeName,
+			GatewayName: gatewayName,
+			ServiceName: serviceName,
+			ServicePort: 8080,
+			PathMatch: &gatewayv1.HTTPPathMatch{
+				Type:  &pathType,
+				Value: &pathValue,
+			},
+			HeaderMatches: []gatewayv1.HTTPHeaderMatch{
+				{
+					Type:  &headerType,
+					Name:  headerName,
+					Value: headerValue,
+				},
+			},
+			ListenerName: DefaultHTTPListenerName,
+		})
+
+		require.Len(t, route.Spec.Rules, 1)
+		require.Len(t, route.Spec.Rules[0].Matches, 1)
+		require.NotNil(t, route.Spec.Rules[0].Matches[0].Path)
+		require.NotNil(t, route.Spec.Rules[0].Matches[0].Path.Type)
+		require.NotNil(t, route.Spec.Rules[0].Matches[0].Path.Value)
+		assert.Equal(t, pathType, *route.Spec.Rules[0].Matches[0].Path.Type)
+		assert.Equal(t, pathValue, *route.Spec.Rules[0].Matches[0].Path.Value)
+		require.Len(t, route.Spec.Rules[0].Matches[0].Headers, 1)
+		assert.Equal(t, headerName, route.Spec.Rules[0].Matches[0].Headers[0].Name)
+		assert.Equal(t, headerValue, route.Spec.Rules[0].Matches[0].Headers[0].Value)
+		require.NotNil(t, route.Spec.Rules[0].Matches[0].Headers[0].Type)
+		assert.Equal(t, headerType, *route.Spec.Rules[0].Matches[0].Headers[0].Type)
+	})
+
+	t.Run("builds route with header matches and no path match", func(t *testing.T) {
+		t.Parallel()
+
+		fake := faker.New()
+		namespace := "oke-gw-e2e-" + fake.UUID().V4()
+		routeName := "echo-route-" + fake.UUID().V4()
+		gatewayName := "gateway-" + fake.UUID().V4()
+		serviceName := "backend-c-" + fake.UUID().V4()
+		headerType := gatewayv1.HeaderMatchExact
+		headerName := gatewayv1.HTTPHeaderName("X-Route-" + fake.UUID().V4())
+		headerValue := "exact-" + fake.UUID().V4()
+
+		route := NewHTTPRoute(HTTPRouteOptions{
+			Namespace:     namespace,
+			Name:          routeName,
+			GatewayName:   gatewayName,
+			ServiceName:   serviceName,
+			ServicePort:   8080,
+			OmitPathMatch: true,
+			HeaderMatches: []gatewayv1.HTTPHeaderMatch{
+				{
+					Type:  &headerType,
+					Name:  headerName,
+					Value: headerValue,
+				},
+			},
+			ListenerName: DefaultHTTPListenerName,
+		})
+
+		require.Len(t, route.Spec.Rules, 1)
+		require.Len(t, route.Spec.Rules[0].Matches, 1)
+		assert.Nil(t, route.Spec.Rules[0].Matches[0].Path)
+		require.Len(t, route.Spec.Rules[0].Matches[0].Headers, 1)
+		assert.Equal(t, headerName, route.Spec.Rules[0].Matches[0].Headers[0].Name)
+		assert.Equal(t, headerValue, route.Spec.Rules[0].Matches[0].Headers[0].Value)
+	})
 }
 
 func TestWaiters(t *testing.T) {
