@@ -45,12 +45,12 @@ func validateGatewayCertificateOptions(gateway gatewayv1.Gateway) error {
 		if certificateID == "" {
 			continue
 		}
-		if listener.Protocol != gatewayv1.HTTPSProtocolType {
+		if listener.Protocol != gatewayv1.HTTPSProtocolType && listener.Protocol != gatewayv1.TLSProtocolType {
 			return &resourceStatusError{
 				conditionType: string(gatewayv1.GatewayConditionAccepted),
 				reason:        string(gatewayv1.GatewayReasonInvalidParameters),
 				message: fmt.Sprintf(
-					"listener %s option %s can only be used with HTTPS listeners",
+					"listener %s option %s can only be used with HTTPS or TLS listeners",
 					listener.Name,
 					ListenerTLSOptionOCICertificateOCID,
 				),

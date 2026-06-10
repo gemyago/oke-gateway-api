@@ -593,6 +593,7 @@ func (m *tcpRouteModelImpl) matchingRoutesForListener(
 		excludeRouteKey: excludeRouteKey,
 		routeKey:        tcpRouteKey,
 		routeNamespace:  func(route gatewayv1alpha2.TCPRoute) string { return route.Namespace },
+		routeCreatedAt:  func(route gatewayv1alpha2.TCPRoute) metav1.Time { return route.CreationTimestamp },
 		parentRefs:      func(route gatewayv1alpha2.TCPRoute) []gatewayv1.ParentReference { return route.Spec.ParentRefs },
 		routeDeleted:    func(route gatewayv1alpha2.TCPRoute) bool { return route.DeletionTimestamp != nil },
 		parentTarget:    tcpParentRefTarget,
@@ -633,6 +634,7 @@ func matchingL4RoutesForListener[T any](
 	excludeRouteKey string,
 	routeKey func(T) string,
 	routeNamespace func(T) string,
+	routeCreatedAt func(T) metav1.Time,
 	parentRefs func(T) []gatewayv1.ParentReference,
 	routeDeleted func(T) bool,
 	parentTarget func(gatewayv1.ParentReference, string) apitypes.NamespacedName,
@@ -662,6 +664,11 @@ func matchingL4RoutesForListener[T any](
 		}
 	}
 	sort.Slice(matches, func(i, j int) bool {
+		iCreatedAt := routeCreatedAt(matches[i].route)
+		jCreatedAt := routeCreatedAt(matches[j].route)
+		if !iCreatedAt.Equal(&jCreatedAt) {
+			return iCreatedAt.Before(&jCreatedAt)
+		}
 		return matches[i].key < matches[j].key
 	})
 	return matches
@@ -677,6 +684,7 @@ type listMatchingL4RoutesForListenerParams[T any] struct {
 	excludeRouteKey string
 	routeKey        func(T) string
 	routeNamespace  func(T) string
+	routeCreatedAt  func(T) metav1.Time
 	parentRefs      func(T) []gatewayv1.ParentReference
 	routeDeleted    func(T) bool
 	parentTarget    func(gatewayv1.ParentReference, string) apitypes.NamespacedName
@@ -697,6 +705,7 @@ func listMatchingL4RoutesForListener[T any](
 		params.excludeRouteKey,
 		params.routeKey,
 		params.routeNamespace,
+		params.routeCreatedAt,
 		params.parentRefs,
 		params.routeDeleted,
 		params.parentTarget,

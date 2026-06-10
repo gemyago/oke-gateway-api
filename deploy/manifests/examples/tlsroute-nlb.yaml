@@ -1,0 +1,75 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: oke-nlb-tls-gateway
+spec:
+  gatewayClassName: oke-nlb
+  infrastructure:
+    parametersRef:
+      group: oke-gateway-api.gemyago.github.io
+      kind: GatewayConfig
+      name: oke-nlb-gateway-config
+  listeners:
+    - name: tls
+      protocol: TLS
+      port: 443
+      hostname: passthrough.example.com
+      tls:
+        mode: Passthrough
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tls-server
+  labels:
+    app: tls-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tls-server
+  template:
+    metadata:
+      labels:
+        app: tls-server
+    spec:
+      containers:
+      - name: netexec
+        image: registry.k8s.io/e2e-test-images/agnhost:2.45
+        args:
+          - netexec
+          - --http-port=8443
+        ports:
+        - containerPort: 8443
+          name: tls
+          protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tls-service
+  labels:
+    app: tls-server
+spec:
+  selector:
+    app: tls-server
+  ports:
+  - name: tls
+    port: 443
+    targetPort: tls
+    protocol: TCP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: TLSRoute
+metadata:
+  name: tls-passthrough
+spec:
+  parentRefs:
+    - name: oke-nlb-tls-gateway
+      sectionName: tls
+  hostnames:
+    - passthrough.example.com
+  rules:
+    - backendRefs:
+        - name: tls-service
+          port: 443

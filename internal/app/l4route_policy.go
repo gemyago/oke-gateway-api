@@ -22,7 +22,9 @@ func l4RouteKindAllowed(listener gatewayv1.Listener, routeKind gatewayv1.Kind) b
 			return routeKind == "TCPRoute"
 		case gatewayv1.UDPProtocolType:
 			return routeKind == "UDPRoute"
-		case gatewayv1.HTTPProtocolType, gatewayv1.HTTPSProtocolType, gatewayv1.TLSProtocolType:
+		case gatewayv1.TLSProtocolType:
+			return routeKind == "TLSRoute"
+		case gatewayv1.HTTPProtocolType, gatewayv1.HTTPSProtocolType:
 			return false
 		default:
 			return false

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"testing"
 	"time"
 
@@ -96,6 +97,18 @@ func TestDiagSlogHandler(t *testing.T) {
 			logger := SetupRootLogger(NewRootLoggerOpts().WithOutput(&testOutput).WithOptionalOutputFile(""))
 			logger.InfoContext(t.Context(), fake.Lorem().Sentence(10))
 			assert.NotEmpty(t, testOutput.String())
+		})
+		t.Run("should write to optional output file", func(t *testing.T) {
+			fake := faker.New()
+			outputFile := t.TempDir() + "/app.log"
+			message := fake.Lorem().Sentence(10)
+			logger := SetupRootLogger(NewRootLoggerOpts().WithOptionalOutputFile(outputFile))
+
+			logger.InfoContext(t.Context(), message)
+
+			output, err := os.ReadFile(outputFile)
+			require.NoError(t, err)
+			assert.Contains(t, string(output), message)
 		})
 	})
 }

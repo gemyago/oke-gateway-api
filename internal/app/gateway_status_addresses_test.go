@@ -24,6 +24,7 @@ func TestGatewayStatusAddressesFromValues(t *testing.T) {
 		}))
 
 		assert.Nil(t, gatewayStatusAddressesFromValues(nil))
+		assert.Nil(t, gatewayStatusAddressesFromValues([]string{"", ""}))
 	})
 
 	t.Run("sorts caller supplied typed addresses by public IP first", func(t *testing.T) {
@@ -32,6 +33,7 @@ func TestGatewayStatusAddressesFromValues(t *testing.T) {
 			{Type: &addressType, Value: "10.0.0.12"},
 			{Type: &hostNameType, Value: "lb.example.com"},
 			{Value: "unset-type"},
+			{Type: &addressType, Value: "not-an-ip"},
 			{Type: &addressType, Value: "192.0.2.10"},
 			{Type: &addressType, Value: "127.0.0.1"},
 			{Type: &addressType, Value: "169.254.10.10"},
@@ -44,6 +46,7 @@ func TestGatewayStatusAddressesFromValues(t *testing.T) {
 			{Type: &addressType, Value: "127.0.0.1"},
 			{Type: &addressType, Value: "169.254.10.10"},
 			{Type: &hostNameType, Value: "lb.example.com"},
+			{Type: &addressType, Value: "not-an-ip"},
 			{Value: "unset-type"},
 		}, addresses)
 	})

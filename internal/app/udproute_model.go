@@ -392,6 +392,7 @@ func (m *udpRouteModelImpl) matchingRoutesForListener(
 	params.listener = details.matchedListener
 	params.excludeRouteKey = excludeRouteKey
 	params.routeNamespace = func(route gatewayv1alpha2.UDPRoute) string { return route.Namespace }
+	params.routeCreatedAt = func(route gatewayv1alpha2.UDPRoute) metav1.Time { return route.CreationTimestamp }
 	params.parentRefs = func(route gatewayv1alpha2.UDPRoute) []gatewayv1.ParentReference { return route.Spec.ParentRefs }
 	params.routeDeleted = func(route gatewayv1alpha2.UDPRoute) bool { return route.DeletionTimestamp != nil }
 	params.matchesListener = udpRouteMatchesListener

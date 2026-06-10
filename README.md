@@ -20,6 +20,7 @@ kubectl apply --server-side=true \
   -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/experimental-install.yaml
 ```
 The controller can run with only the standard CRDs. The experimental channel is required only for `TCPRoute` and `UDPRoute` support.
+`TLSRoute` is available from the standard Gateway API CRDs.
 
 Prepare API key and config file (use actual values):
 ```ini
@@ -250,6 +251,31 @@ to the TCP port the backend Pods expose for health checking. UDP health checks
 are not configured by this controller.
 
 `GatewayConfig.spec.loadBalancerId` is shared with ALB usage. The GatewayClass determines whether the OCID is resolved through the OCI Load Balancer API or the OCI Network Load Balancer API.
+
+## TLSRoute
+
+`TLSRoute` supports two OCI-backed modes:
+
+- OCI Load Balancer with `tls.mode: Terminate`: terminates TLS at the ALB and forwards plain TCP to the backend Service port.
+- OCI Network Load Balancer with `tls.mode: Passthrough`: forwards encrypted TCP bytes to a backend that terminates TLS itself.
+
+Unsupported combinations are rejected: ALB passthrough and NLB termination. OCI does not support SNI fanout for ALB TCP+SSL listeners or NLB TCP passthrough listeners, so only one effective `TLSRoute` can own a TLS listener. TLSRoute health checks use TCP on the resolved backend Service port.
+
+Apply the ALB terminate example:
+
+```sh
+kubectl apply -n <namespace> -f deploy/manifests/examples/gatewayconfig.yaml
+kubectl apply -n <namespace> -f deploy/manifests/examples/gatewayclass.yaml
+kubectl apply -n <namespace> -f deploy/manifests/examples/tlsroute-alb.yaml
+```
+
+Apply the NLB passthrough example:
+
+```sh
+kubectl apply -n <namespace> -f deploy/manifests/examples/gatewayconfig-nlb.yaml
+kubectl apply -f deploy/manifests/examples/gatewayclass-nlb.yaml
+kubectl apply -n <namespace> -f deploy/manifests/examples/tlsroute-nlb.yaml
+```
 
 ## Contributing
 
