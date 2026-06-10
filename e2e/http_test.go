@@ -11,12 +11,14 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/watch"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/gemyago/oke-gateway-api/e2e/internal/config"
+	"github.com/gemyago/oke-gateway-api/e2e/internal/diag"
 	"github.com/gemyago/oke-gateway-api/e2e/internal/e2ek8s"
 )
 
@@ -108,58 +110,166 @@ func programmedPolicyRuleNames(route *gatewayv1.HTTPRoute) ([]string, error) {
 
 func waitForHTTPRouteProgrammedPolicyRuleNames(
 	ctx context.Context,
-	kubeClient ctrlclient.Client,
+	kubeClient ctrlclient.WithWatch,
 	namespace string,
 	name string,
 	opts *e2ek8s.WaitOptions,
 ) ([]string, error) {
-	pollInterval := 2 * time.Second
-	if opts != nil && opts.PollInterval > 0 {
-		pollInterval = opts.PollInterval
-	}
+	_ = opts
 
 	resource := &gatewayv1.HTTPRoute{}
 	key := ctrlclient.ObjectKey{Namespace: namespace, Name: name}
 	var lastErr error
+	description := fmt.Sprintf("wait for HTTPRoute %s/%s programmed policy rule names", namespace, name)
+	progressLogger := diag.NewWaitProgressLogger(nil, description, 0)
 
-	for {
+	check := func() ([]string, bool, error) {
 		if err := kubeClient.Get(ctx, key, resource); err != nil {
 			if apierrors.IsNotFound(err) {
 				lastErr = err
-			} else {
-				return nil, err
-			}
-		} else {
-			ruleNames, ruleErr := programmedPolicyRuleNames(resource)
-			if ruleErr == nil {
-				return ruleNames, nil
+				return nil, false, nil
 			}
 
-			lastErr = ruleErr
+			return nil, false, err
 		}
 
-		timer := time.NewTimer(pollInterval)
+		ruleNames, ruleErr := programmedPolicyRuleNames(resource)
+		if ruleErr == nil {
+			return ruleNames, true, nil
+		}
+
+		lastErr = ruleErr
+		return nil, false, nil
+	}
+
+	ruleNames, done, err := check()
+	if err != nil {
+		return nil, err
+	}
+	if done {
+		return ruleNames, nil
+	}
+	progressLogger.Log(ctx, errorString(lastErr))
+
+	watcher, err := kubeClient.Watch(
+		ctx,
+		&gatewayv1.HTTPRouteList{},
+		ctrlclient.InNamespace(namespace),
+		ctrlclient.MatchingFields{"metadata.name": name},
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"wait for HTTPRoute %s/%s programmed policy rule names: start watch: %w",
+			namespace,
+			name,
+			err,
+		)
+	}
+	defer func() {
+		watcher.Stop()
+	}()
+
+	ruleNames, done, err = check()
+	if err != nil {
+		return nil, err
+	}
+	if done {
+		return ruleNames, nil
+	}
+	progressLogger.Log(ctx, errorString(lastErr))
+
+	progressTicker := time.NewTicker(diag.DefaultWaitProgressLogInterval)
+	defer progressTicker.Stop()
+
+	for {
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			if lastErr != nil {
 				return nil, fmt.Errorf(
-					"wait for HTTPRoute %s/%s programmed policy rule names: %w",
-					namespace,
-					name,
+					"%s: %w",
+					description,
 					lastErr,
 				)
 			}
 
 			return nil, fmt.Errorf(
-				"wait for HTTPRoute %s/%s programmed policy rule names: %w",
-				namespace,
-				name,
+				"%s: %w",
+				description,
 				ctx.Err(),
 			)
-		case <-timer.C:
+		case <-progressTicker.C:
+			progressLogger.Log(ctx, errorString(lastErr))
+		case event, ok := <-watcher.ResultChan():
+			if !ok {
+				watcher.Stop()
+				watcher, err = kubeClient.Watch(
+					ctx,
+					&gatewayv1.HTTPRouteList{},
+					ctrlclient.InNamespace(namespace),
+					ctrlclient.MatchingFields{"metadata.name": name},
+				)
+				if err != nil {
+					return nil, fmt.Errorf(
+						"wait for HTTPRoute %s/%s programmed policy rule names: restart watch: %w",
+						namespace,
+						name,
+						err,
+					)
+				}
+
+				ruleNames, done, err = check()
+				if err != nil {
+					return nil, err
+				}
+				if done {
+					return ruleNames, nil
+				}
+				progressLogger.Log(ctx, errorString(lastErr))
+
+				continue
+			}
+
+			if event.Type == watch.Error {
+				statusErr := apierrors.FromObject(event.Object)
+				if statusErr != nil {
+					return nil, fmt.Errorf(
+						"wait for HTTPRoute %s/%s programmed policy rule names: watch error: %w",
+						namespace,
+						name,
+						statusErr,
+					)
+				}
+
+				return nil, fmt.Errorf(
+					"wait for HTTPRoute %s/%s programmed policy rule names: watch returned an unknown error event",
+					namespace,
+					name,
+				)
+			}
+
+			object, ok := event.Object.(ctrlclient.Object)
+			if !ok || ctrlclient.ObjectKeyFromObject(object) != key {
+				continue
+			}
+
+			ruleNames, done, err = check()
+			if err != nil {
+				return nil, err
+			}
+			if done {
+				return ruleNames, nil
+			}
+			progressLogger.Log(ctx, errorString(lastErr))
 		}
 	}
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	return err.Error()
 }
 
 func uniqueGatewayClassName(prefix string, namespaceName string) string {

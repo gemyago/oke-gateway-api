@@ -2,6 +2,7 @@ package e2ek8s
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,8 +11,12 @@ import (
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	k8swatch "k8s.io/apimachinery/pkg/watch"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	"github.com/gemyago/oke-gateway-api/e2e/internal/diag"
 )
 
 const defaultPollInterval = 2 * time.Second
@@ -28,17 +33,23 @@ func NewWaitOptions() *WaitOptions {
 
 func WaitForGatewayClassAccepted(
 	ctx context.Context,
-	kubeClient ctrlclient.Client,
+	kubeClient ctrlclient.WithWatch,
 	name string,
 	opts *WaitOptions,
 ) (*gatewayv1.GatewayClass, error) {
+	_ = opts
+
 	resource := &gatewayv1.GatewayClass{}
 	key := ctrlclient.ObjectKey{Name: name}
 
-	err := waitFor(
+	err := waitForObject(
 		ctx,
 		fmt.Sprintf("wait for GatewayClass %q Accepted=True", name),
-		opts,
+		kubeClient,
+		key,
+		func() ctrlclient.ObjectList {
+			return &gatewayv1.GatewayClassList{}
+		},
 		func(ctx context.Context) (bool, string, error) {
 			if err := kubeClient.Get(ctx, key, resource); err != nil {
 				return false, "", err
@@ -60,7 +71,7 @@ func WaitForGatewayClassAccepted(
 
 func WaitForGatewayAccepted(
 	ctx context.Context,
-	kubeClient ctrlclient.Client,
+	kubeClient ctrlclient.WithWatch,
 	namespace string,
 	name string,
 	opts *WaitOptions,
@@ -77,7 +88,7 @@ func WaitForGatewayAccepted(
 
 func WaitForGatewayProgrammed(
 	ctx context.Context,
-	kubeClient ctrlclient.Client,
+	kubeClient ctrlclient.WithWatch,
 	namespace string,
 	name string,
 	opts *WaitOptions,
@@ -94,7 +105,7 @@ func WaitForGatewayProgrammed(
 
 func WaitForHTTPRouteAccepted(
 	ctx context.Context,
-	kubeClient ctrlclient.Client,
+	kubeClient ctrlclient.WithWatch,
 	namespace string,
 	name string,
 	gatewayName string,
@@ -113,7 +124,7 @@ func WaitForHTTPRouteAccepted(
 
 func WaitForHTTPRouteResolvedRefs(
 	ctx context.Context,
-	kubeClient ctrlclient.Client,
+	kubeClient ctrlclient.WithWatch,
 	namespace string,
 	name string,
 	gatewayName string,
@@ -132,18 +143,24 @@ func WaitForHTTPRouteResolvedRefs(
 
 func WaitForHTTPRouteDeleted(
 	ctx context.Context,
-	kubeClient ctrlclient.Client,
+	kubeClient ctrlclient.WithWatch,
 	namespace string,
 	name string,
 	opts *WaitOptions,
 ) error {
+	_ = opts
+
 	resource := &gatewayv1.HTTPRoute{}
 	key := ctrlclient.ObjectKey{Namespace: namespace, Name: name}
 
-	return waitFor(
+	return waitForObject(
 		ctx,
 		fmt.Sprintf("wait for HTTPRoute %s/%s deletion", namespace, name),
-		opts,
+		kubeClient,
+		key,
+		func() ctrlclient.ObjectList {
+			return &gatewayv1.HTTPRouteList{}
+		},
 		func(ctx context.Context) (bool, string, error) {
 			if err := kubeClient.Get(ctx, key, resource); err != nil {
 				if apierrors.IsNotFound(err) {
@@ -160,18 +177,24 @@ func WaitForHTTPRouteDeleted(
 
 func WaitForNamespacesDeleted(
 	ctx context.Context,
-	kubeClient ctrlclient.Client,
+	kubeClient ctrlclient.WithWatch,
 	names []string,
 	opts *WaitOptions,
 ) error {
+	_ = opts
+
 	for _, name := range names {
 		resource := &corev1.Namespace{}
 		key := ctrlclient.ObjectKey{Name: name}
 
-		if err := waitFor(
+		if err := waitForObject(
 			ctx,
 			fmt.Sprintf("wait for Namespace %q deletion", name),
-			opts,
+			kubeClient,
+			key,
+			func() ctrlclient.ObjectList {
+				return &corev1.NamespaceList{}
+			},
 			func(ctx context.Context) (bool, string, error) {
 				if err := kubeClient.Get(ctx, key, resource); err != nil {
 					if apierrors.IsNotFound(err) {
@@ -197,18 +220,24 @@ func WaitForNamespacesDeleted(
 
 func WaitForDeploymentReady(
 	ctx context.Context,
-	kubeClient ctrlclient.Client,
+	kubeClient ctrlclient.WithWatch,
 	namespace string,
 	name string,
 	opts *WaitOptions,
 ) (*appsv1.Deployment, error) {
+	_ = opts
+
 	resource := &appsv1.Deployment{}
 	key := ctrlclient.ObjectKey{Namespace: namespace, Name: name}
 
-	err := waitFor(
+	err := waitForObject(
 		ctx,
 		fmt.Sprintf("wait for Deployment %s/%s availability", namespace, name),
-		opts,
+		kubeClient,
+		key,
+		func() ctrlclient.ObjectList {
+			return &appsv1.DeploymentList{}
+		},
 		func(ctx context.Context) (bool, string, error) {
 			if err := kubeClient.Get(ctx, key, resource); err != nil {
 				return false, "", err
@@ -360,19 +389,25 @@ func hasReadyEndpointAddress(endpointSlices []discoveryv1.EndpointSlice) bool {
 
 func waitForGatewayCondition(
 	ctx context.Context,
-	kubeClient ctrlclient.Client,
+	kubeClient ctrlclient.WithWatch,
 	namespace string,
 	name string,
 	conditionType string,
 	opts *WaitOptions,
 ) (*gatewayv1.Gateway, error) {
+	_ = opts
+
 	resource := &gatewayv1.Gateway{}
 	key := ctrlclient.ObjectKey{Namespace: namespace, Name: name}
 
-	err := waitFor(
+	err := waitForObject(
 		ctx,
 		fmt.Sprintf("wait for Gateway %s/%s %s=True", namespace, name, conditionType),
-		opts,
+		kubeClient,
+		key,
+		func() ctrlclient.ObjectList {
+			return &gatewayv1.GatewayList{}
+		},
 		func(ctx context.Context) (bool, string, error) {
 			if err := kubeClient.Get(ctx, key, resource); err != nil {
 				return false, "", err
@@ -390,20 +425,26 @@ func waitForGatewayCondition(
 
 func waitForHTTPRouteCondition(
 	ctx context.Context,
-	kubeClient ctrlclient.Client,
+	kubeClient ctrlclient.WithWatch,
 	namespace string,
 	name string,
 	gatewayName string,
 	conditionType string,
 	opts *WaitOptions,
 ) (*gatewayv1.HTTPRoute, error) {
+	_ = opts
+
 	resource := &gatewayv1.HTTPRoute{}
 	key := ctrlclient.ObjectKey{Namespace: namespace, Name: name}
 
-	err := waitFor(
+	err := waitForObject(
 		ctx,
 		fmt.Sprintf("wait for HTTPRoute %s/%s %s=True", namespace, name, conditionType),
-		opts,
+		kubeClient,
+		key,
+		func() ctrlclient.ObjectList {
+			return &gatewayv1.HTTPRouteList{}
+		},
 		func(ctx context.Context) (bool, string, error) {
 			if err := kubeClient.Get(ctx, key, resource); err != nil {
 				return false, "", err
@@ -435,6 +476,7 @@ func waitFor(
 		pollInterval = opts.PollInterval
 	}
 
+	progressLogger := diag.NewWaitProgressLogger(nil, description, 0)
 	var lastMessage string
 	for {
 		done, message, err := check(ctx)
@@ -446,6 +488,7 @@ func waitFor(
 		}
 
 		lastMessage = message
+		progressLogger.Log(ctx, lastMessage)
 
 		timer := time.NewTimer(pollInterval)
 		select {
@@ -459,6 +502,153 @@ func waitFor(
 		case <-timer.C:
 		}
 	}
+}
+
+func waitForObject(
+	ctx context.Context,
+	description string,
+	kubeClient ctrlclient.WithWatch,
+	key ctrlclient.ObjectKey,
+	newWatchList func() ctrlclient.ObjectList,
+	check func(context.Context) (bool, string, error),
+) error {
+	progressLogger := diag.NewWaitProgressLogger(nil, description, 0)
+	lastMessage := ""
+
+	done, message, err := check(ctx)
+	if err != nil {
+		return fmt.Errorf("%s: %w", description, err)
+	}
+	if done {
+		return nil
+	}
+	lastMessage = message
+	progressLogger.Log(ctx, lastMessage)
+
+	for {
+		options := []ctrlclient.ListOption{
+			ctrlclient.MatchingFields{"metadata.name": key.Name},
+		}
+		if key.Namespace != "" {
+			options = append(options, ctrlclient.InNamespace(key.Namespace))
+		}
+
+		watcher, watchErr := kubeClient.Watch(ctx, newWatchList(), options...)
+		if watchErr != nil {
+			return fmt.Errorf("%s: start watch: %w", description, watchErr)
+		}
+
+		done, message, err = check(ctx)
+		if err != nil {
+			watcher.Stop()
+			return fmt.Errorf("%s: %w", description, err)
+		}
+		if done {
+			watcher.Stop()
+			return nil
+		}
+		lastMessage = message
+		progressLogger.Log(ctx, lastMessage)
+
+		watchErr = waitForObjectWatchEvent(
+			ctx,
+			description,
+			watcher,
+			key,
+			check,
+			&lastMessage,
+			progressLogger,
+		)
+		watcher.Stop()
+		if watchErr == nil {
+			return nil
+		}
+
+		if ctx.Err() != nil {
+			return waitContextError(description, lastMessage, ctx.Err())
+		}
+
+		if !errors.Is(watchErr, errWatchClosed) {
+			return watchErr
+		}
+	}
+}
+
+var errWatchClosed = errors.New("watch closed")
+
+func waitForObjectWatchEvent(
+	ctx context.Context,
+	description string,
+	watcher k8swatch.Interface,
+	key ctrlclient.ObjectKey,
+	check func(context.Context) (bool, string, error),
+	lastMessage *string,
+	progressLogger *diag.WaitProgressLogger,
+) error {
+	progressTicker := time.NewTicker(diag.DefaultWaitProgressLogInterval)
+	defer progressTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return waitContextError(description, *lastMessage, ctx.Err())
+		case <-progressTicker.C:
+			progressLogger.Log(ctx, *lastMessage)
+		case event, ok := <-watcher.ResultChan():
+			if !ok {
+				return errWatchClosed
+			}
+
+			if event.Type == k8swatch.Error {
+				return watchEventError(description, event.Object)
+			}
+
+			if !watchEventMatchesObjectKey(event, key) {
+				continue
+			}
+
+			done, message, err := check(ctx)
+			if err != nil {
+				return fmt.Errorf("%s: %w", description, err)
+			}
+			if done {
+				return nil
+			}
+
+			*lastMessage = message
+			progressLogger.Log(ctx, *lastMessage)
+		}
+	}
+}
+
+func watchEventMatchesObjectKey(event k8swatch.Event, key ctrlclient.ObjectKey) bool {
+	object, ok := event.Object.(ctrlclient.Object)
+	if !ok {
+		return false
+	}
+
+	return ctrlclient.ObjectKeyFromObject(object) == key
+}
+
+func watchEventError(description string, object runtime.Object) error {
+	if object == nil {
+		return fmt.Errorf("%s: watch returned an empty error event", description)
+	}
+
+	statusErr := apierrors.FromObject(object)
+	if statusErr == nil {
+		return fmt.Errorf("%s: watch returned an unknown error event", description)
+	}
+
+	return fmt.Errorf("%s: watch error: %w", description, statusErr)
+}
+
+func waitContextError(description string, lastMessage string, err error) error {
+	if lastMessage != "" {
+		return fmt.Errorf("%s: %s: %w", description, lastMessage, err)
+	}
+
+	return fmt.Errorf("%s: %w", description, err)
 }
 
 func hasCondition(conditions []metav1.Condition, conditionType string, generation int64) (bool, string, error) {

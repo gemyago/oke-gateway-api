@@ -24,7 +24,9 @@ type ClientFactoryOptions struct {
 }
 
 type RuntimeClient struct {
-	ctrlclient.Client
+	ctrlclient.WithWatch
+
+	Client ctrlclient.WithWatch
 
 	Scheme *runtime.Scheme
 }
@@ -102,13 +104,14 @@ func newControllerRuntimeClient(
 	cfg *rest.Config,
 	options ctrlclient.Options,
 ) (*RuntimeClient, error) {
-	client, err := ctrlclient.New(cfg, options)
+	client, err := ctrlclient.NewWithWatch(cfg, options)
 	if err != nil {
 		return nil, err
 	}
 
 	return &RuntimeClient{
-		Client: client,
-		Scheme: options.Scheme,
+		WithWatch: client,
+		Client:    client,
+		Scheme:    options.Scheme,
 	}, nil
 }

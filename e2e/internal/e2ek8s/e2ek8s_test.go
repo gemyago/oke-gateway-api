@@ -1,8 +1,10 @@
 package e2ek8s
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,11 +15,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	k8swatch "k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/stretchr/testify/assert"
@@ -32,10 +36,11 @@ func TestNewClient(t *testing.T) {
 	t.Run("allows empty kubeconfig path and falls back to default loading", func(t *testing.T) {
 		t.Parallel()
 
+		fakerGen := faker.New()
 		var gotConfig config.KubernetesConfig
 		cfg := config.KubernetesConfig{
 			KubeconfigPath: "",
-			Context:        "oke-live",
+			Context:        "oke-live-" + fakerGen.UUID().V4(),
 		}
 
 		client, err := NewClient(cfg, &ClientFactoryOptions{
@@ -44,7 +49,12 @@ func TestNewClient(t *testing.T) {
 				return &rest.Config{}, nil
 			},
 			newClient: func(_ *rest.Config, options ctrlclient.Options) (*RuntimeClient, error) {
-				return &RuntimeClient{Scheme: options.Scheme}, nil
+				client := fake.NewClientBuilder().WithScheme(options.Scheme).Build()
+				return &RuntimeClient{
+					WithWatch: client,
+					Client:    client,
+					Scheme:    options.Scheme,
+				}, nil
 			},
 			newScheme: NewScheme,
 		})
@@ -56,10 +66,11 @@ func TestNewClient(t *testing.T) {
 	t.Run("wraps kubeconfig build errors with context", func(t *testing.T) {
 		t.Parallel()
 
+		fakerGen := faker.New()
 		wantErr := errors.New("boom")
 		cfg := config.KubernetesConfig{
 			KubeconfigPath: "/tmp/kubeconfig",
-			Context:        "oke-live",
+			Context:        "oke-live-" + fakerGen.UUID().V4(),
 		}
 
 		_, err := NewClient(cfg, &ClientFactoryOptions{
@@ -84,27 +95,34 @@ func TestBuildRESTConfig(t *testing.T) {
 	t.Run("overrides current context from config", func(t *testing.T) {
 		t.Parallel()
 
+		fakerGen := faker.New()
+		clusterAName := "cluster-a-" + fakerGen.UUID().V4()
+		clusterBName := "cluster-b-" + fakerGen.UUID().V4()
+		userAName := "user-a-" + fakerGen.UUID().V4()
+		userBName := "user-b-" + fakerGen.UUID().V4()
+		contextAName := "ctx-a-" + fakerGen.UUID().V4()
+		contextBName := "ctx-b-" + fakerGen.UUID().V4()
 		kubeconfigPath := filepath.Join(t.TempDir(), "config")
 		kubeconfig := clientcmdapi.Config{
 			Clusters: map[string]*clientcmdapi.Cluster{
-				"cluster-a": {Server: "https://127.0.0.1:6443"},
-				"cluster-b": {Server: "https://192.0.2.42:6443"},
+				clusterAName: {Server: "https://127.0.0.1:6443"},
+				clusterBName: {Server: "https://192.0.2.42:6443"},
 			},
 			AuthInfos: map[string]*clientcmdapi.AuthInfo{
-				"user-a": {},
-				"user-b": {},
+				userAName: {},
+				userBName: {},
 			},
 			Contexts: map[string]*clientcmdapi.Context{
-				"ctx-a": {Cluster: "cluster-a", AuthInfo: "user-a"},
-				"ctx-b": {Cluster: "cluster-b", AuthInfo: "user-b"},
+				contextAName: {Cluster: clusterAName, AuthInfo: userAName},
+				contextBName: {Cluster: clusterBName, AuthInfo: userBName},
 			},
-			CurrentContext: "ctx-a",
+			CurrentContext: contextAName,
 		}
 		require.NoError(t, clientcmd.WriteToFile(kubeconfig, kubeconfigPath))
 
 		restConfig, err := buildRESTConfig(config.KubernetesConfig{
 			KubeconfigPath: kubeconfigPath,
-			Context:        "ctx-b",
+			Context:        contextBName,
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "https://192.0.2.42:6443", restConfig.Host)
@@ -113,50 +131,60 @@ func TestBuildRESTConfig(t *testing.T) {
 	t.Run("fails when the requested context is missing", func(t *testing.T) {
 		t.Parallel()
 
+		fakerGen := faker.New()
+		clusterName := "cluster-" + fakerGen.UUID().V4()
+		userName := "user-" + fakerGen.UUID().V4()
+		contextName := "ctx-" + fakerGen.UUID().V4()
+		missingContextName := "missing-context-" + fakerGen.UUID().V4()
 		kubeconfigPath := filepath.Join(t.TempDir(), "config")
 		kubeconfig := clientcmdapi.Config{
 			Clusters: map[string]*clientcmdapi.Cluster{
-				"cluster-a": {Server: "https://127.0.0.1:6443"},
+				clusterName: {Server: "https://127.0.0.1:6443"},
 			},
 			AuthInfos: map[string]*clientcmdapi.AuthInfo{
-				"user-a": {},
+				userName: {},
 			},
 			Contexts: map[string]*clientcmdapi.Context{
-				"ctx-a": {Cluster: "cluster-a", AuthInfo: "user-a"},
+				contextName: {Cluster: clusterName, AuthInfo: userName},
 			},
-			CurrentContext: "ctx-a",
+			CurrentContext: contextName,
 		}
 		require.NoError(t, clientcmd.WriteToFile(kubeconfig, kubeconfigPath))
 
 		_, err := buildRESTConfig(config.KubernetesConfig{
 			KubeconfigPath: kubeconfigPath,
-			Context:        "missing-context",
+			Context:        missingContextName,
 		})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "missing-context")
+		assert.Contains(t, err.Error(), missingContextName)
 	})
 }
 
 func TestDeleteNamespacesWithPrefix(t *testing.T) {
 	t.Run("deletes only matching namespaces", func(t *testing.T) {
+		fakerGen := faker.New()
+		prefix := "oke-gw-e2e-" + fakerGen.UUID().V4() + "-"
+		namespaceAName := prefix + "a"
+		namespaceBName := prefix + "b"
+		sharedNamespaceName := "shared-namespace-" + fakerGen.UUID().V4()
 		scheme := makeTestScheme(t)
 		kubeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			WithObjects(
-				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "oke-gw-e2e-12345"}},
-				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "oke-gw-e2e-67890"}},
-				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "shared-namespace"}},
+				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceAName}},
+				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceBName}},
+				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: sharedNamespaceName}},
 			).
 			Build()
 
-		deleted, err := DeleteNamespacesWithPrefix(t.Context(), kubeClient, "oke-gw-e2e-")
+		deleted, err := DeleteNamespacesWithPrefix(t.Context(), kubeClient, prefix)
 		require.NoError(t, err)
-		assert.Equal(t, []string{"oke-gw-e2e-12345", "oke-gw-e2e-67890"}, deleted)
+		assert.Equal(t, []string{namespaceAName, namespaceBName}, deleted)
 
 		var namespaces corev1.NamespaceList
 		require.NoError(t, kubeClient.List(t.Context(), &namespaces))
 		require.Len(t, namespaces.Items, 1)
-		assert.Equal(t, "shared-namespace", namespaces.Items[0].Name)
+		assert.Equal(t, sharedNamespaceName, namespaces.Items[0].Name)
 	})
 
 	t.Run("rejects empty prefix", func(t *testing.T) {
@@ -170,26 +198,32 @@ func TestDeleteNamespacesWithPrefix(t *testing.T) {
 }
 
 func TestNewGatewayConfig(t *testing.T) {
+	fakerGen := faker.New()
+	namespaceName := "oke-gw-e2e-" + fakerGen.UUID().V4()
+	gatewayConfigName := "gateway-config-" + fakerGen.UUID().V4()
+	expectedLoadBalancerID := "ocid1.loadbalancer.oc1..example-" + fakerGen.UUID().V4()
+	labelValue := "case-" + fakerGen.UUID().V4()
+	annotationValue := "note-" + fakerGen.UUID().V4()
 	resource := NewGatewayConfig(GatewayConfigOptions{
-		Namespace:      "oke-gw-e2e-12345",
-		Name:           "gateway-config",
-		LoadBalancerID: "ocid1.loadbalancer.oc1..example",
-		Labels:         map[string]string{"case": "smoke"},
-		Annotations:    map[string]string{"note": "fixture"},
+		Namespace:      namespaceName,
+		Name:           gatewayConfigName,
+		LoadBalancerID: expectedLoadBalancerID,
+		Labels:         map[string]string{"case": labelValue},
+		Annotations:    map[string]string{"note": annotationValue},
 	})
 
 	assert.Equal(t, DefaultGatewayConfigGroup, resource.GroupVersionKind().Group)
 	assert.Equal(t, DefaultGatewayConfigVersion, resource.GroupVersionKind().Version)
 	assert.Equal(t, DefaultGatewayConfigKind, resource.GroupVersionKind().Kind)
-	assert.Equal(t, "oke-gw-e2e-12345", resource.GetNamespace())
-	assert.Equal(t, "gateway-config", resource.GetName())
-	assert.Equal(t, "smoke", resource.GetLabels()["case"])
-	assert.Equal(t, "fixture", resource.GetAnnotations()["note"])
+	assert.Equal(t, namespaceName, resource.GetNamespace())
+	assert.Equal(t, gatewayConfigName, resource.GetName())
+	assert.Equal(t, labelValue, resource.GetLabels()["case"])
+	assert.Equal(t, annotationValue, resource.GetAnnotations()["note"])
 
-	loadBalancerID, found, err := unstructured.NestedString(resource.Object, "spec", "loadBalancerId")
+	actualLoadBalancerID, found, err := unstructured.NestedString(resource.Object, "spec", "loadBalancerId")
 	require.NoError(t, err)
 	require.True(t, found)
-	assert.Equal(t, "ocid1.loadbalancer.oc1..example", loadBalancerID)
+	assert.Equal(t, expectedLoadBalancerID, actualLoadBalancerID)
 }
 
 func TestNewStaticHTTPDeployment(t *testing.T) {
@@ -260,13 +294,16 @@ func TestWaiters(t *testing.T) {
 	waitOpts := &WaitOptions{PollInterval: time.Millisecond}
 
 	t.Run("waits for gateway conditions", func(t *testing.T) {
+		fakerGen := faker.New()
+		namespaceName := "oke-gw-e2e-" + fakerGen.UUID().V4()
+		gatewayName := "oke-gateway-" + fakerGen.UUID().V4()
 		scheme := makeTestScheme(t)
 		kubeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			WithObjects(&gatewayv1.Gateway{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:       "oke-gateway",
-					Namespace:  "oke-gw-e2e-12345",
+					Name:       gatewayName,
+					Namespace:  namespaceName,
 					Generation: 3,
 				},
 				Status: gatewayv1.GatewayStatus{
@@ -289,8 +326,8 @@ func TestWaiters(t *testing.T) {
 		_, err := WaitForGatewayAccepted(
 			t.Context(),
 			kubeClient,
-			"oke-gw-e2e-12345",
-			"oke-gateway",
+			namespaceName,
+			gatewayName,
 			waitOpts,
 		)
 		require.NoError(t, err)
@@ -298,21 +335,92 @@ func TestWaiters(t *testing.T) {
 		_, err = WaitForGatewayProgrammed(
 			t.Context(),
 			kubeClient,
-			"oke-gw-e2e-12345",
-			"oke-gateway",
+			namespaceName,
+			gatewayName,
 			waitOpts,
 		)
 		require.NoError(t, err)
 	})
 
+	t.Run("waits for gateway conditions after watch updates", func(t *testing.T) {
+		fakerGen := faker.New()
+		key := ctrlclient.ObjectKey{
+			Name:      "oke-gateway-" + fakerGen.UUID().V4(),
+			Namespace: "oke-gw-e2e-" + fakerGen.UUID().V4(),
+		}
+		scheme := makeTestScheme(t)
+		baseClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(&gatewayv1.Gateway{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       key.Name,
+					Namespace:  key.Namespace,
+					Generation: 2,
+				},
+			}).
+			Build()
+
+		watchStarted := make(chan struct{})
+		var watchStartedOnce sync.Once
+		kubeClient := interceptor.NewClient(baseClient, interceptor.Funcs{
+			Watch: func(
+				ctx context.Context,
+				client ctrlclient.WithWatch,
+				list ctrlclient.ObjectList,
+				opts ...ctrlclient.ListOption,
+			) (k8swatch.Interface, error) {
+				watchStartedOnce.Do(func() {
+					close(watchStarted)
+				})
+
+				return client.Watch(ctx, list, opts...)
+			},
+		})
+
+		updateErrCh := make(chan error, 1)
+		go func() {
+			<-watchStarted
+
+			gateway := &gatewayv1.Gateway{}
+			if err := baseClient.Get(t.Context(), key, gateway); err != nil {
+				updateErrCh <- err
+				return
+			}
+
+			gateway.Status.Conditions = []metav1.Condition{
+				{
+					Type:               string(gatewayv1.GatewayConditionAccepted),
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: gateway.Generation,
+				},
+			}
+
+			updateErrCh <- baseClient.Update(t.Context(), gateway)
+		}()
+
+		_, err := WaitForGatewayAccepted(
+			t.Context(),
+			kubeClient,
+			key.Namespace,
+			key.Name,
+			waitOpts,
+		)
+		require.NoError(t, err)
+		require.NoError(t, <-updateErrCh)
+	})
+
 	t.Run("waits for route parent conditions", func(t *testing.T) {
+		fakerGen := faker.New()
+		namespaceName := "oke-gw-e2e-" + fakerGen.UUID().V4()
+		routeName := "echo-route-" + fakerGen.UUID().V4()
+		gatewayName := "oke-gateway-" + fakerGen.UUID().V4()
 		scheme := makeTestScheme(t)
 		kubeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			WithObjects(&gatewayv1.HTTPRoute{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:       "echo-route",
-					Namespace:  "oke-gw-e2e-12345",
+					Name:       routeName,
+					Namespace:  namespaceName,
 					Generation: 2,
 				},
 				Status: gatewayv1.HTTPRouteStatus{
@@ -320,7 +428,7 @@ func TestWaiters(t *testing.T) {
 						Parents: []gatewayv1.RouteParentStatus{
 							{
 								ParentRef: gatewayv1.ParentReference{
-									Name: gatewayv1.ObjectName("oke-gateway"),
+									Name: gatewayv1.ObjectName(gatewayName),
 								},
 								ControllerName: DefaultGatewayControllerName,
 								Conditions: []metav1.Condition{
@@ -345,9 +453,9 @@ func TestWaiters(t *testing.T) {
 		_, err := WaitForHTTPRouteAccepted(
 			t.Context(),
 			kubeClient,
-			"oke-gw-e2e-12345",
-			"echo-route",
-			"oke-gateway",
+			namespaceName,
+			routeName,
+			gatewayName,
 			waitOpts,
 		)
 		require.NoError(t, err)
@@ -355,15 +463,18 @@ func TestWaiters(t *testing.T) {
 		_, err = WaitForHTTPRouteResolvedRefs(
 			t.Context(),
 			kubeClient,
-			"oke-gw-e2e-12345",
-			"echo-route",
-			"oke-gateway",
+			namespaceName,
+			routeName,
+			gatewayName,
 			waitOpts,
 		)
 		require.NoError(t, err)
 	})
 
 	t.Run("waits for route deletion", func(t *testing.T) {
+		fakerGen := faker.New()
+		namespaceName := "oke-gw-e2e-" + fakerGen.UUID().V4()
+		routeName := "echo-route-" + fakerGen.UUID().V4()
 		scheme := makeTestScheme(t)
 		kubeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
@@ -372,14 +483,77 @@ func TestWaiters(t *testing.T) {
 		err := WaitForHTTPRouteDeleted(
 			t.Context(),
 			kubeClient,
-			"oke-gw-e2e-12345",
-			"echo-route",
+			namespaceName,
+			routeName,
 			waitOpts,
 		)
 		require.NoError(t, err)
 	})
 
+	t.Run("waits for route deletion after watch updates", func(t *testing.T) {
+		fakerGen := faker.New()
+		key := ctrlclient.ObjectKey{
+			Name:      "echo-route-" + fakerGen.UUID().V4(),
+			Namespace: "oke-gw-e2e-" + fakerGen.UUID().V4(),
+		}
+		scheme := makeTestScheme(t)
+		baseClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(&gatewayv1.HTTPRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      key.Name,
+					Namespace: key.Namespace,
+				},
+			}).
+			Build()
+
+		watchStarted := make(chan struct{})
+		var watchStartedOnce sync.Once
+		kubeClient := interceptor.NewClient(baseClient, interceptor.Funcs{
+			Watch: func(
+				ctx context.Context,
+				client ctrlclient.WithWatch,
+				list ctrlclient.ObjectList,
+				opts ...ctrlclient.ListOption,
+			) (k8swatch.Interface, error) {
+				watchStartedOnce.Do(func() {
+					close(watchStarted)
+				})
+
+				return client.Watch(ctx, list, opts...)
+			},
+		})
+
+		deleteErrCh := make(chan error, 1)
+		go func() {
+			<-watchStarted
+
+			route := &gatewayv1.HTTPRoute{}
+			if err := baseClient.Get(t.Context(), key, route); err != nil {
+				deleteErrCh <- err
+				return
+			}
+
+			deleteErrCh <- baseClient.Delete(t.Context(), route)
+		}()
+
+		err := WaitForHTTPRouteDeleted(
+			t.Context(),
+			kubeClient,
+			key.Namespace,
+			key.Name,
+			waitOpts,
+		)
+		require.NoError(t, err)
+		require.NoError(t, <-deleteErrCh)
+	})
+
 	t.Run("waits for namespace deletion", func(t *testing.T) {
+		fakerGen := faker.New()
+		namespaceNames := []string{
+			"oke-gw-e2e-" + fakerGen.UUID().V4(),
+			"oke-gw-e2e-" + fakerGen.UUID().V4(),
+		}
 		scheme := makeTestScheme(t)
 		kubeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
@@ -388,21 +562,24 @@ func TestWaiters(t *testing.T) {
 		err := WaitForNamespacesDeleted(
 			t.Context(),
 			kubeClient,
-			[]string{"oke-gw-e2e-12345", "oke-gw-e2e-67890"},
+			namespaceNames,
 			waitOpts,
 		)
 		require.NoError(t, err)
 	})
 
 	t.Run("waits for deployment availability", func(t *testing.T) {
+		fakerGen := faker.New()
+		namespaceName := "oke-gw-e2e-" + fakerGen.UUID().V4()
+		deploymentName := "echo-" + fakerGen.UUID().V4()
 		scheme := makeTestScheme(t)
 		replicas := int32(1)
 		kubeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			WithObjects(&appsv1.Deployment{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:       "echo",
-					Namespace:  "oke-gw-e2e-12345",
+					Name:       deploymentName,
+					Namespace:  namespaceName,
 					Generation: 1,
 				},
 				Spec: appsv1.DeploymentSpec{
@@ -425,24 +602,28 @@ func TestWaiters(t *testing.T) {
 		_, err := WaitForDeploymentReady(
 			t.Context(),
 			kubeClient,
-			"oke-gw-e2e-12345",
-			"echo",
+			namespaceName,
+			deploymentName,
 			waitOpts,
 		)
 		require.NoError(t, err)
 	})
 
 	t.Run("waits for endpoint slices", func(t *testing.T) {
+		fakerGen := faker.New()
+		namespaceName := "oke-gw-e2e-" + fakerGen.UUID().V4()
+		serviceName := "echo-" + fakerGen.UUID().V4()
+		endpointSliceName := "echo-" + fakerGen.UUID().V4()
 		scheme := makeTestScheme(t)
 		ready := true
 		kubeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			WithObjects(&discoveryv1.EndpointSlice{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "echo-abcde",
-					Namespace: "oke-gw-e2e-12345",
+					Name:      endpointSliceName,
+					Namespace: namespaceName,
 					Labels: map[string]string{
-						discoveryv1.LabelServiceName: "echo",
+						discoveryv1.LabelServiceName: serviceName,
 					},
 				},
 				AddressType: discoveryv1.AddressTypeIPv4,
@@ -460,26 +641,30 @@ func TestWaiters(t *testing.T) {
 		slices, err := WaitForServiceEndpointsReady(
 			t.Context(),
 			kubeClient,
-			"oke-gw-e2e-12345",
-			"echo",
+			namespaceName,
+			serviceName,
 			waitOpts,
 		)
 		require.NoError(t, err)
 		require.Len(t, slices, 1)
-		assert.Equal(t, "echo-abcde", slices[0].Name)
+		assert.Equal(t, endpointSliceName, slices[0].Name)
 	})
 
 	t.Run("waits for endpoint slices to stop publishing ready addresses", func(t *testing.T) {
+		fakerGen := faker.New()
+		namespaceName := "oke-gw-e2e-" + fakerGen.UUID().V4()
+		serviceName := "echo-" + fakerGen.UUID().V4()
+		endpointSliceName := "echo-" + fakerGen.UUID().V4()
 		scheme := makeTestScheme(t)
 		ready := false
 		kubeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			WithObjects(&discoveryv1.EndpointSlice{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "echo-abcde",
-					Namespace: "oke-gw-e2e-12345",
+					Name:      endpointSliceName,
+					Namespace: namespaceName,
 					Labels: map[string]string{
-						discoveryv1.LabelServiceName: "echo",
+						discoveryv1.LabelServiceName: serviceName,
 					},
 				},
 				AddressType: discoveryv1.AddressTypeIPv4,
@@ -497,13 +682,13 @@ func TestWaiters(t *testing.T) {
 		slices, err := WaitForServiceEndpointsGone(
 			t.Context(),
 			kubeClient,
-			"oke-gw-e2e-12345",
-			"echo",
+			namespaceName,
+			serviceName,
 			waitOpts,
 		)
 		require.NoError(t, err)
 		require.Len(t, slices, 1)
-		assert.Equal(t, "echo-abcde", slices[0].Name)
+		assert.Equal(t, endpointSliceName, slices[0].Name)
 	})
 }
 

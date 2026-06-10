@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
+
+	"github.com/gemyago/oke-gateway-api/e2e/internal/diag"
 )
 
 const defaultRoutingPolicyPollInterval = 2 * time.Second
@@ -102,12 +104,14 @@ func waitForRoutingPolicyRuleNames(
 	}
 
 	policyName := listenerRoutingPolicyName(listenerName)
+	description := fmt.Sprintf("wait for routing policy %q rule %s", policyName, waitKind)
+	progressLogger := diag.NewWaitProgressLogger(nil, description, 0)
 	var lastMessage string
 
 	for {
 		currentRuleNames, err := getRoutingPolicyRuleNames(ctx, client, loadBalancerID, policyName)
 		if err != nil {
-			return fmt.Errorf("wait for routing policy %q rule %s: %w", policyName, waitKind, err)
+			return fmt.Errorf("%s: %w", description, err)
 		}
 
 		finished, message := done(currentRuleNames, ruleNames)
@@ -116,18 +120,13 @@ func waitForRoutingPolicyRuleNames(
 		}
 
 		lastMessage = message
+		progressLogger.Log(ctx, lastMessage)
 
 		timer := time.NewTimer(pollInterval)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return fmt.Errorf(
-				"wait for routing policy %q rule %s: %s: %w",
-				policyName,
-				waitKind,
-				lastMessage,
-				ctx.Err(),
-			)
+			return fmt.Errorf("%s: %s: %w", description, lastMessage, ctx.Err())
 		case <-timer.C:
 		}
 	}

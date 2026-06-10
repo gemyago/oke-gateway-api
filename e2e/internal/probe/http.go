@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gemyago/oke-gateway-api/e2e/internal/diag"
 )
 
 const (
@@ -354,6 +356,7 @@ func waitFor(
 		pollInterval = opts.PollInterval
 	}
 
+	progressLogger := diag.NewWaitProgressLogger(nil, description, 0)
 	var lastMessage string
 	var lastResponse *Response
 
@@ -365,6 +368,7 @@ func waitFor(
 
 		lastResponse = response
 		lastMessage = message
+		progressLogger.Log(ctx, lastMessage)
 
 		timer := time.NewTimer(pollInterval)
 		select {
