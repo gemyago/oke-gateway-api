@@ -85,11 +85,11 @@ const (
 
 	// HTTPRouteProgrammingRevisionValue is the value for the http route programming revision.
 	// Incremented when the controller programming steps are changed.
-	HTTPRouteProgrammingRevisionValue = "4"
+	HTTPRouteProgrammingRevisionValue = "5"
 
 	// GRPCRouteProgrammingRevisionValue is the value for the grpc route programming revision.
 	// Incremented when the controller programming steps are changed.
-	GRPCRouteProgrammingRevisionValue = "1"
+	GRPCRouteProgrammingRevisionValue = "2"
 )
 
 const ConfigRefGroup = "oke-gateway-api.gemyago.github.io"
