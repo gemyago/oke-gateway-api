@@ -103,6 +103,24 @@ func TestTCPRouteController(t *testing.T) {
 		assert.True(t, model.programmed)
 	})
 
+	t.Run("returns busy requeue for network load balancer busy errors", func(t *testing.T) {
+		model := &stubTCPRouteModel{
+			resolved:   []resolvedTCPRouteDetails{{tcpRoute: gatewayv1alpha2.TCPRoute{}}},
+			programErr: &networkLoadBalancerBusyError{id: "nlb-id"},
+		}
+		controller := NewTCPRouteController(TCPRouteControllerDeps{
+			RootLogger:    diag.RootTestLogger(),
+			TCPRouteModel: model,
+		})
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		require.NoError(t, err)
+		assert.Equal(t, networkLoadBalancerBusyRequeueAfter, result.RequeueAfter)
+		assert.False(t, model.programmed)
+		assert.False(t, model.rejected)
+	})
+
 	t.Run("sets rejected status for route status errors", func(t *testing.T) {
 		model := &stubTCPRouteModel{
 			resolved: []resolvedTCPRouteDetails{{tcpRoute: gatewayv1alpha2.TCPRoute{}}},
@@ -236,6 +254,24 @@ func TestUDPRouteController(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, result)
 		assert.True(t, model.programmed)
+	})
+
+	t.Run("returns busy requeue for network load balancer busy errors", func(t *testing.T) {
+		model := &stubUDPRouteModel{
+			resolved:   []resolvedUDPRouteDetails{{udpRoute: gatewayv1alpha2.UDPRoute{}}},
+			programErr: &networkLoadBalancerBusyError{id: "nlb-id"},
+		}
+		controller := NewUDPRouteController(UDPRouteControllerDeps{
+			RootLogger:    diag.RootTestLogger(),
+			UDPRouteModel: model,
+		})
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		require.NoError(t, err)
+		assert.Equal(t, networkLoadBalancerBusyRequeueAfter, result.RequeueAfter)
+		assert.False(t, model.programmed)
+		assert.False(t, model.rejected)
 	})
 
 	t.Run("sets rejected status for route status errors", func(t *testing.T) {

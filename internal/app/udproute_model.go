@@ -452,28 +452,20 @@ func (m *udpRouteModelImpl) clearBackendSetByName(
 	}
 
 	return m.operationLocks.withLock(nlb.Id, func() error {
-		response, updateErr := m.ociNetworkLoadBalancerAPI.UpdateBackendSet(
+		return updateNetworkLoadBalancerBackendSet(
 			ctx,
-			networkloadbalancer.UpdateBackendSetRequest{
-				NetworkLoadBalancerId: nlb.Id,
-				BackendSetName:        new(backendSetName),
-				UpdateBackendSetDetails: networkloadbalancer.UpdateBackendSetDetails{
-					Policy:           new(string(networkloadbalancer.NetworkLoadBalancingPolicyFiveTuple)),
-					HealthChecker:    healthChecker,
-					IsPreserveSource: new(false),
-					Backends:         []networkloadbalancer.BackendDetails{},
-				},
+			m.ociNetworkLoadBalancerAPI,
+			m.workRequestsWatcher,
+			nlb,
+			backendSetName,
+			"clear",
+			networkloadbalancer.UpdateBackendSetDetails{
+				Policy:           new(string(networkloadbalancer.NetworkLoadBalancingPolicyFiveTuple)),
+				HealthChecker:    healthChecker,
+				IsPreserveSource: new(false),
+				Backends:         []networkloadbalancer.BackendDetails{},
 			},
 		)
-		if updateErr != nil {
-			return fmt.Errorf("failed to clear Network Load Balancer backend set %s: %w", backendSetName, updateErr)
-		}
-		if response.OpcWorkRequestId != nil {
-			if waitErr := m.workRequestsWatcher.WaitFor(ctx, *response.OpcWorkRequestId); waitErr != nil {
-				return fmt.Errorf("failed waiting for backend set %s clear: %w", backendSetName, waitErr)
-			}
-		}
-		return nil
 	})
 }
 
@@ -630,6 +622,9 @@ func (m *udpRouteModelImpl) updateBackendSet(
 		if err != nil {
 			return err
 		}
+		if err = networkLoadBalancerBusyErrorFromState(nlb); err != nil {
+			return err
+		}
 		if nlb.BackendSets != nil {
 			currentBackendSet, ok := nlb.BackendSets[backendSetName]
 			if ok &&
@@ -645,25 +640,20 @@ func (m *udpRouteModelImpl) updateBackendSet(
 			}
 		}
 
-		response, err := m.ociNetworkLoadBalancerAPI.UpdateBackendSet(ctx, networkloadbalancer.UpdateBackendSetRequest{
-			NetworkLoadBalancerId: nlb.Id,
-			BackendSetName:        new(backendSetName),
-			UpdateBackendSetDetails: networkloadbalancer.UpdateBackendSetDetails{
+		return updateNetworkLoadBalancerBackendSet(
+			ctx,
+			m.ociNetworkLoadBalancerAPI,
+			m.workRequestsWatcher,
+			nlb,
+			backendSetName,
+			"update",
+			networkloadbalancer.UpdateBackendSetDetails{
 				Policy:           new(string(networkloadbalancer.NetworkLoadBalancingPolicyFiveTuple)),
 				HealthChecker:    &healthChecker,
 				IsPreserveSource: new(false),
 				Backends:         backends,
 			},
-		})
-		if err != nil {
-			return fmt.Errorf("failed to update Network Load Balancer backend set %s: %w", backendSetName, err)
-		}
-		if response.OpcWorkRequestId != nil {
-			if err = m.workRequestsWatcher.WaitFor(ctx, *response.OpcWorkRequestId); err != nil {
-				return fmt.Errorf("failed waiting for backend set %s update: %w", backendSetName, err)
-			}
-		}
-		return nil
+		)
 	})
 }
 

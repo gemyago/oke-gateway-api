@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"testing"
 
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
@@ -19,6 +20,7 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
+	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
 	"github.com/gemyago/oke-gateway-api/internal/types"
 )
 
@@ -797,42 +799,91 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 
 	t.Run("wraps listener and backend set reconcile errors", func(t *testing.T) {
 		listener := gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: 1935}
+		busyErr := ociapi.NewRandomServiceError(
+			ociapi.RandomServiceErrorWithStatusCode(http.StatusConflict),
+			ociapi.RandomServiceErrorWithCode("InvalidStateTransition"),
+			ociapi.RandomServiceErrorWithMessage(
+				"Invalid State Transition of NLB lifeCycle state from Updating to Updating",
+			),
+		)
 		for name, tc := range map[string]struct {
-			client *stubNetworkLoadBalancerClient
-			err    string
+			client   *stubNetworkLoadBalancerClient
+			wantBusy bool
+			msg      string
 		}{
 			"create backend set": {
 				client: &stubNetworkLoadBalancerClient{createBackendSetErr: errors.New("create backend set failed")},
-				err:    "failed to create OCI Network Load Balancer backend set",
+				msg:    "failed to create OCI Network Load Balancer backend set",
 			},
 			"update backend set": {
 				client: &stubNetworkLoadBalancerClient{updateBackendSetErr: errors.New("update backend set failed")},
-				err:    "failed to update OCI Network Load Balancer backend set",
+				msg:    "failed to update OCI Network Load Balancer backend set",
+			},
+			"busy create backend set": {
+				client:   &stubNetworkLoadBalancerClient{createBackendSetErr: busyErr},
+				wantBusy: true,
+			},
+			"busy update backend set": {
+				client:   &stubNetworkLoadBalancerClient{updateBackendSetErr: busyErr},
+				wantBusy: true,
 			},
 			"create listener": {
-				client: &stubNetworkLoadBalancerClient{createListenerErr: errors.New("create listener failed")},
-				err:    "failed to create OCI Network Load Balancer listener",
+				client: &stubNetworkLoadBalancerClient{
+					createBackendSetResponse: networkloadbalancer.CreateBackendSetResponse{
+						OpcWorkRequestId: new("create-backend-set-work"),
+					},
+					createListenerErr: errors.New("create listener failed"),
+				},
+				msg: "failed to create OCI Network Load Balancer listener",
+			},
+			"busy create listener": {
+				client: &stubNetworkLoadBalancerClient{
+					createBackendSetResponse: networkloadbalancer.CreateBackendSetResponse{
+						OpcWorkRequestId: new("create-backend-set-work"),
+					},
+					createListenerErr: busyErr,
+				},
+				wantBusy: true,
 			},
 			"update listener": {
-				client: &stubNetworkLoadBalancerClient{updateListenerErr: errors.New("update listener failed")},
-				err:    "failed to update OCI Network Load Balancer listener",
+				client: &stubNetworkLoadBalancerClient{
+					updateBackendSetResponse: networkloadbalancer.UpdateBackendSetResponse{
+						OpcWorkRequestId: new("update-backend-set-work"),
+					},
+					updateListenerErr: errors.New("update listener failed"),
+				},
+				msg: "failed to update OCI Network Load Balancer listener",
+			},
+			"busy update listener": {
+				client: &stubNetworkLoadBalancerClient{
+					updateBackendSetResponse: networkloadbalancer.UpdateBackendSetResponse{
+						OpcWorkRequestId: new("update-backend-set-work"),
+					},
+					updateListenerErr: busyErr,
+				},
+				wantBusy: true,
 			},
 		} {
 			t.Run(name, func(t *testing.T) {
 				nlb := networkloadbalancer.NetworkLoadBalancer{
 					Id: new("nlb-id"),
 				}
-				if name == "update backend set" || name == "update listener" {
+				if tc.client.updateBackendSetErr != nil || tc.client.updateListenerErr != nil {
 					nlb.BackendSets = map[string]networkloadbalancer.BackendSet{"bs_rtmp": {Name: new("bs_rtmp")}}
 				}
-				if name == "update listener" {
+				if tc.client.updateListenerErr != nil {
 					nlb.Listeners = map[string]networkloadbalancer.Listener{"rtmp": {Name: new("rtmp")}}
 				}
 				model := newModel(tc.client, &stubWorkRequestsWatcher{})
 
 				err := mustNetworkLoadBalancerGatewayModelImpl(t, model).reconcileListener(t.Context(), nlb, listener)
 
-				require.ErrorContains(t, err, tc.err)
+				if tc.wantBusy {
+					var gotBusyErr *networkLoadBalancerBusyError
+					require.ErrorAs(t, err, &gotBusyErr)
+				} else {
+					require.ErrorContains(t, err, tc.msg)
+				}
 			})
 		}
 	})
@@ -910,6 +961,13 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 	})
 
 	t.Run("wraps cleanup wait and program setup errors", func(t *testing.T) {
+		busyErr := ociapi.NewRandomServiceError(
+			ociapi.RandomServiceErrorWithStatusCode(http.StatusConflict),
+			ociapi.RandomServiceErrorWithCode("InvalidStateTransition"),
+			ociapi.RandomServiceErrorWithMessage(
+				"Invalid State Transition of NLB lifeCycle state from Updating to Updating",
+			),
+		)
 		model := newModel(&stubNetworkLoadBalancerClient{
 			deleteListenerResponse: networkloadbalancer.DeleteListenerResponse{
 				OpcWorkRequestId: new("delete-listener-work"),
@@ -933,6 +991,30 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 			BackendSets: map[string]networkloadbalancer.BackendSet{"bs_old": {Name: new("bs_old")}},
 		}, nil)
 		require.ErrorContains(t, err, "failed waiting for stale backend set bs_old deletion")
+
+		model = newModel(
+			&stubNetworkLoadBalancerClient{deleteListenerErr: busyErr},
+			&stubWorkRequestsWatcher{},
+		)
+		modelImpl = mustNetworkLoadBalancerGatewayModelImpl(t, model)
+		err = modelImpl.removeMissingListeners(t.Context(), networkloadbalancer.NetworkLoadBalancer{
+			Id:        new("nlb-id"),
+			Listeners: map[string]networkloadbalancer.Listener{"old": {Name: new("old")}},
+		}, nil)
+		var gotBusyErr *networkLoadBalancerBusyError
+		require.ErrorAs(t, err, &gotBusyErr)
+
+		model = newModel(
+			&stubNetworkLoadBalancerClient{deleteBackendSetErr: busyErr},
+			&stubWorkRequestsWatcher{},
+		)
+		modelImpl = mustNetworkLoadBalancerGatewayModelImpl(t, model)
+		err = modelImpl.removeMissingBackendSets(t.Context(), networkloadbalancer.NetworkLoadBalancer{
+			Id:          new("nlb-id"),
+			BackendSets: map[string]networkloadbalancer.BackendSet{"bs_old": {Name: new("bs_old")}},
+		}, nil)
+		gotBusyErr = nil
+		require.ErrorAs(t, err, &gotBusyErr)
 
 		model = newModel(&stubNetworkLoadBalancerClient{getErr: errors.New("get failed")}, &stubWorkRequestsWatcher{})
 		err = model.programGateway(t.Context(), newDetails())

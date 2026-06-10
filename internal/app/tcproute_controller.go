@@ -87,6 +87,14 @@ func reconcileL4Route[D any](ctx context.Context, params reconcileL4RouteParams[
 
 	for _, resolvedRoute := range resolvedRoutes {
 		if err = reconcileResolvedL4Route(ctx, params, resolvedRoute); err != nil {
+			var busyErr *networkLoadBalancerBusyError
+			if errors.As(err, &busyErr) {
+				params.logger.InfoContext(ctx, "OCI Network Load Balancer is busy, requeueing route",
+					slog.String(params.routeAttr, params.req.NamespacedName.String()),
+					slog.String("error", busyErr.Error()),
+				)
+				return networkLoadBalancerBusyRequeue(), nil
+			}
 			return reconcile.Result{}, err
 		}
 	}

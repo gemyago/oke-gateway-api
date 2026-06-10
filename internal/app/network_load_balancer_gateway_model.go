@@ -92,6 +92,41 @@ func networkLoadBalancerHealthCheckerDetails(
 	return healthChecker
 }
 
+func networkLoadBalancerHealthCheckerMatches(
+	actual *networkloadbalancer.HealthChecker,
+	desired networkloadbalancer.HealthCheckerDetails,
+) bool {
+	if actual == nil {
+		return false
+	}
+	return actual.Protocol == desired.Protocol &&
+		lo.FromPtr(actual.Port) == lo.FromPtr(desired.Port) &&
+		lo.FromPtr(actual.Retries) == lo.FromPtr(desired.Retries) &&
+		lo.FromPtr(actual.TimeoutInMillis) == lo.FromPtr(desired.TimeoutInMillis) &&
+		lo.FromPtr(actual.IntervalInMillis) == lo.FromPtr(desired.IntervalInMillis)
+}
+
+func networkLoadBalancerBackendSetMatches(
+	actual networkloadbalancer.BackendSet,
+	desiredPolicy networkloadbalancer.NetworkLoadBalancingPolicyEnum,
+	desiredHealthChecker networkloadbalancer.HealthCheckerDetails,
+) bool {
+	return actual.Policy == desiredPolicy &&
+		!lo.FromPtr(actual.IsPreserveSource) &&
+		networkLoadBalancerHealthCheckerMatches(actual.HealthChecker, desiredHealthChecker)
+}
+
+func networkLoadBalancerListenerMatches(
+	actual networkloadbalancer.Listener,
+	desiredProtocol networkloadbalancer.ListenerProtocolsEnum,
+	desiredPort int,
+	desiredBackendSetName string,
+) bool {
+	return actual.Protocol == desiredProtocol &&
+		lo.FromPtr(actual.Port) == desiredPort &&
+		lo.FromPtr(actual.DefaultBackendSetName) == desiredBackendSetName
+}
+
 func gatewayStatusAddressesFromNetworkLoadBalancer(
 	nlb *networkloadbalancer.NetworkLoadBalancer,
 ) []gatewayv1.GatewayStatusAddress {
@@ -253,7 +288,18 @@ func (m *networkLoadBalancerGatewayModelImpl) reconcileListenerBackendSet(
 	port := int(listener.Port)
 	healthChecker := networkLoadBalancerHealthCheckerDetails(listener.Protocol, new(port))
 
-	if _, exists := nlb.BackendSets[backendSetName]; exists {
+	backendSet, exists := nlb.BackendSets[backendSetName]
+	if exists && networkLoadBalancerBackendSetMatches(
+		backendSet,
+		networkloadbalancer.NetworkLoadBalancingPolicyFiveTuple,
+		healthChecker,
+	) {
+		m.logger.DebugContext(ctx, "Network Load Balancer backend set already up to date",
+			slog.String("backendSetName", backendSetName),
+		)
+		return nil
+	}
+	if exists {
 		response, err := m.ociClient.UpdateBackendSet(ctx, networkloadbalancer.UpdateBackendSetRequest{
 			NetworkLoadBalancerId: nlb.Id,
 			BackendSetName:        new(backendSetName),
@@ -264,6 +310,9 @@ func (m *networkLoadBalancerGatewayModelImpl) reconcileListenerBackendSet(
 			},
 		})
 		if err != nil {
+			if busyErr := networkLoadBalancerBusyErrorFromOCI(nlb.Id, err); busyErr != nil {
+				return busyErr
+			}
 			return fmt.Errorf("failed to update OCI Network Load Balancer backend set %s: %w", backendSetName, err)
 		}
 		if response.OpcWorkRequestId != nil {
@@ -282,6 +331,9 @@ func (m *networkLoadBalancerGatewayModelImpl) reconcileListenerBackendSet(
 		},
 	})
 	if err != nil {
+		if busyErr := networkLoadBalancerBusyErrorFromOCI(nlb.Id, err); busyErr != nil {
+			return busyErr
+		}
 		return fmt.Errorf("failed to create OCI Network Load Balancer backend set %s: %w", backendSetName, err)
 	}
 	if response.OpcWorkRequestId != nil {
@@ -315,7 +367,14 @@ func (m *networkLoadBalancerGatewayModelImpl) reconcileListener(
 	listenerName := string(listener.Name)
 	backendSetName := networkLoadBalancerBackendSetName(listener)
 	port := int(listener.Port)
-	if _, exists := nlb.Listeners[listenerName]; exists {
+	existingListener, exists := nlb.Listeners[listenerName]
+	if exists && networkLoadBalancerListenerMatches(existingListener, protocol, port, backendSetName) {
+		m.logger.DebugContext(ctx, "Network Load Balancer listener already up to date",
+			slog.String("listenerName", listenerName),
+		)
+		return nil
+	}
+	if exists {
 		response, err := m.ociClient.UpdateListener(ctx, networkloadbalancer.UpdateListenerRequest{
 			NetworkLoadBalancerId: nlb.Id,
 			ListenerName:          new(listenerName),
@@ -326,6 +385,9 @@ func (m *networkLoadBalancerGatewayModelImpl) reconcileListener(
 			},
 		})
 		if err != nil {
+			if busyErr := networkLoadBalancerBusyErrorFromOCI(nlb.Id, err); busyErr != nil {
+				return busyErr
+			}
 			return fmt.Errorf("failed to update OCI Network Load Balancer listener %s: %w", listenerName, err)
 		}
 		if response.OpcWorkRequestId != nil {
@@ -344,6 +406,9 @@ func (m *networkLoadBalancerGatewayModelImpl) reconcileListener(
 		},
 	})
 	if err != nil {
+		if busyErr := networkLoadBalancerBusyErrorFromOCI(nlb.Id, err); busyErr != nil {
+			return busyErr
+		}
 		return fmt.Errorf("failed to create OCI Network Load Balancer listener %s: %w", listenerName, err)
 	}
 	if response.OpcWorkRequestId != nil {
@@ -464,6 +529,9 @@ func removeMissingNetworkLoadBalancerResources[T any](
 		)
 		workRequestID, err := cleanup.delete(resourceName)
 		if err != nil {
+			if busyErr := networkLoadBalancerBusyErrorFromOCI(networkLoadBalancerID, err); busyErr != nil {
+				return busyErr
+			}
 			return fmt.Errorf(
 				"failed to delete stale OCI Network Load Balancer %s %s: %w",
 				cleanup.kind,
@@ -490,6 +558,9 @@ func (m *networkLoadBalancerGatewayModelImpl) programGateway(
 	}
 	if nlb.Id == nil {
 		return errors.New("OCI Network Load Balancer id is empty")
+	}
+	if busyErr := networkLoadBalancerBusyErrorFromState(nlb); busyErr != nil {
+		return busyErr
 	}
 	annotations := data.gateway.GetAnnotations()
 	if annotations == nil {

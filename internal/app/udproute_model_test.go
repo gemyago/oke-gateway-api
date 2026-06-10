@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"net/http"
 	"reflect"
 	"testing"
 
@@ -22,6 +23,7 @@ import (
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
+	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
 	"github.com/gemyago/oke-gateway-api/internal/types"
 )
 
@@ -1297,6 +1299,108 @@ func TestUDPRouteModel(t *testing.T) {
 				require.ErrorContains(t, err, deps.err)
 			})
 		}
+	})
+
+	t.Run("programRoute returns busy error for backend set update conflict", func(t *testing.T) {
+		port := gatewayv1.PortNumber(5684)
+		route := gatewayv1alpha2.UDPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "iot",
+				Name:      "coap",
+				Annotations: map[string]string{
+					NetworkLoadBalancerUDPRouteHealthCheckPortAnnotation: "5684",
+				},
+			},
+			Spec: gatewayv1alpha2.UDPRouteSpec{
+				CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
+				},
+				Rules: []gatewayv1alpha2.UDPRouteRule{{
+					BackendRefs: []gatewayv1.BackendRef{{
+						BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
+					}},
+				}},
+			},
+		}
+		listener := gatewayv1.Listener{Name: "coap", Protocol: gatewayv1.UDPProtocolType, Port: port}
+		objects := append(l4GatewayObjects(listener), &route)
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithRuntimeObjects(objects...).
+			Build()
+		model := newUDPRouteModel(udpRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  k8sClient,
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{
+				networkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id: new("nlb-id"),
+					BackendSets: map[string]networkloadbalancer.BackendSet{
+						"bs_coap": {Name: new("bs_coap")},
+					},
+				},
+			},
+			OciNetworkLoadBalancerAPI: &stubNetworkLoadBalancerClient{
+				updateBackendSetErr: ociapi.NewRandomServiceError(
+					ociapi.RandomServiceErrorWithStatusCode(http.StatusConflict),
+					ociapi.RandomServiceErrorWithCode("InvalidStateTransition"),
+					ociapi.RandomServiceErrorWithMessage(
+						"Invalid State Transition of NLB lifeCycle state from Updating to Updating",
+					),
+				),
+			},
+			WorkRequestsWatcher: &stubWorkRequestsWatcher{},
+		})
+
+		err := model.programRoute(t.Context(), resolvedUDPRouteDetails{
+			udpRoute: route,
+			gatewayDetails: resolvedGatewayDetails{
+				gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "edge"}},
+			},
+			matchedListener: listener,
+		})
+
+		var busyErr *networkLoadBalancerBusyError
+		require.ErrorAs(t, err, &busyErr)
+	})
+
+	t.Run("programRoute returns busy error when NLB is already updating", func(t *testing.T) {
+		port := gatewayv1.PortNumber(5684)
+		listener := gatewayv1.Listener{Name: "coap", Protocol: gatewayv1.UDPProtocolType, Port: port}
+		route := gatewayv1alpha2.UDPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "iot",
+				Name:      "coap",
+				Annotations: map[string]string{
+					NetworkLoadBalancerUDPRouteHealthCheckPortAnnotation: "5684",
+				},
+			},
+		}
+		nlbClient := &stubNetworkLoadBalancerClient{}
+		model := newUDPRouteModel(udpRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).Build(),
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{
+				networkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id:             new("nlb-id"),
+					LifecycleState: networkloadbalancer.LifecycleStateUpdating,
+					BackendSets:    map[string]networkloadbalancer.BackendSet{"bs_coap": {Name: new("bs_coap")}},
+				},
+			},
+			OciNetworkLoadBalancerAPI: nlbClient,
+		})
+		modelImpl := mustUDPRouteModelImpl(t, model)
+
+		err := modelImpl.updateBackendSet(t.Context(), resolvedUDPRouteDetails{
+			udpRoute: route,
+			gatewayDetails: resolvedGatewayDetails{
+				gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "edge"}},
+			},
+			matchedListener: listener,
+		}, "bs_coap", nil)
+
+		var busyErr *networkLoadBalancerBusyError
+		require.ErrorAs(t, err, &busyErr)
+		assert.Empty(t, nlbClient.updateBackendSetRequests)
 	})
 
 	t.Run("programRoute uses annotated TCP health check port", func(t *testing.T) {

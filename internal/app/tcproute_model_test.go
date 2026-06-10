@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"net/http"
 	"reflect"
 	"testing"
 
@@ -22,6 +23,7 @@ import (
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
+	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
 	"github.com/gemyago/oke-gateway-api/internal/types"
 )
 
@@ -1342,6 +1344,96 @@ func TestTCPRouteModel(t *testing.T) {
 				require.ErrorContains(t, err, deps.err)
 			})
 		}
+	})
+
+	t.Run("programRoute returns busy error for backend set update conflict", func(t *testing.T) {
+		port := gatewayv1.PortNumber(1935)
+		route := gatewayv1alpha2.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
+			Spec: gatewayv1alpha2.TCPRouteSpec{
+				CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
+				},
+				Rules: []gatewayv1alpha2.TCPRouteRule{{
+					BackendRefs: []gatewayv1.BackendRef{{
+						BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
+					}},
+				}},
+			},
+		}
+		listener := gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: port}
+		objects := append(l4GatewayObjects(listener), &route)
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithRuntimeObjects(objects...).
+			Build()
+		model := newTCPRouteModel(tcpRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  k8sClient,
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{
+				networkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id: new("nlb-id"),
+					BackendSets: map[string]networkloadbalancer.BackendSet{
+						"bs_rtmp": {Name: new("bs_rtmp")},
+					},
+				},
+			},
+			OciNetworkLoadBalancerAPI: &stubNetworkLoadBalancerClient{
+				updateBackendSetErr: ociapi.NewRandomServiceError(
+					ociapi.RandomServiceErrorWithStatusCode(http.StatusConflict),
+					ociapi.RandomServiceErrorWithCode("InvalidStateTransition"),
+					ociapi.RandomServiceErrorWithMessage(
+						"Invalid State Transition of NLB lifeCycle state from Updating to Updating",
+					),
+				),
+			},
+			WorkRequestsWatcher: &stubWorkRequestsWatcher{},
+		})
+
+		err := model.programRoute(t.Context(), resolvedTCPRouteDetails{
+			tcpRoute: route,
+			gatewayDetails: resolvedGatewayDetails{
+				gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "edge"}},
+			},
+			matchedListener: listener,
+		})
+
+		var busyErr *networkLoadBalancerBusyError
+		require.ErrorAs(t, err, &busyErr)
+	})
+
+	t.Run("programRoute returns busy error when NLB is already updating", func(t *testing.T) {
+		port := gatewayv1.PortNumber(1935)
+		listener := gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: port}
+		route := gatewayv1alpha2.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
+		}
+		nlbClient := &stubNetworkLoadBalancerClient{}
+		model := newTCPRouteModel(tcpRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).Build(),
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{
+				networkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id:             new("nlb-id"),
+					LifecycleState: networkloadbalancer.LifecycleStateUpdating,
+					BackendSets:    map[string]networkloadbalancer.BackendSet{"bs_rtmp": {Name: new("bs_rtmp")}},
+				},
+			},
+			OciNetworkLoadBalancerAPI: nlbClient,
+		})
+		modelImpl := mustTCPRouteModelImpl(t, model)
+
+		err := modelImpl.updateBackendSet(t.Context(), resolvedTCPRouteDetails{
+			tcpRoute: route,
+			gatewayDetails: resolvedGatewayDetails{
+				gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "edge"}},
+			},
+			matchedListener: listener,
+		}, "bs_rtmp", nil)
+
+		var busyErr *networkLoadBalancerBusyError
+		require.ErrorAs(t, err, &busyErr)
+		assert.Empty(t, nlbClient.updateBackendSetRequests)
 	})
 
 	t.Run("programRoute clears backend set when listener rejects attached route", func(t *testing.T) {

@@ -43,6 +43,14 @@ func (r *NetworkLoadBalancerGatewayController) processResourceError(
 	err error,
 	gateway *gatewayv1.Gateway,
 ) (reconcile.Result, error) {
+	var busyErr *networkLoadBalancerBusyError
+	if errors.As(err, &busyErr) {
+		r.logger.InfoContext(ctx, "OCI Network Load Balancer is busy, requeueing Gateway",
+			slog.String("gateway", gateway.Name),
+			slog.String("error", busyErr.Error()),
+		)
+		return networkLoadBalancerBusyRequeue(), nil
+	}
 	var reasonErr *resourceStatusError
 	if errors.As(err, &reasonErr) {
 		if err = r.resourcesModel.setCondition(ctx, setConditionParams{
