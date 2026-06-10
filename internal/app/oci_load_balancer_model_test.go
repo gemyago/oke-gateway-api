@@ -2989,6 +2989,60 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("orders grpc rules before http rules and default catch all", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			loadBalancerID := fake.UUID().V4()
+			listenerName := fake.UUID().V4()
+			policyName := listenerPolicyName(listenerName)
+			httpRule := loadbalancer.RoutingRule{
+				Name:      new("http-api"),
+				Condition: new("http.request.url.path sw '/'"),
+			}
+			grpcRule := loadbalancer.RoutingRule{
+				Name:      new("grpc-api"),
+				Condition: new(grpcContentTypeCondition()),
+			}
+			defaultRule := defaultCatchAllRoutingRule("default-backend")
+
+			ociLoadBalancerClient.EXPECT().GetRoutingPolicy(t.Context(), loadbalancer.GetRoutingPolicyRequest{
+				RoutingPolicyName: new(policyName),
+				LoadBalancerId:    &loadBalancerID,
+			}).Return(loadbalancer.GetRoutingPolicyResponse{
+				RoutingPolicy: loadbalancer.RoutingPolicy{
+					Name:                     new(policyName),
+					Rules:                    []loadbalancer.RoutingRule{httpRule, defaultRule},
+					ConditionLanguageVersion: loadbalancer.RoutingPolicyConditionLanguageVersionV1,
+				},
+			}, nil)
+
+			workRequestID := fake.UUID().V4()
+			ociLoadBalancerClient.EXPECT().UpdateRoutingPolicy(t.Context(), mock.MatchedBy(
+				func(req loadbalancer.UpdateRoutingPolicyRequest) bool {
+					assert.Equal(
+						t,
+						[]loadbalancer.RoutingRule{grpcRule, httpRule, defaultRule},
+						req.UpdateRoutingPolicyDetails.Rules,
+					)
+					return true
+				},
+			)).Return(loadbalancer.UpdateRoutingPolicyResponse{
+				OpcWorkRequestId: &workRequestID,
+			}, nil)
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
+
+			err := model.commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID: loadBalancerID,
+				listenerName:   listenerName,
+				policyRules:    []loadbalancer.RoutingRule{httpRule, grpcRule},
+			})
+			require.NoError(t, err)
+		})
+
 		t.Run("skips update when routing policy already matches desired rules", func(t *testing.T) {
 			fake := faker.New()
 			deps := makeMockDeps(t)

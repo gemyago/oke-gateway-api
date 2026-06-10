@@ -703,7 +703,16 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			)
 
 			require.NoError(t, err)
-			assert.Equal(t, fmt.Sprintf("any(http.request.url.path eq '/%s/%s')", service, method), actual)
+			assert.Equal(
+				t,
+				fmt.Sprintf(
+					"any(all(%s, http.request.url.path eq '/%s/%s'))",
+					grpcContentTypeCondition(),
+					service,
+					method,
+				),
+				actual,
+			)
 		})
 
 		t.Run("maps service only to grpc path prefix", func(t *testing.T) {
@@ -723,7 +732,11 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			)
 
 			require.NoError(t, err)
-			assert.Equal(t, fmt.Sprintf("any(http.request.url.path sw '/%s/')", service), actual)
+			assert.Equal(
+				t,
+				fmt.Sprintf("any(all(%s, http.request.url.path sw '/%s/'))", grpcContentTypeCondition(), service),
+				actual,
+			)
 		})
 
 		t.Run("maps method only to grpc path suffix", func(t *testing.T) {
@@ -743,7 +756,11 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			)
 
 			require.NoError(t, err)
-			assert.Equal(t, fmt.Sprintf("any(http.request.url.path ew '/%s')", method), actual)
+			assert.Equal(
+				t,
+				fmt.Sprintf("any(all(%s, http.request.url.path ew '/%s'))", grpcContentTypeCondition(), method),
+				actual,
+			)
 		})
 
 		t.Run("combines hostname method and header conditions", func(t *testing.T) {
@@ -776,8 +793,9 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			require.NoError(t, err)
 			want := fmt.Sprintf(
 				"any(all(http.request.headers[(i 'host')] eq (i '%s'), "+
-					"all(http.request.url.path eq '/%s/%s', http.request.headers[(i '%s')] eq (i '%s'))))",
+					"%s, all(http.request.url.path eq '/%s/%s', http.request.headers[(i '%s')] eq (i '%s'))))",
 				hostname,
+				grpcContentTypeCondition(),
 				service,
 				method,
 				headerName,
@@ -801,21 +819,24 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			assert.Equal(
 				t,
 				fmt.Sprintf(
-					"any(http.request.headers[(i 'host')] eq (i '%s'), http.request.headers[(i 'host')] eq (i '%s'))",
+					"any(all(http.request.headers[(i 'host')] eq (i '%s'), %s), "+
+						"all(http.request.headers[(i 'host')] eq (i '%s'), %s))",
 					host1,
+					grpcContentTypeCondition(),
 					host2,
+					grpcContentTypeCondition(),
 				),
 				actual,
 			)
 		})
 
-		t.Run("returns empty condition when no grpc matches are configured", func(t *testing.T) {
+		t.Run("returns native grpc content type condition when no grpc matches are configured", func(t *testing.T) {
 			rs := newOciLoadBalancerRoutingRulesMapper()
 
 			actual, err := rs.mapGRPCRouteMatchesToCondition(nil)
 
 			require.NoError(t, err)
-			assert.Empty(t, actual)
+			assert.Equal(t, grpcContentTypeCondition(), actual)
 		})
 
 		t.Run("returns empty condition for an empty grpc match", func(t *testing.T) {

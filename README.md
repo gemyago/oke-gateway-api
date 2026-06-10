@@ -209,7 +209,7 @@ Please refer to [https](./docs/https.md) for more details.
 
 `GRPCRoute` uses the standard Gateway API CRDs and is reconciled on OCI Load Balancer with the other layer 7 routes. It is not implemented on OCI Network Load Balancer. Use `TCPRoute` if you only need gRPC passthrough to pods.
 
-The controller supports gRPC host, service, method, and exact header matching. `HTTPRoute` and `GRPCRoute` can share a Gateway when their listeners or hostnames do not conflict.
+The controller supports gRPC host, service, method, and exact header matching. `HTTPRoute` and `GRPCRoute` can share the same HTTPS listener and hostname; `GRPCRoute` rules require a native gRPC `content-type` and are ordered before broad `HTTPRoute` matches.
 
 See [deploy/manifests/examples/grpcroute.yaml](./deploy/manifests/examples/grpcroute.yaml) for a minimal route example.
 

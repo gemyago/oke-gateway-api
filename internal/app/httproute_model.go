@@ -207,6 +207,9 @@ func makeTargetOnlyParentRef(parentRef gatewayv1.ParentReference) gatewayv1.Pare
 
 func l7RouteConflictingWinner(params l7RouteConflictParams) (l7RouteCandidate, bool) {
 	for _, oppositeRoute := range params.oppositeRoutes {
+		if oppositeRoute.identity.kind != params.current.identity.kind {
+			continue
+		}
 		if !l7RoutesShareListenerHostname(params.gateway, params.matchedListeners, params.current, oppositeRoute) {
 			continue
 		}

@@ -1187,7 +1187,19 @@ func routingRuleLess(ruleI, ruleJ loadbalancer.RoutingRule) bool {
 	if ruleNameJ == defaultCatchAllRuleName {
 		return true
 	}
+	grpcRuleI := routingRuleMatchesNativeGRPC(ruleI)
+	grpcRuleJ := routingRuleMatchesNativeGRPC(ruleJ)
+	if grpcRuleI != grpcRuleJ {
+		return grpcRuleI
+	}
 	return ruleNameI < ruleNameJ
+}
+
+func routingRuleMatchesNativeGRPC(rule loadbalancer.RoutingRule) bool {
+	condition := lo.FromPtr(rule.Condition)
+	return strings.Contains(condition, "eq (i 'application/grpc')") ||
+		strings.Contains(condition, "sw (i 'application/grpc+')") ||
+		strings.Contains(condition, "sw (i 'application/grpc;')")
 }
 
 func sortRoutingRules(rules []loadbalancer.RoutingRule) {

@@ -219,6 +219,75 @@ func TestGRPCRouteController(t *testing.T) {
 		require.ErrorIs(t, err, wantErr)
 	})
 
+	t.Run("returns accept route errors", func(t *testing.T) {
+		route := makeRoute()
+		resolved := makeResolved(route)
+		wantErr := errors.New(faker.New().Lorem().Sentence(10))
+		routeModel := fakeGRPCRouteModel{
+			resolveRequestFunc: func(
+				_ context.Context,
+				_ reconcile.Request,
+			) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+				return resolvedMap(route, resolved), nil
+			},
+			acceptRouteFunc: func(context.Context, resolvedGRPCRouteDetails) (*gatewayv1.GRPCRoute, error) {
+				return nil, wantErr
+			},
+		}
+
+		_, err := newController(routeModel, NewMockhttpBackendModel(t)).Reconcile(t.Context(), reconcile.Request{})
+
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("skips programming and endpoint sync when route is rejected", func(t *testing.T) {
+		route := makeRoute()
+		resolved := makeResolved(route)
+		routeModel := fakeGRPCRouteModel{
+			resolveRequestFunc: func(
+				_ context.Context,
+				_ reconcile.Request,
+			) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+				return resolvedMap(route, resolved), nil
+			},
+			acceptRouteFunc: func(context.Context, resolvedGRPCRouteDetails) (*gatewayv1.GRPCRoute, error) {
+				var rejectedRoute *gatewayv1.GRPCRoute
+				return rejectedRoute, nil
+			},
+		}
+
+		got, err := newController(routeModel, NewMockhttpBackendModel(t)).Reconcile(t.Context(), reconcile.Request{})
+
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, got.RequeueAfter, 2*time.Minute)
+		assert.LessOrEqual(t, got.RequeueAfter, 2*time.Minute+(2*time.Minute)/maxDriftRequeueJitterRatio)
+	})
+
+	t.Run("returns backend ref resolution errors", func(t *testing.T) {
+		route := makeRoute()
+		resolved := makeResolved(route)
+		wantErr := errors.New(faker.New().Lorem().Sentence(10))
+		routeModel := fakeGRPCRouteModel{
+			resolveRequestFunc: func(
+				_ context.Context,
+				_ reconcile.Request,
+			) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+				return resolvedMap(route, resolved), nil
+			},
+			isProgrammingRequiredFn: func(resolvedGRPCRouteDetails) bool { return true },
+			acceptRouteFunc: func(_ context.Context, details resolvedGRPCRouteDetails) (*gatewayv1.GRPCRoute, error) {
+				return &details.grpcRoute, nil
+			},
+			resolveBackendRefsFunc: func(context.Context, resolveGRPCBackendRefsParams) (map[string]corev1.Service, error) {
+				return nil, wantErr
+			},
+		}
+
+		_, err := newController(routeModel, NewMockhttpBackendModel(t)).Reconcile(t.Context(), reconcile.Request{})
+
+		require.ErrorIs(t, err, wantErr)
+	})
+
 	t.Run("deprovisions deleted routes", func(t *testing.T) {
 		route := makeRoute()
 		now := metav1.Now()
@@ -238,6 +307,26 @@ func TestGRPCRouteController(t *testing.T) {
 		_, err := newController(routeModel, NewMockhttpBackendModel(t)).Reconcile(t.Context(), reconcile.Request{})
 
 		require.NoError(t, err)
+	})
+
+	t.Run("returns deprovision errors", func(t *testing.T) {
+		route := makeRoute()
+		now := metav1.Now()
+		route.DeletionTimestamp = &now
+		resolved := makeResolved(route)
+		wantErr := errors.New(faker.New().Lorem().Sentence(10))
+		routeModel := fakeGRPCRouteModel{
+			resolveRequestFunc: func(context.Context, reconcile.Request) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+				return resolvedMap(route, resolved), nil
+			},
+			deprovisionRouteFunc: func(context.Context, deprovisionGRPCRouteParams) error {
+				return wantErr
+			},
+		}
+
+		_, err := newController(routeModel, NewMockhttpBackendModel(t)).Reconcile(t.Context(), reconcile.Request{})
+
+		require.ErrorIs(t, err, wantErr)
 	})
 
 	t.Run("returns resolve request errors", func(t *testing.T) {

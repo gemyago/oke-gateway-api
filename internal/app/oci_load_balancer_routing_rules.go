@@ -260,15 +260,36 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapGRPCRouteHostnamesAndMatchesT
 	for _, hostname := range hostnames {
 		hostCondition := fmt.Sprintf(`http.request.headers[(i 'host')] eq (i '%s')`, hostname)
 		if len(matchConditions) == 0 {
-			conditions = append(conditions, hostCondition)
+			conditions = append(conditions, allRoutingConditions(hostCondition, grpcContentTypeCondition()))
 			continue
 		}
 		for _, matchCondition := range matchConditions {
-			conditions = append(conditions, "all("+hostCondition+", "+matchCondition+")")
+			conditions = append(
+				conditions,
+				allRoutingConditions(hostCondition, grpcContentTypeCondition(), matchCondition),
+			)
 		}
 	}
 
 	return fmt.Sprintf("any(%s)", strings.Join(conditions, ", ")), nil
+}
+
+func grpcContentTypeCondition() string {
+	return "any(" +
+		"http.request.headers[(i 'content-type')] eq (i 'application/grpc'), " +
+		"http.request.headers[(i 'content-type')] sw (i 'application/grpc+'), " +
+		"http.request.headers[(i 'content-type')] sw (i 'application/grpc;')" +
+		")"
+}
+
+func allRoutingConditions(conditions ...string) string {
+	filteredConditions := lo.Filter(conditions, func(condition string, _ int) bool {
+		return condition != ""
+	})
+	if len(filteredConditions) == 1 {
+		return filteredConditions[0]
+	}
+	return "all(" + strings.Join(filteredConditions, ", ") + ")"
 }
 
 func (r *ociLoadBalancerRoutingRulesMapperImpl) mapGRPCRouteMatchesToCondition(
@@ -279,10 +300,15 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapGRPCRouteMatchesToCondition(
 		return "", err
 	}
 	if len(conditions) == 0 {
-		return "", nil
+		return grpcContentTypeCondition(), nil
 	}
 
-	return fmt.Sprintf("any(%s)", strings.Join(conditions, ", ")), nil
+	return fmt.Sprintf(
+		"any(%s)",
+		strings.Join(lo.Map(conditions, func(condition string, _ int) string {
+			return allRoutingConditions(grpcContentTypeCondition(), condition)
+		}), ", "),
+	), nil
 }
 
 func (r *ociLoadBalancerRoutingRulesMapperImpl) mapGRPCRouteMatchesToConditions(
