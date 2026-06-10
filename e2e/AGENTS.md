@@ -91,6 +91,8 @@ go test -count=1 -v . --run TestHTTP/RouteLifecycle
 
 When iterating on a single test, if anything fails, you may consider cleanup: `make -C e2e infra-cleanup` and try again.
 
+**Note**: When running e2e tests, in some environments connection to k8s cluster maybe less stable due to tunneling/bastions e.t.c. Environment is supposed to be self-healing, but if you encounter any issues, wait for a bit (20-30 seconds) and try again. Report failure if retry didn't help and pause further operations until user confirms that the environment is stable.
+
 ## Task Completion Protocol
 
 ### Coding Task Completion Protocol
