@@ -276,9 +276,9 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapGRPCRouteHostnamesAndMatchesT
 
 func grpcContentTypeCondition() string {
 	return "any(" +
-		"http.request.headers[(i 'content-type')] eq (i 'application/grpc'), " +
-		"http.request.headers[(i 'content-type')] sw (i 'application/grpc+'), " +
-		"http.request.headers[(i 'content-type')] sw (i 'application/grpc;')" +
+		"http.request.headers[(i 'content-type')][0] eq (i 'application/grpc'), " +
+		"http.request.headers[(i 'content-type')][0] sw (i 'application/grpc+'), " +
+		"http.request.headers[(i 'content-type')][0] sw (i 'application/grpc;')" +
 		")"
 }
 
