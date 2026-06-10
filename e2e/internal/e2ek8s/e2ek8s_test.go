@@ -187,6 +187,63 @@ func TestDeleteNamespacesWithPrefix(t *testing.T) {
 		assert.Equal(t, sharedNamespaceName, namespaces.Items[0].Name)
 	})
 
+	t.Run("removes managed HTTPRoute finalizers in matching namespaces before deletion", func(t *testing.T) {
+		fakerGen := faker.New()
+		prefix := "oke-gw-e2e-" + fakerGen.UUID().V4() + "-"
+		namespaceName := prefix + "routes"
+		otherNamespaceName := "shared-namespace-" + fakerGen.UUID().V4()
+		managedRouteName := "route-managed-" + fakerGen.UUID().V4()
+		otherRouteName := "route-other-" + fakerGen.UUID().V4()
+		scheme := makeTestScheme(t)
+		kubeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(
+				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}},
+				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: otherNamespaceName}},
+				&gatewayv1.HTTPRoute{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       managedRouteName,
+						Namespace:  namespaceName,
+						Finalizers: []string{httpRouteProgrammedFinalizer},
+					},
+				},
+				&gatewayv1.HTTPRoute{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       otherRouteName,
+						Namespace:  otherNamespaceName,
+						Finalizers: []string{httpRouteProgrammedFinalizer},
+					},
+				},
+			).
+			Build()
+
+		deleted, err := DeleteNamespacesWithPrefix(t.Context(), kubeClient, prefix)
+		require.NoError(t, err)
+		assert.Equal(t, []string{namespaceName}, deleted)
+
+		var managedRoute gatewayv1.HTTPRoute
+		require.NoError(
+			t,
+			kubeClient.Get(
+				t.Context(),
+				ctrlclient.ObjectKey{Namespace: namespaceName, Name: managedRouteName},
+				&managedRoute,
+			),
+		)
+		assert.NotContains(t, managedRoute.Finalizers, httpRouteProgrammedFinalizer)
+
+		var otherRoute gatewayv1.HTTPRoute
+		require.NoError(
+			t,
+			kubeClient.Get(
+				t.Context(),
+				ctrlclient.ObjectKey{Namespace: otherNamespaceName, Name: otherRouteName},
+				&otherRoute,
+			),
+		)
+		assert.Contains(t, otherRoute.Finalizers, httpRouteProgrammedFinalizer)
+	})
+
 	t.Run("rejects empty prefix", func(t *testing.T) {
 		scheme := makeTestScheme(t)
 		kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()

@@ -44,6 +44,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("create Kubernetes cleanup client: %w", err)
 	}
 
+	logger.InfoContext(ctx, "Deleting e2e namespaces", slog.String("namespacePrefix", cfg.NamespacePrefix))
 	deletedNamespaces, err := e2ek8s.DeleteNamespacesWithPrefix(ctx, kubeClient.Client, cfg.NamespacePrefix)
 	if err != nil {
 		return fmt.Errorf("delete e2e namespaces: %w", err)

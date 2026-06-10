@@ -13,11 +13,15 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 const (
 	namespaceSuffixBytes = 5
 	maxNamespaceNameLen  = 63
+
+	httpRouteProgrammedFinalizer = "oke-gateway-api.gemyago.github.io/http-route-programmed"
 )
 
 func CreateUniqueNamespace(
@@ -74,6 +78,10 @@ func DeleteNamespacesWithPrefix(
 			continue
 		}
 
+		if err := removeHTTPRouteFinalizers(ctx, kubeClient, namespace.Name); err != nil {
+			return nil, fmt.Errorf("remove HTTPRoute finalizers in namespace %q: %w", namespace.Name, err)
+		}
+
 		if err := kubeClient.Delete(ctx, namespace); err != nil && !apierrors.IsNotFound(err) {
 			return nil, fmt.Errorf("delete namespace %q: %w", namespace.Name, err)
 		}
@@ -84,6 +92,37 @@ func DeleteNamespacesWithPrefix(
 	sort.Strings(deleted)
 
 	return deleted, nil
+}
+
+func removeHTTPRouteFinalizers(
+	ctx context.Context,
+	kubeClient ctrlclient.Client,
+	namespace string,
+) error {
+	var routes gatewayv1.HTTPRouteList
+	if err := kubeClient.List(ctx, &routes, ctrlclient.InNamespace(namespace)); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+
+		return fmt.Errorf("list HTTPRoutes: %w", err)
+	}
+
+	for i := range routes.Items {
+		route := &routes.Items[i]
+		if !controllerutil.ContainsFinalizer(route, httpRouteProgrammedFinalizer) {
+			continue
+		}
+
+		routeToUpdate := route.DeepCopy()
+		controllerutil.RemoveFinalizer(routeToUpdate, httpRouteProgrammedFinalizer)
+
+		if err := kubeClient.Update(ctx, routeToUpdate); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("update HTTPRoute %s/%s: %w", route.Namespace, route.Name, err)
+		}
+	}
+
+	return nil
 }
 
 func validateNamespacePrefix(prefix string) error {
