@@ -15,10 +15,9 @@ import (
 	"github.com/gemyago/oke-gateway-api/e2e/internal/probe"
 )
 
-func testHTTPRouteLifecycle(t *testing.T, sharedFixture *sharedHTTPRoutingFixture) {
+func testHTTPRouteLifecycle(t *testing.T, fixture *httpRoutingFixture) {
 	logger := startTestLogger(t)
 	ctx, cfg := newLiveHTTPContext(t)
-	fixture := sharedFixture.Get(t, cfg)
 	fake := faker.New()
 	suffix := randomDNSLabel(fake)
 	routeName := "route-lifecycle-" + suffix

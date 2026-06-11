@@ -17,6 +17,13 @@
 ## Module Shape
 
 - Keep shared live-test setup and cleanup helpers in `e2e/http_test.go`.
+- Live HTTP e2e uses a two-layer fixture created once at the start of `TestHTTP`:
+  - `liveFixture` — one controller process, one Kubernetes client, one OCI client, and load
+    balancer public IP shared across all subtests.
+  - `httpRoutingFixture` — builds on the live fixture with a shared HTTP Gateway, namespace, and
+    static backends for routing-focused subtests.
+  - Isolated subtests reuse `liveFixture` and create their own namespace/gateway via
+    `createIsolatedGatewayNamespace` or `createIsolatedHTTPGateway`.
 - Keep concrete live cases in separate top-level test files such as:
   - `e2e/http_startup_test.go`
   - `e2e/http_route_lifecycle_test.go`

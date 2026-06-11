@@ -17,7 +17,6 @@ import (
 	"net"
 	"net/http"
 	"slices"
-	"sync"
 	"testing"
 	"time"
 
@@ -28,20 +27,18 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/gemyago/oke-gateway-api/e2e/internal/e2ek8s"
-	"github.com/gemyago/oke-gateway-api/e2e/internal/e2eoci"
 	"github.com/gemyago/oke-gateway-api/e2e/internal/probe"
 )
 
 const certificateLifecycleSecretName = "https-cert"
 
-func testHTTPCertificateLifecycle(t *testing.T) {
+func testHTTPCertificateLifecycle(t *testing.T, live *liveFixture) {
 	logger := startTestLogger(t)
 	ctx, cfg := newLiveHTTPContext(t)
 
 	fake := faker.New()
 	suffix := randomDNSLabel(fake)
 	gatewayName := "gateway-" + suffix
-	gatewayConfigName := "gateway-config-" + suffix
 	backendName := "https-backend-" + suffix
 	routeName := "https-route-" + suffix
 	serialHostV1 := "v1-" + suffix + ".example.test"
@@ -52,18 +49,7 @@ func testHTTPCertificateLifecycle(t *testing.T) {
 		slog.String("loadBalancerID", cfg.OCI.LoadBalancerID),
 	)
 
-	logTestProgress(ctx, t, logger, "Creating Kubernetes and OCI clients")
-	kubeClient, err := e2ek8s.NewClient(cfg.Kubernetes, nil)
-	require.NoError(t, err)
-
-	ociClient, err := e2eoci.NewLoadBalancerClient(cfg.OCI, nil)
-	require.NoError(t, err)
-
-	inspector := e2eoci.NewLoadBalancerCleaner(ociClient, slog.New(slog.DiscardHandler), nil)
-	loadBalancer, err := inspector.Inspect(ctx, cfg.OCI.LoadBalancerID)
-	require.NoError(t, err)
-
-	publicIP := net.ParseIP(loadBalancer.PublicIP)
+	publicIP := net.ParseIP(live.publicIP)
 	require.NotNil(t, publicIP, "expected a parseable load balancer public IP")
 
 	caBundle, err := newCertificateAuthority("oke-gateway-api e2e root " + suffix)
@@ -79,7 +65,7 @@ func testHTTPCertificateLifecycle(t *testing.T) {
 	rootCAs := x509.NewCertPool()
 	require.True(t, rootCAs.AppendCertsFromPEM(caBundle.certPEM))
 
-	probeClient, err := probe.NewClient(loadBalancer.PublicIP, int(e2ek8s.DefaultHTTPSPort), &probe.ClientOptions{
+	probeClient, err := probe.NewClient(live.publicIP, int(e2ek8s.DefaultHTTPSPort), &probe.ClientOptions{
 		Scheme: "https",
 		HTTPClient: &http.Client{
 			Timeout: 15 * time.Second,
@@ -94,45 +80,19 @@ func testHTTPCertificateLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	logTestProgress(ctx, t, logger, "Starting controller and waiting for readiness")
-	startHTTPController(t, cfg, logger)
-
-	namespace, err := e2ek8s.CreateUniqueNamespace(ctx, kubeClient.Client, cfg.NamespacePrefix)
+	gatewayNamespace, err := createIsolatedGatewayNamespace(ctx, t, live, cfg, suffix)
 	require.NoError(t, err)
 	logTestProgress(
 		ctx,
 		t,
 		logger,
-		"Created isolated test namespace",
-		slog.String("namespace", namespace.Name),
+		"Created isolated HTTPS gateway namespace",
+		slog.String("namespace", gatewayNamespace.namespaceName),
+		slog.String("gatewayClass", gatewayNamespace.gatewayClassName),
 	)
-
-	var cleanupOnce sync.Once
-	gatewayClassName := uniqueGatewayClassName(cfg.GatewayClassName, namespace.Name)
-	registerCleanup(t, &cleanupOnce, kubeClient.WithWatch, namespace.Name, gatewayClassName)
-
-	gatewayClass := e2ek8s.NewGatewayClass(e2ek8s.GatewayClassOptions{Name: gatewayClassName})
-	logger.InfoContext(ctx, "Creating GatewayClass", slog.String("gatewayClass", gatewayClassName))
-	require.NoError(t, kubeClient.Create(ctx, gatewayClass))
-
-	_, err = e2ek8s.WaitForGatewayClassAccepted(ctx, kubeClient.Client, gatewayClassName, nil)
-	require.NoError(t, err)
-
-	gatewayConfig := e2ek8s.NewGatewayConfig(e2ek8s.GatewayConfigOptions{
-		Namespace:      namespace.Name,
-		Name:           gatewayConfigName,
-		LoadBalancerID: cfg.OCI.LoadBalancerID,
-	})
-	logger.InfoContext(
-		ctx,
-		"Creating GatewayConfig",
-		slog.String("namespace", namespace.Name),
-		slog.String("gatewayConfig", gatewayConfigName),
-	)
-	require.NoError(t, kubeClient.Create(ctx, gatewayConfig))
 
 	tlsSecret := e2ek8s.NewTLSSecret(e2ek8s.TLSSecretOptions{
-		Namespace:   namespace.Name,
+		Namespace:   gatewayNamespace.namespaceName,
 		Name:        certificateLifecycleSecretName,
 		Certificate: leafV1.certPEM,
 		PrivateKey:  leafV1.keyPEM,
@@ -140,18 +100,18 @@ func testHTTPCertificateLifecycle(t *testing.T) {
 	logger.InfoContext(
 		ctx,
 		"Creating initial TLS secret",
-		slog.String("namespace", namespace.Name),
+		slog.String("namespace", gatewayNamespace.namespaceName),
 		slog.String("secret", tlsSecret.Name),
 		slog.String("serial", leafV1.cert.SerialNumber.String()),
 		slog.String("fingerprint", certificateFingerprint(leafV1.cert)),
 	)
-	require.NoError(t, kubeClient.Create(ctx, tlsSecret))
+	require.NoError(t, live.kubeClient.Create(ctx, tlsSecret))
 
 	gateway := e2ek8s.NewGateway(e2ek8s.GatewayOptions{
-		Namespace:         namespace.Name,
+		Namespace:         gatewayNamespace.namespaceName,
 		Name:              gatewayName,
-		GatewayClassName:  gatewayClassName,
-		GatewayConfigName: gatewayConfigName,
+		GatewayClassName:  gatewayNamespace.gatewayClassName,
+		GatewayConfigName: gatewayNamespace.gatewayConfigName,
 		Listeners: []gatewayv1.Listener{
 			{
 				Name:     e2ek8s.DefaultHTTPSListenerName,
@@ -168,50 +128,74 @@ func testHTTPCertificateLifecycle(t *testing.T) {
 	logger.InfoContext(
 		ctx,
 		"Creating HTTPS Gateway",
-		slog.String("namespace", namespace.Name),
+		slog.String("namespace", gatewayNamespace.namespaceName),
 		slog.String("gateway", gatewayName),
 	)
-	require.NoError(t, kubeClient.Create(ctx, gateway))
+	require.NoError(t, live.kubeClient.Create(ctx, gateway))
 
-	_, err = e2ek8s.WaitForGatewayAccepted(ctx, kubeClient.Client, namespace.Name, gatewayName, nil)
+	_, err = e2ek8s.WaitForGatewayAccepted(
+		ctx,
+		live.kubeClient.Client,
+		gatewayNamespace.namespaceName,
+		gatewayName,
+		nil,
+	)
 	require.NoError(t, err)
 
-	_, err = e2ek8s.WaitForGatewayProgrammed(ctx, kubeClient.Client, namespace.Name, gatewayName, nil)
+	_, err = e2ek8s.WaitForGatewayProgrammed(
+		ctx,
+		live.kubeClient.Client,
+		gatewayNamespace.namespaceName,
+		gatewayName,
+		nil,
+	)
 	require.NoError(t, err)
 	logTestProgress(
 		ctx,
 		t,
 		logger,
 		"HTTPS Gateway accepted and programmed",
-		slog.String("namespace", namespace.Name),
+		slog.String("namespace", gatewayNamespace.namespaceName),
 		slog.String("gateway", gatewayName),
 	)
 
 	deployment := e2ek8s.NewEchoDeployment(e2ek8s.EchoDeploymentOptions{
-		Namespace: namespace.Name,
+		Namespace: gatewayNamespace.namespaceName,
 		Name:      backendName,
 	})
 	service := e2ek8s.NewEchoService(e2ek8s.EchoServiceOptions{
-		Namespace: namespace.Name,
+		Namespace: gatewayNamespace.namespaceName,
 		Name:      backendName,
 	})
 	logger.InfoContext(
 		ctx,
 		"Creating HTTPS backend resources",
-		slog.String("namespace", namespace.Name),
+		slog.String("namespace", gatewayNamespace.namespaceName),
 		slog.String("deployment", backendName),
 		slog.String("service", backendName),
 	)
-	require.NoError(t, kubeClient.Create(ctx, deployment))
-	require.NoError(t, kubeClient.Create(ctx, service))
+	require.NoError(t, live.kubeClient.Create(ctx, deployment))
+	require.NoError(t, live.kubeClient.Create(ctx, service))
 
-	_, err = e2ek8s.WaitForDeploymentReady(ctx, kubeClient.Client, namespace.Name, backendName, nil)
+	_, err = e2ek8s.WaitForDeploymentReady(
+		ctx,
+		live.kubeClient.Client,
+		gatewayNamespace.namespaceName,
+		backendName,
+		nil,
+	)
 	require.NoError(t, err)
-	_, err = e2ek8s.WaitForServiceEndpointsReady(ctx, kubeClient.Client, namespace.Name, backendName, nil)
+	_, err = e2ek8s.WaitForServiceEndpointsReady(
+		ctx,
+		live.kubeClient.Client,
+		gatewayNamespace.namespaceName,
+		backendName,
+		nil,
+	)
 	require.NoError(t, err)
 
 	httpRoute := e2ek8s.NewHTTPRoute(e2ek8s.HTTPRouteOptions{
-		Namespace:    namespace.Name,
+		Namespace:    gatewayNamespace.namespaceName,
 		Name:         routeName,
 		GatewayName:  gatewayName,
 		ListenerName: e2ek8s.DefaultHTTPSListenerName,
@@ -222,14 +206,28 @@ func testHTTPCertificateLifecycle(t *testing.T) {
 	logger.InfoContext(
 		ctx,
 		"Creating HTTPS HTTPRoute",
-		slog.String("namespace", namespace.Name),
+		slog.String("namespace", gatewayNamespace.namespaceName),
 		slog.String("httpRoute", routeName),
 	)
-	require.NoError(t, kubeClient.Create(ctx, httpRoute))
+	require.NoError(t, live.kubeClient.Create(ctx, httpRoute))
 
-	_, err = e2ek8s.WaitForHTTPRouteAccepted(ctx, kubeClient.Client, namespace.Name, routeName, gatewayName, nil)
+	_, err = e2ek8s.WaitForHTTPRouteAccepted(
+		ctx,
+		live.kubeClient.Client,
+		gatewayNamespace.namespaceName,
+		routeName,
+		gatewayName,
+		nil,
+	)
 	require.NoError(t, err)
-	_, err = e2ek8s.WaitForHTTPRouteResolvedRefs(ctx, kubeClient.Client, namespace.Name, routeName, gatewayName, nil)
+	_, err = e2ek8s.WaitForHTTPRouteResolvedRefs(
+		ctx,
+		live.kubeClient.Client,
+		gatewayNamespace.namespaceName,
+		routeName,
+		gatewayName,
+		nil,
+	)
 	require.NoError(t, err)
 
 	responseV1, err := waitForServedCertificate(
@@ -258,15 +256,15 @@ func testHTTPCertificateLifecycle(t *testing.T) {
 	logger.InfoContext(
 		ctx,
 		"Updating TLS secret with rotated certificate",
-		slog.String("namespace", namespace.Name),
+		slog.String("namespace", gatewayNamespace.namespaceName),
 		slog.String("secret", certificateLifecycleSecretName),
 		slog.String("serial", leafV2.cert.SerialNumber.String()),
 		slog.String("fingerprint", certificateFingerprint(leafV2.cert)),
 	)
 	require.NoError(
 		t,
-		updateTLSSecret(ctx, kubeClient.Client, ctrlclient.ObjectKey{
-			Namespace: namespace.Name,
+		updateTLSSecret(ctx, live.kubeClient.Client, ctrlclient.ObjectKey{
+			Namespace: gatewayNamespace.namespaceName,
 			Name:      certificateLifecycleSecretName,
 		}, leafV2.certPEM, leafV2.keyPEM),
 	)
@@ -290,7 +288,7 @@ func testHTTPCertificateLifecycle(t *testing.T) {
 		t,
 		logger,
 		"HTTPS certificate lifecycle completed",
-		slog.String("namespace", namespace.Name),
+		slog.String("namespace", gatewayNamespace.namespaceName),
 		slog.String("secret", certificateLifecycleSecretName),
 		slog.String("newSerial", responseV2.TLSPeerCertificates[0].SerialNumber.String()),
 	)
