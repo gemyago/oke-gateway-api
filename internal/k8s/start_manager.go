@@ -41,6 +41,27 @@ type StartManagerDeps struct {
 	ReconcileHTTPRoute    bool `name:"config.features.reconcileHTTPRoute"`
 }
 
+func httpRouteObjectPredicate() predicate.Funcs {
+	generationChanged := predicate.GenerationChangedPredicate{}
+	labelChanged := predicate.LabelChangedPredicate{}
+	annotationChanged := predicate.AnnotationChangedPredicate{}
+	return predicate.Funcs{
+		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
+			return generationChanged.Update(updateEvent) ||
+				labelChanged.Update(updateEvent) ||
+				annotationChanged.Update(updateEvent)
+		},
+	}
+}
+
+func gatewaySecretPredicate() predicate.Funcs {
+	resourceVersionChanged := predicate.ResourceVersionChangedPredicate{}
+	return predicate.Funcs{
+		CreateFunc: func(_ event.CreateEvent) bool { return true },
+		UpdateFunc: resourceVersionChanged.Update,
+	}
+}
+
 // StartManager starts the controller manager.
 func StartManager(ctx context.Context, deps StartManagerDeps) error { // coverage-ignore -- challenging to test
 	logger := deps.RootLogger.WithGroup("k8s")
@@ -83,17 +104,7 @@ func StartManager(ctx context.Context, deps StartManagerDeps) error { // coverag
 			Watches(
 				&corev1.Secret{},
 				handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapSecretToGateway),
-				builder.WithPredicates(predicate.And(
-					predicate.Funcs{
-						// We ignore create events. They're also happening when controller starts up
-						// which leads to duplicate reconciliations and just noise.
-						// We don't care when new secrets are created, currently if no secret
-						// the whole gateway reconciliation will fail. We may want to change this
-						// in the future and revisit this predicate.
-						CreateFunc: func(_ event.CreateEvent) bool { return false },
-					},
-					predicate.ResourceVersionChangedPredicate{},
-				)),
+				builder.WithPredicates(gatewaySecretPredicate()),
 			).
 			Watches(
 				&configtypes.GatewayConfig{},
@@ -114,7 +125,7 @@ func StartManager(ctx context.Context, deps StartManagerDeps) error { // coverag
 				&discoveryv1.EndpointSlice{},
 				handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapEndpointSliceToHTTPRoute),
 			).
-			WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
+			WithEventFilter(httpRouteObjectPredicate()).
 			Complete(wireupReconciler(deps.HTTPRouteCtrl, middlewares...)); err != nil {
 			return fmt.Errorf("failed to setup HTTPRoute controller: %w", err)
 		}

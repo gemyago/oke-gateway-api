@@ -21,7 +21,12 @@ func TestRecover(t *testing.T) {
 	t.Run("should call next", func(t *testing.T) {
 		fake := faker.New()
 		nextCalled := true
-		wantNextStatus := 200 + rand.Intn(399)
+		bodyAllowedStatuses := []int{
+			http.StatusOK,
+			http.StatusCreated,
+			http.StatusAccepted,
+		}
+		wantNextStatus := bodyAllowedStatuses[rand.Intn(len(bodyAllowedStatuses))]
 		wantRes := map[string]any{
 			"key1": fake.UUID().V4(),
 			"key2": fake.UUID().V4(),
