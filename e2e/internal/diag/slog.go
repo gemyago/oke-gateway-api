@@ -1,0 +1,107 @@
+package diag
+
+import (
+	"context"
+	"io"
+	"log/slog"
+	"os"
+)
+
+type contextKey string
+
+const contextDiagAttrs = contextKey("diag.context-key.log-attribs")
+
+type LogAttributes struct {
+	CorrelationID slog.Value
+}
+
+func GetLogAttributesFromContext(ctx context.Context) LogAttributes {
+	res, _ := ctx.Value(contextDiagAttrs).(LogAttributes)
+	return res
+}
+
+func SetLogAttributesToContext(ctx context.Context, attributes LogAttributes) context.Context {
+	return context.WithValue(ctx, contextDiagAttrs, attributes)
+}
+
+type diagLogHandler struct {
+	target slog.Handler
+}
+
+func (h *diagLogHandler) Enabled(ctx context.Context, lvl slog.Level) bool {
+	return h.target.Enabled(ctx, lvl)
+}
+
+func (h *diagLogHandler) Handle(ctx context.Context, rec slog.Record) error {
+	if diagAttributes, ok := ctx.Value(contextDiagAttrs).(LogAttributes); ok {
+		rec.AddAttrs(slog.Attr{Key: "correlationId", Value: diagAttributes.CorrelationID})
+	}
+
+	return h.target.Handle(ctx, rec)
+}
+
+func (h *diagLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &diagLogHandler{target: h.target.WithAttrs(attrs)}
+}
+
+func (h *diagLogHandler) WithGroup(name string) slog.Handler {
+	return h.WithAttrs([]slog.Attr{slog.String("group", name)})
+}
+
+var _ slog.Handler = (*diagLogHandler)(nil)
+
+type RootLoggerOpts struct {
+	output io.Writer
+
+	jsonLogs bool
+
+	logLevel slog.Level
+}
+
+func NewRootLoggerOpts() *RootLoggerOpts {
+	return &RootLoggerOpts{
+		output: os.Stdout,
+	}
+}
+
+func (opts *RootLoggerOpts) WithJSONLogs(value bool) *RootLoggerOpts {
+	opts.jsonLogs = value
+	return opts
+}
+
+func (opts *RootLoggerOpts) WithLogLevel(logLevel slog.Level) *RootLoggerOpts {
+	opts.logLevel = logLevel
+	return opts
+}
+
+func (opts *RootLoggerOpts) WithOutput(output io.Writer) *RootLoggerOpts {
+	opts.output = output
+	return opts
+}
+
+func (opts *RootLoggerOpts) WithOptionalOutputFile(outputFile string) *RootLoggerOpts {
+	if outputFile == "" {
+		return opts
+	}
+
+	f, err := os.OpenFile(outputFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		panic(err)
+	}
+
+	opts.output = f
+	return opts
+}
+
+func SetupRootLogger(opts *RootLoggerOpts) *slog.Logger {
+	logHandlerOpts := &slog.HandlerOptions{Level: opts.logLevel}
+
+	var logHandler slog.Handler
+	if opts.jsonLogs {
+		logHandler = slog.NewJSONHandler(opts.output, logHandlerOpts)
+	} else {
+		logHandler = slog.NewTextHandler(opts.output, logHandlerOpts)
+	}
+
+	return slog.New(&diagLogHandler{target: logHandler})
+}

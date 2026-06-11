@@ -22,7 +22,9 @@ jobs:
         version-file: .golangci-lint-version
 
     - name: Run Tests
-      run: make test
+      run: |
+        make test
+        make -C e2e compile test
       env:
         APP_K8SAPI_NOOP: true
         APP_OCIAPI_NOOP: true
