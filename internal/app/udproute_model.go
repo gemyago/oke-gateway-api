@@ -789,6 +789,7 @@ func (m *udpRouteModelImpl) setProgrammed(ctx context.Context, details resolvedU
 	return setL4RouteProgrammed(ctx, setL4RouteProgrammedParams{
 		k8sClient:          m.client,
 		routeKind:          "UDPRoute",
+		controllerName:     NetworkLoadBalancerControllerClassName,
 		routeToUpdate:      routeToUpdate,
 		finalizer:          NetworkLoadBalancerUDPRouteProgrammedFinalizer,
 		backendSetAnnotKey: NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation,

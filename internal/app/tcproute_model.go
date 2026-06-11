@@ -1292,6 +1292,7 @@ func (m *tcpRouteModelImpl) setProgrammed(ctx context.Context, details resolvedT
 	return setL4RouteProgrammed(ctx, setL4RouteProgrammedParams{
 		k8sClient:          m.client,
 		routeKind:          "TCPRoute",
+		controllerName:     NetworkLoadBalancerControllerClassName,
 		routeToUpdate:      routeToUpdate,
 		finalizer:          NetworkLoadBalancerTCPRouteProgrammedFinalizer,
 		backendSetAnnotKey: NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation,
@@ -1310,6 +1311,7 @@ func (m *tcpRouteModelImpl) setProgrammed(ctx context.Context, details resolvedT
 type setL4RouteProgrammedParams struct {
 	k8sClient          k8sClient
 	routeKind          string
+	controllerName     gatewayv1.GatewayController
 	routeToUpdate      client.Object
 	finalizer          string
 	backendSetAnnotKey string
@@ -1343,7 +1345,7 @@ func setL4RouteProgrammed(ctx context.Context, params setL4RouteProgrammedParams
 				"%s %s accepted by %s",
 				params.routeKind,
 				params.routeToUpdate.GetName(),
-				NetworkLoadBalancerControllerClassName,
+				params.controllerName,
 			),
 			ObservedGeneration: params.routeToUpdate.GetGeneration(),
 			LastTransitionTime: metav1.Now(),

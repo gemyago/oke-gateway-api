@@ -1085,6 +1085,7 @@ func (m *tlsRouteModelImpl) setProgrammed(ctx context.Context, details resolvedT
 	if err := setL4RouteProgrammed(ctx, setL4RouteProgrammedParams{
 		k8sClient:          m.client,
 		routeKind:          "TLSRoute",
+		controllerName:     details.gatewayDetails.gatewayClass.Spec.ControllerName,
 		routeToUpdate:      routeToUpdate,
 		finalizer:          finalizer,
 		backendSetAnnotKey: annotationKey,
