@@ -35,7 +35,7 @@ func testHTTPPathExactVsPrefix(t *testing.T, sharedFixture *sharedHTTPRoutingFix
 		slog.String("prefixPath", prefixPath),
 	)
 
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -142,7 +142,7 @@ func testHTTPPathExactVsPrefix(t *testing.T, sharedFixture *sharedHTTPRoutingFix
 		)
 		require.NoError(t, err)
 	}
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -153,7 +153,7 @@ func testHTTPPathExactVsPrefix(t *testing.T, sharedFixture *sharedHTTPRoutingFix
 
 	_, err = probe.WaitForEcho(ctx, fixture.probeClient, exactPath, nil)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -163,7 +163,7 @@ func testHTTPPathExactVsPrefix(t *testing.T, sharedFixture *sharedHTTPRoutingFix
 
 	_, err = probe.WaitForEchoGone(ctx, fixture.probeClient, exactPathExtra, nil)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -173,7 +173,7 @@ func testHTTPPathExactVsPrefix(t *testing.T, sharedFixture *sharedHTTPRoutingFix
 
 	_, err = probe.WaitForEcho(ctx, fixture.probeClient, prefixPath, nil)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -183,7 +183,7 @@ func testHTTPPathExactVsPrefix(t *testing.T, sharedFixture *sharedHTTPRoutingFix
 
 	_, err = probe.WaitForEcho(ctx, fixture.probeClient, prefixPathExtra, nil)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,

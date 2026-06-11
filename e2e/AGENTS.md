@@ -74,7 +74,7 @@ Live tests are tests that run against real infrastructure (e.g the actual e2e te
 - If you need to adjust child controller logging behavior, start with
   `e2e/internal/controllerproc/controller.go`.
 
-Use `logTestProgress` or `logTestProgressContext` to log progress inside of the test. Use it for a high-level overview of the test progress, don't go verbose on very line.
+Use `logTestProgress` to log progress inside of the test. Use it for a high-level overview of the test progress, don't go verbose on very line.
 
 ## Run individual e2e tests
 

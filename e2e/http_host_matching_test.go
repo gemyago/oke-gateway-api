@@ -36,7 +36,7 @@ func testHTTPHostMatching(t *testing.T, sharedFixture *sharedHTTPRoutingFixture)
 		slog.String("hostB", string(hostB)),
 	)
 
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -107,7 +107,7 @@ func testHTTPHostMatching(t *testing.T, sharedFixture *sharedHTTPRoutingFixture)
 		)
 		require.NoError(t, err)
 	}
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -143,7 +143,7 @@ func testHTTPHostMatching(t *testing.T, sharedFixture *sharedHTTPRoutingFixture)
 	}
 
 	assertHostRoutesToBody(string(hostA), backendA.Response)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -153,7 +153,7 @@ func testHTTPHostMatching(t *testing.T, sharedFixture *sharedHTTPRoutingFixture)
 	)
 
 	assertHostRoutesToBody(string(hostB), backendB.Response)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -183,7 +183,7 @@ func testHTTPHostMatching(t *testing.T, sharedFixture *sharedHTTPRoutingFixture)
 		},
 	)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,

@@ -29,16 +29,7 @@ func startTestLogger(t *testing.T) *slog.Logger {
 	return logger
 }
 
-func logTestProgress(t *testing.T, logger *slog.Logger, message string, attrs ...slog.Attr) {
-	t.Helper()
-
-	t.Log(message)
-	if logger != nil {
-		logger.Info(message, slogAttrsToAny(attrs)...)
-	}
-}
-
-func logTestProgressContext(
+func logTestProgress(
 	ctx context.Context,
 	t *testing.T,
 	logger *slog.Logger,
@@ -48,9 +39,7 @@ func logTestProgressContext(
 	t.Helper()
 
 	t.Log(message)
-	if logger != nil {
-		logger.InfoContext(ctx, message, slogAttrsToAny(attrs)...)
-	}
+	logger.InfoContext(ctx, message, slogAttrsToAny(attrs)...)
 }
 
 func slogAttrsToAny(attrs []slog.Attr) []any {

@@ -80,7 +80,7 @@ func testHTTPHeaderMatchingVariants(t *testing.T, sharedFixture *sharedHTTPRouti
 		slog.String("headerName", string(headerName)),
 	)
 
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -139,7 +139,7 @@ func testHTTPHeaderMatchingVariants(t *testing.T, sharedFixture *sharedHTTPRouti
 		)
 		require.NoError(t, err)
 	}
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -212,7 +212,7 @@ func testHTTPHeaderMatchingVariants(t *testing.T, sharedFixture *sharedHTTPRouti
 
 	for _, route := range routes {
 		assertHeaderRoutesToBody(route.headerValue, route.response)
-		logTestProgressContext(
+		logTestProgress(
 			ctx,
 			t,
 			logger,
@@ -227,7 +227,7 @@ func testHTTPHeaderMatchingVariants(t *testing.T, sharedFixture *sharedHTTPRouti
 		nil,
 		fmt.Sprintf("wait for missing header %q to avoid header-specific routes", headerName),
 	)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -241,7 +241,7 @@ func testHTTPHeaderMatchingVariants(t *testing.T, sharedFixture *sharedHTTPRouti
 		},
 		fmt.Sprintf("wait for non-matching header %q=%q to avoid header-specific routes", headerName, missHeaderValue),
 	)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,

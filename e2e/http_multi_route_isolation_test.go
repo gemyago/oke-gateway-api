@@ -35,7 +35,7 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 		slog.String("suffix", suffix),
 	)
 
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -54,7 +54,7 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 	probeClient, err := probe.NewClient(loadBalancer.PublicIP, cfg.HTTPPort, nil)
 	require.NoError(t, err)
 
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -64,7 +64,7 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 
 	namespace, err := e2ek8s.CreateUniqueNamespace(ctx, kubeClient.Client, cfg.NamespacePrefix)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -119,7 +119,7 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 
 	_, err = e2ek8s.WaitForGatewayProgrammed(ctx, kubeClient.Client, namespace.Name, gatewayName, nil)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -159,7 +159,7 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 
 	_, err = e2ek8s.WaitForServiceEndpointsReady(ctx, kubeClient.Client, namespace.Name, backendAName, nil)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -206,7 +206,7 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 
 	_, err = e2ek8s.WaitForHTTPRouteAccepted(ctx, kubeClient.Client, namespace.Name, httpRouteAName, gatewayName, nil)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -234,7 +234,7 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 		nil,
 	)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -244,7 +244,7 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 
 	_, err = probe.WaitForEcho(ctx, probeClient, probePathA, nil)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -254,7 +254,7 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 
 	_, err = probe.WaitForEchoGone(ctx, probeClient, probePathB, nil)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -279,7 +279,7 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 
 	_, err = e2ek8s.WaitForServiceEndpointsReady(ctx, kubeClient.Client, namespace.Name, backendBName, nil)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -290,7 +290,7 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 
 	_, err = probe.WaitForEcho(ctx, probeClient, probePathB, nil)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -342,7 +342,7 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -382,7 +382,7 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 		nil,
 	)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,

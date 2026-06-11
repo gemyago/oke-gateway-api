@@ -87,19 +87,19 @@ func newLiveHTTPContext(t *testing.T) (context.Context, *config.Config) {
 func startHTTPController(t *testing.T, cfg *config.Config, logger *slog.Logger) {
 	t.Helper()
 
-	logTestProgress(t, logger, "Starting controller process")
+	logTestProgress(t.Context(), t, logger, "Starting controller process")
 	proc, err := controllerproc.Start(newSlogTestLogSink(t, logger), *cfg, nil)
 	require.NoError(t, err)
 
 	if proc.Skipped() {
-		logTestProgress(t, logger, "Controller startup skipped by configuration")
+		logTestProgress(t.Context(), t, logger, "Controller startup skipped by configuration")
 		return
 	}
 
 	startupCtx, cancel := context.WithTimeout(t.Context(), controllerStartupTimeout)
 	defer cancel()
 
-	logTestProgressContext(
+	logTestProgress(
 		startupCtx,
 		t,
 		logger,
@@ -107,7 +107,7 @@ func startHTTPController(t *testing.T, cfg *config.Config, logger *slog.Logger) 
 		slog.String("fragment", "Starting controller manager"),
 	)
 	require.NoError(t, proc.WaitForLog(startupCtx, "Starting controller manager"))
-	logTestProgress(t, logger, "Observed controller startup log")
+	logTestProgress(startupCtx, t, logger, "Observed controller startup log")
 }
 
 type sharedHTTPRoutingFixture struct {
@@ -223,7 +223,7 @@ func createHTTPRoutingFixture(parentT *testing.T, cfg *config.Config) (*httpRout
 		return nil, fmt.Errorf("create shared routing fixture GatewayClass %q: %w", gatewayClassName, err)
 	}
 
-	logTestProgressContext(setupCtx, parentT, logger, "Waiting for shared routing fixture GatewayClass acceptance")
+	logTestProgress(setupCtx, parentT, logger, "Waiting for shared routing fixture GatewayClass acceptance")
 	_, err = e2ek8s.WaitForGatewayClassAccepted(setupCtx, kubeClient.Client, gatewayClassName, nil)
 	if err != nil {
 		return nil, fmt.Errorf("wait for shared routing fixture GatewayClass %q acceptance: %w", gatewayClassName, err)

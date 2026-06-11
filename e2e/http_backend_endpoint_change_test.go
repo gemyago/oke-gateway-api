@@ -34,7 +34,7 @@ func testHTTPBackendEndpointChange(t *testing.T) {
 		slog.Int("httpPort", cfg.HTTPPort),
 	)
 
-	logTestProgressContext(ctx, t, logger, "Creating Kubernetes and OCI clients")
+	logTestProgress(ctx, t, logger, "Creating Kubernetes and OCI clients")
 	kubeClient, err := e2ek8s.NewClient(cfg.Kubernetes, nil)
 	require.NoError(t, err)
 
@@ -48,12 +48,12 @@ func testHTTPBackendEndpointChange(t *testing.T) {
 	probeClient, err := probe.NewClient(loadBalancer.PublicIP, cfg.HTTPPort, nil)
 	require.NoError(t, err)
 
-	logTestProgressContext(ctx, t, logger, "Starting controller and waiting for readiness")
+	logTestProgress(ctx, t, logger, "Starting controller and waiting for readiness")
 	startHTTPController(t, cfg, logger)
 
 	namespace, err := e2ek8s.CreateUniqueNamespace(ctx, kubeClient.Client, cfg.NamespacePrefix)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -107,7 +107,7 @@ func testHTTPBackendEndpointChange(t *testing.T) {
 
 	_, err = e2ek8s.WaitForGatewayProgrammed(ctx, kubeClient.Client, namespace.Name, gatewayName, nil)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -145,7 +145,7 @@ func testHTTPBackendEndpointChange(t *testing.T) {
 
 	_, err = e2ek8s.WaitForServiceEndpointsReady(ctx, kubeClient.Client, namespace.Name, backendName, nil)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -187,7 +187,7 @@ func testHTTPBackendEndpointChange(t *testing.T) {
 
 	_, err = probe.WaitForEcho(ctx, probeClient, probePath, nil)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -195,7 +195,7 @@ func testHTTPBackendEndpointChange(t *testing.T) {
 		slog.String("probePath", probePath),
 	)
 
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -210,7 +210,7 @@ func testHTTPBackendEndpointChange(t *testing.T) {
 
 	_, err = probe.WaitForEchoGone(ctx, probeClient, probePath, nil)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -218,7 +218,7 @@ func testHTTPBackendEndpointChange(t *testing.T) {
 		slog.String("probePath", probePath),
 	)
 
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -236,7 +236,7 @@ func testHTTPBackendEndpointChange(t *testing.T) {
 
 	_, err = probe.WaitForEcho(ctx, probeClient, probePath, nil)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,

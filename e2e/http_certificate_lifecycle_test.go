@@ -52,7 +52,7 @@ func testHTTPCertificateLifecycle(t *testing.T) {
 		slog.String("loadBalancerID", cfg.OCI.LoadBalancerID),
 	)
 
-	logTestProgressContext(ctx, t, logger, "Creating Kubernetes and OCI clients")
+	logTestProgress(ctx, t, logger, "Creating Kubernetes and OCI clients")
 	kubeClient, err := e2ek8s.NewClient(cfg.Kubernetes, nil)
 	require.NoError(t, err)
 
@@ -94,12 +94,12 @@ func testHTTPCertificateLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	logTestProgressContext(ctx, t, logger, "Starting controller and waiting for readiness")
+	logTestProgress(ctx, t, logger, "Starting controller and waiting for readiness")
 	startHTTPController(t, cfg, logger)
 
 	namespace, err := e2ek8s.CreateUniqueNamespace(ctx, kubeClient.Client, cfg.NamespacePrefix)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -178,7 +178,7 @@ func testHTTPCertificateLifecycle(t *testing.T) {
 
 	_, err = e2ek8s.WaitForGatewayProgrammed(ctx, kubeClient.Client, namespace.Name, gatewayName, nil)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -285,7 +285,7 @@ func testHTTPCertificateLifecycle(t *testing.T) {
 		certificateFingerprint(responseV1.TLSPeerCertificates[0]),
 		certificateFingerprint(responseV2.TLSPeerCertificates[0]),
 	)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,

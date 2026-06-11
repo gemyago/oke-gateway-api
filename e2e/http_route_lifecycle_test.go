@@ -29,7 +29,7 @@ func testHTTPRouteLifecycle(t *testing.T, sharedFixture *sharedHTTPRoutingFixtur
 		slog.Int("httpPort", cfg.HTTPPort),
 	)
 
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -78,7 +78,7 @@ func testHTTPRouteLifecycle(t *testing.T, sharedFixture *sharedHTTPRoutingFixtur
 		nil,
 	)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -108,7 +108,7 @@ func testHTTPRouteLifecycle(t *testing.T, sharedFixture *sharedHTTPRoutingFixtur
 		},
 	)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -127,7 +127,7 @@ func testHTTPRouteLifecycle(t *testing.T, sharedFixture *sharedHTTPRoutingFixtur
 	require.NotEmpty(t, programmedPolicyRules)
 	logger.InfoContext(ctx, "Captured programmed routing policy rules", slog.Any("ruleNames", programmedPolicyRules))
 
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
@@ -173,7 +173,7 @@ func testHTTPRouteLifecycle(t *testing.T, sharedFixture *sharedHTTPRoutingFixtur
 		nil,
 	)
 	require.NoError(t, err)
-	logTestProgressContext(
+	logTestProgress(
 		ctx,
 		t,
 		logger,
