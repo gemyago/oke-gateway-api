@@ -19,7 +19,9 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 	ctx, cfg := newLiveHTTPContext(t)
 
 	fake := faker.New()
-	suffix := fake.UUID().V4()
+	suffix := randomDNSLabel(fake)
+	gatewayName := "gateway-" + suffix
+	gatewayConfigName := "gateway-config-" + suffix
 	backendAName := "echo-a-" + suffix
 	backendBName := "echo-b-" + suffix
 	httpRouteAName := "echo-route-a-" + suffix
@@ -58,7 +60,7 @@ func testHTTPMultiRouteIsolation(t *testing.T) {
 		logger,
 		"Starting controller and waiting for readiness",
 	)
-	_ = startHTTPController(t, cfg, logger)
+	startHTTPController(t, cfg, logger)
 
 	namespace, err := e2ek8s.CreateUniqueNamespace(ctx, kubeClient.Client, cfg.NamespacePrefix)
 	require.NoError(t, err)

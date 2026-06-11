@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/jaswdr/faker/v2"
+	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/watch"
@@ -18,8 +21,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/gemyago/oke-gateway-api/e2e/internal/config"
+	"github.com/gemyago/oke-gateway-api/e2e/internal/controllerproc"
 	"github.com/gemyago/oke-gateway-api/e2e/internal/diag"
 	"github.com/gemyago/oke-gateway-api/e2e/internal/e2ek8s"
+	"github.com/gemyago/oke-gateway-api/e2e/internal/e2eoci"
+	"github.com/gemyago/oke-gateway-api/e2e/internal/probe"
 )
 
 const (
@@ -28,21 +34,26 @@ const (
 	cleanupTimeout                           = 4 * time.Minute
 	controllerStartupTimeout                 = 2 * time.Minute
 	probePath                                = "/echo"
-	gatewayName                              = "gateway"
-	gatewayConfigName                        = "gateway-config"
-	backendName                              = "echo"
-	httpRouteName                            = "echo-route"
 )
 
 func TestHTTP(t *testing.T) {
-	t.Run("Startup", testHTTPStartup)
-	t.Run("RouteLifecycle", testHTTPRouteLifecycle)
+	routingFixture := newSharedHTTPRoutingFixture(t)
+
+	t.Run("RouteLifecycle", func(t *testing.T) {
+		testHTTPRouteLifecycle(t, routingFixture)
+	})
 	t.Run("CertificateLifecycle", testHTTPCertificateLifecycle)
 	t.Run("MultiRouteIsolation", testHTTPMultiRouteIsolation)
 	t.Run("BackendEndpointChange", testHTTPBackendEndpointChange)
-	t.Run("HostMatching", testHTTPHostMatching)
-	t.Run("HeaderMatchingVariants", testHTTPHeaderMatchingVariants)
-	t.Run("PathExactVsPrefix", testHTTPPathExactVsPrefix)
+	t.Run("HostMatching", func(t *testing.T) {
+		testHTTPHostMatching(t, routingFixture)
+	})
+	t.Run("HeaderMatchingVariants", func(t *testing.T) {
+		testHTTPHeaderMatchingVariants(t, routingFixture)
+	})
+	t.Run("PathExactVsPrefix", func(t *testing.T) {
+		testHTTPPathExactVsPrefix(t, routingFixture)
+	})
 }
 
 func requireLiveHTTPConfig(t *testing.T) *config.Config {
@@ -71,6 +82,283 @@ func newLiveHTTPContext(t *testing.T) (context.Context, *config.Config) {
 	t.Cleanup(cancel)
 
 	return ctx, cfg
+}
+
+func startHTTPController(t *testing.T, cfg *config.Config, logger *slog.Logger) {
+	t.Helper()
+
+	logTestProgress(t, logger, "Starting controller process")
+	proc, err := controllerproc.Start(newSlogTestLogSink(t, logger), *cfg, nil)
+	require.NoError(t, err)
+
+	if proc.Skipped() {
+		logTestProgress(t, logger, "Controller startup skipped by configuration")
+		return
+	}
+
+	startupCtx, cancel := context.WithTimeout(t.Context(), controllerStartupTimeout)
+	defer cancel()
+
+	logTestProgressContext(
+		startupCtx,
+		t,
+		logger,
+		"Waiting for controller startup log",
+		slog.String("fragment", "Starting controller manager"),
+	)
+	require.NoError(t, proc.WaitForLog(startupCtx, "Starting controller manager"))
+	logTestProgress(t, logger, "Observed controller startup log")
+}
+
+type sharedHTTPRoutingFixture struct {
+	parentT *testing.T
+
+	mu       sync.Mutex
+	fixture  *httpRoutingFixture
+	setupErr error
+}
+
+type httpRoutingFixture struct {
+	kubeClient       *e2ek8s.RuntimeClient
+	ociClient        *loadbalancer.LoadBalancerClient
+	probeClient      *probe.Client
+	namespaceName    string
+	gatewayClassName string
+	gatewayName      string
+	staticBackends   []httpStaticBackend
+}
+
+type httpStaticBackend struct {
+	Name     string
+	Response string
+}
+
+func newSharedHTTPRoutingFixture(parentT *testing.T) *sharedHTTPRoutingFixture {
+	parentT.Helper()
+
+	return &sharedHTTPRoutingFixture{
+		parentT: parentT,
+	}
+}
+
+func (f *sharedHTTPRoutingFixture) Get(t *testing.T, cfg *config.Config) *httpRoutingFixture {
+	t.Helper()
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.fixture != nil {
+		return f.fixture
+	}
+
+	if f.setupErr != nil {
+		require.NoError(t, f.setupErr)
+		return nil
+	}
+
+	fixture, err := createHTTPRoutingFixture(f.parentT, cfg)
+	f.setupErr = err
+	require.NoError(t, err)
+
+	f.fixture = fixture
+	return fixture
+}
+
+func createHTTPRoutingFixture(parentT *testing.T, cfg *config.Config) (*httpRoutingFixture, error) {
+	logger := startTestLogger(parentT).With(slog.String("fixture", "shared-routing"))
+	fake := faker.New()
+	suffix := randomDNSLabel(fake)
+	gatewayName := "gateway-" + suffix
+	gatewayConfigName := "gateway-config-" + suffix
+
+	setupCtx, cancel := context.WithTimeout(context.Background(), liveHTTPTestTimeout)
+	defer cancel()
+
+	logger.InfoContext(setupCtx, "Creating shared routing fixture clients")
+	kubeClient, err := e2ek8s.NewClient(cfg.Kubernetes, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create Kubernetes client for shared routing fixture: %w", err)
+	}
+
+	ociClient, err := e2eoci.NewLoadBalancerClient(cfg.OCI, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create OCI client for shared routing fixture: %w", err)
+	}
+
+	inspector := e2eoci.NewLoadBalancerCleaner(ociClient, slog.New(slog.DiscardHandler), nil)
+	loadBalancer, err := inspector.Inspect(setupCtx, cfg.OCI.LoadBalancerID)
+	if err != nil {
+		return nil, fmt.Errorf("inspect OCI load balancer for shared routing fixture: %w", err)
+	}
+
+	probeClient, err := probe.NewClient(loadBalancer.PublicIP, cfg.HTTPPort, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create probe client for shared routing fixture: %w", err)
+	}
+
+	logger.InfoContext(setupCtx, "Starting shared controller process")
+	startHTTPController(parentT, cfg, logger)
+
+	namespace, err := e2ek8s.CreateUniqueNamespace(setupCtx, kubeClient.Client, cfg.NamespacePrefix)
+	if err != nil {
+		return nil, fmt.Errorf("create shared routing fixture namespace: %w", err)
+	}
+
+	gatewayClassName := uniqueGatewayClassName(cfg.GatewayClassName, namespace.Name)
+	var cleanupOnce sync.Once
+	registerCleanup(parentT, &cleanupOnce, kubeClient.WithWatch, namespace.Name, gatewayClassName)
+
+	logger.InfoContext(
+		setupCtx,
+		"Created shared routing fixture namespace",
+		slog.String("namespace", namespace.Name),
+		slog.String("gatewayClass", gatewayClassName),
+	)
+
+	gatewayClass := e2ek8s.NewGatewayClass(e2ek8s.GatewayClassOptions{
+		Name: gatewayClassName,
+	})
+	err = kubeClient.Create(setupCtx, gatewayClass)
+	if err != nil {
+		return nil, fmt.Errorf("create shared routing fixture GatewayClass %q: %w", gatewayClassName, err)
+	}
+
+	logTestProgressContext(setupCtx, parentT, logger, "Waiting for shared routing fixture GatewayClass acceptance")
+	_, err = e2ek8s.WaitForGatewayClassAccepted(setupCtx, kubeClient.Client, gatewayClassName, nil)
+	if err != nil {
+		return nil, fmt.Errorf("wait for shared routing fixture GatewayClass %q acceptance: %w", gatewayClassName, err)
+	}
+
+	gatewayConfig := e2ek8s.NewGatewayConfig(e2ek8s.GatewayConfigOptions{
+		Namespace:      namespace.Name,
+		Name:           gatewayConfigName,
+		LoadBalancerID: cfg.OCI.LoadBalancerID,
+	})
+	err = kubeClient.Create(setupCtx, gatewayConfig)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"create shared routing fixture GatewayConfig %s/%s: %w",
+			namespace.Name,
+			gatewayConfigName,
+			err,
+		)
+	}
+
+	gateway := e2ek8s.NewHTTPGateway(e2ek8s.HTTPGatewayOptions{
+		Namespace:         namespace.Name,
+		Name:              gatewayName,
+		GatewayClassName:  gatewayClassName,
+		GatewayConfigName: gatewayConfigName,
+		Port:              gatewayv1.PortNumber(cfg.HTTPPort),
+	})
+	err = kubeClient.Create(setupCtx, gateway)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"create shared routing fixture Gateway %s/%s: %w",
+			namespace.Name,
+			gatewayName,
+			err,
+		)
+	}
+
+	_, err = e2ek8s.WaitForGatewayAccepted(setupCtx, kubeClient.Client, namespace.Name, gatewayName, nil)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"wait for shared routing fixture Gateway %s/%s acceptance: %w",
+			namespace.Name,
+			gatewayName,
+			err,
+		)
+	}
+
+	_, err = e2ek8s.WaitForGatewayProgrammed(setupCtx, kubeClient.Client, namespace.Name, gatewayName, nil)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"wait for shared routing fixture Gateway %s/%s programming: %w",
+			namespace.Name,
+			gatewayName,
+			err,
+		)
+	}
+
+	staticBackends := []httpStaticBackend{
+		{Name: "shared-static-a-" + suffix, Response: "shared-static-a-response-" + suffix},
+		{Name: "shared-static-b-" + suffix, Response: "shared-static-b-response-" + suffix},
+		{Name: "shared-static-c-" + suffix, Response: "shared-static-c-response-" + suffix},
+	}
+
+	for _, backend := range staticBackends {
+		service := e2ek8s.NewEchoService(e2ek8s.EchoServiceOptions{
+			Namespace: namespace.Name,
+			Name:      backend.Name,
+		})
+		err = kubeClient.Create(setupCtx, service)
+		if err != nil {
+			return nil, fmt.Errorf("create shared static Service %s/%s: %w", namespace.Name, backend.Name, err)
+		}
+
+		deployment := e2ek8s.NewStaticHTTPDeployment(e2ek8s.StaticHTTPDeploymentOptions{
+			Namespace:    namespace.Name,
+			Name:         backend.Name,
+			ResponseText: backend.Response,
+		})
+		err = kubeClient.Create(setupCtx, deployment)
+		if err != nil {
+			return nil, fmt.Errorf("create shared static Deployment %s/%s: %w", namespace.Name, backend.Name, err)
+		}
+	}
+
+	backendNames := make([]string, 0, len(staticBackends))
+	for _, backend := range staticBackends {
+		backendNames = append(backendNames, backend.Name)
+	}
+	for _, backendName := range backendNames {
+		_, err = e2ek8s.WaitForDeploymentReady(setupCtx, kubeClient.Client, namespace.Name, backendName, nil)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"wait for shared backend Deployment %s/%s readiness: %w",
+				namespace.Name,
+				backendName,
+				err,
+			)
+		}
+
+		_, err = e2ek8s.WaitForServiceEndpointsReady(setupCtx, kubeClient.Client, namespace.Name, backendName, nil)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"wait for shared backend Service %s/%s endpoints: %w",
+				namespace.Name,
+				backendName,
+				err,
+			)
+		}
+	}
+
+	logger.InfoContext(
+		setupCtx,
+		"Shared routing fixture is ready",
+		slog.String("namespace", namespace.Name),
+		slog.Int("sharedBackendCount", len(backendNames)),
+	)
+
+	return &httpRoutingFixture{
+		kubeClient:       kubeClient,
+		ociClient:        ociClient,
+		probeClient:      probeClient,
+		namespaceName:    namespace.Name,
+		gatewayClassName: gatewayClassName,
+		gatewayName:      gatewayName,
+		staticBackends:   staticBackends,
+	}, nil
+}
+
+func randomDNSLabel(fake faker.Faker) string {
+	token := strings.ToLower(strings.ReplaceAll(fake.UUID().V4(), "-", ""))
+	if len(token) > 12 {
+		return token[:12]
+	}
+
+	return token
 }
 
 func programmedPolicyRuleNames(route *gatewayv1.HTTPRoute) ([]string, error) {
@@ -332,6 +620,24 @@ func registerCleanup(
 	})
 }
 
+func registerHTTPRouteCleanup(
+	t *testing.T,
+	kubeClient ctrlclient.WithWatch,
+	namespace string,
+	names ...string,
+) {
+	t.Helper()
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+		defer cancel()
+
+		if err := deleteHTTPRoutes(cleanupCtx, kubeClient, namespace, names...); err != nil {
+			t.Errorf("delete HTTPRoutes in namespace %q: %v", namespace, err)
+		}
+	})
+}
+
 func deleteNamespaceHTTPRoutes(
 	ctx context.Context,
 	kubeClient ctrlclient.WithWatch,
@@ -364,6 +670,44 @@ func deleteNamespaceHTTPRoutes(
 	}
 
 	return nil
+}
+
+func deleteHTTPRoutes(
+	ctx context.Context,
+	kubeClient ctrlclient.WithWatch,
+	namespace string,
+	names ...string,
+) error {
+	var errs []error
+
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+
+		route := &gatewayv1.HTTPRoute{}
+		key := ctrlclient.ObjectKey{Namespace: namespace, Name: name}
+		if err := kubeClient.Get(ctx, key, route); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+
+			errs = append(errs, fmt.Errorf("get HTTPRoute %s/%s: %w", namespace, name, err))
+			continue
+		}
+
+		if err := kubeClient.Delete(ctx, route); err != nil && !apierrors.IsNotFound(err) {
+			errs = append(errs, fmt.Errorf("delete HTTPRoute %s/%s: %w", namespace, name, err))
+			continue
+		}
+
+		if err := e2ek8s.WaitForHTTPRouteDeleted(ctx, kubeClient, namespace, name, nil); err != nil {
+			errs = append(errs, fmt.Errorf("wait for HTTPRoute %s/%s deletion: %w", namespace, name, err))
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 func deleteNamespace(ctx context.Context, kubeClient ctrlclient.Client, namespaceName string) error {

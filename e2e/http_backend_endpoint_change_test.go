@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/jaswdr/faker/v2"
 	appsv1 "k8s.io/api/apps/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -21,6 +22,12 @@ import (
 func testHTTPBackendEndpointChange(t *testing.T) {
 	logger := startTestLogger(t)
 	ctx, cfg := newLiveHTTPContext(t)
+	fake := faker.New()
+	suffix := randomDNSLabel(fake)
+	gatewayName := "gateway-" + suffix
+	gatewayConfigName := "gateway-config-" + suffix
+	backendName := "echo-" + suffix
+	routeName := "echo-route-" + suffix
 	logger.InfoContext(ctx, "Loaded live HTTP backend endpoint change configuration",
 		slog.String("kubeContext", cfg.Kubernetes.Context),
 		slog.String("loadBalancerID", cfg.OCI.LoadBalancerID),
@@ -42,7 +49,7 @@ func testHTTPBackendEndpointChange(t *testing.T) {
 	require.NoError(t, err)
 
 	logTestProgressContext(ctx, t, logger, "Starting controller and waiting for readiness")
-	_ = startHTTPController(t, cfg, logger)
+	startHTTPController(t, cfg, logger)
 
 	namespace, err := e2ek8s.CreateUniqueNamespace(ctx, kubeClient.Client, cfg.NamespacePrefix)
 	require.NoError(t, err)
@@ -149,7 +156,7 @@ func testHTTPBackendEndpointChange(t *testing.T) {
 
 	httpRoute := e2ek8s.NewHTTPRoute(e2ek8s.HTTPRouteOptions{
 		Namespace:    namespace.Name,
-		Name:         httpRouteName,
+		Name:         routeName,
 		GatewayName:  gatewayName,
 		ListenerName: e2ek8s.DefaultHTTPListenerName,
 		ServiceName:  backendName,
@@ -160,19 +167,19 @@ func testHTTPBackendEndpointChange(t *testing.T) {
 		ctx,
 		"Creating HTTPRoute",
 		slog.String("namespace", namespace.Name),
-		slog.String("httpRoute", httpRouteName),
+		slog.String("httpRoute", routeName),
 		slog.String("probePath", probePath),
 	)
 	require.NoError(t, kubeClient.Create(ctx, httpRoute))
 
-	_, err = e2ek8s.WaitForHTTPRouteAccepted(ctx, kubeClient.Client, namespace.Name, httpRouteName, gatewayName, nil)
+	_, err = e2ek8s.WaitForHTTPRouteAccepted(ctx, kubeClient.Client, namespace.Name, routeName, gatewayName, nil)
 	require.NoError(t, err)
 
 	_, err = e2ek8s.WaitForHTTPRouteResolvedRefs(
 		ctx,
 		kubeClient.Client,
 		namespace.Name,
-		httpRouteName,
+		routeName,
 		gatewayName,
 		nil,
 	)

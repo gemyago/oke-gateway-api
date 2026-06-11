@@ -40,6 +40,8 @@ func testHTTPCertificateLifecycle(t *testing.T) {
 
 	fake := faker.New()
 	suffix := randomDNSLabel(fake)
+	gatewayName := "gateway-" + suffix
+	gatewayConfigName := "gateway-config-" + suffix
 	backendName := "https-backend-" + suffix
 	routeName := "https-route-" + suffix
 	serialHostV1 := "v1-" + suffix + ".example.test"
@@ -93,7 +95,7 @@ func testHTTPCertificateLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	logTestProgressContext(ctx, t, logger, "Starting controller and waiting for readiness")
-	_ = startHTTPController(t, cfg, logger)
+	startHTTPController(t, cfg, logger)
 
 	namespace, err := e2ek8s.CreateUniqueNamespace(ctx, kubeClient.Client, cfg.NamespacePrefix)
 	require.NoError(t, err)
