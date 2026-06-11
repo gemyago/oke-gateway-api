@@ -106,7 +106,7 @@ kubectl --context "${OKE_E2E_KUBE_CONTEXT}" get crd gateway-configs.oke-gateway-
 If it is missing, install it explicitly before running the live test:
 
 ```sh
-kubectl apply -f deploy/helm/controller/templates/gateway-config-crd.yaml
+kubectl apply -f deploy/helm/controller/crds/gateway-config-crd.yaml
 ```
 
 ## Commands
