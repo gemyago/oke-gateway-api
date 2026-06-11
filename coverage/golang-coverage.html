@@ -83,7 +83,7 @@
 				
 				<option value="file13">github.com/gemyago/oke-gateway-api/internal/app/errors.go (100.0%)</option>
 				
-				<option value="file14">github.com/gemyago/oke-gateway-api/internal/app/gateway_controller.go (96.3%)</option>
+				<option value="file14">github.com/gemyago/oke-gateway-api/internal/app/gateway_controller.go (96.6%)</option>
 				
 				<option value="file15">github.com/gemyago/oke-gateway-api/internal/app/gateway_model.go (96.2%)</option>
 				
@@ -107,7 +107,7 @@
 				
 				<option value="file25">github.com/gemyago/oke-gateway-api/internal/app/mock_oci_load_balancer_model.go (58.9%)</option>
 				
-				<option value="file26">github.com/gemyago/oke-gateway-api/internal/app/mock_oci_load_balancer_routing_rules_mapper.go (38.0%)</option>
+				<option value="file26">github.com/gemyago/oke-gateway-api/internal/app/mock_oci_load_balancer_routing_rules_mapper.go (26.4%)</option>
 				
 				<option value="file27">github.com/gemyago/oke-gateway-api/internal/app/mock_resources_model.go (63.2%)</option>
 				
@@ -115,7 +115,7 @@
 				
 				<option value="file29">github.com/gemyago/oke-gateway-api/internal/app/oci_load_balancer_model.go (97.2%)</option>
 				
-				<option value="file30">github.com/gemyago/oke-gateway-api/internal/app/oci_load_balancer_routing_rules.go (95.5%)</option>
+				<option value="file30">github.com/gemyago/oke-gateway-api/internal/app/oci_load_balancer_routing_rules.go (96.4%)</option>
 				
 				<option value="file31">github.com/gemyago/oke-gateway-api/internal/app/register.go (100.0%)</option>
 				
@@ -139,7 +139,7 @@
 				
 				<option value="file41">github.com/gemyago/oke-gateway-api/internal/k8s/middleware.go (100.0%)</option>
 				
-				<option value="file42">github.com/gemyago/oke-gateway-api/internal/k8s/start_manager.go (0.0%)</option>
+				<option value="file42">github.com/gemyago/oke-gateway-api/internal/k8s/start_manager.go (26.7%)</option>
 				
 				<option value="file43">github.com/gemyago/oke-gateway-api/internal/services/k8sapi/client.go (40.9%)</option>
 				
@@ -173,7 +173,7 @@
 				
 				<option value="file58">github.com/gemyago/oke-gateway-api/internal/types/register.go (100.0%)</option>
 				
-				<option value="file59">github.com/gemyago/oke-gateway-api/internal/types/zz_generated.deepcopy.go (0.0%)</option>
+				<option value="file59">github.com/gemyago/oke-gateway-api/internal/types/zz_generated.deepcopy.go (28.3%)</option>
 				
 				</select>
 			</div>
@@ -1028,6 +1028,7 @@ import (
         "log/slog"
 
         "go.uber.org/dig"
+        "k8s.io/apimachinery/pkg/api/meta"
         v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
         "sigs.k8s.io/controller-runtime/pkg/reconcile"
         gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -1052,13 +1053,23 @@ type GatewayControllerDeps struct {
 }
 
 // NewGatewayController creates a new GatewayController.
-func NewGatewayController(deps GatewayControllerDeps) *GatewayController <span class="cov10" title="10">{
+func NewGatewayController(deps GatewayControllerDeps) *GatewayController <span class="cov10" title="11">{
         return &amp;GatewayController{
                 client:         deps.K8sClient,
                 logger:         deps.RootLogger.WithGroup("gateway-controller"),
                 resourcesModel: deps.ResourcesModel, // Initialize resourcesModel
                 gatewayModel:   deps.GatewayModel,
         }
+}</span>
+
+func isGatewayAccepted(gateway *gatewayv1.Gateway) bool <span class="cov7" title="6">{
+        condition := meta.FindStatusCondition(
+                gateway.Status.Conditions,
+                string(gatewayv1.GatewayConditionAccepted),
+        )
+        return condition != nil &amp;&amp;
+                condition.ObservedGeneration == gateway.Generation &amp;&amp;
+                condition.Status == v1.ConditionTrue
 }</span>
 
 // processResourceError handles errors from resource programming operations.
@@ -1091,25 +1102,21 @@ func (r *GatewayController) processResourceError(
 }
 
 // Reconcile implements the reconcile.Reconciler interface for Gateway resources.
-func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) <span class="cov9" title="9">{
+func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) <span class="cov9" title="10">{
         var data resolvedGatewayDetails
         relevant, err := r.gatewayModel.resolveReconcileRequest(ctx, req, &amp;data)
         if err != nil </span><span class="cov5" title="3">{
                 return r.processResourceError(ctx, err, &amp;data.gateway)
         }</span>
-        <span class="cov8" title="6">if !relevant </span><span class="cov1" title="1">{
+        <span class="cov8" title="7">if !relevant </span><span class="cov1" title="1">{
                 return reconcile.Result{}, nil
         }</span>
-        <span class="cov7" title="5">r.logger.InfoContext(ctx, fmt.Sprintf("Processing reconciliation for Gateway %s", req.NamespacedName),
+        <span class="cov7" title="6">r.logger.InfoContext(ctx, fmt.Sprintf("Processing reconciliation for Gateway %s", req.NamespacedName),
                 slog.String("resourceVersion", data.gateway.ResourceVersion),
                 slog.Int64("generation", data.gateway.Generation),
         )
 
-        if !r.resourcesModel.isConditionSet(isConditionSetParams{
-                resource:      &amp;data.gateway,
-                conditions:    data.gateway.Status.Conditions,
-                conditionType: string(gatewayv1.GatewayConditionAccepted),
-        }) </span><span class="cov1" title="1">{
+        if !isGatewayAccepted(&amp;data.gateway) </span><span class="cov3" title="2">{
                 if err = r.resourcesModel.setCondition(ctx, setConditionParams{
                         resource:      &amp;data.gateway,
                         conditions:    &amp;data.gateway.Status.Conditions,
@@ -1129,7 +1136,7 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
                 }</span>
         }
 
-        <span class="cov7" title="5">if !r.gatewayModel.isProgrammed(ctx, &amp;data) </span><span class="cov6" title="4">{
+        <span class="cov7" title="6">if !r.gatewayModel.isProgrammed(ctx, &amp;data) </span><span class="cov6" title="4">{
                 r.logger.DebugContext(ctx, "Programming gateway",
                         slog.Any("req", req),
                         slog.String("resourceVersion", data.gateway.ResourceVersion),
@@ -1153,7 +1160,7 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
                         slog.String("resourceVersion", data.gateway.ResourceVersion),
                         slog.Int64("generation", data.gateway.Generation),
                 )</span>
-        } else<span class="cov1" title="1"> {
+        } else<span class="cov3" title="2"> {
                 r.logger.DebugContext(ctx,
                         "Programmed condition already set for this Gateway generation",
                         slog.String("gateway", req.NamespacedName.String()),
@@ -1162,7 +1169,7 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
                 )
         }</span>
 
-        <span class="cov3" title="2">return reconcile.Result{}, nil</span>
+        <span class="cov5" title="3">return reconcile.Result{}, nil</span>
 }
 </pre>
 		
@@ -1186,8 +1193,8 @@ import (
         "github.com/gemyago/oke-gateway-api/internal/types"
 )
 
-func listenerOCICertificateOCID(listener gatewayv1.Listener) string <span class="cov10" title="38">{
-        if listener.TLS == nil || listener.TLS.Options == nil </span><span class="cov9" title="27">{
+func listenerOCICertificateOCID(listener gatewayv1.Listener) string <span class="cov10" title="40">{
+        if listener.TLS == nil || listener.TLS.Options == nil </span><span class="cov9" title="29">{
                 return ""
         }</span>
         <span class="cov6" title="11">return string(listener.TLS.Options[gatewayv1.AnnotationKey(ListenerTLSOptionOCICertificateOCID)])</span>
@@ -1203,10 +1210,10 @@ func gatewayCertificateIDsByListener(gateway gatewayv1.Gateway) map[string]strin
         <span class="cov6" title="10">return result</span>
 }
 
-func validateGatewayCertificateOptions(gateway gatewayv1.Gateway) error <span class="cov6" title="10">{
-        for _, listener := range gateway.Spec.Listeners </span><span class="cov7" title="12">{
+func validateGatewayCertificateOptions(gateway gatewayv1.Gateway) error <span class="cov6" title="11">{
+        for _, listener := range gateway.Spec.Listeners </span><span class="cov7" title="13">{
                 certificateID := listenerOCICertificateOCID(listener)
-                if certificateID == "" </span><span class="cov4" title="4">{
+                if certificateID == "" </span><span class="cov4" title="5">{
                         continue</span>
                 }
                 <span class="cov6" title="8">if listener.Protocol != gatewayv1.HTTPSProtocolType </span><span class="cov2" title="2">{
@@ -1243,7 +1250,7 @@ func validateGatewayCertificateOptions(gateway gatewayv1.Gateway) error <span cl
                         }
                 }</span>
         }
-        <span class="cov5" title="6">return nil</span>
+        <span class="cov5" title="7">return nil</span>
 }
 
 type resolvedGatewayDetails struct {
@@ -1290,7 +1297,7 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
         ctx context.Context,
         req reconcile.Request,
         receiver *resolvedGatewayDetails,
-) (bool, error) <span class="cov6" title="11">{
+) (bool, error) <span class="cov7" title="12">{
         if err := m.client.Get(ctx, req.NamespacedName, &amp;receiver.gateway); err != nil </span><span class="cov2" title="2">{
                 if apierrors.IsNotFound(err) </span><span class="cov1" title="1">{
                         m.logger.InfoContext(ctx, fmt.Sprintf("Gateway %s not found", req.NamespacedName))
@@ -1299,7 +1306,7 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
                 <span class="cov1" title="1">return false, fmt.Errorf("failed to get Gateway %s: %w", req.NamespacedName, err)</span>
         }
 
-        <span class="cov6" title="9">if err := m.client.Get(ctx, apitypes.NamespacedName{
+        <span class="cov6" title="10">if err := m.client.Get(ctx, apitypes.NamespacedName{
                 Name: string(receiver.gateway.Spec.GatewayClassName),
         }, &amp;receiver.gatewayClass); err != nil </span><span class="cov2" title="2">{
                 if apierrors.IsNotFound(err) </span><span class="cov1" title="1">{
@@ -1309,7 +1316,7 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
                 <span class="cov1" title="1">return false, fmt.Errorf("failed to get GatewayClass %s: %w", receiver.gateway.Spec.GatewayClassName, err)</span>
         }
 
-        <span class="cov5" title="7">if receiver.gatewayClass.Spec.ControllerName != gatewayv1.GatewayController(ControllerClassName) </span><span class="cov1" title="1">{
+        <span class="cov6" title="8">if receiver.gatewayClass.Spec.ControllerName != gatewayv1.GatewayController(ControllerClassName) </span><span class="cov1" title="1">{
                 m.logger.InfoContext(
                         ctx,
                         fmt.Sprintf("GatewayClass %s is not managed by this controller", receiver.gateway.Spec.GatewayClassName),
@@ -1317,7 +1324,7 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
                 return false, nil
         }</span>
 
-        <span class="cov5" title="6">if receiver.gateway.Spec.Infrastructure == nil || receiver.gateway.Spec.Infrastructure.ParametersRef == nil </span><span class="cov1" title="1">{
+        <span class="cov5" title="7">if receiver.gateway.Spec.Infrastructure == nil || receiver.gateway.Spec.Infrastructure.ParametersRef == nil </span><span class="cov1" title="1">{
                 return false, &amp;resourceStatusError{
                         conditionType: string(gatewayv1.GatewayConditionAccepted),
                         reason:        string(gatewayv1.GatewayReasonInvalidParameters),
@@ -1325,7 +1332,7 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
                 }
         }</span>
 
-        <span class="cov4" title="5">configName := apitypes.NamespacedName{
+        <span class="cov5" title="6">configName := apitypes.NamespacedName{
                 Namespace: receiver.gateway.Namespace,
                 Name:      receiver.gateway.Spec.Infrastructure.ParametersRef.Name,
         }
@@ -1341,58 +1348,58 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
                 <span class="cov1" title="1">return false, fmt.Errorf("failed to get GatewayConfig %s: %w", configName, err)</span>
         }
 
-        <span class="cov3" title="3">if err := validateGatewayCertificateOptions(receiver.gateway); err != nil </span><span class="cov0" title="0">{
+        <span class="cov4" title="4">if err := validateGatewayCertificateOptions(receiver.gateway); err != nil </span><span class="cov0" title="0">{
                 return false, err
         }</span>
 
-        <span class="cov3" title="3">if err := m.populateGatewaySecrets(ctx, receiver); err != nil </span><span class="cov1" title="1">{
+        <span class="cov4" title="4">if err := m.populateGatewaySecrets(ctx, receiver); err != nil </span><span class="cov1" title="1">{
                 return false, err
         }</span>
 
         // TODO: Make sure config is complete
 
-        <span class="cov2" title="2">return true, nil</span>
+        <span class="cov3" title="3">return true, nil</span>
 }
 
 func (m *gatewayModelImpl) populateGatewaySecrets(
         ctx context.Context,
         receiver *resolvedGatewayDetails,
-) error <span class="cov5" title="6">{
+) error <span class="cov5" title="7">{
         receiver.gatewaySecrets = make(map[string]corev1.Secret)
-        for _, listener := range receiver.gateway.Spec.Listeners </span><span class="cov5" title="7">{
+        for _, listener := range receiver.gateway.Spec.Listeners </span><span class="cov6" title="8">{
                 if listenerOCICertificateOCID(listener) != "" </span><span class="cov1" title="1">{
                         continue</span>
                 }
-                <span class="cov5" title="6">if populateErr := m.populateGatewayListenerSecrets(ctx, receiver, listener); populateErr != nil </span><span class="cov2" title="2">{
+                <span class="cov5" title="7">if populateErr := m.populateGatewayListenerSecrets(ctx, receiver, listener); populateErr != nil </span><span class="cov2" title="2">{
                         return populateErr
                 }</span>
         }
 
-        <span class="cov4" title="4">return nil</span>
+        <span class="cov4" title="5">return nil</span>
 }
 
 func (m *gatewayModelImpl) populateGatewayListenerSecrets(
         ctx context.Context,
         receiver *resolvedGatewayDetails,
         listener gatewayv1.Listener,
-) error <span class="cov5" title="6">{
+) error <span class="cov5" title="7">{
         if listener.TLS == nil || len(listener.TLS.CertificateRefs) == 0 </span><span class="cov1" title="1">{
                 return nil
         }</span>
 
-        <span class="cov4" title="5">for _, certRef := range listener.TLS.CertificateRefs </span><span class="cov6" title="8">{
+        <span class="cov5" title="6">for _, certRef := range listener.TLS.CertificateRefs </span><span class="cov6" title="9">{
                 secretName := string(certRef.Name)
                 secretNamespace := receiver.gateway.Namespace
                 if certRef.Namespace != nil </span><span class="cov4" title="5">{
                         secretNamespace = string(*certRef.Namespace)
                 }</span>
 
-                <span class="cov6" title="8">if err := m.populateGatewaySecret(ctx, receiver, secretNamespace, secretName); err != nil </span><span class="cov2" title="2">{
+                <span class="cov6" title="9">if err := m.populateGatewaySecret(ctx, receiver, secretNamespace, secretName); err != nil </span><span class="cov2" title="2">{
                         return err
                 }</span>
         }
 
-        <span class="cov3" title="3">return nil</span>
+        <span class="cov4" title="4">return nil</span>
 }
 
 func (m *gatewayModelImpl) populateGatewaySecret(
@@ -1400,13 +1407,13 @@ func (m *gatewayModelImpl) populateGatewaySecret(
         receiver *resolvedGatewayDetails,
         secretNamespace string,
         secretName string,
-) error <span class="cov6" title="8">{
+) error <span class="cov6" title="9">{
         fullSecretName := secretNamespace + "/" + secretName
         if _, exists := receiver.gatewaySecrets[fullSecretName]; exists </span><span class="cov1" title="1">{
                 return nil
         }</span>
 
-        <span class="cov5" title="7">var secret corev1.Secret
+        <span class="cov6" title="8">var secret corev1.Secret
         getErr := m.client.Get(ctx, apitypes.NamespacedName{
                 Name:      secretName,
                 Namespace: secretNamespace,
@@ -1422,7 +1429,7 @@ func (m *gatewayModelImpl) populateGatewaySecret(
                 <span class="cov1" title="1">return fmt.Errorf("failed to get secret %s: %w", fullSecretName, getErr)</span>
         }
 
-        <span class="cov4" title="5">receiver.gatewaySecrets[fullSecretName] = secret
+        <span class="cov5" title="6">receiver.gatewaySecrets[fullSecretName] = secret
         return nil</span>
 }
 
@@ -1468,7 +1475,7 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
                 return fmt.Errorf("failed to reconcile listeners certificates: %w", err)
         }</span>
 
-        <span class="cov2" title="2">for _, listener := range data.gateway.Spec.Listeners </span><span class="cov4" title="4">{
+        <span class="cov2" title="2">for _, listener := range data.gateway.Spec.Listeners </span><span class="cov4" title="5">{
                 // TODO: Support listener with hostname
 
                 listenerName := string(listener.Name)
@@ -1540,21 +1547,21 @@ func gatewayStatusAddressesFromLoadBalancer(lb *loadbalancer.LoadBalancer) []gat
         <span class="cov1" title="1">return addresses</span>
 }
 
-func (m *gatewayModelImpl) isProgrammed(_ context.Context, data *resolvedGatewayDetails) bool <span class="cov3" title="3">{
+func (m *gatewayModelImpl) isProgrammed(_ context.Context, data *resolvedGatewayDetails) bool <span class="cov4" title="4">{
         annotations := map[string]string{
                 GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
         }
 
         // Include secrets annotations in the check
-        if len(data.gatewaySecrets) &gt; 0 </span><span class="cov1" title="1">{
-                for _, secret := range data.gatewaySecrets </span><span class="cov2" title="2">{
+        if len(data.gatewaySecrets) &gt; 0 </span><span class="cov2" title="2">{
+                for _, secret := range data.gatewaySecrets </span><span class="cov3" title="3">{
                         secretUID := string(secret.UID)
                         annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + secretUID
                         annotations[annotationKey] = secret.ResourceVersion
                 }</span>
         }
 
-        <span class="cov3" title="3">return m.resourcesModel.isConditionSet(isConditionSetParams{
+        <span class="cov4" title="4">return m.resourcesModel.isConditionSet(isConditionSetParams{
                 resource:      &amp;data.gateway,
                 conditions:    data.gateway.Status.Conditions,
                 conditionType: string(gatewayv1.GatewayConditionProgrammed),
@@ -1568,7 +1575,7 @@ func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGate
         }
 
         if len(data.gatewaySecrets) &gt; 0 </span><span class="cov1" title="1">{
-                for _, secret := range data.gatewaySecrets </span><span class="cov2" title="2">{
+                for _, secret := range data.gatewaySecrets </span><span class="cov3" title="3">{
                         secretUID := string(secret.UID)
                         annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + secretUID
                         annotations[annotationKey] = secret.ResourceVersion
@@ -1600,7 +1607,7 @@ type gatewayModelDeps struct {
         OciLoadBalancerModel ociLoadBalancerModel
 }
 
-func newGatewayModel(deps gatewayModelDeps) *gatewayModelImpl <span class="cov8" title="22">{
+func newGatewayModel(deps gatewayModelDeps) *gatewayModelImpl <span class="cov8" title="23">{
         return &amp;gatewayModelImpl{
                 client:               deps.K8sClient,
                 logger:               deps.RootLogger.WithGroup("gateway-model"),
@@ -1833,22 +1840,22 @@ func (m *httpBackendModelImpl) identifyBackendsToUpdate(
         var drainingCount int
 
         for _, slice := range params.endpointSlices </span><span class="cov7" title="9">{
-                for _, endpoint := range slice.Endpoints </span><span class="cov9" title="16">{
+                for _, endpoint := range slice.Endpoints </span><span class="cov9" title="14">{
                         if endpoint.Conditions.Ready != nil &amp;&amp; !*endpoint.Conditions.Ready </span><span class="cov3" title="2">{
                                 continue</span>
                         }
-                        <span class="cov9" title="14">if len(endpoint.Addresses) == 0 </span><span class="cov1" title="1">{
+                        <span class="cov8" title="12">if len(endpoint.Addresses) == 0 </span><span class="cov1" title="1">{
                                 m.logger.WarnContext(ctx, "Endpoint has no addresses", slog.Any("endpoint", endpoint))
                                 continue</span>
                         }
-                        <span class="cov8" title="13">ipAddress := endpoint.Addresses[0]
+                        <span class="cov8" title="11">ipAddress := endpoint.Addresses[0]
                         isDraining := endpoint.Conditions.Terminating != nil &amp;&amp; *endpoint.Conditions.Terminating
 
                         if isDraining </span><span class="cov3" title="2">{
                                 drainingCount++
                         }</span>
 
-                        <span class="cov8" title="13">desiredBackendsMap[httpBackendAddressKey{
+                        <span class="cov8" title="11">desiredBackendsMap[httpBackendAddressKey{
                                 ipAddress: ipAddress,
                                 port:      int(params.endpointPort),
                         }] = loadbalancer.BackendDetails{
@@ -2334,7 +2341,7 @@ type httpRouteModel interface {
 
 // parentRefSameTarget checks if two parent references target the same resource.
 // It ignores the section name and port.
-func parentRefSameTarget(a, b gatewayv1.ParentReference) bool <span class="cov7" title="11">{
+func parentRefSameTarget(a, b gatewayv1.ParentReference) bool <span class="cov7" title="14">{
         return a.Name == b.Name &amp;&amp;
                 lo.FromPtr(a.Namespace) == lo.FromPtr(b.Namespace) &amp;&amp;
                 lo.FromPtr(a.Kind) == lo.FromPtr(b.Kind) &amp;&amp;
@@ -2642,7 +2649,7 @@ func (m *httpRouteModelImpl) programRoute(
         params programRouteParams,
 ) (programRouteResult, error) <span class="cov5" title="5">{
         // First, reconcile all backend sets for known backends
-        for key, service := range params.knownBackends </span><span class="cov6" title="8">{
+        for key, service := range params.knownBackends </span><span class="cov6" title="7">{
                 err := m.ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
                         loadBalancerID: params.config.Spec.LoadBalancerID,
                         service:        service,
@@ -2674,7 +2681,7 @@ func (m *httpRouteModelImpl) programRoute(
         }</span>
 
         // Commit the rules to each listener's policy
-        <span class="cov3" title="3">for _, listener := range params.matchedListeners </span><span class="cov6" title="7">{
+        <span class="cov3" title="3">for _, listener := range params.matchedListeners </span><span class="cov6" title="9">{
                 err := m.ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
                         loadBalancerID:  params.config.Spec.LoadBalancerID,
                         listenerName:    string(listener.Name),
@@ -2714,7 +2721,7 @@ func (m *httpRouteModelImpl) deprovisionRoute(
                 return nil
         }</span>
 
-        <span class="cov2" title="2">for _, listener := range params.matchedListeners </span><span class="cov5" title="5">{
+        <span class="cov2" title="2">for _, listener := range params.matchedListeners </span><span class="cov3" title="3">{
                 m.logger.DebugContext(ctx, "Deprovisioning listener policies for HTTPRoute",
                         slog.String("route", params.httpRoute.Name),
                         slog.String("listener", string(listener.Name)),
@@ -2765,17 +2772,17 @@ func (m *httpRouteModelImpl) deprovisionRoute(
 //nolint:unparam // The error return is part of the interface contract used by controller tests.
 func (m *httpRouteModelImpl) isProgrammingRequired(
         details resolvedRouteDetails,
-) (bool, error) <span class="cov3" title="3">{
-        parentStatus, found := lo.Find(details.httpRoute.Status.Parents, func(s gatewayv1.RouteParentStatus) bool </span><span class="cov3" title="3">{
+) (bool, error) <span class="cov4" title="4">{
+        parentStatus, found := lo.Find(details.httpRoute.Status.Parents, func(s gatewayv1.RouteParentStatus) bool </span><span class="cov4" title="4">{
                 return s.ControllerName == details.gatewayDetails.gatewayClass.Spec.ControllerName &amp;&amp;
                         parentRefSameTarget(s.ParentRef, details.matchedRef)
         }</span>)
 
-        <span class="cov3" title="3">if !found </span><span class="cov2" title="2">{
+        <span class="cov4" title="4">if !found </span><span class="cov2" title="2">{
                 return true, nil
         }</span>
 
-        <span class="cov1" title="1">return !m.resourcesModel.isConditionSet(isConditionSetParams{
+        <span class="cov2" title="2">return !m.resourcesModel.isConditionSet(isConditionSetParams{
                 resource:   &amp;details.httpRoute,
                 conditions: parentStatus.Conditions,
 
@@ -2800,7 +2807,7 @@ func (m *httpRouteModelImpl) setProgrammed(
 
         _, statusIndex, found := lo.FindIndexOf(
                 httpRoute.Status.Parents,
-                func(s gatewayv1.RouteParentStatus) bool </span><span class="cov4" title="4">{
+                func(s gatewayv1.RouteParentStatus) bool </span><span class="cov5" title="6">{
                         return s.ControllerName == params.gatewayClass.Spec.ControllerName &amp;&amp;
                                 parentRefSameTarget(s.ParentRef, params.matchedRef)
                 }</span>,
@@ -2844,7 +2851,7 @@ type httpRouteModelDeps struct {
 }
 
 // newHTTPRouteModel creates a new instance of httpRouteModel.
-func newHTTPRouteModel(deps httpRouteModelDeps) *httpRouteModelImpl <span class="cov10" title="32">{
+func newHTTPRouteModel(deps httpRouteModelDeps) *httpRouteModelImpl <span class="cov10" title="33">{
         return &amp;httpRouteModelImpl{
                 client:               deps.K8sClient,
                 logger:               deps.RootLogger.WithGroup("httproute-model"),
@@ -3085,13 +3092,13 @@ func (_c *MockgatewayModel_setProgrammed_Call) RunAndReturn(run func(context.Con
 func NewMockgatewayModel(t interface {
         mock.TestingT
         Cleanup(func())
-}) *MockgatewayModel <span class="cov10" title="40">{
+}) *MockgatewayModel <span class="cov10" title="41">{
         mock := &amp;MockgatewayModel{}
         mock.Mock.Test(t)
 
-        t.Cleanup(func() </span><span class="cov10" title="40">{ mock.AssertExpectations(t) }</span>)
+        t.Cleanup(func() </span><span class="cov10" title="41">{ mock.AssertExpectations(t) }</span>)
 
-        <span class="cov10" title="40">return mock</span>
+        <span class="cov10" title="41">return mock</span>
 }
 </pre>
 		
@@ -3986,13 +3993,13 @@ func (_c *Mockk8sClient_Update_Call) RunAndReturn(run func(context.Context, clie
 func NewMockk8sClient(t interface {
         mock.TestingT
         Cleanup(func())
-}) *Mockk8sClient <span class="cov10" title="188">{
+}) *Mockk8sClient <span class="cov10" title="190">{
         mock := &amp;Mockk8sClient{}
         mock.Mock.Test(t)
 
-        t.Cleanup(func() </span><span class="cov10" title="188">{ mock.AssertExpectations(t) }</span>)
+        t.Cleanup(func() </span><span class="cov10" title="190">{ mock.AssertExpectations(t) }</span>)
 
-        <span class="cov10" title="188">return mock</span>
+        <span class="cov10" title="190">return mock</span>
 }
 </pre>
 		
@@ -5110,13 +5117,13 @@ func (_c *MockociLoadBalancerClient_UpdateRuleSet_Call) RunAndReturn(run func(co
 func NewMockociLoadBalancerClient(t interface {
         mock.TestingT
         Cleanup(func())
-}) *MockociLoadBalancerClient <span class="cov10" title="90">{
+}) *MockociLoadBalancerClient <span class="cov10" title="92">{
         mock := &amp;MockociLoadBalancerClient{}
         mock.Mock.Test(t)
 
-        t.Cleanup(func() </span><span class="cov10" title="90">{ mock.AssertExpectations(t) }</span>)
+        t.Cleanup(func() </span><span class="cov10" title="92">{ mock.AssertExpectations(t) }</span>)
 
-        <span class="cov10" title="90">return mock</span>
+        <span class="cov10" title="92">return mock</span>
 }
 </pre>
 		
@@ -5298,21 +5305,21 @@ func (_c *MockociLoadBalancerModel_makeRoutingRule_Call) RunAndReturn(run func(c
 }</span>
 
 // reconcileBackendSet provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) reconcileBackendSet(ctx context.Context, params reconcileBackendSetParams) error <span class="cov5" title="8">{
+func (_m *MockociLoadBalancerModel) reconcileBackendSet(ctx context.Context, params reconcileBackendSetParams) error <span class="cov5" title="7">{
         ret := _m.Called(ctx, params)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for reconcileBackendSet")</span>
         }
 
-        <span class="cov5" title="8">var r0 error
+        <span class="cov5" title="7">var r0 error
         if rf, ok := ret.Get(0).(func(context.Context, reconcileBackendSetParams) error); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, params)
-        }</span> else<span class="cov5" title="8"> {
+        }</span> else<span class="cov5" title="7"> {
                 r0 = ret.Error(0)
         }</span>
 
-        <span class="cov5" title="8">return r0</span>
+        <span class="cov5" title="7">return r0</span>
 }
 
 // MockociLoadBalancerModel_reconcileBackendSet_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'reconcileBackendSet'
@@ -5323,7 +5330,7 @@ type MockociLoadBalancerModel_reconcileBackendSet_Call struct {
 // reconcileBackendSet is a helper method to define mock.On call
 //   - ctx context.Context
 //   - params reconcileBackendSetParams
-func (_e *MockociLoadBalancerModel_Expecter) reconcileBackendSet(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileBackendSet_Call <span class="cov5" title="8">{
+func (_e *MockociLoadBalancerModel_Expecter) reconcileBackendSet(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileBackendSet_Call <span class="cov5" title="7">{
         return &amp;MockociLoadBalancerModel_reconcileBackendSet_Call{Call: _e.mock.On("reconcileBackendSet", ctx, params)}
 }</span>
 
@@ -5334,7 +5341,7 @@ func (_c *MockociLoadBalancerModel_reconcileBackendSet_Call) Run(run func(ctx co
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockociLoadBalancerModel_reconcileBackendSet_Call) Return(_a0 error) *MockociLoadBalancerModel_reconcileBackendSet_Call <span class="cov5" title="8">{
+func (_c *MockociLoadBalancerModel_reconcileBackendSet_Call) Return(_a0 error) *MockociLoadBalancerModel_reconcileBackendSet_Call <span class="cov5" title="7">{
         _c.Call.Return(_a0)
         return _c
 }</span>
@@ -5402,21 +5409,21 @@ func (_c *MockociLoadBalancerModel_reconcileDefaultBackendSet_Call) RunAndReturn
 }</span>
 
 // reconcileHTTPListener provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) reconcileHTTPListener(ctx context.Context, params reconcileHTTPListenerParams) error <span class="cov4" title="4">{
+func (_m *MockociLoadBalancerModel) reconcileHTTPListener(ctx context.Context, params reconcileHTTPListenerParams) error <span class="cov4" title="5">{
         ret := _m.Called(ctx, params)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for reconcileHTTPListener")</span>
         }
 
-        <span class="cov4" title="4">var r0 error
+        <span class="cov4" title="5">var r0 error
         if rf, ok := ret.Get(0).(func(context.Context, reconcileHTTPListenerParams) error); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, params)
-        }</span> else<span class="cov4" title="4"> {
+        }</span> else<span class="cov4" title="5"> {
                 r0 = ret.Error(0)
         }</span>
 
-        <span class="cov4" title="4">return r0</span>
+        <span class="cov4" title="5">return r0</span>
 }
 
 // MockociLoadBalancerModel_reconcileHTTPListener_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'reconcileHTTPListener'
@@ -5427,7 +5434,7 @@ type MockociLoadBalancerModel_reconcileHTTPListener_Call struct {
 // reconcileHTTPListener is a helper method to define mock.On call
 //   - ctx context.Context
 //   - params reconcileHTTPListenerParams
-func (_e *MockociLoadBalancerModel_Expecter) reconcileHTTPListener(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov4" title="4">{
+func (_e *MockociLoadBalancerModel_Expecter) reconcileHTTPListener(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov4" title="5">{
         return &amp;MockociLoadBalancerModel_reconcileHTTPListener_Call{Call: _e.mock.On("reconcileHTTPListener", ctx, params)}
 }</span>
 
@@ -5438,7 +5445,7 @@ func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Run(run func(ctx 
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Return(_a0 error) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov4" title="4">{
+func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Return(_a0 error) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov4" title="5">{
         _c.Call.Return(_a0)
         return _c
 }</span>
@@ -5604,13 +5611,13 @@ func (_c *MockociLoadBalancerModel_removeUnusedCertificates_Call) RunAndReturn(r
 func NewMockociLoadBalancerModel(t interface {
         mock.TestingT
         Cleanup(func())
-}) *MockociLoadBalancerModel <span class="cov10" title="52">{
+}) *MockociLoadBalancerModel <span class="cov10" title="54">{
         mock := &amp;MockociLoadBalancerModel{}
         mock.Mock.Test(t)
 
-        t.Cleanup(func() </span><span class="cov10" title="52">{ mock.AssertExpectations(t) }</span>)
+        t.Cleanup(func() </span><span class="cov10" title="54">{ mock.AssertExpectations(t) }</span>)
 
-        <span class="cov10" title="52">return mock</span>
+        <span class="cov10" title="54">return mock</span>
 }
 </pre>
 		
@@ -5695,31 +5702,31 @@ func (_c *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteMatchToCondition_Cal
 }</span>
 
 // mapHTTPRouteMatchesToCondition provides a mock function with given fields: matches
-func (_m *MockociLoadBalancerRoutingRulesMapper) mapHTTPRouteMatchesToCondition(matches []v1.HTTPRouteMatch) (string, error) <span class="cov2" title="2">{
+func (_m *MockociLoadBalancerRoutingRulesMapper) mapHTTPRouteMatchesToCondition(matches []v1.HTTPRouteMatch) (string, error) <span class="cov0" title="0">{
         ret := _m.Called(matches)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for mapHTTPRouteMatchesToCondition")</span>
         }
 
-        <span class="cov2" title="2">var r0 string
+        <span class="cov0" title="0">var r0 string
         var r1 error
         if rf, ok := ret.Get(0).(func([]v1.HTTPRouteMatch) (string, error)); ok </span><span class="cov0" title="0">{
                 return rf(matches)
         }</span>
-        <span class="cov2" title="2">if rf, ok := ret.Get(0).(func([]v1.HTTPRouteMatch) string); ok </span><span class="cov0" title="0">{
+        <span class="cov0" title="0">if rf, ok := ret.Get(0).(func([]v1.HTTPRouteMatch) string); ok </span><span class="cov0" title="0">{
                 r0 = rf(matches)
-        }</span> else<span class="cov2" title="2"> {
+        }</span> else<span class="cov0" title="0"> {
                 r0 = ret.Get(0).(string)
         }</span>
 
-        <span class="cov2" title="2">if rf, ok := ret.Get(1).(func([]v1.HTTPRouteMatch) error); ok </span><span class="cov0" title="0">{
+        <span class="cov0" title="0">if rf, ok := ret.Get(1).(func([]v1.HTTPRouteMatch) error); ok </span><span class="cov0" title="0">{
                 r1 = rf(matches)
-        }</span> else<span class="cov2" title="2"> {
+        }</span> else<span class="cov0" title="0"> {
                 r1 = ret.Error(1)
         }</span>
 
-        <span class="cov2" title="2">return r0, r1</span>
+        <span class="cov0" title="0">return r0, r1</span>
 }
 
 // MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteMatchesToCondition_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'mapHTTPRouteMatchesToCondition'
@@ -5729,7 +5736,7 @@ type MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteMatchesToCondition_Call s
 
 // mapHTTPRouteMatchesToCondition is a helper method to define mock.On call
 //   - matches []v1.HTTPRouteMatch
-func (_e *MockociLoadBalancerRoutingRulesMapper_Expecter) mapHTTPRouteMatchesToCondition(matches interface{}) *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteMatchesToCondition_Call <span class="cov2" title="2">{
+func (_e *MockociLoadBalancerRoutingRulesMapper_Expecter) mapHTTPRouteMatchesToCondition(matches interface{}) *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteMatchesToCondition_Call <span class="cov0" title="0">{
         return &amp;MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteMatchesToCondition_Call{Call: _e.mock.On("mapHTTPRouteMatchesToCondition", matches)}
 }</span>
 
@@ -5740,7 +5747,7 @@ func (_c *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteMatchesToCondition_C
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteMatchesToCondition_Call) Return(_a0 string, _a1 error) *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteMatchesToCondition_Call <span class="cov2" title="2">{
+func (_c *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteMatchesToCondition_Call) Return(_a0 string, _a1 error) *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteMatchesToCondition_Call <span class="cov0" title="0">{
         _c.Call.Return(_a0, _a1)
         return _c
 }</span>
@@ -5750,18 +5757,75 @@ func (_c *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteMatchesToCondition_C
         return _c
 }</span>
 
+// mapHTTPRouteHostnamesAndMatchesToCondition provides a mock function with given fields: hostnames, matches
+func (_m *MockociLoadBalancerRoutingRulesMapper) mapHTTPRouteHostnamesAndMatchesToCondition(hostnames []v1.Hostname, matches []v1.HTTPRouteMatch) (string, error) <span class="cov2" title="2">{
+        ret := _m.Called(hostnames, matches)
+
+        if len(ret) == 0 </span><span class="cov0" title="0">{
+                panic("no return value specified for mapHTTPRouteHostnamesAndMatchesToCondition")</span>
+        }
+
+        <span class="cov2" title="2">var r0 string
+        var r1 error
+        if rf, ok := ret.Get(0).(func([]v1.Hostname, []v1.HTTPRouteMatch) (string, error)); ok </span><span class="cov0" title="0">{
+                return rf(hostnames, matches)
+        }</span>
+        <span class="cov2" title="2">if rf, ok := ret.Get(0).(func([]v1.Hostname, []v1.HTTPRouteMatch) string); ok </span><span class="cov0" title="0">{
+                r0 = rf(hostnames, matches)
+        }</span> else<span class="cov2" title="2"> {
+                r0 = ret.Get(0).(string)
+        }</span>
+
+        <span class="cov2" title="2">if rf, ok := ret.Get(1).(func([]v1.Hostname, []v1.HTTPRouteMatch) error); ok </span><span class="cov0" title="0">{
+                r1 = rf(hostnames, matches)
+        }</span> else<span class="cov2" title="2"> {
+                r1 = ret.Error(1)
+        }</span>
+
+        <span class="cov2" title="2">return r0, r1</span>
+}
+
+// MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'mapHTTPRouteHostnamesAndMatchesToCondition'
+type MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call struct {
+        *mock.Call
+}
+
+// mapHTTPRouteHostnamesAndMatchesToCondition is a helper method to define mock.On call
+//   - hostnames []v1.Hostname
+//   - matches []v1.HTTPRouteMatch
+func (_e *MockociLoadBalancerRoutingRulesMapper_Expecter) mapHTTPRouteHostnamesAndMatchesToCondition(hostnames interface{}, matches interface{}) *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call <span class="cov2" title="2">{
+        return &amp;MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call{Call: _e.mock.On("mapHTTPRouteHostnamesAndMatchesToCondition", hostnames, matches)}
+}</span>
+
+func (_c *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call) Run(run func(hostnames []v1.Hostname, matches []v1.HTTPRouteMatch)) *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call <span class="cov0" title="0">{
+        _c.Call.Run(func(args mock.Arguments) </span><span class="cov0" title="0">{
+                run(args[0].([]v1.Hostname), args[1].([]v1.HTTPRouteMatch))
+        }</span>)
+        <span class="cov0" title="0">return _c</span>
+}
+
+func (_c *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call) Return(_a0 string, _a1 error) *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call <span class="cov2" title="2">{
+        _c.Call.Return(_a0, _a1)
+        return _c
+}</span>
+
+func (_c *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call) RunAndReturn(run func([]v1.Hostname, []v1.HTTPRouteMatch) (string, error)) *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call <span class="cov0" title="0">{
+        _c.Call.Return(run)
+        return _c
+}</span>
+
 // NewMockociLoadBalancerRoutingRulesMapper creates a new instance of MockociLoadBalancerRoutingRulesMapper. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockociLoadBalancerRoutingRulesMapper(t interface {
         mock.TestingT
         Cleanup(func())
-}) *MockociLoadBalancerRoutingRulesMapper <span class="cov10" title="53">{
+}) *MockociLoadBalancerRoutingRulesMapper <span class="cov10" title="54">{
         mock := &amp;MockociLoadBalancerRoutingRulesMapper{}
         mock.Mock.Test(t)
 
-        t.Cleanup(func() </span><span class="cov10" title="53">{ mock.AssertExpectations(t) }</span>)
+        t.Cleanup(func() </span><span class="cov10" title="54">{ mock.AssertExpectations(t) }</span>)
 
-        <span class="cov10" title="53">return mock</span>
+        <span class="cov10" title="54">return mock</span>
 }
 </pre>
 		
@@ -5786,26 +5850,26 @@ type MockresourcesModel_Expecter struct {
         mock *mock.Mock
 }
 
-func (_m *MockresourcesModel) EXPECT() *MockresourcesModel_Expecter <span class="cov7" title="23">{
+func (_m *MockresourcesModel) EXPECT() *MockresourcesModel_Expecter <span class="cov7" title="18">{
         return &amp;MockresourcesModel_Expecter{mock: &amp;_m.Mock}
 }</span>
 
 // isConditionSet provides a mock function with given fields: params
-func (_m *MockresourcesModel) isConditionSet(params isConditionSetParams) bool <span class="cov6" title="12">{
+func (_m *MockresourcesModel) isConditionSet(params isConditionSetParams) bool <span class="cov5" title="7">{
         ret := _m.Called(params)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for isConditionSet")</span>
         }
 
-        <span class="cov6" title="12">var r0 bool
+        <span class="cov5" title="7">var r0 bool
         if rf, ok := ret.Get(0).(func(isConditionSetParams) bool); ok </span><span class="cov0" title="0">{
                 r0 = rf(params)
-        }</span> else<span class="cov6" title="12"> {
+        }</span> else<span class="cov5" title="7"> {
                 r0 = ret.Get(0).(bool)
         }</span>
 
-        <span class="cov6" title="12">return r0</span>
+        <span class="cov5" title="7">return r0</span>
 }
 
 // MockresourcesModel_isConditionSet_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'isConditionSet'
@@ -5815,7 +5879,7 @@ type MockresourcesModel_isConditionSet_Call struct {
 
 // isConditionSet is a helper method to define mock.On call
 //   - params isConditionSetParams
-func (_e *MockresourcesModel_Expecter) isConditionSet(params interface{}) *MockresourcesModel_isConditionSet_Call <span class="cov6" title="12">{
+func (_e *MockresourcesModel_Expecter) isConditionSet(params interface{}) *MockresourcesModel_isConditionSet_Call <span class="cov5" title="7">{
         return &amp;MockresourcesModel_isConditionSet_Call{Call: _e.mock.On("isConditionSet", params)}
 }</span>
 
@@ -5826,7 +5890,7 @@ func (_c *MockresourcesModel_isConditionSet_Call) Run(run func(params isConditio
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockresourcesModel_isConditionSet_Call) Return(_a0 bool) *MockresourcesModel_isConditionSet_Call <span class="cov6" title="12">{
+func (_c *MockresourcesModel_isConditionSet_Call) Return(_a0 bool) *MockresourcesModel_isConditionSet_Call <span class="cov5" title="7">{
         _c.Call.Return(_a0)
         return _c
 }</span>
@@ -5888,13 +5952,13 @@ func (_c *MockresourcesModel_setCondition_Call) RunAndReturn(run func(context.Co
 func NewMockresourcesModel(t interface {
         mock.TestingT
         Cleanup(func())
-}) *MockresourcesModel <span class="cov10" title="67">{
+}) *MockresourcesModel <span class="cov10" title="68">{
         mock := &amp;MockresourcesModel{}
         mock.Mock.Test(t)
 
-        t.Cleanup(func() </span><span class="cov10" title="67">{ mock.AssertExpectations(t) }</span>)
+        t.Cleanup(func() </span><span class="cov10" title="68">{ mock.AssertExpectations(t) }</span>)
 
-        <span class="cov10" title="67">return mock</span>
+        <span class="cov10" title="68">return mock</span>
 }
 </pre>
 		
@@ -5975,13 +6039,13 @@ func (_c *MockworkRequestsWatcher_WaitFor_Call) RunAndReturn(run func(context.Co
 func NewMockworkRequestsWatcher(t interface {
         mock.TestingT
         Cleanup(func())
-}) *MockworkRequestsWatcher <span class="cov10" title="69">{
+}) *MockworkRequestsWatcher <span class="cov10" title="70">{
         mock := &amp;MockworkRequestsWatcher{}
         mock.Mock.Test(t)
 
-        t.Cleanup(func() </span><span class="cov10" title="69">{ mock.AssertExpectations(t) }</span>)
+        t.Cleanup(func() </span><span class="cov10" title="70">{ mock.AssertExpectations(t) }</span>)
 
-        <span class="cov10" title="69">return mock</span>
+        <span class="cov10" title="70">return mock</span>
 }
 </pre>
 		
@@ -6654,20 +6718,23 @@ func (m *ociLoadBalancerModelImpl) deprovisionBackendSet(
 func (m *ociLoadBalancerModelImpl) makeRoutingRule(
         ctx context.Context,
         params makeRoutingRuleParams,
-) (loadbalancer.RoutingRule, error) <span class="cov2" title="2">{
+) (loadbalancer.RoutingRule, error) <span class="cov3" title="3">{
         ruleName := ociListerPolicyRuleName(params.httpRoute, params.httpRouteRuleIndex)
         rule := params.httpRoute.Spec.Rules[params.httpRouteRuleIndex]
 
-        targetBackends := lo.Map(rule.BackendRefs, func(backendRef gatewayv1.HTTPBackendRef, _ int) string </span><span class="cov2" title="2">{
+        targetBackends := lo.Map(rule.BackendRefs, func(backendRef gatewayv1.HTTPBackendRef, _ int) string </span><span class="cov3" title="3">{
                 return ociBackendSetNameFromBackendRef(params.httpRoute, backendRef)
         }</span>)
 
-        <span class="cov2" title="2">condition, err := m.routingRulesMapper.mapHTTPRouteMatchesToCondition(rule.Matches)
+        <span class="cov3" title="3">condition, err := m.routingRulesMapper.mapHTTPRouteHostnamesAndMatchesToCondition(
+                params.httpRoute.Spec.Hostnames,
+                rule.Matches,
+        )
         if err != nil </span><span class="cov1" title="1">{
                 return loadbalancer.RoutingRule{}, fmt.Errorf("failed to map http route matches to condition: %w", err)
         }</span>
 
-        <span class="cov1" title="1">m.logger.DebugContext(ctx, "Building OCI routing rule",
+        <span class="cov2" title="2">m.logger.DebugContext(ctx, "Building OCI routing rule",
                 slog.String("httpRoute", fmt.Sprintf("%s/%s", params.httpRoute.Namespace, params.httpRoute.Name)),
                 slog.Int("httpRouteRuleIndex", params.httpRouteRuleIndex),
                 slog.String("ruleName", ruleName),
@@ -6677,7 +6744,7 @@ func (m *ociLoadBalancerModelImpl) makeRoutingRule(
         return loadbalancer.RoutingRule{
                 Name:      new(ruleName),
                 Condition: new(condition),
-                Actions: lo.Map(targetBackends, func(backendSetName string, _ int) loadbalancer.Action </span><span class="cov2" title="2">{
+                Actions: lo.Map(targetBackends, func(backendSetName string, _ int) loadbalancer.Action </span><span class="cov3" title="3">{
                         return loadbalancer.ForwardToBackendSet{
                                 BackendSetName: new(backendSetName),
                         }
@@ -6826,16 +6893,16 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
         <span class="cov4" title="4">mergedRules := lo.Values(currentRulesByName)
 
         // Sort the rules: defaultCatchAllRuleName should be at the end
-        sort.Slice(mergedRules, func(i, j int) bool </span><span class="cov9" title="43">{
+        sort.Slice(mergedRules, func(i, j int) bool </span><span class="cov7" title="22">{
                 ruleI := lo.FromPtr(mergedRules[i].Name)
                 ruleJ := lo.FromPtr(mergedRules[j].Name)
                 if ruleI == defaultCatchAllRuleName </span><span class="cov2" title="2">{
                         return false
                 }</span>
-                <span class="cov9" title="41">if ruleJ == defaultCatchAllRuleName </span><span class="cov6" title="12">{
+                <span class="cov7" title="20">if ruleJ == defaultCatchAllRuleName </span><span class="cov1" title="1">{
                         return true
                 }</span>
-                <span class="cov8" title="29">return ruleI &lt; ruleJ</span>
+                <span class="cov7" title="19">return ruleI &lt; ruleJ</span>
         })
 
         <span class="cov4" title="4">updateRes, err := m.ociClient.UpdateRoutingPolicy(ctx, loadbalancer.UpdateRoutingPolicyRequest{
@@ -6942,7 +7009,7 @@ var invalidCharsForPolicyNamePattern = regexp.MustCompile(`[^a-zA-Z0-9_]`)
 // ociListerPolicyRuleName returns the name of the routing rule for the listener policy.
 // It's expected that the rule name is unique within the listener policy for every route.
 // Names should also be sortable, so we're using a 4 digit index.
-func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string <span class="cov6" title="14">{
+func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string <span class="cov7" title="15">{
         rule := route.Spec.Rules[ruleIndex]
         nameParts := []string{route.Namespace, route.Name}
 
@@ -6950,7 +7017,7 @@ func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string <s
                 nameParts = append(nameParts, string(*rule.Name))
         }</span>
 
-        <span class="cov6" title="14">resultingName := fmt.Sprintf(
+        <span class="cov7" title="15">resultingName := fmt.Sprintf(
                 "p%04d_%08x_%s",
                 ruleIndex,
                 crc32.ChecksumIEEE([]byte(ociListenerPolicyRuleIdentity(ruleIndex, nameParts...))),
@@ -6963,19 +7030,19 @@ func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string <s
         })</span>
 }
 
-func ociListenerPolicyRuleIdentity(ruleIndex int, nameParts ...string) string <span class="cov7" title="19">{
+func ociListenerPolicyRuleIdentity(ruleIndex int, nameParts ...string) string <span class="cov7" title="20">{
         var result strings.Builder
         result.WriteString(strconv.Itoa(ruleIndex))
-        for _, part := range nameParts </span><span class="cov9" title="42">{
+        for _, part := range nameParts </span><span class="cov9" title="44">{
                 fmt.Fprintf(&amp;result, ":%d:%s", len(part), part)
         }</span>
-        <span class="cov7" title="19">return result.String()</span>
+        <span class="cov7" title="20">return result.String()</span>
 }
 
 // ociBackendSetName returns the name of the backend set for the route.
 // It's expected that the backend set name is unique within the load balancer for every route.
 // Sorting is not required, but keeping padding for consistency and readability.
-func ociBackendSetNameFromBackendRef(httpRoute gatewayv1.HTTPRoute, backendRef gatewayv1.HTTPBackendRef) string <span class="cov8" title="23">{
+func ociBackendSetNameFromBackendRef(httpRoute gatewayv1.HTTPRoute, backendRef gatewayv1.HTTPBackendRef) string <span class="cov8" title="24">{
         // TODO: Check if namespace is populated in the route if it's not in the spec
         refName := string(backendRef.Name)
         refNamespace := string(lo.FromPtr(backendRef.Namespace))
@@ -6983,7 +7050,7 @@ func ociBackendSetNameFromBackendRef(httpRoute gatewayv1.HTTPRoute, backendRef g
                 refNamespace = httpRoute.Namespace
         }</span>
 
-        <span class="cov8" title="23">originalName := refNamespace + "-" + refName
+        <span class="cov8" title="24">originalName := refNamespace + "-" + refName
 
         return ociapi.ConstructOCIResourceName(originalName, ociapi.OCIResourceNameConfig{
                 MaxLength: maxBackendSetNameLength,
@@ -7076,7 +7143,7 @@ type ociLoadBalancerModelDeps struct {
         RoutingRulesMapper  ociLoadBalancerRoutingRulesMapper
 }
 
-func newOciLoadBalancerModel(deps ociLoadBalancerModelDeps) *ociLoadBalancerModelImpl <span class="cov10" title="54">{
+func newOciLoadBalancerModel(deps ociLoadBalancerModelDeps) *ociLoadBalancerModelImpl <span class="cov10" title="55">{
         return &amp;ociLoadBalancerModelImpl{
                 logger:              deps.RootLogger.WithGroup("oci-load-balancer-model"),
                 ociClient:           deps.OciClient,
@@ -7149,39 +7216,46 @@ type ociLoadBalancerRoutingRulesMapper interface {
         // mapHTTPRouteMatchesToCondition translates a Gateway API HTTPRouteMatches
         // to a list of OCI Load Balancer conditions as a string..
         mapHTTPRouteMatchesToCondition(matches []gatewayv1.HTTPRouteMatch) (string, error)
+
+        // mapHTTPRouteHostnamesAndMatchesToCondition translates Gateway API hostnames and matches
+        // to an OCI Load Balancer routing policy condition.
+        mapHTTPRouteHostnamesAndMatchesToCondition(
+                hostnames []gatewayv1.Hostname,
+                matches []gatewayv1.HTTPRouteMatch,
+        ) (string, error)
 }
 
 type ociLoadBalancerRoutingRulesMapperImpl struct{}
 
-func newOciLoadBalancerRoutingRulesMapper() *ociLoadBalancerRoutingRulesMapperImpl <span class="cov10" title="29">{
+func newOciLoadBalancerRoutingRulesMapper() *ociLoadBalancerRoutingRulesMapperImpl <span class="cov10" title="33">{
         return &amp;ociLoadBalancerRoutingRulesMapperImpl{}
 }</span>
 
 // mapHTTPRouteMatchToCondition translates Gateway API match rules into OCI condition strings.
 func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchToCondition(
         match gatewayv1.HTTPRouteMatch,
-) (string, error) <span class="cov10" title="29">{
+) (string, error) <span class="cov9" title="32">{
         var conditions []string
 
         // --- Unsupported Checks First ---
         if len(match.QueryParams) &gt; 0 </span><span class="cov1" title="1">{
                 return "", fmt.Errorf("%w: query parameter matching", errUnsupportedMatch)
         }</span>
-        <span class="cov9" title="28">if match.Method != nil </span><span class="cov2" title="2">{
+        <span class="cov9" title="31">if match.Method != nil </span><span class="cov2" title="2">{
                 return "", fmt.Errorf("%w: method matching", errUnsupportedMatch)
         }</span>
 
         // --- Path Matching ---
-        <span class="cov9" title="26">if match.Path != nil </span><span class="cov7" title="12">{
+        <span class="cov9" title="29">if match.Path != nil </span><span class="cov7" title="15">{
                 condition, err := mapPathMatchToCondition(*match.Path)
                 if err != nil </span><span class="cov2" title="2">{
                         return "", err
                 }</span>
-                <span class="cov7" title="10">conditions = append(conditions, condition)</span>
+                <span class="cov7" title="13">conditions = append(conditions, condition)</span>
         }
 
         // --- Header Matching ---
-        <span class="cov9" title="24">for _, headerMatch := range match.Headers </span><span class="cov8" title="18">{
+        <span class="cov9" title="27">for _, headerMatch := range match.Headers </span><span class="cov8" title="18">{
                 condition, err := mapHeaderMatchToCondition(headerMatch)
                 if err != nil </span><span class="cov5" title="5">{
                         return "", err
@@ -7190,30 +7264,30 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchToCondition(
         }
 
         // --- Combine conditions ---
-        <span class="cov8" title="19">if len(conditions) == 0 </span><span class="cov1" title="1">{
+        <span class="cov8" title="22">if len(conditions) == 0 </span><span class="cov1" title="1">{
                 return "", nil
         }</span>
-        <span class="cov8" title="18">if len(conditions) == 1 </span><span class="cov8" title="14">{
+        <span class="cov8" title="21">if len(conditions) == 1 </span><span class="cov8" title="17">{
                 return conditions[0], nil
         }</span>
         <span class="cov4" title="4">return "all(" + strings.Join(conditions, ", ") + ")", nil</span>
 }
 
-func mapPathMatchToCondition(pathMatch gatewayv1.HTTPPathMatch) (string, error) <span class="cov7" title="12">{
+func mapPathMatchToCondition(pathMatch gatewayv1.HTTPPathMatch) (string, error) <span class="cov7" title="15">{
         if pathMatch.Value == nil </span><span class="cov1" title="1">{
                 return "", errors.New("path match value cannot be nil")
         }</span>
-        <span class="cov7" title="11">pathValue := *pathMatch.Value
+        <span class="cov7" title="14">pathValue := *pathMatch.Value
         pathType := gatewayv1.PathMatchPathPrefix // Default type if not specified
-        if pathMatch.Type != nil </span><span class="cov7" title="10">{
+        if pathMatch.Type != nil </span><span class="cov7" title="13">{
                 pathType = *pathMatch.Type
         }</span>
 
-        <span class="cov7" title="11">switch pathType </span>{
-        case gatewayv1.PathMatchExact:<span class="cov5" title="5">
+        <span class="cov7" title="14">switch pathType </span>{
+        case gatewayv1.PathMatchExact:<span class="cov5" title="6">
                 // TODO: Handle escaping single quotes in pathValue if necessary
                 return fmt.Sprintf(`http.request.url.path eq '%s'`, pathValue), nil</span>
-        case gatewayv1.PathMatchPathPrefix:<span class="cov5" title="5">
+        case gatewayv1.PathMatchPathPrefix:<span class="cov6" title="7">
                 // TODO: Handle escaping single quotes in pathValue if necessary
                 return fmt.Sprintf(`http.request.url.path sw '%s'`, pathValue), nil</span>
         case gatewayv1.PathMatchRegularExpression:<span class="cov1" title="1">
@@ -7262,26 +7336,63 @@ func mapRegexHeaderMatchToCondition(headerMatch gatewayv1.HTTPHeaderMatch) (stri
 
 func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchesToCondition(
         matches []gatewayv1.HTTPRouteMatch,
-) (string, error) <span class="cov5" title="5">{
-        if len(matches) == 0 </span><span class="cov1" title="1">{
+) (string, error) <span class="cov5" title="6">{
+        conditions, err := r.mapHTTPRouteMatchesToConditions(matches)
+        if err != nil </span><span class="cov1" title="1">{
+                return "", err
+        }</span>
+        <span class="cov5" title="5">if len(conditions) == 0 </span><span class="cov1" title="1">{
                 return "", nil
         }</span>
 
-        <span class="cov4" title="4">var conditions []string
-        for _, match := range matches </span><span class="cov5" title="6">{
+        <span class="cov4" title="4">return fmt.Sprintf("any(%s)", strings.Join(conditions, ", ")), nil</span>
+}
+
+func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchesToConditions(
+        matches []gatewayv1.HTTPRouteMatch,
+) ([]string, error) <span class="cov6" title="9">{
+        if len(matches) == 0 </span><span class="cov2" title="2">{
+                return nil, nil
+        }</span>
+
+        <span class="cov6" title="7">var conditions []string
+        for _, match := range matches </span><span class="cov6" title="9">{
                 condition, err := r.mapHTTPRouteMatchToCondition(match)
                 if err != nil </span><span class="cov1" title="1">{
-                        return "", err // Propagate error if any single match fails
+                        return nil, err // Propagate error if any single match fails
                 }</span>
-                <span class="cov5" title="5">if condition != "" </span><span class="cov5" title="5">{
+                <span class="cov6" title="8">if condition != "" </span><span class="cov6" title="8">{
                         conditions = append(conditions, condition)
                 }</span>
         }
 
-        <span class="cov3" title="3">if len(conditions) == 0 </span><span class="cov0" title="0">{
-                // TODO: Investigate if empty is possible, if no - return error here
-                return "", nil
+        <span class="cov5" title="6">return conditions, nil</span>
+}
+
+func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteHostnamesAndMatchesToCondition(
+        hostnames []gatewayv1.Hostname,
+        matches []gatewayv1.HTTPRouteMatch,
+) (string, error) <span class="cov4" title="4">{
+        if len(hostnames) == 0 </span><span class="cov1" title="1">{
+                return r.mapHTTPRouteMatchesToCondition(matches)
         }</span>
+
+        <span class="cov3" title="3">matchConditions, err := r.mapHTTPRouteMatchesToConditions(matches)
+        if err != nil </span><span class="cov0" title="0">{
+                return "", err
+        }</span>
+
+        <span class="cov3" title="3">conditions := make([]string, 0, len(hostnames)*max(1, len(matchConditions)))
+        for _, hostname := range hostnames </span><span class="cov5" title="5">{
+                hostCondition := fmt.Sprintf(`http.request.headers[(i 'host')] eq (i '%s')`, hostname)
+                if len(matchConditions) == 0 </span><span class="cov2" title="2">{
+                        conditions = append(conditions, hostCondition)
+                        continue</span>
+                }
+                <span class="cov3" title="3">for _, matchCondition := range matchConditions </span><span class="cov3" title="3">{
+                        conditions = append(conditions, "all("+hostCondition+", "+matchCondition+")")
+                }</span>
+        }
 
         <span class="cov3" title="3">return fmt.Sprintf("any(%s)", strings.Join(conditions, ", ")), nil</span>
 }
@@ -7364,7 +7475,7 @@ type resourcesModelImpl struct {
         logger *slog.Logger
 }
 
-func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditionParams) error <span class="cov7" title="9">{
+func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditionParams) error <span class="cov7" title="10">{
         generation := params.resource.GetGeneration()
         m.logger.DebugContext(ctx,
                 fmt.Sprintf("Setting %s condition", params.conditionType),
@@ -7393,22 +7504,22 @@ func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditi
                 return fmt.Errorf("failed to update status for %s: %w", params.resource.GetName(), err)
         }</span>
 
-        <span class="cov7" title="8">needsResourceUpdate := false
+        <span class="cov7" title="9">needsResourceUpdate := false
         if params.finalizer != "" </span><span class="cov4" title="3">{
                 needsResourceUpdate = controllerutil.AddFinalizer(params.resource, params.finalizer)
         }</span>
 
-        <span class="cov7" title="8">if len(params.annotations) &gt; 0 </span><span class="cov6" title="5">{
+        <span class="cov7" title="9">if len(params.annotations) &gt; 0 </span><span class="cov6" title="6">{
                 currentAnnotations := params.resource.GetAnnotations()
                 if currentAnnotations == nil </span><span class="cov3" title="2">{
                         currentAnnotations = make(map[string]string)
                 }</span>
-                <span class="cov6" title="5">maps.Copy(currentAnnotations, params.annotations)
+                <span class="cov6" title="6">maps.Copy(currentAnnotations, params.annotations)
                 params.resource.SetAnnotations(currentAnnotations)
                 needsResourceUpdate = true</span>
         }
 
-        <span class="cov7" title="8">if needsResourceUpdate </span><span class="cov7" title="7">{
+        <span class="cov7" title="9">if needsResourceUpdate </span><span class="cov7" title="8">{
                 if err := m.client.Update(ctx, params.resource); err != nil </span><span class="cov3" title="2">{
                         return fmt.Errorf(
                                 "failed to update resource %s with finalizer/annotations: %w",
@@ -7418,26 +7529,26 @@ func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditi
                 }</span>
         }
 
-        <span class="cov6" title="6">return nil</span>
+        <span class="cov6" title="7">return nil</span>
 }
 
-func (m *resourcesModelImpl) isConditionSet(params isConditionSetParams) bool <span class="cov7" title="8">{
-        if len(params.annotations) &gt; 0 </span><span class="cov5" title="4">{
+func (m *resourcesModelImpl) isConditionSet(params isConditionSetParams) bool <span class="cov7" title="10">{
+        if len(params.annotations) &gt; 0 </span><span class="cov6" title="6">{
                 resourceAnnotations := params.resource.GetAnnotations()
                 if resourceAnnotations == nil </span><span class="cov0" title="0">{
                         return false
                 }</span>
-                <span class="cov5" title="4">for key, expectedValue := range params.annotations </span><span class="cov6" title="5">{
+                <span class="cov6" title="6">for key, expectedValue := range params.annotations </span><span class="cov7" title="8">{
                         actualValue, found := resourceAnnotations[key]
-                        if !found || actualValue != expectedValue </span><span class="cov3" title="2">{
+                        if !found || actualValue != expectedValue </span><span class="cov4" title="3">{
                                 return false
                         }</span>
                 }
         }
 
-        <span class="cov6" title="6">existingCondition := meta.FindStatusCondition(params.conditions, params.conditionType)
+        <span class="cov6" title="7">existingCondition := meta.FindStatusCondition(params.conditions, params.conditionType)
         if existingCondition != nil &amp;&amp;
-                existingCondition.ObservedGeneration == params.resource.GetGeneration() </span><span class="cov4" title="3">{
+                existingCondition.ObservedGeneration == params.resource.GetGeneration() </span><span class="cov5" title="4">{
                 return true
         }</span>
         <span class="cov4" title="3">return false</span>
@@ -7450,7 +7561,7 @@ type resourcesModelDeps struct {
         RootLogger *slog.Logger
 }
 
-func newResourcesModel(deps resourcesModelDeps) *resourcesModelImpl <span class="cov10" title="18">{
+func newResourcesModel(deps resourcesModelDeps) *resourcesModelImpl <span class="cov10" title="20">{
         return &amp;resourcesModelImpl{
                 client: deps.K8sClient,
                 logger: deps.RootLogger.WithGroup("resources-model"),
@@ -8387,25 +8498,25 @@ type diagLogHandler struct {
         target slog.Handler
 }
 
-func (h *diagLogHandler) Enabled(ctx context.Context, lvl slog.Level) bool <span class="cov9" title="304">{
+func (h *diagLogHandler) Enabled(ctx context.Context, lvl slog.Level) bool <span class="cov9" title="306">{
         return h.target.Enabled(ctx, lvl)
 }</span>
 
-func (h *diagLogHandler) Handle(ctx context.Context, rec slog.Record) error <span class="cov10" title="306">{
+func (h *diagLogHandler) Handle(ctx context.Context, rec slog.Record) error <span class="cov10" title="308">{
         if diagAttributes, ok := ctx.Value(contextDiagAttrs).(LogAttributes); ok </span><span class="cov2" title="2">{
                 rec.AddAttrs(
                         slog.Attr{Key: "correlationId", Value: diagAttributes.CorrelationID},
                 )
         }</span>
 
-        <span class="cov10" title="306">return h.target.Handle(ctx, rec)</span>
+        <span class="cov10" title="308">return h.target.Handle(ctx, rec)</span>
 }
 
-func (h *diagLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler <span class="cov9" title="239">{
+func (h *diagLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler <span class="cov9" title="245">{
         return &amp;diagLogHandler{target: h.target.WithAttrs(attrs)}
 }</span>
 
-func (h *diagLogHandler) WithGroup(name string) slog.Handler <span class="cov9" title="238">{
+func (h *diagLogHandler) WithGroup(name string) slog.Handler <span class="cov9" title="244">{
         // Using WithAttrs here since group will nest all the attributes
         // inside of it (including correlationId), which makes it harder to
         // filter logs by the correlationId.
@@ -8424,23 +8535,23 @@ type RootLoggerOpts struct {
         logLevel slog.Level
 }
 
-func NewRootLoggerOpts() *RootLoggerOpts <span class="cov9" title="224">{
+func NewRootLoggerOpts() *RootLoggerOpts <span class="cov9" title="230">{
         return &amp;RootLoggerOpts{
                 output: os.Stdout,
         }
 }</span>
 
-func (opts *RootLoggerOpts) WithJSONLogs(value bool) *RootLoggerOpts <span class="cov9" title="222">{
+func (opts *RootLoggerOpts) WithJSONLogs(value bool) *RootLoggerOpts <span class="cov9" title="228">{
         opts.jsonLogs = value
         return opts
 }</span>
 
-func (opts *RootLoggerOpts) WithLogLevel(logLevel slog.Level) *RootLoggerOpts <span class="cov9" title="222">{
+func (opts *RootLoggerOpts) WithLogLevel(logLevel slog.Level) *RootLoggerOpts <span class="cov9" title="228">{
         opts.logLevel = logLevel
         return opts
 }</span>
 
-func (opts *RootLoggerOpts) WithOutput(output io.Writer) *RootLoggerOpts <span class="cov9" title="220">{
+func (opts *RootLoggerOpts) WithOutput(output io.Writer) *RootLoggerOpts <span class="cov9" title="226">{
         opts.output = output
         return opts
 }</span>
@@ -8457,15 +8568,15 @@ func (opts *RootLoggerOpts) WithOptionalOutputFile(outputFile string) *RootLogge
         return opts</span>
 }
 
-func SetupRootLogger(opts *RootLoggerOpts) *slog.Logger <span class="cov9" title="224">{
+func SetupRootLogger(opts *RootLoggerOpts) *slog.Logger <span class="cov9" title="230">{
         logHandlerOpts := &amp;slog.HandlerOptions{Level: opts.logLevel}
         var logHandler slog.Handler
-        if opts.jsonLogs </span><span class="cov9" title="220">{
+        if opts.jsonLogs </span><span class="cov9" title="226">{
                 logHandler = slog.NewJSONHandler(opts.output, logHandlerOpts)
         }</span> else<span class="cov3" title="4"> {
                 logHandler = slog.NewTextHandler(opts.output, logHandlerOpts)
         }</span>
-        <span class="cov9" title="224">return slog.New(&amp;diagLogHandler{target: logHandler})</span>
+        <span class="cov9" title="230">return slog.New(&amp;diagLogHandler{target: logHandler})</span>
 }
 </pre>
 		
@@ -8498,7 +8609,7 @@ func openTestLogFile() *os.File <span class="cov4" title="10">{
 
 var testOutput = openTestLogFile() //nolint:gochecknoglobals //it's ok for tests
 
-func RootTestLogger() *slog.Logger <span class="cov10" title="219">{
+func RootTestLogger() *slog.Logger <span class="cov10" title="225">{
         return SetupRootLogger(
                 NewRootLoggerOpts().WithOutput(testOutput).WithLogLevel(slog.LevelDebug).WithJSONLogs(true),
         )
@@ -8631,6 +8742,27 @@ type StartManagerDeps struct {
         ReconcileHTTPRoute    bool `name:"config.features.reconcileHTTPRoute"`
 }
 
+func httpRouteObjectPredicate() predicate.Funcs <span class="cov8" title="1">{
+        generationChanged := predicate.GenerationChangedPredicate{}
+        labelChanged := predicate.LabelChangedPredicate{}
+        annotationChanged := predicate.AnnotationChangedPredicate{}
+        return predicate.Funcs{
+                UpdateFunc: func(updateEvent event.UpdateEvent) bool </span><span class="cov8" title="1">{
+                        return generationChanged.Update(updateEvent) ||
+                                labelChanged.Update(updateEvent) ||
+                                annotationChanged.Update(updateEvent)
+                }</span>,
+        }
+}
+
+func gatewaySecretPredicate() predicate.Funcs <span class="cov8" title="1">{
+        resourceVersionChanged := predicate.ResourceVersionChangedPredicate{}
+        return predicate.Funcs{
+                CreateFunc: func(_ event.CreateEvent) bool </span><span class="cov8" title="1">{ return true }</span>,
+                UpdateFunc: resourceVersionChanged.Update,
+        }
+}
+
 // StartManager starts the controller manager.
 func StartManager(ctx context.Context, deps StartManagerDeps) error <span class="cov0" title="0">{ // coverage-ignore -- challenging to test
         logger := deps.RootLogger.WithGroup("k8s")
@@ -8673,24 +8805,14 @@ func StartManager(ctx context.Context, deps StartManagerDeps) error <span class=
                         Watches(
                                 &amp;corev1.Secret{},
                                 handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapSecretToGateway),
-                                builder.WithPredicates(predicate.And(
-                                        predicate.Funcs{
-                                                // We ignore create events. They're also happening when controller starts up
-                                                // which leads to duplicate reconciliations and just noise.
-                                                // We don't care when new secrets are created, currently if no secret
-                                                // the whole gateway reconciliation will fail. We may want to change this
-                                                // in the future and revisit this predicate.
-                                                CreateFunc: func(_ event.CreateEvent) bool </span><span class="cov0" title="0">{ return false }</span>,
-                                        },
-                                        predicate.ResourceVersionChangedPredicate{},
-                                )),
+                                builder.WithPredicates(gatewaySecretPredicate()),
                         ).
                         Watches(
                                 &amp;configtypes.GatewayConfig{},
                                 handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapGatewayConfigToGateway),
                                 builder.WithPredicates(predicate.GenerationChangedPredicate{}),
                         ).
-                        Complete(wireupReconciler(deps.GatewayCtrl, middlewares...)); err != nil <span class="cov0" title="0">{
+                        Complete(wireupReconciler(deps.GatewayCtrl, middlewares...)); err != nil </span><span class="cov0" title="0">{
                         return fmt.Errorf("failed to setup Gateway controller: %w", err)
                 }</span>
         } else<span class="cov0" title="0"> {
@@ -8704,7 +8826,7 @@ func StartManager(ctx context.Context, deps StartManagerDeps) error <span class=
                                 &amp;discoveryv1.EndpointSlice{},
                                 handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapEndpointSliceToHTTPRoute),
                         ).
-                        WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
+                        WithEventFilter(httpRouteObjectPredicate()).
                         Complete(wireupReconciler(deps.HTTPRouteCtrl, middlewares...)); err != nil </span><span class="cov0" title="0">{
                         return fmt.Errorf("failed to setup HTTPRoute controller: %w", err)
                 }</span>
@@ -9318,11 +9440,11 @@ func defaultHashFunc(input string) string <span class="cov6" title="16">{
 
 // defaultSanitizeFunc replaces characters matching the provided pattern with an underscore.
 // If no pattern is provided, or name is empty, it returns the name as is.
-func defaultSanitizeFunc(name string, pattern *regexp.Regexp) string <span class="cov7" title="20">{
+func defaultSanitizeFunc(name string, pattern *regexp.Regexp) string <span class="cov7" title="21">{
         if name == "" || pattern == nil </span><span class="cov1" title="1">{
                 return name
         }</span>
-        <span class="cov7" title="19">return pattern.ReplaceAllString(name, "_")</span>
+        <span class="cov7" title="20">return pattern.ReplaceAllString(name, "_")</span>
 }
 
 // ConstructOCIResourceName generates a resource name string based on the originalName and configuration.
@@ -9332,21 +9454,21 @@ func defaultSanitizeFunc(name string, pattern *regexp.Regexp) string <span class
 // Otherwise (name too long and MaxLength &gt; 0), the *original* originalName is hashed, and the name is constructed as:
 // &lt;start_of_sanitized_name&gt; + &lt;hash_of_original_name&gt; + &lt;end_of_sanitized_name&gt;,
 // ensuring the total length does not exceed MaxLength.
-func ConstructOCIResourceName(originalName string, config OCIResourceNameConfig) string <span class="cov10" title="65">{
-        if config.hashFunc == nil </span><span class="cov9" title="56">{
+func ConstructOCIResourceName(originalName string, config OCIResourceNameConfig) string <span class="cov10" title="67">{
+        if config.hashFunc == nil </span><span class="cov9" title="58">{
                 config.hashFunc = defaultHashFunc
         }</span>
 
-        <span class="cov10" title="65">if config.sanitizeFunc == nil </span><span class="cov9" title="63">{
+        <span class="cov10" title="67">if config.sanitizeFunc == nil </span><span class="cov9" title="65">{
                 config.sanitizeFunc = defaultSanitizeFunc
         }</span>
 
-        <span class="cov10" title="65">resultingName := originalName
-        if config.InvalidCharsPattern != nil </span><span class="cov7" title="20">{
+        <span class="cov10" title="67">resultingName := originalName
+        if config.InvalidCharsPattern != nil </span><span class="cov7" title="21">{
                 resultingName = config.sanitizeFunc(originalName, config.InvalidCharsPattern)
         }</span>
 
-        <span class="cov10" title="65">if config.MaxLength &gt; 0 &amp;&amp; len(resultingName) &gt; config.MaxLength </span><span class="cov7" title="23">{
+        <span class="cov10" title="67">if config.MaxLength &gt; 0 &amp;&amp; len(resultingName) &gt; config.MaxLength </span><span class="cov7" title="23">{
                 hash := config.hashFunc(originalName)
                 if len(hash) &gt;= config.MaxLength </span><span class="cov2" title="2">{
                         return hash[:config.MaxLength]
@@ -9362,7 +9484,7 @@ func ConstructOCIResourceName(originalName string, config OCIResourceNameConfig)
                 resultingName = resultingName[:hashStarts] + hash + resultingName[originalLength-remainingLength:]</span>
         }
 
-        <span class="cov9" title="63">return resultingName</span>
+        <span class="cov9" title="65">return resultingName</span>
 }
 </pre>
 		
@@ -9787,7 +9909,7 @@ const (
 )
 
 // AddKnownTypes adds the list of known types to Scheme.
-func AddKnownTypes(scheme *runtime.Scheme) error <span class="cov8" title="1">{
+func AddKnownTypes(scheme *runtime.Scheme) error <span class="cov10" title="2">{
         groupVersion := schema.GroupVersion{Group: GroupName, Version: Version}
         scheme.AddKnownTypes(groupVersion,
                 &amp;GatewayConfig{},
@@ -9812,7 +9934,7 @@ import (
 )
 
 // DeepCopyInto is an autogenerated deepcopy function, copying the receiver, writing into out. in must be non-nil.
-func (in *GatewayConfig) DeepCopyInto(out *GatewayConfig) <span class="cov0" title="0">{
+func (in *GatewayConfig) DeepCopyInto(out *GatewayConfig) <span class="cov10" title="2">{
         *out = *in
         out.TypeMeta = in.TypeMeta
         in.ObjectMeta.DeepCopyInto(&amp;out.ObjectMeta)
@@ -9821,18 +9943,18 @@ func (in *GatewayConfig) DeepCopyInto(out *GatewayConfig) <span class="cov0" tit
 }</span>
 
 // DeepCopy is an autogenerated deepcopy function, copying the receiver, creating a new GatewayConfig.
-func (in *GatewayConfig) DeepCopy() *GatewayConfig <span class="cov0" title="0">{
+func (in *GatewayConfig) DeepCopy() *GatewayConfig <span class="cov10" title="2">{
         if in == nil </span><span class="cov0" title="0">{
                 return nil
         }</span>
-        <span class="cov0" title="0">out := new(GatewayConfig)
+        <span class="cov10" title="2">out := new(GatewayConfig)
         in.DeepCopyInto(out)
         return out</span>
 }
 
 // DeepCopyObject is an autogenerated deepcopy function, copying the receiver, creating a new runtime.Object.
-func (in *GatewayConfig) DeepCopyObject() runtime.Object <span class="cov0" title="0">{
-        if c := in.DeepCopy(); c != nil </span><span class="cov0" title="0">{
+func (in *GatewayConfig) DeepCopyObject() runtime.Object <span class="cov10" title="2">{
+        if c := in.DeepCopy(); c != nil </span><span class="cov10" title="2">{
                 return c
         }</span>
         <span class="cov0" title="0">return nil</span>
@@ -9886,7 +10008,7 @@ func (in *GatewayConfigSpec) DeepCopy() *GatewayConfigSpec <span class="cov0" ti
 }
 
 // DeepCopyInto is an autogenerated deepcopy function, copying the receiver, writing into out. in must be non-nil.
-func (in *GatewayConfigStatus) DeepCopyInto(out *GatewayConfigStatus) <span class="cov0" title="0">{
+func (in *GatewayConfigStatus) DeepCopyInto(out *GatewayConfigStatus) <span class="cov10" title="2">{
         *out = *in
         if in.Conditions != nil </span><span class="cov0" title="0">{
                 in, out := &amp;in.Conditions, &amp;out.Conditions
