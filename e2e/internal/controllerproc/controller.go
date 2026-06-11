@@ -168,9 +168,9 @@ func Start(t TestLogSink, cfg config.Config, opts *StartOptions) (*Process, erro
 	go func() {
 		streamGroup.Wait()
 		close(streamsDone)
-	}()
-
-	go func() {
+		// Drain both pipes before Wait. os/exec documents that calling Wait before
+		// all reads from StdoutPipe/StderrPipe complete can race with pipe closure
+		// and drop the last log lines from fast-exiting processes.
 		proc.exitErr = cmd.Wait()
 		close(proc.exitDone)
 	}()
