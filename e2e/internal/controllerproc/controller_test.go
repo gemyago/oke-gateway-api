@@ -2,12 +2,15 @@ package controllerproc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -411,6 +414,28 @@ func TestBuildControllerEnv(t *testing.T) {
 		assertEnvValue(t, env, envKubeconfig, "/tmp/original-kubeconfig")
 		assertEnvValue(t, env, envK8sAPINoop, "false")
 		assertEnvValue(t, env, envOCIAPINoop, "false")
+	})
+}
+
+func TestIsSignaledBy(t *testing.T) {
+	t.Parallel()
+
+	t.Run("matches the expected signal", func(t *testing.T) {
+		t.Parallel()
+
+		cmd := exec.Command("sh", "-c", "kill -TERM $$")
+		err := cmd.Run()
+		require.Error(t, err)
+
+		assert.True(t, isSignaledBy(err, syscall.SIGTERM))
+		assert.True(t, isSignaledExit(err))
+		assert.False(t, isSignaledBy(err, syscall.SIGKILL))
+	})
+
+	t.Run("rejects non exit errors", func(t *testing.T) {
+		t.Parallel()
+
+		assert.False(t, isSignaledBy(errors.New("boom"), syscall.SIGTERM))
 	})
 }
 

@@ -331,7 +331,7 @@ func (p *Process) waitForExitAfterSignal() error {
 
 func (p *Process) handleSignalWaitResult(waitErr error) error {
 	p.awaitStreams()
-	if waitErr != nil {
+	if waitErr != nil && !isSignaledBy(waitErr, syscall.SIGTERM) {
 		return fmt.Errorf("wait for controller process pid=%d after SIGTERM: %w", p.pid, waitErr)
 	}
 
@@ -363,13 +363,21 @@ func (p *Process) killAfterTimeout() error {
 }
 
 func isSignaledExit(err error) bool {
+	return isSignaledBy(err, -1)
+}
+
+func isSignaledBy(err error, signal syscall.Signal) bool {
 	var exitErr *exec.ExitError
 	if !errors.As(err, &exitErr) {
 		return false
 	}
 
 	waitStatus, ok := exitErr.Sys().(syscall.WaitStatus)
-	return ok && waitStatus.Signaled()
+	if !ok || !waitStatus.Signaled() {
+		return false
+	}
+
+	return signal < 0 || waitStatus.Signal() == signal
 }
 
 func (p *Process) waitResultNonBlocking() (bool, error) {
