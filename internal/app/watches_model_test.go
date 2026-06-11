@@ -134,6 +134,30 @@ func TestWatchesModel(t *testing.T) {
 			require.ErrorIs(t, err, wantErr)
 		})
 
+		t.Run("returns error if GRPCRoute indexer registration fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			mockIndexer := k8sapi.NewMockFieldIndexer(t)
+			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(wantErr)
+
+			err := model.RegisterFieldIndexers(t.Context(), mockIndexer)
+			require.ErrorContains(t, err, "failed to index GRPCRoute by backend service")
+			require.ErrorIs(t, err, wantErr)
+		})
+
 		t.Run("returns error if Gateway certificate indexer registration fails", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
