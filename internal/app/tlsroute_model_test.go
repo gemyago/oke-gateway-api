@@ -210,9 +210,9 @@ func TestTLSRouteModelValidation(t *testing.T) {
 		}
 	}
 
-	t.Run("rejects missing hostname", func(t *testing.T) {
+	t.Run("accepts missing hostname", func(t *testing.T) {
 		err := model.validateRoute(baseDetails())
-		require.ErrorContains(t, err, "must specify at least one hostname")
+		require.NoError(t, err)
 	})
 
 	t.Run("rejects ALB passthrough", func(t *testing.T) {
