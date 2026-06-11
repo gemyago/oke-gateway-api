@@ -41,6 +41,7 @@ func testHTTPCertificateLifecycle(t *testing.T, fixture *httpRoutingFixture) {
 	gatewayName := "gateway-" + suffix
 	routeName := "https-route-" + suffix
 	secretName := certificateLifecycleSecretNamePrefix + "-" + suffix
+	routePath := "/"
 	backend := fixture.staticBackends[0]
 	serialHostV1 := "v1-" + suffix + ".example.test"
 	serialHostV2 := "v2-" + suffix + ".example.test"
@@ -94,22 +95,30 @@ func testHTTPCertificateLifecycle(t *testing.T, fixture *httpRoutingFixture) {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
 		defer cancel()
 
-		if err := deleteObject(
+		logTestProgress(
+			cleanupCtx,
+			t,
+			logger,
+			"Deleting HTTPS Gateway",
+			slog.String("namespace", fixture.namespaceName),
+			slog.String("gateway", gatewayName),
+		)
+		if deleteErr := deleteObject(
 			cleanupCtx,
 			fixture.kubeClient.Client,
 			ctrlclient.ObjectKey{Namespace: fixture.namespaceName, Name: gatewayName},
 			&gatewayv1.Gateway{},
-		); err != nil {
-			t.Errorf("delete Gateway %s/%s: %v", fixture.namespaceName, gatewayName, err)
+		); deleteErr != nil {
+			t.Errorf("delete Gateway %s/%s: %v", fixture.namespaceName, gatewayName, deleteErr)
 		}
 
-		if err := deleteObject(
+		if deleteErr := deleteObject(
 			cleanupCtx,
 			fixture.kubeClient.Client,
 			ctrlclient.ObjectKey{Namespace: fixture.namespaceName, Name: secretName},
 			&corev1.Secret{},
-		); err != nil {
-			t.Errorf("delete Secret %s/%s: %v", fixture.namespaceName, secretName, err)
+		); deleteErr != nil {
+			t.Errorf("delete Secret %s/%s: %v", fixture.namespaceName, secretName, deleteErr)
 		}
 	})
 	registerHTTPRouteCleanup(t, fixture.kubeClient.WithWatch, fixture.namespaceName, routeName)
@@ -165,6 +174,15 @@ func testHTTPCertificateLifecycle(t *testing.T, fixture *httpRoutingFixture) {
 	)
 	require.NoError(t, err)
 
+	logTestProgress(
+		ctx,
+		t,
+		logger,
+		"Waiting for HTTPS Gateway programmed",
+		slog.String("namespace", fixture.namespaceName),
+		slog.String("gateway", gatewayName),
+	)
+
 	_, err = e2ek8s.WaitForGatewayProgrammed(
 		ctx,
 		fixture.kubeClient.Client,
@@ -189,10 +207,12 @@ func testHTTPCertificateLifecycle(t *testing.T, fixture *httpRoutingFixture) {
 		ListenerName: e2ek8s.DefaultHTTPSListenerName,
 		ServiceName:  backend.Name,
 		ServicePort:  e2ek8s.DefaultEchoPort,
-		PathPrefix:   probePath,
+		PathPrefix:   routePath,
 	})
-	logger.InfoContext(
+	logTestProgress(
 		ctx,
+		t,
+		logger,
 		"Creating HTTPS HTTPRoute",
 		slog.String("namespace", fixture.namespaceName),
 		slog.String("httpRoute", routeName),
@@ -219,9 +239,19 @@ func testHTTPCertificateLifecycle(t *testing.T, fixture *httpRoutingFixture) {
 	)
 	require.NoError(t, err)
 
+	logTestProgress(
+		ctx,
+		t,
+		logger,
+		"Waiting for initial HTTPS certificate",
+		slog.String("namespace", fixture.namespaceName),
+		slog.String("secret", secretName),
+		slog.String("serial", leafV1.cert.SerialNumber.String()),
+	)
 	responseV1, err := waitForServedCertificate(
 		ctx,
 		probeClient,
+		routePath,
 		backend.Response,
 		leafV1.cert,
 		[]string{serialHostV1},
@@ -260,6 +290,7 @@ func testHTTPCertificateLifecycle(t *testing.T, fixture *httpRoutingFixture) {
 	responseV2, err := waitForServedCertificate(
 		ctx,
 		probeClient,
+		routePath,
 		backend.Response,
 		leafV2.cert,
 		[]string{serialHostV1, serialHostV2},
@@ -416,6 +447,7 @@ func randomSerialNumber() (*big.Int, error) {
 func waitForServedCertificate(
 	ctx context.Context,
 	client *probe.Client,
+	path string,
 	expectedBody string,
 	expectedCertificate *x509.Certificate,
 	expectedDNSNames []string,
@@ -423,7 +455,7 @@ func waitForServedCertificate(
 	return probe.WaitForResponse(
 		ctx,
 		client,
-		probePath,
+		path,
 		nil,
 		nil,
 		fmt.Sprintf(
