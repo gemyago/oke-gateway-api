@@ -270,12 +270,6 @@ func (m *tlsRouteModelImpl) removeDeletingRouteFinalizers(ctx context.Context, r
 }
 
 func (m *tlsRouteModelImpl) validateRoute(details resolvedTLSRouteDetails) error {
-	if len(details.tlsRoute.Spec.Hostnames) == 0 {
-		return newTLSRouteAcceptedStatusError(
-			gatewayv1.RouteReasonNoMatchingListenerHostname,
-			"TLSRoute must specify at least one hostname",
-		)
-	}
 	mode, ok := tlsRouteMode(details.matchedListener)
 	if !ok {
 		return newTLSRouteAcceptedStatusError(
