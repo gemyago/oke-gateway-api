@@ -49,7 +49,7 @@ func TestHTTP(t *testing.T) {
 		testHTTPRouteLifecycle(t, routingFixture)
 	})
 	t.Run("CertificateLifecycle", func(t *testing.T) {
-		testHTTPCertificateLifecycle(t, liveFixture)
+		testHTTPCertificateLifecycle(t, routingFixture)
 	})
 	t.Run("MultiRouteIsolation", func(t *testing.T) {
 		testHTTPMultiRouteIsolation(t, liveFixture)
@@ -131,11 +131,12 @@ type liveFixture struct {
 type httpRoutingFixture struct {
 	*liveFixture
 
-	probeClient      *probe.Client
-	namespaceName    string
-	gatewayClassName string
-	gatewayName      string
-	staticBackends   []httpStaticBackend
+	probeClient       *probe.Client
+	namespaceName     string
+	gatewayClassName  string
+	gatewayConfigName string
+	gatewayName       string
+	staticBackends    []httpStaticBackend
 }
 
 type httpStaticBackend struct {
@@ -342,16 +343,17 @@ func createHTTPRoutingFixture(parentT *testing.T, cfg *config.Config, live *live
 		setupCtx,
 		"Shared routing fixture is ready",
 		slog.String("namespace", namespace.Name),
-		slog.Int("sharedBackendCount", len(backendNames)),
+		slog.Int("sharedStaticBackendCount", len(staticBackends)),
 	)
 
 	return &httpRoutingFixture{
-		liveFixture:      live,
-		probeClient:      probeClient,
-		namespaceName:    namespace.Name,
-		gatewayClassName: gatewayClassName,
-		gatewayName:      gatewayName,
-		staticBackends:   staticBackends,
+		liveFixture:       live,
+		probeClient:       probeClient,
+		namespaceName:     namespace.Name,
+		gatewayClassName:  gatewayClassName,
+		gatewayConfigName: gatewayConfigName,
+		gatewayName:       gatewayName,
+		staticBackends:    staticBackends,
 	}, nil
 }
 

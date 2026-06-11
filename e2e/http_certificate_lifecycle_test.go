@@ -30,17 +30,18 @@ import (
 	"github.com/gemyago/oke-gateway-api/e2e/internal/probe"
 )
 
-const certificateLifecycleSecretName = "https-cert"
+const certificateLifecycleSecretNamePrefix = "https-cert"
 
-func testHTTPCertificateLifecycle(t *testing.T, live *liveFixture) {
+func testHTTPCertificateLifecycle(t *testing.T, fixture *httpRoutingFixture) {
 	logger := startTestLogger(t)
 	ctx, cfg := newLiveHTTPContext(t)
 
 	fake := faker.New()
 	suffix := randomDNSLabel(fake)
 	gatewayName := "gateway-" + suffix
-	backendName := "https-backend-" + suffix
 	routeName := "https-route-" + suffix
+	secretName := certificateLifecycleSecretNamePrefix + "-" + suffix
+	backend := fixture.staticBackends[0]
 	serialHostV1 := "v1-" + suffix + ".example.test"
 	serialHostV2 := "v2-" + suffix + ".example.test"
 
@@ -49,7 +50,7 @@ func testHTTPCertificateLifecycle(t *testing.T, live *liveFixture) {
 		slog.String("loadBalancerID", cfg.OCI.LoadBalancerID),
 	)
 
-	publicIP := net.ParseIP(live.publicIP)
+	publicIP := net.ParseIP(fixture.publicIP)
 	require.NotNil(t, publicIP, "expected a parseable load balancer public IP")
 
 	caBundle, err := newCertificateAuthority("oke-gateway-api e2e root " + suffix)
@@ -65,7 +66,7 @@ func testHTTPCertificateLifecycle(t *testing.T, live *liveFixture) {
 	rootCAs := x509.NewCertPool()
 	require.True(t, rootCAs.AppendCertsFromPEM(caBundle.certPEM))
 
-	probeClient, err := probe.NewClient(live.publicIP, int(e2ek8s.DefaultHTTPSPort), &probe.ClientOptions{
+	probeClient, err := probe.NewClient(fixture.publicIP, int(e2ek8s.DefaultHTTPSPort), &probe.ClientOptions{
 		Scheme: "https",
 		HTTPClient: &http.Client{
 			Timeout: 15 * time.Second,
@@ -80,38 +81,60 @@ func testHTTPCertificateLifecycle(t *testing.T, live *liveFixture) {
 	})
 	require.NoError(t, err)
 
-	gatewayNamespace, err := createIsolatedGatewayNamespace(ctx, t, live, cfg, suffix)
-	require.NoError(t, err)
 	logTestProgress(
 		ctx,
 		t,
 		logger,
-		"Created isolated HTTPS gateway namespace",
-		slog.String("namespace", gatewayNamespace.namespaceName),
-		slog.String("gatewayClass", gatewayNamespace.gatewayClassName),
+		"Using shared routing fixture namespace for HTTPS Gateway",
+		slog.String("namespace", fixture.namespaceName),
+		slog.String("gatewayClass", fixture.gatewayClassName),
+		slog.String("sharedBackend", backend.Name),
 	)
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+		defer cancel()
+
+		if err := deleteObject(
+			cleanupCtx,
+			fixture.kubeClient.Client,
+			ctrlclient.ObjectKey{Namespace: fixture.namespaceName, Name: gatewayName},
+			&gatewayv1.Gateway{},
+		); err != nil {
+			t.Errorf("delete Gateway %s/%s: %v", fixture.namespaceName, gatewayName, err)
+		}
+
+		if err := deleteObject(
+			cleanupCtx,
+			fixture.kubeClient.Client,
+			ctrlclient.ObjectKey{Namespace: fixture.namespaceName, Name: secretName},
+			&corev1.Secret{},
+		); err != nil {
+			t.Errorf("delete Secret %s/%s: %v", fixture.namespaceName, secretName, err)
+		}
+	})
+	registerHTTPRouteCleanup(t, fixture.kubeClient.WithWatch, fixture.namespaceName, routeName)
 
 	tlsSecret := e2ek8s.NewTLSSecret(e2ek8s.TLSSecretOptions{
-		Namespace:   gatewayNamespace.namespaceName,
-		Name:        certificateLifecycleSecretName,
+		Namespace:   fixture.namespaceName,
+		Name:        secretName,
 		Certificate: leafV1.certPEM,
 		PrivateKey:  leafV1.keyPEM,
 	})
 	logger.InfoContext(
 		ctx,
 		"Creating initial TLS secret",
-		slog.String("namespace", gatewayNamespace.namespaceName),
+		slog.String("namespace", fixture.namespaceName),
 		slog.String("secret", tlsSecret.Name),
 		slog.String("serial", leafV1.cert.SerialNumber.String()),
 		slog.String("fingerprint", certificateFingerprint(leafV1.cert)),
 	)
-	require.NoError(t, live.kubeClient.Create(ctx, tlsSecret))
+	require.NoError(t, fixture.kubeClient.Create(ctx, tlsSecret))
 
 	gateway := e2ek8s.NewGateway(e2ek8s.GatewayOptions{
-		Namespace:         gatewayNamespace.namespaceName,
+		Namespace:         fixture.namespaceName,
 		Name:              gatewayName,
-		GatewayClassName:  gatewayNamespace.gatewayClassName,
-		GatewayConfigName: gatewayNamespace.gatewayConfigName,
+		GatewayClassName:  fixture.gatewayClassName,
+		GatewayConfigName: fixture.gatewayConfigName,
 		Listeners: []gatewayv1.Listener{
 			{
 				Name:     e2ek8s.DefaultHTTPSListenerName,
@@ -119,7 +142,7 @@ func testHTTPCertificateLifecycle(t *testing.T, live *liveFixture) {
 				Protocol: gatewayv1.HTTPSProtocolType,
 				TLS: &gatewayv1.GatewayTLSConfig{
 					CertificateRefs: []gatewayv1.SecretObjectReference{
-						{Name: gatewayv1.ObjectName(certificateLifecycleSecretName)},
+						{Name: gatewayv1.ObjectName(secretName)},
 					},
 				},
 			},
@@ -128,15 +151,15 @@ func testHTTPCertificateLifecycle(t *testing.T, live *liveFixture) {
 	logger.InfoContext(
 		ctx,
 		"Creating HTTPS Gateway",
-		slog.String("namespace", gatewayNamespace.namespaceName),
+		slog.String("namespace", fixture.namespaceName),
 		slog.String("gateway", gatewayName),
 	)
-	require.NoError(t, live.kubeClient.Create(ctx, gateway))
+	require.NoError(t, fixture.kubeClient.Create(ctx, gateway))
 
 	_, err = e2ek8s.WaitForGatewayAccepted(
 		ctx,
-		live.kubeClient.Client,
-		gatewayNamespace.namespaceName,
+		fixture.kubeClient.Client,
+		fixture.namespaceName,
 		gatewayName,
 		nil,
 	)
@@ -144,8 +167,8 @@ func testHTTPCertificateLifecycle(t *testing.T, live *liveFixture) {
 
 	_, err = e2ek8s.WaitForGatewayProgrammed(
 		ctx,
-		live.kubeClient.Client,
-		gatewayNamespace.namespaceName,
+		fixture.kubeClient.Client,
+		fixture.namespaceName,
 		gatewayName,
 		nil,
 	)
@@ -155,66 +178,32 @@ func testHTTPCertificateLifecycle(t *testing.T, live *liveFixture) {
 		t,
 		logger,
 		"HTTPS Gateway accepted and programmed",
-		slog.String("namespace", gatewayNamespace.namespaceName),
+		slog.String("namespace", fixture.namespaceName),
 		slog.String("gateway", gatewayName),
 	)
 
-	deployment := e2ek8s.NewEchoDeployment(e2ek8s.EchoDeploymentOptions{
-		Namespace: gatewayNamespace.namespaceName,
-		Name:      backendName,
-	})
-	service := e2ek8s.NewEchoService(e2ek8s.EchoServiceOptions{
-		Namespace: gatewayNamespace.namespaceName,
-		Name:      backendName,
-	})
-	logger.InfoContext(
-		ctx,
-		"Creating HTTPS backend resources",
-		slog.String("namespace", gatewayNamespace.namespaceName),
-		slog.String("deployment", backendName),
-		slog.String("service", backendName),
-	)
-	require.NoError(t, live.kubeClient.Create(ctx, deployment))
-	require.NoError(t, live.kubeClient.Create(ctx, service))
-
-	_, err = e2ek8s.WaitForDeploymentReady(
-		ctx,
-		live.kubeClient.Client,
-		gatewayNamespace.namespaceName,
-		backendName,
-		nil,
-	)
-	require.NoError(t, err)
-	_, err = e2ek8s.WaitForServiceEndpointsReady(
-		ctx,
-		live.kubeClient.Client,
-		gatewayNamespace.namespaceName,
-		backendName,
-		nil,
-	)
-	require.NoError(t, err)
-
 	httpRoute := e2ek8s.NewHTTPRoute(e2ek8s.HTTPRouteOptions{
-		Namespace:    gatewayNamespace.namespaceName,
+		Namespace:    fixture.namespaceName,
 		Name:         routeName,
 		GatewayName:  gatewayName,
 		ListenerName: e2ek8s.DefaultHTTPSListenerName,
-		ServiceName:  backendName,
+		ServiceName:  backend.Name,
 		ServicePort:  e2ek8s.DefaultEchoPort,
 		PathPrefix:   probePath,
 	})
 	logger.InfoContext(
 		ctx,
 		"Creating HTTPS HTTPRoute",
-		slog.String("namespace", gatewayNamespace.namespaceName),
+		slog.String("namespace", fixture.namespaceName),
 		slog.String("httpRoute", routeName),
+		slog.String("backend", backend.Name),
 	)
-	require.NoError(t, live.kubeClient.Create(ctx, httpRoute))
+	require.NoError(t, fixture.kubeClient.Create(ctx, httpRoute))
 
 	_, err = e2ek8s.WaitForHTTPRouteAccepted(
 		ctx,
-		live.kubeClient.Client,
-		gatewayNamespace.namespaceName,
+		fixture.kubeClient.Client,
+		fixture.namespaceName,
 		routeName,
 		gatewayName,
 		nil,
@@ -222,8 +211,8 @@ func testHTTPCertificateLifecycle(t *testing.T, live *liveFixture) {
 	require.NoError(t, err)
 	_, err = e2ek8s.WaitForHTTPRouteResolvedRefs(
 		ctx,
-		live.kubeClient.Client,
-		gatewayNamespace.namespaceName,
+		fixture.kubeClient.Client,
+		fixture.namespaceName,
 		routeName,
 		gatewayName,
 		nil,
@@ -233,9 +222,8 @@ func testHTTPCertificateLifecycle(t *testing.T, live *liveFixture) {
 	responseV1, err := waitForServedCertificate(
 		ctx,
 		probeClient,
-		probePath,
+		backend.Response,
 		leafV1.cert,
-		probeClient.Host(),
 		[]string{serialHostV1},
 	)
 	require.NoError(t, err)
@@ -256,25 +244,24 @@ func testHTTPCertificateLifecycle(t *testing.T, live *liveFixture) {
 	logger.InfoContext(
 		ctx,
 		"Updating TLS secret with rotated certificate",
-		slog.String("namespace", gatewayNamespace.namespaceName),
-		slog.String("secret", certificateLifecycleSecretName),
+		slog.String("namespace", fixture.namespaceName),
+		slog.String("secret", secretName),
 		slog.String("serial", leafV2.cert.SerialNumber.String()),
 		slog.String("fingerprint", certificateFingerprint(leafV2.cert)),
 	)
 	require.NoError(
 		t,
-		updateTLSSecret(ctx, live.kubeClient.Client, ctrlclient.ObjectKey{
-			Namespace: gatewayNamespace.namespaceName,
-			Name:      certificateLifecycleSecretName,
+		updateTLSSecret(ctx, fixture.kubeClient.Client, ctrlclient.ObjectKey{
+			Namespace: fixture.namespaceName,
+			Name:      secretName,
 		}, leafV2.certPEM, leafV2.keyPEM),
 	)
 
 	responseV2, err := waitForServedCertificate(
 		ctx,
 		probeClient,
-		probePath,
+		backend.Response,
 		leafV2.cert,
-		probeClient.Host(),
 		[]string{serialHostV1, serialHostV2},
 	)
 	require.NoError(t, err)
@@ -288,8 +275,8 @@ func testHTTPCertificateLifecycle(t *testing.T, live *liveFixture) {
 		t,
 		logger,
 		"HTTPS certificate lifecycle completed",
-		slog.String("namespace", gatewayNamespace.namespaceName),
-		slog.String("secret", certificateLifecycleSecretName),
+		slog.String("namespace", fixture.namespaceName),
+		slog.String("secret", secretName),
 		slog.String("newSerial", responseV2.TLSPeerCertificates[0].SerialNumber.String()),
 	)
 }
@@ -429,15 +416,14 @@ func randomSerialNumber() (*big.Int, error) {
 func waitForServedCertificate(
 	ctx context.Context,
 	client *probe.Client,
-	path string,
+	expectedBody string,
 	expectedCertificate *x509.Certificate,
-	expectedHost string,
 	expectedDNSNames []string,
 ) (*probe.Response, error) {
 	return probe.WaitForResponse(
 		ctx,
 		client,
-		path,
+		probePath,
 		nil,
 		nil,
 		fmt.Sprintf(
@@ -453,19 +439,11 @@ func waitForServedCertificate(
 				return false, fmt.Sprintf("received status %d", response.StatusCode)
 			}
 
-			if response.EchoDecodeErr != nil {
-				return false, fmt.Sprintf("failed to decode echo response: %v", response.EchoDecodeErr)
-			}
-
-			if response.Echo == nil {
-				return false, "response body was empty"
-			}
-
-			if !response.IsExpectedEcho(path, expectedHost) {
+			if response.BodyString() != expectedBody {
 				return false, fmt.Sprintf(
-					"echo response mismatch: got requestURL=%q host=%q",
-					response.Echo.RequestURL,
-					response.Echo.Host,
+					"received body %q, expected %q",
+					response.BodyString(),
+					expectedBody,
 				)
 			}
 
