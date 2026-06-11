@@ -2,6 +2,12 @@ name: Docker Image
 
 on:
   workflow_call:
+    inputs:
+      publish:
+        description: Push built images to the remote registry.
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build-image:
@@ -33,11 +39,21 @@ jobs:
       run: tar -xf build-artifacts.tar.bz2
 
     - name: Authenticate container registry
+      if: ${{ inputs.publish }}
       run: echo $GITHUB_TOKEN | docker login ghcr.io -u ${{ github.actor }} --password-stdin
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Validate docker images
+      if: ${{ !inputs.publish }}
+      working-directory: build
+      run: make docker/.local-images
+      env:
+        GIT_COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+        GIT_REF: ${{ github.event.pull_request.head.ref }}
+
     - name: Prepare docker artifacts
+      if: ${{ inputs.publish }}
       working-directory: build
       run: make docker-artifacts.tar.bz2
       env:
@@ -45,6 +61,7 @@ jobs:
         GIT_REF: ${{ github.event.pull_request.head.ref }}
 
     - name: Upload docker artifacts
+      if: ${{ inputs.publish }}
       uses: actions/upload-artifact@v7
       with:
         name: docker-artifacts-pr-${{ github.event.pull_request.node_id }}
