@@ -1437,6 +1437,81 @@ func TestWatchesModel(t *testing.T) {
 		})
 	})
 
+	t.Run("MapSecretToTLSRoute", func(t *testing.T) {
+		t.Run("maps certificate Secret changes to TLSRoutes attached to referencing Gateways", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			secret := makeRandomSecret(randomSecretWithTLSDataOpt())
+			indexKey := fmt.Sprintf("%v/%v", secret.Namespace, secret.Name)
+			gateway := gatewayv1.Gateway{
+				ObjectMeta: metav1.ObjectMeta{Namespace: secret.Namespace, Name: "edge"},
+			}
+			matchingRoute := gatewayv1.TLSRoute{
+				ObjectMeta: metav1.ObjectMeta{Namespace: secret.Namespace, Name: "rtmps"},
+				Spec: gatewayv1.TLSRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{{Name: gatewayv1.ObjectName(gateway.Name)}},
+				}},
+			}
+			otherRoute := gatewayv1.TLSRoute{
+				ObjectMeta: metav1.ObjectMeta{Namespace: secret.Namespace, Name: "other"},
+				Spec: gatewayv1.TLSRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{{Name: "other"}},
+				}},
+			}
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.GatewayList{}, client.MatchingFields{gatewayCertificateIndexKey: indexKey}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.Gateway{gateway}))
+					return nil
+				})
+			mockK8sClient.EXPECT().
+				Get(t.Context(), client.ObjectKeyFromObject(&gateway), &gatewayv1.Gateway{}).
+				RunAndReturn(func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+					*obj.(*gatewayv1.Gateway) = gateway
+					return nil
+				})
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.TLSRouteList{}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().FieldByName("Items").
+						Set(reflect.ValueOf([]gatewayv1.TLSRoute{matchingRoute, otherRoute}))
+					return nil
+				})
+
+			require.Equal(t, []reconcile.Request{{
+				NamespacedName: client.ObjectKeyFromObject(&matchingRoute),
+			}}, model.MapSecretToTLSRoute(t.Context(), &secret))
+		})
+
+		t.Run("returns nil when Secret does not map to Gateways", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			require.Nil(t, model.MapSecretToTLSRoute(t.Context(), &corev1.Secret{}))
+		})
+
+		t.Run("skips Gateways that cannot be fetched", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			secret := makeRandomSecret(randomSecretWithTLSDataOpt())
+			indexKey := fmt.Sprintf("%v/%v", secret.Namespace, secret.Name)
+			gateway := gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: secret.Namespace, Name: "edge"}}
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.GatewayList{}, client.MatchingFields{gatewayCertificateIndexKey: indexKey}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.Gateway{gateway}))
+					return nil
+				})
+			mockK8sClient.EXPECT().
+				Get(t.Context(), client.ObjectKeyFromObject(&gateway), &gatewayv1.Gateway{}).
+				Return(errors.New(faker.New().Lorem().Sentence(10)))
+
+			require.Empty(t, model.MapSecretToTLSRoute(t.Context(), &secret))
+		})
+	})
+
 	t.Run("L4 route watches", func(t *testing.T) {
 		backendPort := gatewayv1.PortNumber(1935)
 		crossNamespace := gatewayv1.Namespace("media")

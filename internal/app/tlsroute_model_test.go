@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	apitypes "k8s.io/apimachinery/pkg/types"
@@ -188,6 +190,13 @@ func TestTLSRouteModelResolveAndProgramALBTerminate(t *testing.T) {
 	require.NoError(t, k8sClient.Get(t.Context(), apitypes.NamespacedName{Namespace: "media", Name: "rtmps"}, &updated))
 	assert.Contains(t, updated.Finalizers, LoadBalancerTLSRouteProgrammedFinalizer)
 	assert.Len(t, updated.Status.Parents, 1)
+	assert.Equal(t, ControllerClassName, string(updated.Status.Parents[0].ControllerName))
+	acceptedCondition := meta.FindStatusCondition(
+		updated.Status.Parents[0].Conditions,
+		string(gatewayv1.RouteConditionAccepted),
+	)
+	require.NotNil(t, acceptedCondition)
+	assert.Equal(t, fmt.Sprintf("TLSRoute rtmps accepted by %s", ControllerClassName), acceptedCondition.Message)
 }
 
 func TestTLSRouteModelValidation(t *testing.T) {
