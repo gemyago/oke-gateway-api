@@ -2,6 +2,7 @@ package probe
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,11 +21,13 @@ const (
 	defaultRequestTimeout = 10 * time.Second
 	defaultPollInterval   = 2 * time.Second
 	defaultHTTPPort       = 80
+	defaultHTTPScheme     = "http"
 )
 
 type ClientOptions struct {
 	HTTPClient     *http.Client
 	RequestTimeout time.Duration
+	Scheme         string
 }
 
 type RequestOptions struct {
@@ -52,12 +55,14 @@ type EchoResponse struct {
 }
 
 type Response struct {
-	URL           string
-	StatusCode    int
-	Header        http.Header
-	Body          []byte
-	Echo          *EchoResponse
-	EchoDecodeErr error
+	URL                 string
+	StatusCode          int
+	Header              http.Header
+	Body                []byte
+	TLSVerifiedChains   [][]*x509.Certificate
+	TLSPeerCertificates []*x509.Certificate
+	Echo                *EchoResponse
+	EchoDecodeErr       error
 }
 
 func NewClient(publicIP string, port int, opts *ClientOptions) (*Client, error) {
@@ -84,9 +89,14 @@ func NewClient(publicIP string, port int, opts *ClientOptions) (*Client, error) 
 		httpClient = &http.Client{Timeout: requestTimeout}
 	}
 
+	scheme := strings.TrimSpace(opts.Scheme)
+	if scheme == "" {
+		scheme = defaultHTTPScheme
+	}
+
 	return &Client{
 		baseURL: &url.URL{
-			Scheme: "http",
+			Scheme: scheme,
 			Host:   makeHost(publicIP, port),
 		},
 		httpClient: httpClient,
@@ -144,6 +154,10 @@ func (c *Client) ProbeRequest(ctx context.Context, path string, opts *RequestOpt
 		StatusCode: resp.StatusCode,
 		Header:     resp.Header.Clone(),
 		Body:       body,
+	}
+	if resp.TLS != nil {
+		result.TLSPeerCertificates = append([]*x509.Certificate(nil), resp.TLS.PeerCertificates...)
+		result.TLSVerifiedChains = cloneTLSVerifiedChains(resp.TLS.VerifiedChains)
 	}
 
 	trimmedBody := strings.TrimSpace(string(body))
@@ -343,6 +357,19 @@ func makeHost(publicIP string, port int) string {
 	}
 
 	return net.JoinHostPort(publicIP, strconv.Itoa(port))
+}
+
+func cloneTLSVerifiedChains(chains [][]*x509.Certificate) [][]*x509.Certificate {
+	if len(chains) == 0 {
+		return nil
+	}
+
+	cloned := make([][]*x509.Certificate, 0, len(chains))
+	for _, chain := range chains {
+		cloned = append(cloned, append([]*x509.Certificate(nil), chain...))
+	}
+
+	return cloned
 }
 
 func waitFor(

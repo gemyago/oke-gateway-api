@@ -210,6 +210,10 @@ func TestLoadBalancerCleaner(t *testing.T) {
 							"backend-b": {},
 							"backend-a": {},
 						},
+						Certificates: map[string]loadbalancer.Certificate{
+							"cert-b": {},
+							"cert-a": {},
+						},
 					},
 				}, nil
 			},
@@ -221,6 +225,7 @@ func TestLoadBalancerCleaner(t *testing.T) {
 		assertSliceEqual(t, []string{"listener-a", "listener-b"}, result.ListenerNames)
 		assertSliceEqual(t, []string{"policy-a", "policy-b"}, result.RoutingPolicyNames)
 		assertSliceEqual(t, []string{"backend-a", "backend-b"}, result.BackendSetNames)
+		assertSliceEqual(t, []string{"cert-a", "cert-b"}, result.CertificateNames)
 	})
 
 	t.Run("inspect rejects load balancers without a public ip", func(t *testing.T) {
@@ -248,7 +253,7 @@ func TestLoadBalancerCleaner(t *testing.T) {
 		assertErrorContains(t, err, "no public IP addresses")
 	})
 
-	t.Run("cleanup deletes listeners then routing policies then backend sets", func(t *testing.T) {
+	t.Run("cleanup deletes listeners then routing policies then backend sets then certificates", func(t *testing.T) {
 		t.Parallel()
 
 		var operations []string
@@ -258,6 +263,8 @@ func TestLoadBalancerCleaner(t *testing.T) {
 			"wr-policy-a":   loadbalancer.WorkRequestLifecycleStateSucceeded,
 			"wr-backend-a":  loadbalancer.WorkRequestLifecycleStateSucceeded,
 			"wr-backend-b":  loadbalancer.WorkRequestLifecycleStateSucceeded,
+			"wr-cert-a":     loadbalancer.WorkRequestLifecycleStateSucceeded,
+			"wr-cert-b":     loadbalancer.WorkRequestLifecycleStateSucceeded,
 		}
 
 		cleaner := NewLoadBalancerCleaner(&fakeLoadBalancerClient{
@@ -282,6 +289,10 @@ func TestLoadBalancerCleaner(t *testing.T) {
 						BackendSets: map[string]loadbalancer.BackendSet{
 							"backend-b": {},
 							"backend-a": {},
+						},
+						Certificates: map[string]loadbalancer.Certificate{
+							"cert-b": {},
+							"cert-a": {},
 						},
 					},
 				}, nil
@@ -319,6 +330,17 @@ func TestLoadBalancerCleaner(t *testing.T) {
 					OpcWorkRequestId: &workRequestID,
 				}, nil
 			},
+			deleteCertificate: func(
+				_ context.Context,
+				request loadbalancer.DeleteCertificateRequest,
+			) (loadbalancer.DeleteCertificateResponse, error) {
+				name := stringValue(request.CertificateName)
+				operations = append(operations, "delete-certificate:"+name)
+				workRequestID := "wr-" + name
+				return loadbalancer.DeleteCertificateResponse{
+					OpcWorkRequestId: &workRequestID,
+				}, nil
+			},
 			getWorkRequest: func(
 				_ context.Context,
 				request loadbalancer.GetWorkRequestRequest,
@@ -342,6 +364,7 @@ func TestLoadBalancerCleaner(t *testing.T) {
 		assertSliceEqual(t, []string{"listener-a", "listener-b"}, result.DeletedListeners)
 		assertSliceEqual(t, []string{"policy-a"}, result.DeletedRoutingPolicies)
 		assertSliceEqual(t, []string{"backend-a", "backend-b"}, result.DeletedBackendSets)
+		assertSliceEqual(t, []string{"cert-a", "cert-b"}, result.DeletedCertificates)
 		assertSliceEqual(t, []string{
 			"delete-listener:listener-a",
 			"wait:wr-listener-a",
@@ -353,6 +376,10 @@ func TestLoadBalancerCleaner(t *testing.T) {
 			"wait:wr-backend-a",
 			"delete-backend-set:backend-b",
 			"wait:wr-backend-b",
+			"delete-certificate:cert-a",
+			"wait:wr-cert-a",
+			"delete-certificate:cert-b",
+			"wait:wr-cert-b",
 		}, operations)
 	})
 }
@@ -363,6 +390,7 @@ type fakeLoadBalancerClient struct {
 	deleteListener      func(context.Context, loadbalancer.DeleteListenerRequest) (loadbalancer.DeleteListenerResponse, error)
 	deleteRoutingPolicy func(context.Context, loadbalancer.DeleteRoutingPolicyRequest) (loadbalancer.DeleteRoutingPolicyResponse, error)
 	deleteBackendSet    func(context.Context, loadbalancer.DeleteBackendSetRequest) (loadbalancer.DeleteBackendSetResponse, error)
+	deleteCertificate   func(context.Context, loadbalancer.DeleteCertificateRequest) (loadbalancer.DeleteCertificateResponse, error)
 	getWorkRequest      func(context.Context, loadbalancer.GetWorkRequestRequest) (loadbalancer.GetWorkRequestResponse, error)
 }
 
@@ -419,6 +447,17 @@ func (f *fakeLoadBalancerClient) DeleteBackendSet(
 	}
 
 	return f.deleteBackendSet(ctx, request)
+}
+
+func (f *fakeLoadBalancerClient) DeleteCertificate(
+	ctx context.Context,
+	request loadbalancer.DeleteCertificateRequest,
+) (loadbalancer.DeleteCertificateResponse, error) {
+	if f.deleteCertificate == nil {
+		return loadbalancer.DeleteCertificateResponse{}, errors.New("unexpected DeleteCertificate call")
+	}
+
+	return f.deleteCertificate(ctx, request)
 }
 
 func (f *fakeLoadBalancerClient) GetWorkRequest(

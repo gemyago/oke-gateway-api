@@ -2,6 +2,8 @@ package probe
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -79,6 +81,43 @@ func TestClient(t *testing.T) {
 		require.NotNil(t, response.Echo)
 		assert.Equal(t, requestHost, response.Echo.Host)
 		assert.Equal(t, []string{headerValue}, response.Echo.RequestHeaders.Values("X-Test-Case"))
+	})
+
+	t.Run("probe captures peer certificates over https", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := json.NewEncoder(w).Encode(EchoResponse{
+				RequestHeaders: r.Header,
+				RequestBody:    "",
+				RequestMethod:  r.Method,
+				RequestURL:     r.URL.String(),
+				Host:           r.Host,
+			}); err != nil {
+				t.Errorf("encode echo response: %v", err)
+			}
+		}))
+		t.Cleanup(server.Close)
+
+		publicIP, port := testServerAddress(t, server)
+		rootCAs := x509.NewCertPool()
+		rootCAs.AddCert(server.Certificate())
+		client, err := NewClient(publicIP, port, &ClientOptions{
+			Scheme: "https",
+			HTTPClient: &http.Client{
+				Timeout: time.Second,
+				Transport: &http.Transport{
+					TLSClientConfig: &tls.Config{RootCAs: rootCAs},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		response, err := client.Probe(t.Context(), "/echo")
+		require.NoError(t, err)
+		require.NotEmpty(t, response.TLSPeerCertificates)
+		assert.Equal(t, server.Certificate().RawSubject, response.TLSPeerCertificates[0].RawSubject)
+		assert.NotEmpty(t, response.TLSVerifiedChains)
 	})
 
 	t.Run("wait for echo tolerates transient non-echo responses", func(t *testing.T) {

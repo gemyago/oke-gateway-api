@@ -147,13 +147,15 @@ The e2e module currently provides:
   typed resource builders, unstructured `GatewayConfig` fixtures, readiness waiters, and
   namespace-prefix-scoped cleanup for shared clusters, using the explicit
   `OKE_E2E_KUBE_CONTEXT` override with optional `KUBECONFIG`,
-- HTTP probe helpers under `e2e/internal/probe` for polling `http://<public-ip>/<path>` and
-  decoding the echo server JSON shape without importing root repo internals,
+- HTTP probe helpers under `e2e/internal/probe` for polling `http://` and `https://`
+  `<public-ip>/<path>`, decoding the echo server JSON shape, and inspecting the served TLS
+  certificate without importing root repo internals,
 - a live `e2e/http_test.go` MVP that creates a unique namespace plus Gateway API resources, probes
   `/echo`, captures programmed OCI routing policy rule names from the `HTTPRoute` annotation,
   deletes the route, verifies `/echo` no longer serves the echo response, verifies the captured OCI
-  rule names disappear from the listener routing policy, and leaves full disposable load balancer
-  reset to the separate cleanup command.
+  rule names disappear from the listener routing policy, includes HTTPS certificate lifecycle
+  coverage via Kubernetes TLS secrets, and leaves full disposable load balancer reset to the
+  separate cleanup command.
 
 ## Infra Cleanup Command
 
@@ -171,7 +173,7 @@ Current cleanup behavior:
 - validates that `OKE_E2E_LOAD_BALANCER_ID` exists and that the load balancer has at least one
   public IP,
 - picks a stable public IP from the load balancer response for later probe-oriented workflows,
-- deletes listeners first, then routing policies, then backend sets,
+- deletes listeners first, then routing policies, then backend sets, then certificates,
 - waits for the OCI work request after each successful mutation,
 - does not delete the load balancer itself.
 

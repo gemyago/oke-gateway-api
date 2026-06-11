@@ -34,6 +34,10 @@ type LoadBalancerClient interface {
 		context.Context,
 		loadbalancer.DeleteBackendSetRequest,
 	) (loadbalancer.DeleteBackendSetResponse, error)
+	DeleteCertificate(
+		context.Context,
+		loadbalancer.DeleteCertificateRequest,
+	) (loadbalancer.DeleteCertificateResponse, error)
 	GetWorkRequest(
 		context.Context,
 		loadbalancer.GetWorkRequestRequest,
@@ -52,6 +56,7 @@ type DisposableLoadBalancer struct {
 	ListenerNames      []string
 	RoutingPolicyNames []string
 	BackendSetNames    []string
+	CertificateNames   []string
 }
 
 type CleanupResult struct {
@@ -60,6 +65,7 @@ type CleanupResult struct {
 	DeletedListeners       []string
 	DeletedRoutingPolicies []string
 	DeletedBackendSets     []string
+	DeletedCertificates    []string
 }
 
 type LoadBalancerCleaner struct {
@@ -125,6 +131,7 @@ func (c *LoadBalancerCleaner) Inspect(
 		ListenerNames:      sortedKeys(response.LoadBalancer.Listeners),
 		RoutingPolicyNames: sortedKeys(response.LoadBalancer.RoutingPolicies),
 		BackendSetNames:    sortedKeys(response.LoadBalancer.BackendSets),
+		CertificateNames:   sortedKeys(response.LoadBalancer.Certificates),
 	}, nil
 }
 
@@ -180,6 +187,17 @@ func (c *LoadBalancerCleaner) Cleanup(
 		return nil, err
 	}
 	result.DeletedBackendSets = deletedBackendSets
+
+	c.logger.InfoContext(
+		ctx,
+		"deleting certificates",
+		slog.Any("certificateNames", disposableLoadBalancer.CertificateNames),
+	)
+	deletedCertificates, err := c.deleteCertificates(ctx, loadBalancerID, disposableLoadBalancer.CertificateNames)
+	if err != nil {
+		return nil, err
+	}
+	result.DeletedCertificates = deletedCertificates
 
 	return result, nil
 }
@@ -279,6 +297,38 @@ func (c *LoadBalancerCleaner) deleteBackendSets(
 		}
 
 		deleted = append(deleted, backendSetName)
+	}
+
+	return deleted, nil
+}
+
+func (c *LoadBalancerCleaner) deleteCertificates(
+	ctx context.Context,
+	loadBalancerID string,
+	certificateNames []string,
+) ([]string, error) {
+	deleted := make([]string, 0, len(certificateNames))
+
+	for _, certificateName := range certificateNames {
+		response, deleteErr := c.client.DeleteCertificate(ctx, loadbalancer.DeleteCertificateRequest{
+			LoadBalancerId:  &loadBalancerID,
+			CertificateName: &certificateName,
+		})
+		if deleteErr != nil {
+			if isNotFoundError(deleteErr) {
+				c.logger.InfoContext(ctx, "certificate already absent", slog.String("certificateName", certificateName))
+				continue
+			}
+
+			return nil, fmt.Errorf("delete certificate %q: %w", certificateName, deleteErr)
+		}
+
+		waitErr := c.waitForDeletion(ctx, "certificate", certificateName, response.OpcWorkRequestId)
+		if waitErr != nil {
+			return nil, waitErr
+		}
+
+		deleted = append(deleted, certificateName)
 	}
 
 	return deleted, nil

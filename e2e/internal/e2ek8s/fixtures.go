@@ -20,6 +20,8 @@ const (
 	DefaultGatewayConfigKind                                 = "GatewayConfig"
 	DefaultHTTPListenerName      gatewayv1.SectionName       = "http"
 	DefaultHTTPPort              gatewayv1.PortNumber        = 80
+	DefaultHTTPSListenerName     gatewayv1.SectionName       = "https"
+	DefaultHTTPSPort             gatewayv1.PortNumber        = 443
 	DefaultEchoImage                                         = "ghcr.io/gemyago/oke-gateway-api-server:main"
 	DefaultEchoPort                                          = int32(8080)
 	DefaultEchoReplicas                                      = int32(1)
@@ -52,6 +54,16 @@ type HTTPGatewayOptions struct {
 	Annotations       map[string]string
 }
 
+type GatewayOptions struct {
+	Namespace         string
+	Name              string
+	GatewayClassName  string
+	GatewayConfigName string
+	Listeners         []gatewayv1.Listener
+	Labels            map[string]string
+	Annotations       map[string]string
+}
+
 type EchoDeploymentOptions struct {
 	Namespace   string
 	Name        string
@@ -77,6 +89,15 @@ type EchoServiceOptions struct {
 	Namespace   string
 	Name        string
 	Port        int32
+	Labels      map[string]string
+	Annotations map[string]string
+}
+
+type TLSSecretOptions struct {
+	Namespace   string
+	Name        string
+	Certificate []byte
+	PrivateKey  []byte
 	Labels      map[string]string
 	Annotations map[string]string
 }
@@ -145,17 +166,8 @@ func NewGatewayConfig(opts GatewayConfigOptions) *unstructured.Unstructured {
 	return resource
 }
 
-func NewHTTPGateway(opts HTTPGatewayOptions) *gatewayv1.Gateway {
-	listenerName := opts.ListenerName
-	if listenerName == "" {
-		listenerName = DefaultHTTPListenerName
-	}
-
-	port := opts.Port
-	if port == 0 {
-		port = DefaultHTTPPort
-	}
-
+func NewGateway(opts GatewayOptions) *gatewayv1.Gateway {
+	listeners := append([]gatewayv1.Listener(nil), opts.Listeners...)
 	return &gatewayv1.Gateway{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: gatewayv1.GroupVersion.String(),
@@ -176,15 +188,37 @@ func NewHTTPGateway(opts HTTPGatewayOptions) *gatewayv1.Gateway {
 					Name:  opts.GatewayConfigName,
 				},
 			},
-			Listeners: []gatewayv1.Listener{
-				{
-					Name:     listenerName,
-					Port:     port,
-					Protocol: gatewayv1.HTTPProtocolType,
-				},
-			},
+			Listeners: listeners,
 		},
 	}
+}
+
+func NewHTTPGateway(opts HTTPGatewayOptions) *gatewayv1.Gateway {
+	listenerName := opts.ListenerName
+	if listenerName == "" {
+		listenerName = DefaultHTTPListenerName
+	}
+
+	port := opts.Port
+	if port == 0 {
+		port = DefaultHTTPPort
+	}
+
+	return NewGateway(GatewayOptions{
+		Namespace:         opts.Namespace,
+		Name:              opts.Name,
+		GatewayClassName:  opts.GatewayClassName,
+		GatewayConfigName: opts.GatewayConfigName,
+		Labels:            opts.Labels,
+		Annotations:       opts.Annotations,
+		Listeners: []gatewayv1.Listener{
+			{
+				Name:     listenerName,
+				Port:     port,
+				Protocol: gatewayv1.HTTPProtocolType,
+			},
+		},
+	})
 }
 
 func NewEchoDeployment(opts EchoDeploymentOptions) *appsv1.Deployment {
@@ -347,6 +381,28 @@ func NewEchoService(opts EchoServiceOptions) *corev1.Service {
 				},
 			},
 		},
+	}
+}
+
+func NewTLSSecret(opts TLSSecretOptions) *corev1.Secret {
+	data := map[string][]byte{
+		corev1.TLSCertKey:       append([]byte(nil), opts.Certificate...),
+		corev1.TLSPrivateKeyKey: append([]byte(nil), opts.PrivateKey...),
+	}
+
+	return &corev1.Secret{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: corev1.SchemeGroupVersion.String(),
+			Kind:       "Secret",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        opts.Name,
+			Namespace:   opts.Namespace,
+			Labels:      fixtureLabels(opts.Name, "tls-secret", opts.Labels),
+			Annotations: cloneStringMap(opts.Annotations),
+		},
+		Type: corev1.SecretTypeTLS,
+		Data: data,
 	}
 }
 

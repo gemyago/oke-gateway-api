@@ -37,6 +37,7 @@ const (
 func TestHTTP(t *testing.T) {
 	t.Run("Startup", testHTTPStartup)
 	t.Run("RouteLifecycle", testHTTPRouteLifecycle)
+	t.Run("CertificateLifecycle", testHTTPCertificateLifecycle)
 	t.Run("MultiRouteIsolation", testHTTPMultiRouteIsolation)
 	t.Run("BackendEndpointChange", testHTTPBackendEndpointChange)
 	t.Run("HostMatching", testHTTPHostMatching)

@@ -20,6 +20,7 @@
 - Keep concrete live cases in separate top-level test files such as:
   - `e2e/http_startup_test.go`
   - `e2e/http_route_lifecycle_test.go`
+  - `e2e/http_certificate_lifecycle_test.go`
 - Keep reusable support code under `e2e/internal/...`:
   - `internal/config` for env parsing and validation
   - `internal/controllerproc` for child controller lifecycle
@@ -30,6 +31,8 @@
 - Normal test cleanup should remove only test-created Kubernetes resources.
 - Broader OCI load balancer reset belongs in the explicit `make -C e2e infra-cleanup` operator
   path, not the default live test flow.
+- The operator cleanup path should remove orphaned OCI certificates as well as listeners, routing
+  policies, and backend sets.
 
 ## Local Commands
 
