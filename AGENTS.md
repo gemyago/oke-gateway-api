@@ -28,7 +28,12 @@ Environment notes:
 - `.envrc` sets `GOPATH` under `../go/<go-version>` and adds local `bin` to `PATH`
 - optional local overrides live in `.envrc.local`
 
-**Important**: Due to harness shell configuration, project related shell commands should be run with `direnv exec . <command>`.
+**Shell usage notes**
+- If shell is persistent (e.g human controlled terminal), then `direnv allow` and then run all commands directly in the shell.
+- If shell is ephemeral (most typical in AI agents), then run most commands via `direnv exec <working_dir> <command>`.
+- This mostly applies to project specific commands (like `make`, `go` e.t.c). Regular exploration related commands (like `ls`, `cd`, `pwd` e.t.c) can be run directly in the shell.
+- Keep in mind that `<working_dir>` doesn't change cwd, just loads the env from the specified working dir.
+
 
 ## Common Commands
 

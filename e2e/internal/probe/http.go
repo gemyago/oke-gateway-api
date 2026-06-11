@@ -1,0 +1,412 @@
+package probe
+
+import (
+	"context"
+	"crypto/x509"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/gemyago/oke-gateway-api/e2e/internal/diag"
+)
+
+const (
+	defaultRequestTimeout = 10 * time.Second
+	defaultPollInterval   = 2 * time.Second
+	defaultHTTPPort       = 80
+	defaultHTTPScheme     = "http"
+)
+
+type ClientOptions struct {
+	HTTPClient     *http.Client
+	RequestTimeout time.Duration
+	Scheme         string
+}
+
+type RequestOptions struct {
+	Host    string
+	Headers http.Header
+}
+
+type WaitOptions struct {
+	PollInterval time.Duration
+}
+
+type ResponseMatcher func(*Response) (bool, string)
+
+type Client struct {
+	baseURL    *url.URL
+	httpClient *http.Client
+}
+
+type EchoResponse struct {
+	RequestHeaders http.Header `json:"requestHeaders"`
+	RequestBody    string      `json:"requestBody"`
+	RequestMethod  string      `json:"requestMethod"`
+	RequestURL     string      `json:"requestURL"`
+	Host           string      `json:"host"`
+}
+
+type Response struct {
+	URL                 string
+	StatusCode          int
+	Header              http.Header
+	Body                []byte
+	TLSVerifiedChains   [][]*x509.Certificate
+	TLSPeerCertificates []*x509.Certificate
+	Echo                *EchoResponse
+	EchoDecodeErr       error
+}
+
+func NewClient(publicIP string, port int, opts *ClientOptions) (*Client, error) {
+	publicIP = strings.TrimSpace(publicIP)
+	if publicIP == "" {
+		return nil, errors.New("public ip is required")
+	}
+
+	if port <= 0 {
+		return nil, errors.New("port must be greater than zero")
+	}
+
+	if opts == nil {
+		opts = &ClientOptions{}
+	}
+
+	requestTimeout := opts.RequestTimeout
+	if requestTimeout <= 0 {
+		requestTimeout = defaultRequestTimeout
+	}
+
+	httpClient := opts.HTTPClient
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: requestTimeout}
+	}
+
+	scheme := strings.TrimSpace(opts.Scheme)
+	if scheme == "" {
+		scheme = defaultHTTPScheme
+	}
+
+	return &Client{
+		baseURL: &url.URL{
+			Scheme: scheme,
+			Host:   makeHost(publicIP, port),
+		},
+		httpClient: httpClient,
+	}, nil
+}
+
+func (c *Client) Host() string {
+	if c == nil || c.baseURL == nil {
+		return ""
+	}
+
+	return c.baseURL.Host
+}
+
+func (c *Client) Probe(ctx context.Context, path string) (*Response, error) {
+	return c.ProbeRequest(ctx, path, nil)
+}
+
+func (c *Client) ProbeRequest(ctx context.Context, path string, opts *RequestOptions) (*Response, error) {
+	target, err := c.url(path)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build probe request for %q: %w", target, err)
+	}
+
+	if opts != nil {
+		if host := strings.TrimSpace(opts.Host); host != "" {
+			req.Host = host
+		}
+
+		for key, values := range opts.Headers {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("probe %q: %w", target, err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read probe response from %q: %w", target, err)
+	}
+
+	result := &Response{
+		URL:        target,
+		StatusCode: resp.StatusCode,
+		Header:     resp.Header.Clone(),
+		Body:       body,
+	}
+	if resp.TLS != nil {
+		result.TLSPeerCertificates = append([]*x509.Certificate(nil), resp.TLS.PeerCertificates...)
+		result.TLSVerifiedChains = cloneTLSVerifiedChains(resp.TLS.VerifiedChains)
+	}
+
+	trimmedBody := strings.TrimSpace(string(body))
+	if trimmedBody == "" {
+		return result, nil
+	}
+
+	var echo EchoResponse
+	if decodeErr := json.Unmarshal(body, &echo); decodeErr != nil {
+		result.EchoDecodeErr = decodeErr
+		return result, nil
+	}
+
+	result.Echo = &echo
+
+	return result, nil
+}
+
+func WaitForEcho(ctx context.Context, client *Client, path string, opts *WaitOptions) (*Response, error) {
+	return WaitForEchoRequest(ctx, client, path, nil, opts)
+}
+
+func WaitForEchoRequest(
+	ctx context.Context,
+	client *Client,
+	path string,
+	requestOpts *RequestOptions,
+	opts *WaitOptions,
+) (*Response, error) {
+	expectedHost := client.Host()
+	if requestOpts != nil && strings.TrimSpace(requestOpts.Host) != "" {
+		expectedHost = strings.TrimSpace(requestOpts.Host)
+	}
+
+	return WaitForResponse(
+		ctx,
+		client,
+		path,
+		requestOpts,
+		opts,
+		fmt.Sprintf("wait for HTTP echo response on %q", path),
+		func(response *Response) (bool, string) {
+			if response.IsExpectedEcho(path, expectedHost) {
+				return true, ""
+			}
+
+			return false, response.describeExpectation(path, expectedHost)
+		},
+	)
+}
+
+func WaitForEchoGone(
+	ctx context.Context,
+	client *Client,
+	path string,
+	opts *WaitOptions,
+) (*Response, error) {
+	return WaitForEchoGoneRequest(ctx, client, path, nil, opts)
+}
+
+func WaitForEchoGoneRequest(
+	ctx context.Context,
+	client *Client,
+	path string,
+	requestOpts *RequestOptions,
+	opts *WaitOptions,
+) (*Response, error) {
+	expectedHost := client.Host()
+	if requestOpts != nil && strings.TrimSpace(requestOpts.Host) != "" {
+		expectedHost = strings.TrimSpace(requestOpts.Host)
+	}
+
+	return WaitForResponse(
+		ctx,
+		client,
+		path,
+		requestOpts,
+		opts,
+		fmt.Sprintf("wait for HTTP echo removal on %q", path),
+		func(response *Response) (bool, string) {
+			if !response.IsExpectedEcho(path, expectedHost) {
+				return true, ""
+			}
+
+			return false, "expected echo response is still being served"
+		},
+	)
+}
+
+func WaitForResponse(
+	ctx context.Context,
+	client *Client,
+	path string,
+	requestOpts *RequestOptions,
+	opts *WaitOptions,
+	description string,
+	matcher ResponseMatcher,
+) (*Response, error) {
+	return waitFor(
+		ctx,
+		opts,
+		description,
+		func(ctx context.Context) (bool, *Response, string) {
+			response, probeErr := client.ProbeRequest(ctx, path, requestOpts)
+			if probeErr != nil {
+				return false, nil, probeErr.Error()
+			}
+
+			matched, message := matcher(response)
+			return matched, response, message
+		},
+	)
+}
+
+func (r *Response) IsExpectedEcho(requestURL string, host string) bool {
+	if r == nil || r.StatusCode != http.StatusOK || r.Echo == nil || r.EchoDecodeErr != nil {
+		return false
+	}
+
+	return r.Echo.RequestMethod == http.MethodGet &&
+		r.Echo.RequestBody == "" &&
+		r.Echo.RequestURL == requestURL &&
+		r.Echo.Host == host
+}
+
+func (r *Response) BodyString() string {
+	if r == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(string(r.Body))
+}
+
+func (r *Response) describeExpectation(requestURL string, host string) string {
+	if r == nil {
+		return "no response received"
+	}
+
+	switch {
+	case r.StatusCode != http.StatusOK:
+		return fmt.Sprintf("received status %d", r.StatusCode)
+	case r.EchoDecodeErr != nil:
+		return fmt.Sprintf("failed to decode echo json: %v", r.EchoDecodeErr)
+	case r.Echo == nil:
+		return "response body was empty"
+	case r.Echo.RequestMethod != http.MethodGet:
+		return fmt.Sprintf("echo method mismatch: got %q", r.Echo.RequestMethod)
+	case r.Echo.RequestBody != "":
+		return "echo body was not empty"
+	case r.Echo.RequestURL != requestURL:
+		return fmt.Sprintf("echo request url mismatch: got %q", r.Echo.RequestURL)
+	case r.Echo.Host != host:
+		return fmt.Sprintf("echo host mismatch: got %q", r.Echo.Host)
+	default:
+		return "response did not match expected echo shape"
+	}
+}
+
+func (c *Client) url(path string) (string, error) {
+	if c == nil || c.baseURL == nil {
+		return "", errors.New("probe client is not initialized")
+	}
+
+	ref, err := normalizePath(path)
+	if err != nil {
+		return "", err
+	}
+
+	return c.baseURL.ResolveReference(ref).String(), nil
+}
+
+func normalizePath(path string) (*url.URL, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		path = "/"
+	}
+
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	ref, err := url.Parse(path)
+	if err != nil {
+		return nil, fmt.Errorf("parse path %q: %w", path, err)
+	}
+
+	return ref, nil
+}
+
+func makeHost(publicIP string, port int) string {
+	if port == defaultHTTPPort {
+		if strings.Contains(publicIP, ":") && !strings.HasPrefix(publicIP, "[") {
+			return "[" + publicIP + "]"
+		}
+
+		return publicIP
+	}
+
+	return net.JoinHostPort(publicIP, strconv.Itoa(port))
+}
+
+func cloneTLSVerifiedChains(chains [][]*x509.Certificate) [][]*x509.Certificate {
+	if len(chains) == 0 {
+		return nil
+	}
+
+	cloned := make([][]*x509.Certificate, 0, len(chains))
+	for _, chain := range chains {
+		cloned = append(cloned, append([]*x509.Certificate(nil), chain...))
+	}
+
+	return cloned
+}
+
+func waitFor(
+	ctx context.Context,
+	opts *WaitOptions,
+	description string,
+	check func(context.Context) (bool, *Response, string),
+) (*Response, error) {
+	pollInterval := defaultPollInterval
+	if opts != nil && opts.PollInterval > 0 {
+		pollInterval = opts.PollInterval
+	}
+
+	progressLogger := diag.NewWaitProgressLogger(nil, description, 0)
+	var lastMessage string
+	var lastResponse *Response
+
+	for {
+		done, response, message := check(ctx)
+		if done {
+			return response, nil
+		}
+
+		lastResponse = response
+		lastMessage = message
+		progressLogger.Log(ctx, lastMessage)
+
+		timer := time.NewTimer(pollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			if lastMessage != "" {
+				return lastResponse, fmt.Errorf("%s: %s: %w", description, lastMessage, ctx.Err())
+			}
+
+			return lastResponse, fmt.Errorf("%s: %w", description, ctx.Err())
+		case <-timer.C:
+		}
+	}
+}
