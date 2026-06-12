@@ -1,0 +1,8 @@
+apiVersion: oke-gateway-api.gemyago.github.io/v1
+kind: GatewayConfig
+metadata:
+  name: oke-nlb-gateway-config
+spec:
+  # Existing OCI Network Load Balancer OCID. The NLB GatewayClass determines that
+  # this loadBalancerId is resolved through the OCI Network Load Balancer API.
+  loadBalancerId: ocid1.networkloadbalancer.oc1..exampleuniqueID

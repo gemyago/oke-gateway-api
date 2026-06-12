@@ -1072,6 +1072,99 @@ func TestGatewayModelImpl(t *testing.T) {
 			require.Error(t, err)
 			require.ErrorIs(t, err, wantErr)
 		})
+
+		t.Run("failed to reconcile listeners certificates", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			config := makeRandomGatewayConfig()
+			gateway := newRandomGateway(randomGatewayWithRandomListenersOpt())
+			loadBalancer := makeRandomOCILoadBalancer(
+				randomOCILoadBalancerWithRandomBackendSetsOpt(),
+				randomOCILoadBalancerWithRandomCertificatesOpt(),
+			)
+			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+				}).
+				Return(loadbalancer.GetLoadBalancerResponse{LoadBalancer: loadBalancer}, nil)
+
+			defaultBackendSet := makeRandomOCIBackendSet()
+			loadBalancerModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			loadBalancerModel.EXPECT().
+				reconcileDefaultBackendSet(t.Context(), mock.Anything).
+				Return(defaultBackendSet, nil)
+			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			loadBalancerModel.EXPECT().
+				reconcileListenersCertificates(t.Context(), mock.Anything).
+				Return(reconcileListenersCertificatesResult{}, wantErr)
+
+			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
+				gateway: *gateway,
+				config:  config,
+			})
+
+			require.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("failed to remove stale listeners or certificates", func(t *testing.T) {
+			for name, failCertificates := range map[string]bool{
+				"listeners":    false,
+				"certificates": true,
+			} {
+				t.Run(name, func(t *testing.T) {
+					deps := newMockDeps(t)
+					model := newGatewayModel(deps)
+					config := makeRandomGatewayConfig()
+					gateway := newRandomGateway(randomGatewayWithRandomListenersOpt())
+					loadBalancer := makeRandomOCILoadBalancer(
+						randomOCILoadBalancerWithRandomBackendSetsOpt(),
+						randomOCILoadBalancerWithRandomCertificatesOpt(),
+					)
+					defaultBackendSet := makeRandomOCIBackendSet()
+					mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+					mockOciClient.EXPECT().
+						GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+							LoadBalancerId: &config.Spec.LoadBalancerID,
+						}).
+						Return(loadbalancer.GetLoadBalancerResponse{LoadBalancer: loadBalancer}, nil)
+					loadBalancerModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+					loadBalancerModel.EXPECT().
+						reconcileDefaultBackendSet(t.Context(), mock.Anything).
+						Return(defaultBackendSet, nil)
+					loadBalancerModel.EXPECT().
+						reconcileListenersCertificates(t.Context(), mock.Anything).
+						Return(reconcileListenersCertificatesResult{}, nil)
+					for range gateway.Spec.Listeners {
+						loadBalancerModel.EXPECT().
+							reconcileHTTPListener(t.Context(), mock.Anything).
+							Return(nil)
+					}
+					wantErr := errors.New(faker.New().Lorem().Sentence(10))
+					removeMissingErr := wantErr
+					if failCertificates {
+						removeMissingErr = nil
+					}
+					removeCall := loadBalancerModel.EXPECT().
+						removeMissingListeners(t.Context(), mock.Anything).
+						Return(removeMissingErr)
+					if failCertificates {
+						loadBalancerModel.EXPECT().
+							removeUnusedCertificates(t.Context(), mock.Anything).
+							Return(wantErr).
+							NotBefore(removeCall.Call)
+					}
+
+					err := model.programGateway(t.Context(), &resolvedGatewayDetails{
+						gateway: *gateway,
+						config:  config,
+					})
+
+					require.ErrorIs(t, err, wantErr)
+				})
+			}
+		})
 	})
 
 	t.Run("setProgrammed", func(t *testing.T) {
@@ -1085,7 +1178,7 @@ func TestGatewayModelImpl(t *testing.T) {
 				loadBalancer: &loadbalancer.LoadBalancer{
 					IpAddresses: []loadbalancer.IpAddress{
 						{IpAddress: new("10.0.0.12")},
-						{IpAddress: new("129.146.10.20")},
+						{IpAddress: new("198.51.100.20")},
 						{IpAddress: new("10.0.0.12")},
 						{},
 						{IpAddress: new("")},
@@ -1113,8 +1206,8 @@ func TestGatewayModelImpl(t *testing.T) {
 			require.NoError(t, err)
 			addressType := gatewayv1.IPAddressType
 			assert.Equal(t, []gatewayv1.GatewayStatusAddress{
+				{Type: &addressType, Value: "198.51.100.20"},
 				{Type: &addressType, Value: "10.0.0.12"},
-				{Type: &addressType, Value: "129.146.10.20"},
 			}, data.gateway.Status.Addresses)
 
 			mockResourcesModel.AssertExpectations(t)
@@ -1294,7 +1387,7 @@ func TestGatewayCertificateOptionsValidation(t *testing.T) {
 		}
 	}
 	withOCICertificateOption := func(listener gatewayv1.Listener, certificateID string) gatewayv1.Listener {
-		listener.TLS = &gatewayv1.GatewayTLSConfig{
+		listener.TLS = &gatewayv1.ListenerTLSConfig{
 			Options: map[gatewayv1.AnnotationKey]gatewayv1.AnnotationValue{
 				gatewayv1.AnnotationKey(ListenerTLSOptionOCICertificateOCID): gatewayv1.AnnotationValue(certificateID),
 			},
@@ -1400,7 +1493,7 @@ func TestGatewayCertificateOptionsValidation(t *testing.T) {
 	t.Run("does not reload duplicate certificateRefs", func(t *testing.T) {
 		model := &gatewayModelImpl{client: NewMockk8sClient(t)}
 		listener := httpsListener
-		listener.TLS = &gatewayv1.GatewayTLSConfig{
+		listener.TLS = &gatewayv1.ListenerTLSConfig{
 			CertificateRefs: []gatewayv1.SecretObjectReference{
 				{Name: "tls-secret"},
 				{Name: "tls-secret"},
@@ -1431,7 +1524,7 @@ func TestGatewayCertificateOptionsValidation(t *testing.T) {
 	t.Run("returns generic secret lookup errors", func(t *testing.T) {
 		model := &gatewayModelImpl{client: NewMockk8sClient(t)}
 		listener := httpsListener
-		listener.TLS = &gatewayv1.GatewayTLSConfig{
+		listener.TLS = &gatewayv1.ListenerTLSConfig{
 			CertificateRefs: []gatewayv1.SecretObjectReference{{Name: "tls-secret"}},
 		}
 		details := resolvedGatewayDetails{

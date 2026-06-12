@@ -57,6 +57,22 @@ kubectl apply -n oke-gw -f manifests/examples/serverdeployment.yaml
 kubectl apply -n oke-gw -f manifests/examples/serverroutes.yaml
 ```
 
+## Layer 4 Network Load Balancer examples
+
+The L4 examples define a separate `GatewayClass` for OCI Network Load Balancer and a `Gateway`
+with TCP and UDP listeners on the same NLB.
+`UDPRoute` examples set `oke-gateway-api.gemyago.github.io/nlb-udp-health-check-port`
+because OCI NLB backend sets use TCP health checks for UDP backends.
+
+```sh
+kubectl apply -n oke-gw -f manifests/examples/gatewayconfig-nlb.yaml
+kubectl apply -f manifests/examples/gatewayclass-nlb.yaml
+kubectl apply -n oke-gw -f manifests/examples/gateway-nlb.yaml
+kubectl apply -n oke-gw -f manifests/examples/l4serverdeployment-nlb.yaml
+kubectl apply -n oke-gw -f manifests/examples/tcproute-nlb.yaml
+kubectl apply -n oke-gw -f manifests/examples/udproute-nlb.yaml
+```
+
 ## Publish helm chart
 
 Helm chart is built and published automatically with each release. Steps below are for local testing. Run the following from deploy directory.

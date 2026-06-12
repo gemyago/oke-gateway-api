@@ -218,7 +218,7 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 	}
 
 	backendsToUpdate, err := m.self.identifyBackendsToUpdate(ctx, identifyBackendsToUpdateParams{
-		endpointPort:    int32(backendPort),
+		endpointPort:    backendPort,
 		currentBackends: existingBackendSet.Backends,
 		endpointSlices:  endpointSlices.Items,
 	})

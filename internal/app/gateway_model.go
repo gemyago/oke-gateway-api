@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sort"
 
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"go.uber.org/dig"
@@ -344,32 +343,14 @@ func gatewayStatusAddressesFromLoadBalancer(lb *loadbalancer.LoadBalancer) []gat
 		return nil
 	}
 
-	addressType := gatewayv1.IPAddressType
-	addressesByValue := make(map[string]gatewayv1.GatewayStatusAddress, len(lb.IpAddresses))
+	values := make([]string, 0, len(lb.IpAddresses))
 	for _, ipAddress := range lb.IpAddresses {
 		if ipAddress.IpAddress == nil || *ipAddress.IpAddress == "" {
 			continue
 		}
-		addressesByValue[*ipAddress.IpAddress] = gatewayv1.GatewayStatusAddress{
-			Type:  &addressType,
-			Value: *ipAddress.IpAddress,
-		}
+		values = append(values, *ipAddress.IpAddress)
 	}
-	if len(addressesByValue) == 0 {
-		return nil
-	}
-
-	values := make([]string, 0, len(addressesByValue))
-	for value := range addressesByValue {
-		values = append(values, value)
-	}
-	sort.Strings(values)
-
-	addresses := make([]gatewayv1.GatewayStatusAddress, 0, len(values))
-	for _, value := range values {
-		addresses = append(addresses, addressesByValue[value])
-	}
-	return addresses
+	return gatewayStatusAddressesFromValues(values)
 }
 
 func (m *gatewayModelImpl) isProgrammed(_ context.Context, data *resolvedGatewayDetails) bool {

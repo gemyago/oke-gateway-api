@@ -23,9 +23,20 @@ jobs:
     name: Tests
     uses: ./.github/workflows/tests-run.yml
 
-  docker-image:
+  docker-image-validate:
+    if: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+    needs: build-artifacts
+    name: Docker Image (Validate)
+    uses: ./.github/workflows/build-docker-image.yml
+    with:
+      publish: false
+
+  docker-image-publish:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     permissions:
       packages: 'write'
     needs: build-artifacts
-    name: Docker Image
+    name: Docker Image (Publish)
     uses: ./.github/workflows/build-docker-image.yml
+    with:
+      publish: true

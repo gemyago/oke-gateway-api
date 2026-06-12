@@ -9,10 +9,17 @@ Project status: **Beta**
 
 ## Getting Started
 
-Install Gateway API CRDs:
+Install Gateway API CRDs. Choose one path:
 ```sh
-kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.0/standard-install.yaml
+# Standard CRDs are enough for HTTPRoute / ALB usage.
+kubectl apply --server-side=true \
+  -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/standard-install.yaml
+
+# Or use experimental CRDs when enabling TCPRoute / UDPRoute / NLB usage.
+kubectl apply --server-side=true \
+  -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/experimental-install.yaml
 ```
+The controller can run with only the standard CRDs. The experimental channel is required only for `TCPRoute` and `UDPRoute` support.
 
 Prepare API key and config file (use actual values):
 ```ini
@@ -198,6 +205,44 @@ Other patterns will result in an error.
 
 Please refer to [https](./docs/https.md) for more details.
 
+## TCPRoute And UDPRoute With OCI Network Load Balancer
+
+Layer 4 support uses an existing OCI Network Load Balancer. The controller reconciles listeners, backend sets, and backends on the referenced NLB, but does not create or delete the NLB resource itself.
+
+Apply the NLB GatewayClass:
+
+```sh
+kubectl apply -f deploy/manifests/examples/gatewayclass-nlb.yaml
+```
+
+Create a GatewayConfig that points to the existing NLB:
+
+```yaml
+apiVersion: oke-gateway-api.gemyago.github.io/v1
+kind: GatewayConfig
+metadata:
+  name: oke-nlb-gateway-config
+spec:
+  loadBalancerId: ocid1.networkloadbalancer.oc1..exampleuniqueID
+```
+
+Create a Gateway with TCP and UDP listeners, then attach matching routes:
+
+```sh
+kubectl apply -n <namespace> -f deploy/manifests/examples/gatewayconfig-nlb.yaml
+kubectl apply -n <namespace> -f deploy/manifests/examples/gateway-nlb.yaml
+kubectl apply -n <namespace> -f deploy/manifests/examples/l4serverdeployment-nlb.yaml
+kubectl apply -n <namespace> -f deploy/manifests/examples/tcproute-nlb.yaml
+kubectl apply -n <namespace> -f deploy/manifests/examples/udproute-nlb.yaml
+```
+
+OCI Network Load Balancer backend sets require health checks. For `UDPRoute`,
+set `oke-gateway-api.gemyago.github.io/nlb-udp-health-check-port` on each route
+to the TCP port the backend Pods expose for health checking. UDP health checks
+are not configured by this controller.
+
+`GatewayConfig.spec.loadBalancerId` is shared with ALB usage. The GatewayClass determines whether the OCID is resolved through the OCI Load Balancer API or the OCI Network Load Balancer API.
+
 ## Contributing
 
 Use this section to setup the development environment.
@@ -286,6 +331,3 @@ Run the controller locally:
 ```sh
 go run ./cmd/controller/ start
 ```
-
-
-

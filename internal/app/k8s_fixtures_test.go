@@ -128,7 +128,7 @@ func makeRandomListener(
 	fake := faker.New()
 	listener := gatewayv1.Listener{
 		Name:     gatewayv1.SectionName("listener-" + fake.UUID().V4()),
-		Port:     gatewayv1.PortNumber(rand.Int32N(4000)),
+		Port:     rand.Int32N(4000),
 		Protocol: gatewayv1.ProtocolType(fake.Lorem().Word()),
 	}
 
@@ -142,7 +142,7 @@ func makeRandomListener(
 func randomListenerWithHTTPSParamsOpt() randomListenerOpt {
 	return func(listener *gatewayv1.Listener) {
 		listener.Protocol = gatewayv1.HTTPSProtocolType
-		listener.TLS = &gatewayv1.GatewayTLSConfig{
+		listener.TLS = &gatewayv1.ListenerTLSConfig{
 			CertificateRefs: []gatewayv1.SecretObjectReference{
 				randomSecretObjectReference(),
 				randomSecretObjectReference(),
@@ -258,7 +258,7 @@ func makeRandomBackendRef(
 			BackendObjectReference: gatewayv1.BackendObjectReference{
 				Name:      gatewayv1.ObjectName(fake.Internet().Domain()),
 				Namespace: new(gatewayv1.Namespace(fake.Internet().Domain())),
-				Port:      new(gatewayv1.PortNumber(rand.Int32N(65535))),
+				Port:      new(rand.Int32N(65535)),
 			},
 		},
 	}
@@ -336,7 +336,7 @@ func randomServiceFromBackendRef(ref gatewayv1.HTTPBackendRef, parent client.Obj
 		svc.Namespace = fullName.Namespace
 		svc.Spec.Ports = []corev1.ServicePort{
 			{
-				Port:       int32(*ref.BackendObjectReference.Port),
+				Port:       *ref.BackendObjectReference.Port,
 				TargetPort: intstr.FromInt(rand.IntN(65535)),
 			},
 		}
@@ -370,7 +370,7 @@ func randomParentRefWithRandomSectionNameOpt() randomParentRefOpt {
 
 func randomParentRefWithRandomPortOpt() randomParentRefOpt {
 	return func(ref *gatewayv1.ParentReference) {
-		ref.Port = new(gatewayv1.PortNumber(rand.Int32N(65535)))
+		ref.Port = new(rand.Int32N(65535))
 	}
 }
 

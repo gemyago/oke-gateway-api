@@ -170,6 +170,19 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
+				unknownPathType := gatewayv1.PathMatchType("Unknown")
+				return testCase{
+					name: "unsupported path type unknown",
+					match: gatewayv1.HTTPRouteMatch{
+						Path: &gatewayv1.HTTPPathMatch{
+							Type:  &unknownPathType,
+							Value: new("/unknown"),
+						},
+					},
+					wantErrIs: errUnsupportedMatch,
+				}
+			},
+			func() testCase {
 				return testCase{
 					name: "unsupported header type regex",
 					match: gatewayv1.HTTPRouteMatch{
@@ -178,6 +191,22 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 								Type:  lo.ToPtr(gatewayv1.HeaderMatchRegularExpression),
 								Name:  "X-User-ID",
 								Value: "^[a-z]+$",
+							},
+						},
+					},
+					wantErrIs: errUnsupportedMatch,
+				}
+			},
+			func() testCase {
+				unknownHeaderType := gatewayv1.HeaderMatchType("Unknown")
+				return testCase{
+					name: "unsupported header type unknown",
+					match: gatewayv1.HTTPRouteMatch{
+						Headers: []gatewayv1.HTTPHeaderMatch{
+							{
+								Type:  &unknownHeaderType,
+								Name:  "X-User-ID",
+								Value: "123",
 							},
 						},
 					},
@@ -514,6 +543,15 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 					name:    "empty matches slice",
 					matches: []gatewayv1.HTTPRouteMatch{},
 					want:    "",
+				}
+			},
+			func() testCase {
+				return testCase{
+					name: "only empty match conditions",
+					matches: []gatewayv1.HTTPRouteMatch{
+						{},
+					},
+					want: "",
 				}
 			},
 			func() testCase {

@@ -1,0 +1,29 @@
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: UDPRoute
+metadata:
+  name: coap-dtls
+  annotations:
+    oke-gateway-api.gemyago.github.io/nlb-udp-health-check-port: "5684"
+spec:
+  parentRefs:
+    - name: oke-nlb-gateway
+      sectionName: coap-dtls
+  rules:
+    - backendRefs:
+        - name: coap-service
+          port: 5684
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: UDPRoute
+metadata:
+  name: srt
+  annotations:
+    oke-gateway-api.gemyago.github.io/nlb-udp-health-check-port: "8890"
+spec:
+  parentRefs:
+    - name: oke-nlb-gateway
+      sectionName: srt
+  rules:
+    - backendRefs:
+        - name: srt-service
+          port: 8890

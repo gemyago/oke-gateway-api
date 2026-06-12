@@ -55,6 +55,10 @@ Release versioning:
 - Helm chart `appVersion` tracks the controller release tag with the leading `v`.
 - Helm CRDs live under `deploy/helm/controller/crds`; keep them as plain manifests so they can be applied with `kubectl` and installed by Helm via the `crds/` mechanism.
 
+CI workflow notes:
+- Fork-based pull requests validate Docker images locally but do not push images to `ghcr.io`.
+- GHCR image publishing in pull request workflows runs only for branches in the main repository, where the workflow token can be granted package write access.
+
 ## Safe Local Runs
 
 Use `--noop` for startup checks unless the task explicitly requires real Kubernetes or OCI calls.
