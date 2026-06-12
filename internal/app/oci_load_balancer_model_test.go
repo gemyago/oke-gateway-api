@@ -119,7 +119,10 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			actualBackendSet, err := model.reconcileDefaultBackendSet(t.Context(), params)
 
 			require.NoError(t, err)
-			assert.Equal(t, existingBackendSet, actualBackendSet)
+			assert.Equal(t, "ROUND_ROBIN", lo.FromPtr(actualBackendSet.Policy))
+			require.NotNil(t, actualBackendSet.HealthChecker)
+			assert.Equal(t, "TCP", lo.FromPtr(actualBackendSet.HealthChecker.Protocol))
+			assert.Equal(t, defaultBackendSetPort, lo.FromPtr(actualBackendSet.HealthChecker.Port))
 		})
 
 		t.Run("when backend set does not exist", func(t *testing.T) {
@@ -2670,7 +2673,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			firstRule.Name = new("first-" + fake.Lorem().Word())
 			secondRule := makeRandomOCIRoutingRule()
 			secondRule.Name = new("second-" + fake.Lorem().Word())
-			existingRules := []loadbalancer.RoutingRule{firstRule, secondRule, defaultRule}
+			existingRules := []loadbalancer.RoutingRule{defaultRule, secondRule, firstRule}
 
 			ociLoadBalancerClient.EXPECT().GetRoutingPolicy(t.Context(), loadbalancer.GetRoutingPolicyRequest{
 				RoutingPolicyName: new(policyName),
@@ -3061,9 +3064,14 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			}
 
 			params := removeUnusedCertificatesParams{
-				loadBalancerID:       fake.UUID().V4(),
-				listenerCertificates: listenerCertificates,
-				knownCertificates:    knownCertificates,
+				loadBalancerID: fake.UUID().V4(),
+				previouslyProgrammedCertificates: []string{
+					lo.FromPtr(cert1.CertificateName),
+					lo.FromPtr(cert2.CertificateName),
+					lo.FromPtr(cert3.CertificateName),
+				},
+				desiredCertificates: certificateNamesFromListenerCertificates(listenerCertificates),
+				knownCertificates:   knownCertificates,
 			}
 
 			err := model.removeUnusedCertificates(t.Context(), params)
@@ -3097,9 +3105,15 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			}
 
 			params := removeUnusedCertificatesParams{
-				loadBalancerID:       fake.UUID().V4(),
-				listenerCertificates: listenerCertificates,
-				knownCertificates:    knownCertificates,
+				loadBalancerID: fake.UUID().V4(),
+				previouslyProgrammedCertificates: []string{
+					lo.FromPtr(usedCert1.CertificateName),
+					lo.FromPtr(usedCert2.CertificateName),
+					lo.FromPtr(unusedCert1.CertificateName),
+					lo.FromPtr(unusedCert2.CertificateName),
+				},
+				desiredCertificates: certificateNamesFromListenerCertificates(listenerCertificates),
+				knownCertificates:   knownCertificates,
 			}
 
 			// Expect deletion of unused certificates
@@ -3125,7 +3139,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
-		t.Run("preserves unused certificates not created by the controller", func(t *testing.T) {
+		t.Run("preserves unused certificates not previously programmed by the controller", func(t *testing.T) {
 			fake := faker.New()
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
@@ -3133,15 +3147,18 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			usedCert := makeRandomOCICertificate()
 			externalUnusedCert := makeRandomOCICertificate()
+			externalUnusedCertWithRev := makeRandomOCICertificate()
+			externalUnusedCertWithRev.CertificateName = new("external-rev-certificate")
 
 			err := model.removeUnusedCertificates(t.Context(), removeUnusedCertificatesParams{
 				loadBalancerID: fake.UUID().V4(),
-				listenerCertificates: map[string][]loadbalancer.Certificate{
+				desiredCertificates: certificateNamesFromListenerCertificates(map[string][]loadbalancer.Certificate{
 					"listener1": {usedCert},
-				},
+				}),
 				knownCertificates: map[string]loadbalancer.Certificate{
-					lo.FromPtr(usedCert.CertificateName):           usedCert,
-					lo.FromPtr(externalUnusedCert.CertificateName): externalUnusedCert,
+					lo.FromPtr(usedCert.CertificateName):                  usedCert,
+					lo.FromPtr(externalUnusedCert.CertificateName):        externalUnusedCert,
+					lo.FromPtr(externalUnusedCertWithRev.CertificateName): externalUnusedCertWithRev,
 				},
 			})
 
@@ -3160,9 +3177,13 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			params := removeUnusedCertificatesParams{
 				loadBalancerID: fake.UUID().V4(),
-				listenerCertificates: map[string][]loadbalancer.Certificate{
-					"listener1": {usedCert},
+				previouslyProgrammedCertificates: []string{
+					lo.FromPtr(usedCert.CertificateName),
+					lo.FromPtr(unusedCert.CertificateName),
 				},
+				desiredCertificates: certificateNamesFromListenerCertificates(map[string][]loadbalancer.Certificate{
+					"listener1": {usedCert},
+				}),
 				knownCertificates: map[string]loadbalancer.Certificate{
 					*usedCert.CertificateName:   usedCert,
 					*unusedCert.CertificateName: unusedCert,
@@ -3202,9 +3223,14 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			}
 
 			params := removeUnusedCertificatesParams{
-				loadBalancerID:       fake.UUID().V4(),
-				listenerCertificates: listenerCertificates,
-				knownCertificates:    knownCertificates,
+				loadBalancerID: fake.UUID().V4(),
+				previouslyProgrammedCertificates: []string{
+					lo.FromPtr(usedCert.CertificateName),
+					lo.FromPtr(unusedCert1.CertificateName),
+					lo.FromPtr(unusedCert2.CertificateName),
+				},
+				desiredCertificates: certificateNamesFromListenerCertificates(listenerCertificates),
+				knownCertificates:   knownCertificates,
 			}
 
 			// First certificate deletion fails
@@ -3257,9 +3283,13 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			}
 
 			params := removeUnusedCertificatesParams{
-				loadBalancerID:       fake.UUID().V4(),
-				listenerCertificates: listenerCertificates,
-				knownCertificates:    knownCertificates,
+				loadBalancerID: fake.UUID().V4(),
+				previouslyProgrammedCertificates: []string{
+					lo.FromPtr(usedCert.CertificateName),
+					lo.FromPtr(unusedCert.CertificateName),
+				},
+				desiredCertificates: certificateNamesFromListenerCertificates(listenerCertificates),
+				knownCertificates:   knownCertificates,
 			}
 
 			workRequestID := fake.UUID().V4()

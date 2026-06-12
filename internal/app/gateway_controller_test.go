@@ -575,6 +575,12 @@ func TestGatewayController(t *testing.T) {
 			gateway.Annotations = map[string]string{
 				GatewayProgrammingRevisionAnnotation:                         GatewayProgrammingRevisionValue,
 				GatewayUsedSecretsAnnotationPrefix + "/" + string(secretUID): secretResourceVersion,
+				GatewayProgrammedCertificatesAnnotation: fmt.Sprintf(
+					"%s-%s-rev-%s",
+					gateway.Namespace,
+					secretName,
+					secretResourceVersion,
+				),
 			}
 
 			gatewayClass := newRandomGatewayClass(

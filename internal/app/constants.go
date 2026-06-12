@@ -16,6 +16,9 @@ const (
 	// GatewayUsedSecretsAnnotationPrefix is extended with each secret full name and stores the secret revision.
 	GatewayUsedSecretsAnnotationPrefix = "secrets.oke-gateway-api.gemyago.github.io"
 
+	// GatewayProgrammedCertificatesAnnotation stores OCI certificate names programmed by the controller.
+	GatewayProgrammedCertificatesAnnotation = "oke-gateway-api.gemyago.github.io/gateway-programmed-certificates"
+
 	// ListenerTLSOptionOCICertificateOCID configures an existing OCI Certificates Service certificate for a listener.
 	ListenerTLSOptionOCICertificateOCID = "oci.oraclecloud.com/certificate-ocid"
 
@@ -33,7 +36,7 @@ const (
 
 	// GatewayProgrammingRevisionValue is the value for the gateway programming revision.
 	// Incremented when the controller programming steps are changed.
-	GatewayProgrammingRevisionValue = "1"
+	GatewayProgrammingRevisionValue = "2"
 
 	// NetworkLoadBalancerGatewayProgrammingRevisionAnnotation is the annotation for the L4 gateway programming revision.
 	// The revision may be incremented if additional NLB programming steps are introduced by the controller.

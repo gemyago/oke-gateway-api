@@ -102,9 +102,10 @@ type removeMissingListenersParams struct {
 }
 
 type removeUnusedCertificatesParams struct {
-	loadBalancerID       string
-	listenerCertificates map[string][]loadbalancer.Certificate
-	knownCertificates    map[string]loadbalancer.Certificate
+	loadBalancerID                   string
+	previouslyProgrammedCertificates []string
+	desiredCertificates              []string
+	knownCertificates                map[string]loadbalancer.Certificate
 }
 
 type ociLoadBalancerModel interface {
@@ -253,6 +254,20 @@ func ociBackendToDetails(backend loadbalancer.Backend, _ int) loadbalancer.Backe
 	}
 }
 
+func healthCheckerFromDetails(details loadbalancer.HealthCheckerDetails) *loadbalancer.HealthChecker {
+	return &loadbalancer.HealthChecker{
+		Protocol:          details.Protocol,
+		Port:              details.Port,
+		ReturnCode:        details.ReturnCode,
+		ResponseBodyRegex: details.ResponseBodyRegex,
+		UrlPath:           details.UrlPath,
+		Retries:           details.Retries,
+		TimeoutInMillis:   details.TimeoutInMillis,
+		IntervalInMillis:  details.IntervalInMillis,
+		IsForcePlainText:  details.IsForcePlainText,
+	}
+}
+
 func (m *ociLoadBalancerModelImpl) reconcileDefaultBackendSet(
 	ctx context.Context,
 	params reconcileDefaultBackendParams,
@@ -272,6 +287,8 @@ func (m *ociLoadBalancerModelImpl) reconcileDefaultBackendSet(
 			); err != nil {
 				return loadbalancer.BackendSet{}, err
 			}
+			existingBackendSet.Policy = new(desiredPolicy)
+			existingBackendSet.HealthChecker = healthCheckerFromDetails(desiredHealthChecker)
 		}
 		m.logger.DebugContext(ctx, "Default backend set already exists",
 			slog.String("loadBalancerId", params.loadBalancerID),
@@ -1075,6 +1092,34 @@ func (m *ociLoadBalancerModelImpl) removeMissingListeners(
 	return errors.Join(errs...)
 }
 
+func routingRuleLess(ruleI, ruleJ loadbalancer.RoutingRule) bool {
+	ruleNameI := lo.FromPtr(ruleI.Name)
+	ruleNameJ := lo.FromPtr(ruleJ.Name)
+	if ruleNameI == defaultCatchAllRuleName {
+		return false
+	}
+	if ruleNameJ == defaultCatchAllRuleName {
+		return true
+	}
+	return ruleNameI < ruleNameJ
+}
+
+func sortRoutingRules(rules []loadbalancer.RoutingRule) {
+	sort.Slice(rules, func(i, j int) bool {
+		return routingRuleLess(rules[i], rules[j])
+	})
+}
+
+func sortedRoutingRules(rules []loadbalancer.RoutingRule) []loadbalancer.RoutingRule {
+	sorted := slices.Clone(rules)
+	sortRoutingRules(sorted)
+	return sorted
+}
+
+func routingRulesEqual(rulesA, rulesB []loadbalancer.RoutingRule) bool {
+	return reflect.DeepEqual(sortedRoutingRules(rulesA), sortedRoutingRules(rulesB))
+}
+
 func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 	ctx context.Context,
 	params commitRoutingPolicyParams,
@@ -1115,21 +1160,9 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 	}
 
 	mergedRules := lo.Values(currentRulesByName)
+	sortRoutingRules(mergedRules)
 
-	// Sort the rules: defaultCatchAllRuleName should be at the end
-	sort.Slice(mergedRules, func(i, j int) bool {
-		ruleI := lo.FromPtr(mergedRules[i].Name)
-		ruleJ := lo.FromPtr(mergedRules[j].Name)
-		if ruleI == defaultCatchAllRuleName {
-			return false
-		}
-		if ruleJ == defaultCatchAllRuleName {
-			return true
-		}
-		return ruleI < ruleJ
-	})
-
-	if reflect.DeepEqual(policyResponse.RoutingPolicy.Rules, mergedRules) {
+	if routingRulesEqual(policyResponse.RoutingPolicy.Rules, mergedRules) {
 		m.logger.DebugContext(ctx, "Routing policy already up to date, skipping update",
 			slog.String("loadBalancerId", params.loadBalancerID),
 			slog.String("policyName", policyName),
@@ -1174,22 +1207,22 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 	return nil
 }
 
-//nolint:unparam // The error return is part of the ociLoadBalancerModel interface contract.
 func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
 	ctx context.Context,
 	params removeUnusedCertificatesParams,
 ) error {
-	// Create a set of all certificates that are in use by listeners
-	usedCertificates := make(map[string]struct{})
-	for _, certs := range params.listenerCertificates {
-		for _, cert := range certs {
-			usedCertificates[*cert.CertificateName] = struct{}{}
-		}
+	desiredCertificates := make(map[string]struct{}, len(params.desiredCertificates))
+	for _, certName := range params.desiredCertificates {
+		desiredCertificates[certName] = struct{}{}
 	}
 
-	// Iterate through all known certificates and remove those that are not in use
-	for certName, cert := range params.knownCertificates {
-		if _, isUsed := usedCertificates[certName]; isUsed || !isControllerManagedCertificateName(certName) {
+	for _, certName := range params.previouslyProgrammedCertificates {
+		if _, isDesired := desiredCertificates[certName]; isDesired {
+			continue
+		}
+
+		cert, exists := params.knownCertificates[certName]
+		if !exists {
 			continue
 		}
 
@@ -1233,11 +1266,26 @@ func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
 		)
 	}
 
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("failed to remove unused certificates: %w", err)
+	}
+
 	return nil
 }
 
-func isControllerManagedCertificateName(certName string) bool {
-	return strings.Contains(certName, "-rev-")
+func certificateNamesFromListenerCertificates(
+	listenerCertificates map[string][]loadbalancer.Certificate,
+) []string {
+	certNames := make([]string, 0, len(listenerCertificates))
+	for _, certificates := range listenerCertificates {
+		for _, cert := range certificates {
+			if cert.CertificateName == nil {
+				continue
+			}
+			certNames = append(certNames, *cert.CertificateName)
+		}
+	}
+	return normalizeProgrammedCertificateNames(certNames)
 }
 
 func listenerPolicyName(listenerName string) string {
