@@ -158,6 +158,12 @@ func TestWatchesModel(t *testing.T) {
 			).Return(nil)
 			mockIndexer.EXPECT().IndexField(
 				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
 				&gatewayv1.TLSRoute{},
 				tlsRouteBackendServiceIndexKey,
 				mock.AnythingOfType("client.IndexerFunc"),
@@ -421,6 +427,12 @@ func TestWatchesModel(t *testing.T) {
 				t.Context(),
 				&gatewayv1.HTTPRoute{},
 				httpRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteBackendServiceIndexKey,
 				mock.AnythingOfType("client.IndexerFunc"),
 			).Return(nil)
 			mockIndexer.EXPECT().IndexField(
@@ -713,6 +725,17 @@ func TestWatchesModel(t *testing.T) {
 					)),
 				),
 			)
+
+			result := model.indexGRPCRouteByBackendService(t.Context(), &grpcRoute)
+			require.Nil(t, result)
+		})
+
+		t.Run("ignores deleting routes", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			grpcRoute := makeRandomGRPCRoute(withRelevantGRPCRouteParentStatus)
+			deletionTimestamp := metav1.Now()
+			grpcRoute.DeletionTimestamp = &deletionTimestamp
 
 			result := model.indexGRPCRouteByBackendService(t.Context(), &grpcRoute)
 			require.Nil(t, result)
