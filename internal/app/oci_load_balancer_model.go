@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"hash/crc32"
@@ -30,6 +32,7 @@ const defaultBackendSetPort = 80
 const defaultCatchAllRuleName = "default_catch_all"
 const maxBackendSetNameLength = 32
 const maxListenerPolicyNameLength = 32
+const listenerPolicyNameHashLength = 16
 
 type reconcileDefaultBackendParams struct {
 	loadBalancerID   string
@@ -942,8 +945,25 @@ func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
 }
 
 func listenerPolicyName(listenerName string) string {
-	// TODO: Sanitize the name, investigate docs for allowed characters
-	return listenerName + "_policy"
+	rawName := listenerName + "_policy"
+	if isValidOCIRoutingPolicyName(rawName) {
+		return rawName
+	}
+
+	hash := listenerPolicyNameHash(listenerName)
+	namePrefix := fmt.Sprintf("p_%s_", hash)
+	nameSuffix := invalidCharsForPolicyNamePattern.ReplaceAllString(rawName, "_")
+	maxSuffixLength := maxListenerPolicyNameLength - len(namePrefix)
+	if len(nameSuffix) > maxSuffixLength {
+		nameSuffix = nameSuffix[:maxSuffixLength]
+	}
+
+	return namePrefix + nameSuffix
+}
+
+func listenerPolicyNameHash(listenerName string) string {
+	sum := sha256.Sum256([]byte(listenerName))
+	return hex.EncodeToString(sum[:])[:listenerPolicyNameHashLength]
 }
 
 /*
@@ -954,6 +974,12 @@ letter or an underscore, and the rest of the name can contain numbers, underscor
 and upper- or lowercase letters.
 */
 var invalidCharsForPolicyNamePattern = regexp.MustCompile(`[^a-zA-Z0-9_]`)
+var validOCIRoutingPolicyNamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+func isValidOCIRoutingPolicyName(policyName string) bool {
+	return len(policyName) <= maxListenerPolicyNameLength &&
+		validOCIRoutingPolicyNamePattern.MatchString(policyName)
+}
 
 // ociListerPolicyRuleName returns the name of the routing rule for the listener policy.
 // It's expected that the rule name is unique within the listener policy for every route.
