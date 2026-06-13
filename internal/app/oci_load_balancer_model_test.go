@@ -588,7 +588,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				},
 			)
 
-			routingPolicyName := string(gwListener.Name) + "_policy"
+			routingPolicyName := listenerPolicyName(string(gwListener.Name))
 
 			params := reconcileHTTPListenerParams{
 				loadBalancerID: fake.UUID().V4(),
@@ -639,7 +639,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					l.Name = new(string(gwListener.Name))
 				},
 			)
-			routingPolicyName := string(gwListener.Name) + "_policy"
+			routingPolicyName := listenerPolicyName(string(gwListener.Name))
 			wantErr := errors.New(faker.New().Lorem().Sentence(10))
 
 			params := reconcileHTTPListenerParams{
@@ -679,7 +679,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				randomListenerWithHTTPProtocolOpt(),
 			)
 			defaultBackendSetName := fake.UUID().V4()
-			routingPolicyName := string(gwListener.Name) + "_policy"
+			routingPolicyName := listenerPolicyName(string(gwListener.Name))
 			lbListener := makeRandomOCIListener(
 				func(l *loadbalancer.Listener) {
 					l.Name = new(string(gwListener.Name))
@@ -731,7 +731,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				makeRandomOCICertificate(), // first one should be used
 			}
 
-			routingPolicyName := string(gwListener.Name) + "_policy"
+			routingPolicyName := listenerPolicyName(string(gwListener.Name))
 
 			params := reconcileHTTPListenerParams{
 				loadBalancerID: fake.UUID().V4(),
@@ -781,7 +781,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			gwListener := makeRandomListener(
 				randomListenerWithHTTPSParamsOpt(),
 			)
-			routingPolicyName := string(gwListener.Name) + "_policy"
+			routingPolicyName := listenerPolicyName(string(gwListener.Name))
 
 			params := reconcileHTTPListenerParams{
 				loadBalancerID: faker.New().UUID().V4(),
@@ -828,7 +828,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
 
 			// For routing policy creation
-			routingPolicyName := string(gwListener.Name) + "_policy"
+			routingPolicyName := listenerPolicyName(string(gwListener.Name))
 			routingPolicyWorkRequestID := fake.UUID().V4()
 
 			ociLoadBalancerClient.EXPECT().CreateRoutingPolicy(t.Context(), loadbalancer.CreateRoutingPolicyRequest{
@@ -906,7 +906,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
 
 			// For routing policy creation
-			routingPolicyName := string(gwListener.Name) + "_policy"
+			routingPolicyName := listenerPolicyName(string(gwListener.Name))
 			routingPolicyWorkRequestID := fake.UUID().V4()
 
 			ociLoadBalancerClient.EXPECT().CreateRoutingPolicy(t.Context(), loadbalancer.CreateRoutingPolicyRequest{
@@ -963,7 +963,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			gwListener := makeRandomListener(
 				randomListenerWithHTTPSParamsOpt(),
 			)
-			routingPolicyName := string(gwListener.Name) + "_policy"
+			routingPolicyName := listenerPolicyName(string(gwListener.Name))
 
 			params := reconcileHTTPListenerParams{
 				loadBalancerID: faker.New().UUID().V4(),
@@ -995,7 +995,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				randomListenerWithHTTPProtocolOpt(),
 			)
 
-			routingPolicyName := string(gwListener.Name) + "_policy"
+			routingPolicyName := listenerPolicyName(string(gwListener.Name))
 
 			params := reconcileHTTPListenerParams{
 				loadBalancerID: fake.UUID().V4(),
@@ -3304,6 +3304,71 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 			assert.Len(t, got, maxListenerPolicyNameLength)
 			assert.False(t, invalidCharsForPolicyNamePattern.MatchString(got))
 		})
+	})
+}
+
+func Test_listenerPolicyName(t *testing.T) {
+	t.Run("preserves existing valid listener policy names", func(t *testing.T) {
+		fake := faker.New()
+		listenerName := "listener_" + fake.Lorem().Word()
+
+		got := listenerPolicyName(listenerName)
+
+		assert.Equal(t, listenerName+"_policy", got)
+		assert.True(t, isValidOCIRoutingPolicyName(got))
+	})
+
+	t.Run("sanitizes gateway listener names that are invalid for OCI policy names", func(t *testing.T) {
+		listenerName := "cert-reconcile"
+
+		got := listenerPolicyName(listenerName)
+
+		assert.NotEqual(t, "cert-reconcile_policy", got)
+		assert.True(t, strings.HasPrefix(got, "p_"+listenerPolicyNameHash(listenerName)+"_"))
+		assert.True(t, isValidOCIRoutingPolicyName(got))
+		assert.False(t, invalidCharsForPolicyNamePattern.MatchString(got))
+	})
+
+	t.Run("keeps sanitized listener names unique", func(t *testing.T) {
+		got := listenerPolicyName("route-name")
+		other := listenerPolicyName("route.name")
+
+		assert.True(t, isValidOCIRoutingPolicyName(got))
+		assert.True(t, isValidOCIRoutingPolicyName(other))
+		assert.NotEqual(t, got, other)
+	})
+
+	t.Run("handles listener names that would start OCI policy names with a digit", func(t *testing.T) {
+		got := listenerPolicyName("9listener")
+
+		assert.NotEqual(t, "9listener_policy", got)
+		assert.True(t, isValidOCIRoutingPolicyName(got))
+	})
+
+	t.Run("truncates long listener policy names", func(t *testing.T) {
+		fake := faker.New()
+		listenerName := "listener" + fake.Numerify("########################################")
+
+		got := listenerPolicyName(listenerName)
+
+		assert.True(t, strings.HasPrefix(got, "p_"+listenerPolicyNameHash(listenerName)+"_"))
+		assert.True(t, isValidOCIRoutingPolicyName(got))
+		assert.LessOrEqual(t, len(got), maxListenerPolicyNameLength)
+	})
+
+	t.Run("keeps unique hash prefix when long names share a readable prefix", func(t *testing.T) {
+		fake := faker.New()
+		listenerName := "listener-" + fake.Numerify("################################")
+		otherListenerName := listenerName + "-other"
+
+		got := listenerPolicyName(listenerName)
+		other := listenerPolicyName(otherListenerName)
+
+		assert.True(t, strings.HasPrefix(got, "p_"+listenerPolicyNameHash(listenerName)+"_"))
+		assert.True(t, strings.HasPrefix(other, "p_"+listenerPolicyNameHash(otherListenerName)+"_"))
+		assert.True(t, isValidOCIRoutingPolicyName(got))
+		assert.True(t, isValidOCIRoutingPolicyName(other))
+		assert.NotEqual(t, got, other)
 	})
 }
 
