@@ -76,6 +76,8 @@ const (
 	l7GRPCRouteKind l7RouteKind = "GRPCRoute"
 )
 
+const routeReasonConflicted gatewayv1.RouteConditionReason = "Conflicted"
+
 type l7RouteIdentity struct {
 	kind              l7RouteKind
 	namespace         string
@@ -209,9 +211,6 @@ func makeTargetOnlyParentRef(parentRef gatewayv1.ParentReference) gatewayv1.Pare
 
 func l7RouteConflictingWinner(params l7RouteConflictParams) (l7RouteCandidate, bool) {
 	for _, oppositeRoute := range params.oppositeRoutes {
-		if oppositeRoute.identity.kind != params.current.identity.kind {
-			continue
-		}
 		if !l7RoutesShareListenerHostname(params.gateway, params.matchedListeners, params.current, oppositeRoute) {
 			continue
 		}
@@ -261,7 +260,7 @@ func rejectL7Route(ctx context.Context, k8sClient k8sClient, params rejectL7Rout
 	meta.SetStatusCondition(&parentStatus.Conditions, metav1.Condition{
 		Type:               string(gatewayv1.RouteConditionAccepted),
 		Status:             metav1.ConditionFalse,
-		Reason:             "Conflicted",
+		Reason:             string(routeReasonConflicted),
 		ObservedGeneration: params.resource.GetGeneration(),
 		LastTransitionTime: metav1.Now(),
 		Message:            params.message,

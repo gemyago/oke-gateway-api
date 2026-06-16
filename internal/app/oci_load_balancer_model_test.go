@@ -3135,6 +3135,69 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			policyMu.Unlock()
 
 			assert.ElementsMatch(t, []loadbalancer.RoutingRule{grpcRule, httpRule, defaultRule}, gotRules)
+			assert.Empty(t, model.routingPolicyLocks.locks)
+		})
+
+		t.Run("routing policy locks clean up after waiting operations finish", func(t *testing.T) {
+			fake := faker.New()
+			locks := routingPolicyLocks{}
+			lockKey := routingPolicyLockKey(fake.UUID().V4(), listenerPolicyName(fake.UUID().V4()))
+			firstStarted := make(chan struct{})
+			releaseFirst := make(chan struct{})
+			firstDone := make(chan error, 1)
+			secondDone := make(chan error, 1)
+
+			go func() {
+				firstDone <- locks.withLock(lockKey, func() error {
+					close(firstStarted)
+					<-releaseFirst
+					return nil
+				})
+			}()
+
+			select {
+			case <-firstStarted:
+			case <-time.After(time.Second):
+				require.Fail(t, "timed out waiting for first operation")
+			}
+
+			go func() {
+				secondDone <- locks.withLock(lockKey, func() error {
+					return nil
+				})
+			}()
+
+			require.EventuallyWithT(t, func(collect *assert.CollectT) {
+				locks.mu.Lock()
+				defer locks.mu.Unlock()
+
+				assert.Len(collect, locks.locks, 1)
+				if lock := locks.locks[lockKey]; assert.NotNil(collect, lock) {
+					assert.Equal(collect, 2, lock.refs)
+				}
+			}, time.Second, 10*time.Millisecond)
+
+			close(releaseFirst)
+
+			select {
+			case err := <-firstDone:
+				require.NoError(t, err)
+			case <-time.After(time.Second):
+				require.Fail(t, "timed out waiting for first operation")
+			}
+
+			select {
+			case err := <-secondDone:
+				require.NoError(t, err)
+			case <-time.After(time.Second):
+				require.Fail(t, "timed out waiting for second operation")
+			}
+
+			require.EventuallyWithT(t, func(collect *assert.CollectT) {
+				locks.mu.Lock()
+				defer locks.mu.Unlock()
+				assert.Empty(collect, locks.locks)
+			}, time.Second, 10*time.Millisecond)
 		})
 
 		t.Run("skips update when routing policy already matches desired rules", func(t *testing.T) {

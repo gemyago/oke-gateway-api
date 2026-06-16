@@ -64,6 +64,20 @@ func TestWatchesModel(t *testing.T) {
 
 			mockIndexer.EXPECT().IndexField(
 				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteParentGatewayIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteParentGatewayIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
 				&gatewayv1alpha2.TCPRoute{},
 				tcpRouteBackendServiceIndexKey,
 				mock.AnythingOfType("client.IndexerFunc"),
@@ -103,6 +117,20 @@ func TestWatchesModel(t *testing.T) {
 				t.Context(),
 				&gatewayv1.GRPCRoute{},
 				grpcRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteParentGatewayIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteParentGatewayIndexKey,
 				mock.AnythingOfType("client.IndexerFunc"),
 			).Return(nil)
 
@@ -158,6 +186,74 @@ func TestWatchesModel(t *testing.T) {
 			require.ErrorIs(t, err, wantErr)
 		})
 
+		t.Run("returns error if HTTPRoute parent Gateway indexer registration fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			mockIndexer := k8sapi.NewMockFieldIndexer(t)
+			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteParentGatewayIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(wantErr)
+
+			err := model.RegisterFieldIndexers(t.Context(), mockIndexer)
+
+			require.ErrorContains(t, err, "failed to index HTTPRoute by parent Gateway")
+			require.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("returns error if GRPCRoute parent Gateway indexer registration fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			mockIndexer := k8sapi.NewMockFieldIndexer(t)
+			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteParentGatewayIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteParentGatewayIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(wantErr)
+
+			err := model.RegisterFieldIndexers(t.Context(), mockIndexer)
+
+			require.ErrorContains(t, err, "failed to index GRPCRoute by parent Gateway")
+			require.ErrorIs(t, err, wantErr)
+		})
+
 		t.Run("returns error if Gateway certificate indexer registration fails", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
@@ -175,6 +271,20 @@ func TestWatchesModel(t *testing.T) {
 				t.Context(),
 				&gatewayv1.GRPCRoute{},
 				grpcRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteParentGatewayIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteParentGatewayIndexKey,
 				mock.AnythingOfType("client.IndexerFunc"),
 			).Return(nil)
 
@@ -228,6 +338,18 @@ func TestWatchesModel(t *testing.T) {
 						t.Context(),
 						&gatewayv1.GRPCRoute{},
 						grpcRouteBackendServiceIndexKey,
+						mock.AnythingOfType("client.IndexerFunc"),
+					).Return(nil)
+					mockIndexer.EXPECT().IndexField(
+						t.Context(),
+						&gatewayv1.HTTPRoute{},
+						httpRouteParentGatewayIndexKey,
+						mock.AnythingOfType("client.IndexerFunc"),
+					).Return(nil)
+					mockIndexer.EXPECT().IndexField(
+						t.Context(),
+						&gatewayv1.GRPCRoute{},
+						grpcRouteParentGatewayIndexKey,
 						mock.AnythingOfType("client.IndexerFunc"),
 					).Return(nil)
 					if tc.failTCP {
@@ -549,6 +671,66 @@ func TestWatchesModel(t *testing.T) {
 		})
 	})
 
+	t.Run("index route by parent Gateway", func(t *testing.T) {
+		t.Run("indexes HTTPRoute parent Gateway refs with default namespace and deduplication", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			routeNamespace := faker.New().Internet().Slug()
+			gatewayName := gatewayv1.ObjectName(faker.New().Internet().Domain())
+			otherNamespace := gatewayv1.Namespace(faker.New().Internet().Slug())
+			otherGatewayName := gatewayv1.ObjectName(faker.New().Internet().Domain())
+			unsupportedKind := gatewayv1.Kind("Service")
+			unsupportedGroup := gatewayv1.Group("other.example.com")
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithNamespaceOpt(routeNamespace),
+				randomHTTPRouteWithRandomParentRefsOpt(
+					gatewayv1.ParentReference{Name: gatewayName},
+					gatewayv1.ParentReference{Name: gatewayName},
+					gatewayv1.ParentReference{Namespace: &otherNamespace, Name: otherGatewayName},
+					gatewayv1.ParentReference{Name: gatewayName, Kind: &unsupportedKind},
+					gatewayv1.ParentReference{Name: gatewayName, Group: &unsupportedGroup},
+				),
+			)
+
+			result := model.indexHTTPRouteByParentGateway(t.Context(), &route)
+
+			require.ElementsMatch(t, []string{
+				fmt.Sprintf("%s/%s", routeNamespace, gatewayName),
+				fmt.Sprintf("%s/%s", otherNamespace, otherGatewayName),
+			}, result)
+		})
+
+		t.Run("indexes GRPCRoute parent Gateway refs", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			routeNamespace := faker.New().Internet().Slug()
+			gatewayName := gatewayv1.ObjectName(faker.New().Internet().Domain())
+			route := makeRandomGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.Namespace = routeNamespace
+				route.Spec.ParentRefs = []gatewayv1.ParentReference{{Name: gatewayName}}
+			})
+
+			result := model.indexGRPCRouteByParentGateway(t.Context(), &route)
+
+			require.ElementsMatch(t, []string{fmt.Sprintf("%s/%s", routeNamespace, gatewayName)}, result)
+		})
+
+		t.Run("ignores deleted and non route objects", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			deletionTimestamp := metav1.Now()
+			httpRoute := makeRandomHTTPRoute()
+			httpRoute.DeletionTimestamp = &deletionTimestamp
+			grpcRoute := makeRandomGRPCRoute()
+			grpcRoute.DeletionTimestamp = &deletionTimestamp
+
+			require.Nil(t, model.indexHTTPRouteByParentGateway(t.Context(), &httpRoute))
+			require.Nil(t, model.indexHTTPRouteByParentGateway(t.Context(), &corev1.Service{}))
+			require.Nil(t, model.indexGRPCRouteByParentGateway(t.Context(), &grpcRoute))
+			require.Nil(t, model.indexGRPCRouteByParentGateway(t.Context(), &corev1.Service{}))
+		})
+	})
+
 	t.Run("MapEndpointSliceToHTTPRoute", func(t *testing.T) {
 		t.Run("finds matching HTTPRoutes based on service index", func(t *testing.T) {
 			deps := makeMockDeps(t)
@@ -780,23 +962,46 @@ func TestWatchesModel(t *testing.T) {
 	})
 
 	t.Run("MapHTTPRouteToGRPCRoute", func(t *testing.T) {
-		t.Run("queues existing GRPCRoutes", func(t *testing.T) {
+		t.Run("queues GRPCRoutes with matching parent Gateway refs", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 			deletedRoute := makeRandomGRPCRoute()
 			deletionTimestamp := metav1.Now()
 			deletedRoute.DeletionTimestamp = &deletionTimestamp
-			wantRoutes := []gatewayv1.GRPCRoute{makeRandomGRPCRoute(), makeRandomGRPCRoute()}
+			gatewayNamespace := gatewayv1.Namespace(faker.New().Internet().Slug())
+			gatewayName := gatewayv1.ObjectName(faker.New().Internet().Domain())
+			otherGatewayName := gatewayv1.ObjectName(faker.New().Internet().Domain())
+			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRandomParentRefsOpt(
+				gatewayv1.ParentReference{Namespace: &gatewayNamespace, Name: gatewayName},
+				gatewayv1.ParentReference{Namespace: &gatewayNamespace, Name: otherGatewayName},
+			))
+			duplicateRoute := makeRandomGRPCRoute()
+			wantRoutes := []gatewayv1.GRPCRoute{duplicateRoute, makeRandomGRPCRoute()}
+			gatewayIndexKey := fmt.Sprintf("%s/%s", gatewayNamespace, gatewayName)
+			otherGatewayIndexKey := fmt.Sprintf("%s/%s", gatewayNamespace, otherGatewayName)
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.GRPCRouteList{}).
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.GRPCRouteList{},
+				client.MatchingFields{grpcRouteParentGatewayIndexKey: gatewayIndexKey},
+			).
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					reflect.ValueOf(list).Elem().FieldByName("Items").Set(
-						reflect.ValueOf(append(wantRoutes, deletedRoute)),
+						reflect.ValueOf([]gatewayv1.GRPCRoute{duplicateRoute, deletedRoute}),
 					)
 					return nil
 				})
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.GRPCRouteList{},
+				client.MatchingFields{grpcRouteParentGatewayIndexKey: otherGatewayIndexKey},
+			).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(wantRoutes))
+					return nil
+				})
 
-			result := model.MapHTTPRouteToGRPCRoute(t.Context(), &gatewayv1.HTTPRoute{})
+			result := model.MapHTTPRouteToGRPCRoute(t.Context(), &httpRoute)
 
 			require.ElementsMatch(t, lo.Map(wantRoutes, func(route gatewayv1.GRPCRoute, _ int) reconcile.Request {
 				return reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&route)}
@@ -815,34 +1020,68 @@ func TestWatchesModel(t *testing.T) {
 		t.Run("returns nil when GRPCRoute list fails", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
+			gatewayName := gatewayv1.ObjectName(faker.New().Internet().Domain())
+			httpRoute := makeRandomHTTPRoute(randomHTTPRouteWithRandomParentRefsOpt(
+				gatewayv1.ParentReference{Name: gatewayName},
+			))
+			gatewayIndexKey := fmt.Sprintf("%s/%s", httpRoute.Namespace, gatewayName)
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.GRPCRouteList{}).
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.GRPCRouteList{},
+				client.MatchingFields{grpcRouteParentGatewayIndexKey: gatewayIndexKey},
+			).
 				Return(errors.New(faker.New().Lorem().Sentence(10)))
 
-			result := model.MapHTTPRouteToGRPCRoute(t.Context(), &gatewayv1.HTTPRoute{})
+			result := model.MapHTTPRouteToGRPCRoute(t.Context(), &httpRoute)
 
 			require.Nil(t, result)
 		})
 	})
 
 	t.Run("MapGRPCRouteToHTTPRoute", func(t *testing.T) {
-		t.Run("queues existing HTTPRoutes", func(t *testing.T) {
+		t.Run("queues HTTPRoutes with matching parent Gateway refs", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 			deletedRoute := makeRandomHTTPRoute()
 			deletionTimestamp := metav1.Now()
 			deletedRoute.DeletionTimestamp = &deletionTimestamp
-			wantRoutes := []gatewayv1.HTTPRoute{makeRandomHTTPRoute(), makeRandomHTTPRoute()}
+			gatewayNamespace := gatewayv1.Namespace(faker.New().Internet().Slug())
+			gatewayName := gatewayv1.ObjectName(faker.New().Internet().Domain())
+			otherGatewayName := gatewayv1.ObjectName(faker.New().Internet().Domain())
+			grpcRoute := makeRandomGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.Spec.ParentRefs = []gatewayv1.ParentReference{
+					{Namespace: &gatewayNamespace, Name: gatewayName},
+					{Namespace: &gatewayNamespace, Name: otherGatewayName},
+				}
+			})
+			duplicateRoute := makeRandomHTTPRoute()
+			wantRoutes := []gatewayv1.HTTPRoute{duplicateRoute, makeRandomHTTPRoute()}
+			gatewayIndexKey := fmt.Sprintf("%s/%s", gatewayNamespace, gatewayName)
+			otherGatewayIndexKey := fmt.Sprintf("%s/%s", gatewayNamespace, otherGatewayName)
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.HTTPRouteList{}).
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.HTTPRouteList{},
+				client.MatchingFields{httpRouteParentGatewayIndexKey: gatewayIndexKey},
+			).
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					reflect.ValueOf(list).Elem().FieldByName("Items").Set(
-						reflect.ValueOf(append(wantRoutes, deletedRoute)),
+						reflect.ValueOf([]gatewayv1.HTTPRoute{duplicateRoute, deletedRoute}),
 					)
 					return nil
 				})
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.HTTPRouteList{},
+				client.MatchingFields{httpRouteParentGatewayIndexKey: otherGatewayIndexKey},
+			).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(wantRoutes))
+					return nil
+				})
 
-			result := model.MapGRPCRouteToHTTPRoute(t.Context(), &gatewayv1.GRPCRoute{})
+			result := model.MapGRPCRouteToHTTPRoute(t.Context(), &grpcRoute)
 
 			require.ElementsMatch(t, lo.Map(wantRoutes, func(route gatewayv1.HTTPRoute, _ int) reconcile.Request {
 				return reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&route)}
@@ -861,11 +1100,20 @@ func TestWatchesModel(t *testing.T) {
 		t.Run("returns nil when HTTPRoute list fails", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
+			gatewayName := gatewayv1.ObjectName(faker.New().Internet().Domain())
+			grpcRoute := makeRandomGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.Spec.ParentRefs = []gatewayv1.ParentReference{{Name: gatewayName}}
+			})
+			gatewayIndexKey := fmt.Sprintf("%s/%s", grpcRoute.Namespace, gatewayName)
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.HTTPRouteList{}).
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.HTTPRouteList{},
+				client.MatchingFields{httpRouteParentGatewayIndexKey: gatewayIndexKey},
+			).
 				Return(errors.New(faker.New().Lorem().Sentence(10)))
 
-			result := model.MapGRPCRouteToHTTPRoute(t.Context(), &gatewayv1.GRPCRoute{})
+			result := model.MapGRPCRouteToHTTPRoute(t.Context(), &grpcRoute)
 
 			require.Nil(t, result)
 		})

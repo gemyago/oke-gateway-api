@@ -133,7 +133,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		assert.Equal(t, olderOpposite.identity, winner.identity)
 
 		olderOpposite.identity.kind = l7GRPCRouteKind
-		_, conflicted, err = checkL7RouteConflict(t.Context(), checkL7RouteConflictParams{
+		winner, conflicted, err = checkL7RouteConflict(t.Context(), checkL7RouteConflictParams{
 			gateway:               gateway,
 			matchedListeners:      []gatewayv1.Listener{grpcListener},
 			current:               current,
@@ -143,7 +143,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		assert.False(t, conflicted)
+		assert.True(t, conflicted)
+		assert.Equal(t, olderOpposite.identity, winner.identity)
 
 		assert.False(t, l7RouteHostnamesIntersect([]gatewayv1.Hostname{}, []gatewayv1.Hostname{"api.example.com"}))
 		assert.True(t, l7HostnamePatternsIntersect("API.EXAMPLE.COM", "api.example.com"))
@@ -899,7 +900,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			}, gotCondition)
 		})
 
-		t.Run("accepts when an older GRPCRoute has an overlapping listener hostname", func(t *testing.T) {
+		t.Run("rejects when an older GRPCRoute has an overlapping listener hostname", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
@@ -951,8 +952,10 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				parentStatus := route.Status.Parents[0]
 				condition := meta.FindStatusCondition(parentStatus.Conditions, string(gatewayv1.RouteConditionAccepted))
 				return condition != nil &&
-					condition.Status == metav1.ConditionTrue &&
-					condition.Reason == string(gatewayv1.RouteReasonAccepted)
+					condition.Status == metav1.ConditionFalse &&
+					condition.Reason == string(routeReasonConflicted) &&
+					strings.Contains(condition.Message, "GRPCRoute") &&
+					strings.Contains(condition.Message, "grpc-route")
 			})).Return(nil)
 
 			got, err := model.acceptRoute(t.Context(), resolvedRouteDetails{
@@ -969,7 +972,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			})
 
 			require.NoError(t, err)
-			assert.NotNil(t, got)
+			assert.Nil(t, got)
 		})
 
 		t.Run("set condition of existing parent", func(t *testing.T) {

@@ -294,6 +294,9 @@ func allRoutingConditions(conditions ...string) string {
 	filteredConditions := lo.Filter(conditions, func(condition string, _ int) bool {
 		return condition != ""
 	})
+	if len(filteredConditions) == 0 {
+		return ""
+	}
 	if len(filteredConditions) == 1 {
 		return filteredConditions[0]
 	}

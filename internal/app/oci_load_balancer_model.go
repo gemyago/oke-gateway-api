@@ -191,7 +191,7 @@ type ociLoadBalancerModelImpl struct {
 	logger              *slog.Logger
 	workRequestsWatcher workRequestsWatcher
 	routingRulesMapper  ociLoadBalancerRoutingRulesMapper
-	routingPolicyLocks  sync.Map
+	routingPolicyLocks  routingPolicyLocks
 }
 
 type ensureHTTP2ListenerProtocolParams struct {
@@ -1289,16 +1289,63 @@ func routingRulesEqual(rulesA, rulesB []loadbalancer.RoutingRule) bool {
 	return reflect.DeepEqual(sortedRoutingRules(rulesA), sortedRoutingRules(rulesB))
 }
 
+type routingPolicyLocks struct {
+	mu    sync.Mutex
+	locks map[string]*routingPolicyLock
+}
+
+type routingPolicyLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+func (l *routingPolicyLocks) withLock(key string, operation func() error) error {
+	lock := l.acquire(key)
+	lock.mu.Lock()
+	defer func() {
+		lock.mu.Unlock()
+		l.release(key, lock)
+	}()
+	return operation()
+}
+
+func (l *routingPolicyLocks) acquire(key string) *routingPolicyLock {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.locks == nil {
+		l.locks = make(map[string]*routingPolicyLock)
+	}
+	lock := l.locks[key]
+	if lock == nil {
+		lock = &routingPolicyLock{}
+		l.locks[key] = lock
+	}
+	lock.refs++
+	return lock
+}
+
+func (l *routingPolicyLocks) release(key string, lock *routingPolicyLock) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	lock.refs--
+	if lock.refs == 0 && l.locks[key] == lock {
+		delete(l.locks, key)
+	}
+}
+
 func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 	ctx context.Context,
 	params commitRoutingPolicyParams,
 ) error {
 	policyName := listenerPolicyName(params.listenerName)
-	policyLock := m.routingPolicyLock(params.loadBalancerID, policyName)
-	policyLock.Lock()
-	defer policyLock.Unlock()
-
-	return m.commitRoutingPolicyLocked(ctx, params, policyName)
+	return m.routingPolicyLocks.withLock(
+		routingPolicyLockKey(params.loadBalancerID, policyName),
+		func() error {
+			return m.commitRoutingPolicyLocked(ctx, params, policyName)
+		},
+	)
 }
 
 func (m *ociLoadBalancerModelImpl) commitRoutingPolicyLocked(
@@ -1387,13 +1434,8 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicyLocked(
 	return nil
 }
 
-func (m *ociLoadBalancerModelImpl) routingPolicyLock(loadBalancerID, policyName string) *sync.Mutex {
-	lock, _ := m.routingPolicyLocks.LoadOrStore(loadBalancerID+"/"+policyName, &sync.Mutex{})
-	policyLock, ok := lock.(*sync.Mutex)
-	if !ok {
-		return &sync.Mutex{}
-	}
-	return policyLock
+func routingPolicyLockKey(loadBalancerID, policyName string) string {
+	return loadBalancerID + "/" + policyName
 }
 
 func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
