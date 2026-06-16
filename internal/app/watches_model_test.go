@@ -164,6 +164,18 @@ func TestWatchesModel(t *testing.T) {
 			).Return(nil)
 			mockIndexer.EXPECT().IndexField(
 				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteParentGatewayIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteParentGatewayIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
 				&gatewayv1.TLSRoute{},
 				tlsRouteBackendServiceIndexKey,
 				mock.AnythingOfType("client.IndexerFunc"),
