@@ -91,24 +91,8 @@ func (m *WatchesModel) RegisterFieldIndexers(
 		return fmt.Errorf("failed to index GRPCRoute by backend service: %w", err)
 	}
 
-	if err := indexer.IndexField(ctx,
-		&gatewayv1.HTTPRoute{},
-		httpRouteParentGatewayIndexKey,
-		func(o client.Object) []string {
-			return m.indexHTTPRouteByParentGateway(ctx, o)
-		},
-	); err != nil {
-		return fmt.Errorf("failed to index HTTPRoute by parent Gateway: %w", err)
-	}
-
-	if err := indexer.IndexField(ctx,
-		&gatewayv1.GRPCRoute{},
-		grpcRouteParentGatewayIndexKey,
-		func(o client.Object) []string {
-			return m.indexGRPCRouteByParentGateway(ctx, o)
-		},
-	); err != nil {
-		return fmt.Errorf("failed to index GRPCRoute by parent Gateway: %w", err)
+	if err := m.registerL7RouteParentGatewayIndexers(ctx, indexer); err != nil {
+		return err
 	}
 
 	if opts.EnableTCPRoute {
@@ -154,6 +138,32 @@ func (m *WatchesModel) RegisterFieldIndexers(
 		slog.Bool("tcpRouteIndexEnabled", opts.EnableTCPRoute),
 		slog.Bool("udpRouteIndexEnabled", opts.EnableUDPRoute),
 	)
+	return nil
+}
+
+func (m *WatchesModel) registerL7RouteParentGatewayIndexers(
+	ctx context.Context,
+	indexer client.FieldIndexer,
+) error {
+	if err := indexer.IndexField(ctx,
+		&gatewayv1.HTTPRoute{},
+		httpRouteParentGatewayIndexKey,
+		func(o client.Object) []string {
+			return m.indexHTTPRouteByParentGateway(ctx, o)
+		},
+	); err != nil {
+		return fmt.Errorf("failed to index HTTPRoute by parent Gateway: %w", err)
+	}
+
+	if err := indexer.IndexField(ctx,
+		&gatewayv1.GRPCRoute{},
+		grpcRouteParentGatewayIndexKey,
+		func(o client.Object) []string {
+			return m.indexGRPCRouteByParentGateway(ctx, o)
+		},
+	); err != nil {
+		return fmt.Errorf("failed to index GRPCRoute by parent Gateway: %w", err)
+	}
 	return nil
 }
 
