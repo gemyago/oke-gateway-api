@@ -381,7 +381,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			assert.Equal(t, metav1.ConditionTrue, gotCondition.Status)
 		})
 
-		t.Run("rejects when an older HTTPRoute has an overlapping listener hostname", func(t *testing.T) {
+		t.Run("accepts when an older HTTPRoute shares the same Gateway listener and hostname", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newGRPCRouteModel(deps)
 			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
@@ -405,6 +405,16 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 				route.CreationTimestamp = metav1.NewTime(time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
 				route.Spec.ParentRefs = []gatewayv1.ParentReference{parentRef}
 				route.Spec.Hostnames = []gatewayv1.Hostname{hostname}
+				route.Spec.Rules = []gatewayv1.GRPCRouteRule{{
+					BackendRefs: []gatewayv1.GRPCBackendRef{{
+						BackendRef: gatewayv1.BackendRef{
+							BackendObjectReference: gatewayv1.BackendObjectReference{
+								Name: gatewayv1.ObjectName("ripster"),
+								Port: lo.ToPtr(gatewayv1.PortNumber(6553)),
+							},
+						},
+					}},
+				}}
 			})
 			olderHTTPRoute := gatewayv1.HTTPRoute{
 				ObjectMeta: metav1.ObjectMeta{
@@ -415,6 +425,22 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 				Spec: gatewayv1.HTTPRouteSpec{
 					CommonRouteSpec: gatewayv1.CommonRouteSpec{ParentRefs: []gatewayv1.ParentReference{parentRef}},
 					Hostnames:       []gatewayv1.Hostname{hostname},
+					Rules: []gatewayv1.HTTPRouteRule{{
+						BackendRefs: []gatewayv1.HTTPBackendRef{{
+							BackendRef: gatewayv1.BackendRef{
+								BackendObjectReference: gatewayv1.BackendObjectReference{
+									Name: gatewayv1.ObjectName("ripster"),
+									Port: lo.ToPtr(gatewayv1.PortNumber(9180)),
+								},
+							},
+						}},
+						Matches: []gatewayv1.HTTPRouteMatch{{
+							Path: &gatewayv1.HTTPPathMatch{
+								Type:  lo.ToPtr(gatewayv1.PathMatchPathPrefix),
+								Value: new("/"),
+							},
+						}},
+					}},
 				},
 			}
 
@@ -424,18 +450,18 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 					return nil
 				})
 			k8sClient.EXPECT().Status().Return(mockStatusWriter)
+			var updatedRoute *gatewayv1.GRPCRoute
 			mockStatusWriter.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
 				route, ok := obj.(*gatewayv1.GRPCRoute)
 				if !ok {
 					return false
 				}
+				updatedRoute = route
 				parentStatus := route.Status.Parents[0]
 				condition := meta.FindStatusCondition(parentStatus.Conditions, string(gatewayv1.RouteConditionAccepted))
 				return condition != nil &&
-					condition.Status == metav1.ConditionFalse &&
-					condition.Reason == string(routeReasonConflicted) &&
-					strings.Contains(condition.Message, "HTTPRoute") &&
-					strings.Contains(condition.Message, "http-route")
+					condition.Status == metav1.ConditionTrue &&
+					condition.Reason == string(gatewayv1.RouteReasonAccepted)
 			})).Return(nil)
 
 			got, err := model.acceptRoute(t.Context(), resolvedGRPCRouteDetails{
@@ -446,7 +472,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			})
 
 			require.NoError(t, err)
-			assert.Nil(t, got)
+			assert.Same(t, updatedRoute, got)
 		})
 
 		t.Run("returns existing route when already accepted for generation", func(t *testing.T) {

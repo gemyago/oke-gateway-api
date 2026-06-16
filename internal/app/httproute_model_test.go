@@ -143,8 +143,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		assert.True(t, conflicted)
-		assert.Equal(t, olderOpposite.identity, winner.identity)
+		assert.False(t, conflicted)
+		assert.Empty(t, winner)
 
 		assert.False(t, l7RouteHostnamesIntersect([]gatewayv1.Hostname{}, []gatewayv1.Hostname{"api.example.com"}))
 		assert.True(t, l7HostnamePatternsIntersect("API.EXAMPLE.COM", "api.example.com"))
@@ -191,6 +191,18 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			current,
 			olderOpposite,
 		))
+		newerOpposite := olderOpposite
+		newerOpposite.identity.kind = current.identity.kind
+		newerOpposite.identity.creationTimestamp = metav1.NewTime(time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC))
+		winner, conflicted = l7RouteConflictingWinner(l7RouteConflictParams{
+			gateway:          gateway,
+			matchedListeners: []gatewayv1.Listener{grpcListener},
+			current:          current,
+			oppositeRoutes:   []l7RouteCandidate{newerOpposite},
+		})
+		assert.False(t, conflicted)
+		assert.Empty(t, winner)
+
 		assert.True(t, l7RouteWins(
 			l7RouteIdentity{
 				kind:              l7HTTPRouteKind,
@@ -833,6 +845,37 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 	})
 
+	t.Run("listGRPCRouteConflictCandidates", func(t *testing.T) {
+		deps := newMockDeps(t)
+		model := newHTTPRouteModel(deps)
+		k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+		deletionTimestamp := metav1.Now()
+		activeRoute := makeRandomGRPCRoute()
+		activeRoute.Spec.ParentRefs = []gatewayv1.ParentReference{makeRandomParentRef()}
+		activeRoute.Spec.Hostnames = []gatewayv1.Hostname{"api.example.com"}
+		deletedRoute := makeRandomGRPCRoute()
+		deletedRoute.DeletionTimestamp = &deletionTimestamp
+
+		k8sClient.EXPECT().List(t.Context(), &gatewayv1.GRPCRouteList{}).
+			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				list.(*gatewayv1.GRPCRouteList).Items = []gatewayv1.GRPCRoute{activeRoute, deletedRoute}
+				return nil
+			})
+
+		got, err := model.listGRPCRouteConflictCandidates(t.Context())
+
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, l7RouteIdentity{
+			kind:              l7GRPCRouteKind,
+			namespace:         activeRoute.Namespace,
+			name:              activeRoute.Name,
+			creationTimestamp: activeRoute.CreationTimestamp,
+		}, got[0].identity)
+		assert.Equal(t, activeRoute.Spec.ParentRefs, got[0].parentRefs)
+		assert.Equal(t, activeRoute.Spec.Hostnames, got[0].hostnames)
+	})
+
 	t.Run("acceptRoute", func(t *testing.T) {
 		t.Run("add new accepted parent", func(t *testing.T) {
 			fake := faker.New()
@@ -900,7 +943,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			}, gotCondition)
 		})
 
-		t.Run("rejects when an older GRPCRoute has an overlapping listener hostname", func(t *testing.T) {
+		t.Run("accepts when an older GRPCRoute has an overlapping listener hostname", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
@@ -944,18 +987,18 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				})
 			config := makeRandomGatewayConfig()
 			k8sClient.EXPECT().Status().Return(mockStatusWriter)
+			var updatedRoute *gatewayv1.HTTPRoute
 			mockStatusWriter.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
 				route, ok := obj.(*gatewayv1.HTTPRoute)
 				if !ok {
 					return false
 				}
+				updatedRoute = route
 				parentStatus := route.Status.Parents[0]
 				condition := meta.FindStatusCondition(parentStatus.Conditions, string(gatewayv1.RouteConditionAccepted))
 				return condition != nil &&
-					condition.Status == metav1.ConditionFalse &&
-					condition.Reason == string(routeReasonConflicted) &&
-					strings.Contains(condition.Message, "GRPCRoute") &&
-					strings.Contains(condition.Message, "grpc-route")
+					condition.Status == metav1.ConditionTrue &&
+					condition.Reason == string(gatewayv1.RouteReasonAccepted)
 			})).Return(nil)
 
 			got, err := model.acceptRoute(t.Context(), resolvedRouteDetails{
@@ -972,7 +1015,52 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			})
 
 			require.NoError(t, err)
-			assert.Nil(t, got)
+			assert.Same(t, updatedRoute, got)
+		})
+
+		t.Run("rejectRoute sets conflicted condition", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+			parentRef := makeRandomParentRef()
+			httpRoute := makeRandomHTTPRoute()
+			winner := l7RouteCandidate{
+				identity: l7RouteIdentity{
+					kind:      l7HTTPRouteKind,
+					namespace: "routes",
+					name:      "winner",
+				},
+			}
+			wantMessage := l7RouteConflictMessage(winner)
+
+			k8sClient.EXPECT().Status().Return(mockStatusWriter)
+			mockStatusWriter.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				route, ok := obj.(*gatewayv1.HTTPRoute)
+				if !ok {
+					return false
+				}
+				require.Len(t, route.Status.Parents, 1)
+				parentStatus := route.Status.Parents[0]
+				condition := meta.FindStatusCondition(parentStatus.Conditions, string(gatewayv1.RouteConditionAccepted))
+				return parentRefSameTarget(parentStatus.ParentRef, parentRef) &&
+					condition != nil &&
+					condition.Status == metav1.ConditionFalse &&
+					condition.Reason == string(routeReasonConflicted) &&
+					condition.Message == wantMessage
+			})).Return(nil)
+
+			err := model.rejectRoute(t.Context(), resolvedRouteDetails{
+				gatewayDetails: resolvedGatewayDetails{
+					gatewayClass: gatewayv1.GatewayClass{
+						Spec: gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName},
+					},
+				},
+				httpRoute:  httpRoute,
+				matchedRef: parentRef,
+			}, wantMessage)
+
+			require.NoError(t, err)
 		})
 
 		t.Run("set condition of existing parent", func(t *testing.T) {
