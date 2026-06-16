@@ -4,7 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"slices"
+	"sort"
+	"strings"
 
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"go.uber.org/dig"
 	corev1 "k8s.io/api/core/v1"
@@ -257,6 +262,43 @@ func (m *gatewayModelImpl) populateGatewaySecret(
 	return nil
 }
 
+func programmedCertificateNamesFromSecrets(gatewaySecrets map[string]corev1.Secret) []string {
+	names := make([]string, 0, len(gatewaySecrets))
+	for _, secret := range gatewaySecrets {
+		names = append(names, ociCertificateNameFromSecret(secret))
+	}
+	return normalizeProgrammedCertificateNames(names)
+}
+
+func programmedGatewayCertificatesAnnotation(certNames []string) string {
+	return strings.Join(normalizeProgrammedCertificateNames(certNames), ",")
+}
+
+func parseProgrammedGatewayCertificatesAnnotation(annotationValue string) []string {
+	if annotationValue == "" {
+		return nil
+	}
+
+	certNames := strings.Split(annotationValue, ",")
+	for idx := range certNames {
+		certNames[idx] = strings.TrimSpace(certNames[idx])
+	}
+	return normalizeProgrammedCertificateNames(certNames)
+}
+
+func normalizeProgrammedCertificateNames(certNames []string) []string {
+	normalized := make([]string, 0, len(certNames))
+	for _, certName := range certNames {
+		if certName == "" {
+			continue
+		}
+		normalized = append(normalized, certName)
+	}
+
+	sort.Strings(normalized)
+	return slices.Compact(normalized)
+}
+
 func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGatewayDetails) error {
 	loadBalancerID := data.config.Spec.LoadBalancerID
 	m.logger.DebugContext(ctx, "Fetching OCI Load Balancer details",
@@ -271,6 +313,14 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 
 	response, err := m.ociClient.GetLoadBalancer(ctx, request)
 	if err != nil {
+		if serviceErr, ok := common.IsServiceError(err); ok &&
+			serviceErr.GetHTTPStatusCode() == http.StatusNotFound {
+			return &resourceStatusError{
+				conditionType: string(gatewayv1.GatewayConditionProgrammed),
+				reason:        string(gatewayv1.GatewayReasonPending),
+				message:       fmt.Sprintf("referenced OCI Load Balancer %s not found", loadBalancerID),
+			}
+		}
 		return fmt.Errorf("failed to get OCI Load Balancer %s: %w", loadBalancerID, err)
 	}
 	data.loadBalancer = &response.LoadBalancer
@@ -328,9 +378,14 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 	}
 
 	if err = m.ociLoadBalancerModel.removeUnusedCertificates(ctx, removeUnusedCertificatesParams{
-		loadBalancerID:       loadBalancerID,
-		listenerCertificates: reconcileListenersCertificatesResult.certificatesByListener,
-		knownCertificates:    response.LoadBalancer.Certificates,
+		loadBalancerID: loadBalancerID,
+		previouslyProgrammedCertificates: parseProgrammedGatewayCertificatesAnnotation(
+			data.gateway.Annotations[GatewayProgrammedCertificatesAnnotation],
+		),
+		desiredCertificates: certificateNamesFromListenerCertificates(
+			reconcileListenersCertificatesResult.certificatesByListener,
+		),
+		knownCertificates: response.LoadBalancer.Certificates,
 	}); err != nil {
 		return fmt.Errorf("failed to remove unused certificates: %w", err)
 	}
@@ -356,6 +411,9 @@ func gatewayStatusAddressesFromLoadBalancer(lb *loadbalancer.LoadBalancer) []gat
 func (m *gatewayModelImpl) isProgrammed(_ context.Context, data *resolvedGatewayDetails) bool {
 	annotations := map[string]string{
 		GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+		GatewayProgrammedCertificatesAnnotation: programmedGatewayCertificatesAnnotation(
+			programmedCertificateNamesFromSecrets(data.gatewaySecrets),
+		),
 	}
 
 	// Include secrets annotations in the check
@@ -378,6 +436,9 @@ func (m *gatewayModelImpl) isProgrammed(_ context.Context, data *resolvedGateway
 func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGatewayDetails) error {
 	annotations := map[string]string{
 		GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+		GatewayProgrammedCertificatesAnnotation: programmedGatewayCertificatesAnnotation(
+			programmedCertificateNamesFromSecrets(data.gatewaySecrets),
+		),
 	}
 
 	if len(data.gatewaySecrets) > 0 {

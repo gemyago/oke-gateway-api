@@ -1377,12 +1377,16 @@ func newTCPRouteModel(deps tcpRouteModelDeps) *tcpRouteModelImpl {
 	if operationLocks == nil {
 		operationLocks = newNetworkLoadBalancerOperationLocks()
 	}
+	watcher := deps.WorkRequestsWatcher
+	if watcher == nil {
+		watcher = noopWorkRequestsWatcher{}
+	}
 	return &tcpRouteModelImpl{
 		client:                    deps.K8sClient,
 		logger:                    deps.RootLogger.WithGroup("tcproute-model"),
 		networkLoadBalancerModel:  deps.NetworkLoadBalancerModel,
 		ociNetworkLoadBalancerAPI: deps.OciNetworkLoadBalancerAPI,
-		workRequestsWatcher:       deps.WorkRequestsWatcher,
+		workRequestsWatcher:       watcher,
 		operationLocks:            operationLocks,
 	}
 }

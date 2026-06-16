@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"github.com/samber/lo"
 	"go.uber.org/dig"
@@ -244,6 +246,14 @@ func (m *networkLoadBalancerGatewayModelImpl) getNetworkLoadBalancerByID(
 		NetworkLoadBalancerId: new(id),
 	})
 	if err != nil {
+		if serviceErr, ok := common.IsServiceError(err); ok &&
+			serviceErr.GetHTTPStatusCode() == http.StatusNotFound {
+			return nil, &resourceStatusError{
+				conditionType: string(gatewayv1.GatewayConditionProgrammed),
+				reason:        string(gatewayv1.GatewayReasonPending),
+				message:       fmt.Sprintf("referenced OCI Network Load Balancer %s not found", id),
+			}
+		}
 		return nil, fmt.Errorf("failed to get OCI Network Load Balancer %s: %w", id, err)
 	}
 	return &response.NetworkLoadBalancer, nil
@@ -315,10 +325,13 @@ func (m *networkLoadBalancerGatewayModelImpl) reconcileListenerBackendSet(
 			}
 			return fmt.Errorf("failed to update OCI Network Load Balancer backend set %s: %w", backendSetName, err)
 		}
-		if response.OpcWorkRequestId != nil {
-			return m.workRequestsWatcher.WaitFor(ctx, *response.OpcWorkRequestId)
+		if response.OpcWorkRequestId == nil {
+			return fmt.Errorf(
+				"failed to update OCI Network Load Balancer backend set %s: missing work request id",
+				backendSetName,
+			)
 		}
-		return nil
+		return m.workRequestsWatcher.WaitFor(ctx, *response.OpcWorkRequestId)
 	}
 
 	response, err := m.ociClient.CreateBackendSet(ctx, networkloadbalancer.CreateBackendSetRequest{
@@ -336,10 +349,13 @@ func (m *networkLoadBalancerGatewayModelImpl) reconcileListenerBackendSet(
 		}
 		return fmt.Errorf("failed to create OCI Network Load Balancer backend set %s: %w", backendSetName, err)
 	}
-	if response.OpcWorkRequestId != nil {
-		return m.workRequestsWatcher.WaitFor(ctx, *response.OpcWorkRequestId)
+	if response.OpcWorkRequestId == nil {
+		return fmt.Errorf(
+			"failed to create OCI Network Load Balancer backend set %s: missing work request id",
+			backendSetName,
+		)
 	}
-	return nil
+	return m.workRequestsWatcher.WaitFor(ctx, *response.OpcWorkRequestId)
 }
 
 func (m *networkLoadBalancerGatewayModelImpl) reconcileListener(
@@ -390,10 +406,13 @@ func (m *networkLoadBalancerGatewayModelImpl) reconcileListener(
 			}
 			return fmt.Errorf("failed to update OCI Network Load Balancer listener %s: %w", listenerName, err)
 		}
-		if response.OpcWorkRequestId != nil {
-			return m.workRequestsWatcher.WaitFor(ctx, *response.OpcWorkRequestId)
+		if response.OpcWorkRequestId == nil {
+			return fmt.Errorf(
+				"failed to update OCI Network Load Balancer listener %s: missing work request id",
+				listenerName,
+			)
 		}
-		return nil
+		return m.workRequestsWatcher.WaitFor(ctx, *response.OpcWorkRequestId)
 	}
 
 	response, err := m.ociClient.CreateListener(ctx, networkloadbalancer.CreateListenerRequest{
@@ -411,10 +430,13 @@ func (m *networkLoadBalancerGatewayModelImpl) reconcileListener(
 		}
 		return fmt.Errorf("failed to create OCI Network Load Balancer listener %s: %w", listenerName, err)
 	}
-	if response.OpcWorkRequestId != nil {
-		return m.workRequestsWatcher.WaitFor(ctx, *response.OpcWorkRequestId)
+	if response.OpcWorkRequestId == nil {
+		return fmt.Errorf(
+			"failed to create OCI Network Load Balancer listener %s: missing work request id",
+			listenerName,
+		)
 	}
-	return nil
+	return m.workRequestsWatcher.WaitFor(ctx, *response.OpcWorkRequestId)
 }
 
 func desiredNetworkLoadBalancerListenerNames(
@@ -539,10 +561,11 @@ func removeMissingNetworkLoadBalancerResources[T any](
 				err,
 			)
 		}
-		if workRequestID != nil {
-			if err = workRequestsWatcher.WaitFor(ctx, *workRequestID); err != nil {
-				return fmt.Errorf("failed waiting for stale %s %s deletion: %w", cleanup.kind, resourceName, err)
-			}
+		if workRequestID == nil {
+			return fmt.Errorf("failed to delete stale %s %s: missing work request id", cleanup.kind, resourceName)
+		}
+		if err = workRequestsWatcher.WaitFor(ctx, *workRequestID); err != nil {
+			return fmt.Errorf("failed waiting for stale %s %s deletion: %w", cleanup.kind, resourceName, err)
 		}
 	}
 	return nil
@@ -668,12 +691,16 @@ func newNetworkLoadBalancerGatewayModel(deps networkLoadBalancerGatewayModelDeps
 	if operationLocks == nil {
 		operationLocks = newNetworkLoadBalancerOperationLocks()
 	}
+	workRequestsWatcher := deps.WorkRequestsWatcher
+	if workRequestsWatcher == nil {
+		workRequestsWatcher = noopWorkRequestsWatcher{}
+	}
 	return &networkLoadBalancerGatewayModelImpl{
 		client:              deps.K8sClient,
 		logger:              deps.RootLogger.WithGroup("network-load-balancer-gateway-model"),
 		ociClient:           deps.OciClient,
 		resourcesModel:      deps.ResourcesModel,
-		workRequestsWatcher: deps.WorkRequestsWatcher,
+		workRequestsWatcher: workRequestsWatcher,
 		operationLocks:      operationLocks,
 	}
 }

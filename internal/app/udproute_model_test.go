@@ -1254,6 +1254,10 @@ func TestUDPRouteModel(t *testing.T) {
 				client: &stubNetworkLoadBalancerClient{updateBackendSetErr: errors.New("update failed")},
 				err:    "failed to update Network Load Balancer backend set",
 			},
+			"missing work request": {
+				client: &stubNetworkLoadBalancerClient{omitUpdateBackendSetWorkRequest: true},
+				err:    "missing work request id",
+			},
 			"wait": {
 				client: &stubNetworkLoadBalancerClient{
 					updateBackendSetResponse: networkloadbalancer.UpdateBackendSetResponse{
@@ -1669,6 +1673,21 @@ func TestUDPRouteModel(t *testing.T) {
 		modelImpl = mustUDPRouteModelImpl(t, model)
 		err = modelImpl.clearBackendSetByName(t.Context(), resolvedGatewayDetails{}, "iot/coap", "bs_coap", nil)
 		require.ErrorContains(t, err, "failed waiting for backend set bs_coap clear")
+
+		model = newUDPRouteModel(udpRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{
+				networkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id:          new("nlb-id"),
+					BackendSets: map[string]networkloadbalancer.BackendSet{"bs_coap": {Name: new("bs_coap")}},
+				},
+			},
+			OciNetworkLoadBalancerAPI: &stubNetworkLoadBalancerClient{omitUpdateBackendSetWorkRequest: true},
+			WorkRequestsWatcher:       &stubWorkRequestsWatcher{},
+		})
+		modelImpl = mustUDPRouteModelImpl(t, model)
+		err = modelImpl.clearBackendSetByName(t.Context(), resolvedGatewayDetails{}, "iot/coap", "bs_coap", nil)
+		require.ErrorContains(t, err, "missing work request id")
 
 		model = newUDPRouteModel(udpRouteModelDeps{
 			RootLogger: diag.RootTestLogger(),

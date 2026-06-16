@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"github.com/stretchr/testify/assert"
@@ -205,6 +206,31 @@ func TestNetworkLoadBalancerGatewayController(t *testing.T) {
 		assert.True(t, gatewayModel.programmedNow)
 	})
 
+	t.Run("returns drift requeue for program resource status errors", func(t *testing.T) {
+		driftInterval := 29 * time.Minute
+		resourcesModel := &stubResourcesModel{conditionSet: true}
+		controller := NewNetworkLoadBalancerGatewayController(NetworkLoadBalancerGatewayControllerDeps{
+			RootLogger:     diag.RootTestLogger(),
+			ResourcesModel: resourcesModel,
+			GatewayModel: &stubNLBGatewayModel{
+				relevant: true,
+				data:     baseData,
+				programErr: &resourceStatusError{
+					conditionType: string(gatewayv1.GatewayConditionProgrammed),
+					reason:        string(gatewayv1.GatewayReasonPending),
+					message:       "waiting for network load balancer",
+				},
+			},
+			DriftInterval: driftInterval,
+		})
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		require.NoError(t, err)
+		assertDriftRequeue(t, result, driftInterval)
+		assert.True(t, resourcesModel.setCalled)
+	})
+
 	t.Run("wraps programmed network load balancer lookup errors", func(t *testing.T) {
 		controller := NewNetworkLoadBalancerGatewayController(NetworkLoadBalancerGatewayControllerDeps{
 			RootLogger:     diag.RootTestLogger(),
@@ -219,6 +245,31 @@ func TestNetworkLoadBalancerGatewayController(t *testing.T) {
 		_, err := controller.Reconcile(t.Context(), req)
 
 		require.ErrorContains(t, err, "failed to get programmed Network Load Balancer")
+	})
+
+	t.Run("sets condition for programmed network load balancer lookup status errors", func(t *testing.T) {
+		driftInterval := 31 * time.Minute
+		resourcesModel := &stubResourcesModel{conditionSet: true}
+		controller := NewNetworkLoadBalancerGatewayController(NetworkLoadBalancerGatewayControllerDeps{
+			RootLogger:     diag.RootTestLogger(),
+			ResourcesModel: resourcesModel,
+			GatewayModel: &stubNLBGatewayModel{
+				relevant: true,
+				data:     baseData,
+				getErr: &resourceStatusError{
+					conditionType: string(gatewayv1.GatewayConditionProgrammed),
+					reason:        string(gatewayv1.GatewayReasonPending),
+					message:       "waiting for network load balancer",
+				},
+			},
+			DriftInterval: driftInterval,
+		})
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		require.NoError(t, err)
+		assertDriftRequeue(t, result, driftInterval)
+		assert.True(t, resourcesModel.setCalled)
 	})
 
 	t.Run("skips deleted gateway without finalizer", func(t *testing.T) {
@@ -249,6 +300,30 @@ func TestNetworkLoadBalancerGatewayController(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.False(t, gatewayModel.programmedNow)
+	})
+
+	t.Run("programs already programmed gateway when drift interval is enabled", func(t *testing.T) {
+		nlb := &networkloadbalancer.NetworkLoadBalancer{}
+		driftInterval := 11 * time.Minute
+		gatewayModel := &stubNLBGatewayModel{
+			relevant:    true,
+			data:        baseData,
+			alreadyDone: true,
+			nlb:         nlb,
+		}
+		controller := NewNetworkLoadBalancerGatewayController(NetworkLoadBalancerGatewayControllerDeps{
+			RootLogger:     diag.RootTestLogger(),
+			ResourcesModel: &stubResourcesModel{conditionSet: true},
+			GatewayModel:   gatewayModel,
+			DriftInterval:  driftInterval,
+		})
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		require.NoError(t, err)
+		assertDriftRequeue(t, result, driftInterval)
+		assert.True(t, gatewayModel.programmedNow)
+		assert.Same(t, nlb, gatewayModel.programmedNLB)
 	})
 
 	t.Run("wraps accepted condition errors", func(t *testing.T) {

@@ -570,6 +570,35 @@ func TestHTTPBackendModel(t *testing.T) {
 					mockOciClient.EXPECT().UpdateBackendSet(t.Context(), mock.Anything).
 						Return(loadbalancer.UpdateBackendSetResponse{}, wantErr)
 				},
+				"update backend set missing work request id": func(
+					deps httpBackendModelDeps,
+					_ types.GatewayConfig,
+					_ gatewayv1.HTTPRoute,
+					backendRef gatewayv1.HTTPBackendRef,
+					backendSet loadbalancer.BackendSet,
+					_ error,
+				) {
+					mockOciClient, _ := deps.OciLoadBalancerClient.(*MockociLoadBalancerClient)
+					mockOciClient.EXPECT().GetBackendSet(t.Context(), mock.Anything).
+						Return(loadbalancer.GetBackendSetResponse{BackendSet: backendSet}, nil)
+					mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+					mockK8sClient.EXPECT().List(
+						t.Context(),
+						mock.Anything,
+						client.MatchingLabels{
+							discoveryv1.LabelServiceName: string(backendRef.BackendObjectReference.Name),
+						},
+						client.InNamespace(string(lo.FromPtr(backendRef.BackendObjectReference.Namespace))),
+					).Return(nil)
+					mockSelf, _ := deps.self.(*MockhttpBackendModel)
+					mockSelf.EXPECT().identifyBackendsToUpdate(t.Context(), mock.Anything).
+						Return(identifyBackendsToUpdateResult{
+							updateRequired:  true,
+							updatedBackends: makeFewRandomOCIBackendDetails(),
+						}, nil)
+					mockOciClient.EXPECT().UpdateBackendSet(t.Context(), mock.Anything).
+						Return(loadbalancer.UpdateBackendSetResponse{}, nil)
+				},
 				"wait for update": func(
 					deps httpBackendModelDeps,
 					_ types.GatewayConfig,
@@ -621,7 +650,11 @@ func TestHTTPBackendModel(t *testing.T) {
 						backendRef: backendRef,
 					})
 
-					require.ErrorIs(t, err, wantErr)
+					if name == "update backend set missing work request id" {
+						require.ErrorContains(t, err, "missing work request id")
+					} else {
+						require.ErrorIs(t, err, wantErr)
+					}
 				})
 			}
 		})

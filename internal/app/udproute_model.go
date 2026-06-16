@@ -829,12 +829,16 @@ func newUDPRouteModel(deps udpRouteModelDeps) *udpRouteModelImpl {
 	if operationLocks == nil {
 		operationLocks = newNetworkLoadBalancerOperationLocks()
 	}
+	watcher := deps.WorkRequestsWatcher
+	if watcher == nil {
+		watcher = noopWorkRequestsWatcher{}
+	}
 	return &udpRouteModelImpl{
 		client:                    deps.K8sClient,
 		logger:                    deps.RootLogger.WithGroup("udproute-model"),
 		networkLoadBalancerModel:  deps.NetworkLoadBalancerModel,
 		ociNetworkLoadBalancerAPI: deps.OciNetworkLoadBalancerAPI,
-		workRequestsWatcher:       deps.WorkRequestsWatcher,
+		workRequestsWatcher:       watcher,
 		operationLocks:            operationLocks,
 	}
 }

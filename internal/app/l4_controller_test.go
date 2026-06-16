@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -119,6 +120,22 @@ func TestTCPRouteController(t *testing.T) {
 		assert.Equal(t, networkLoadBalancerBusyRequeueAfter, result.RequeueAfter)
 		assert.False(t, model.programmed)
 		assert.False(t, model.rejected)
+	})
+
+	t.Run("returns drift requeue for resolved route when interval is configured", func(t *testing.T) {
+		driftInterval := 17 * time.Minute
+		model := &stubTCPRouteModel{resolved: []resolvedTCPRouteDetails{{tcpRoute: gatewayv1alpha2.TCPRoute{}}}}
+		controller := NewTCPRouteController(TCPRouteControllerDeps{
+			RootLogger:    diag.RootTestLogger(),
+			TCPRouteModel: model,
+			DriftInterval: driftInterval,
+		})
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		require.NoError(t, err)
+		assertDriftRequeue(t, result, driftInterval)
+		assert.True(t, model.programmed)
 	})
 
 	t.Run("sets rejected status for route status errors", func(t *testing.T) {
@@ -272,6 +289,22 @@ func TestUDPRouteController(t *testing.T) {
 		assert.Equal(t, networkLoadBalancerBusyRequeueAfter, result.RequeueAfter)
 		assert.False(t, model.programmed)
 		assert.False(t, model.rejected)
+	})
+
+	t.Run("returns drift requeue for resolved route when interval is configured", func(t *testing.T) {
+		driftInterval := 19 * time.Minute
+		model := &stubUDPRouteModel{resolved: []resolvedUDPRouteDetails{{udpRoute: gatewayv1alpha2.UDPRoute{}}}}
+		controller := NewUDPRouteController(UDPRouteControllerDeps{
+			RootLogger:    diag.RootTestLogger(),
+			UDPRouteModel: model,
+			DriftInterval: driftInterval,
+		})
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		require.NoError(t, err)
+		assertDriftRequeue(t, result, driftInterval)
+		assert.True(t, model.programmed)
 	})
 
 	t.Run("sets rejected status for route status errors", func(t *testing.T) {

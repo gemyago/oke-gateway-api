@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -60,6 +61,11 @@ type setProgrammedParams struct {
 
 	// List of load balancer policy rules that were programmed for this route
 	programmedPolicyRules []string
+}
+
+type programmedHTTPRoutePolicyRule struct {
+	listenerName string
+	ruleName     string
 }
 
 // httpRouteModel defines the interface for managing HTTPRoute resources.
@@ -142,6 +148,77 @@ func backendRefName(
 			func() string { return string(*backendRef.BackendObjectReference.Namespace) },
 		).Else(defaultNamespace),
 	}
+}
+
+func parseProgrammedHTTPRoutePolicyRules(annotationValue string) []programmedHTTPRoutePolicyRule {
+	if annotationValue == "" {
+		return nil
+	}
+
+	entries := strings.Split(annotationValue, ",")
+	rules := make([]programmedHTTPRoutePolicyRule, 0, len(entries))
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+
+		listenerName, ruleName, found := strings.Cut(entry, "/")
+		if !found {
+			rules = append(rules, programmedHTTPRoutePolicyRule{ruleName: entry})
+			continue
+		}
+		if listenerName == "" || ruleName == "" {
+			continue
+		}
+
+		rules = append(rules, programmedHTTPRoutePolicyRule{
+			listenerName: listenerName,
+			ruleName:     ruleName,
+		})
+	}
+
+	return rules
+}
+
+func programmedHTTPRoutePolicyRulesAnnotation(
+	listeners []gatewayv1.Listener,
+	ruleNames []string,
+) []string {
+	rules := make([]string, 0, len(listeners)*len(ruleNames))
+	for _, listener := range listeners {
+		for _, ruleName := range ruleNames {
+			rules = append(rules, fmt.Sprintf("%s/%s", listener.Name, ruleName))
+		}
+	}
+
+	return rules
+}
+
+func previousPolicyRulesByListener(
+	previousRules []programmedHTTPRoutePolicyRule,
+	currentListeners []gatewayv1.Listener,
+) map[string][]string {
+	previousByListener := map[string][]string{}
+	currentListenerNames := lo.SliceToMap(currentListeners, func(listener gatewayv1.Listener) (string, struct{}) {
+		return string(listener.Name), struct{}{}
+	})
+
+	for _, previousRule := range previousRules {
+		if previousRule.listenerName == "" {
+			for listenerName := range currentListenerNames {
+				previousByListener[listenerName] = append(previousByListener[listenerName], previousRule.ruleName)
+			}
+			continue
+		}
+
+		previousByListener[previousRule.listenerName] = append(
+			previousByListener[previousRule.listenerName],
+			previousRule.ruleName,
+		)
+	}
+
+	return previousByListener
 }
 
 type httpRouteModelImpl struct {
@@ -415,7 +492,6 @@ func (m *httpRouteModelImpl) resolveBackendRefs(
 	return resolvedBackendRefs, nil
 }
 
-//nolint:unparam // The result is consumed through the httpRouteModel interface.
 func (m *httpRouteModelImpl) programRoute(
 	ctx context.Context,
 	params programRouteParams,
@@ -447,18 +523,26 @@ func (m *httpRouteModelImpl) programRoute(
 		policyRulesNames = append(policyRulesNames, *rule.Name)
 	}
 
-	var prevPolicyRules []string
+	var previousRules []programmedHTTPRoutePolicyRule
 	if prevPolicyRulesStr, ok := params.httpRoute.Annotations[HTTPRouteProgrammedPolicyRulesAnnotation]; ok {
-		prevPolicyRules = strings.Split(prevPolicyRulesStr, ",")
+		previousRules = parseProgrammedHTTPRoutePolicyRules(prevPolicyRulesStr)
 	}
+	prevRulesByListener := previousPolicyRulesByListener(previousRules, params.matchedListeners)
+	currentListenerNames := lo.SliceToMap(
+		params.matchedListeners,
+		func(listener gatewayv1.Listener) (string, struct{}) {
+			return string(listener.Name), struct{}{}
+		},
+	)
 
 	// Commit the rules to each listener's policy
 	for _, listener := range params.matchedListeners {
+		listenerName := string(listener.Name)
 		err := m.ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
 			loadBalancerID:  params.config.Spec.LoadBalancerID,
-			listenerName:    string(listener.Name),
+			listenerName:    listenerName,
 			policyRules:     policyRules,
-			prevPolicyRules: prevPolicyRules,
+			prevPolicyRules: prevRulesByListener[listenerName],
 		})
 		if err != nil {
 			return programRouteResult{}, fmt.Errorf(
@@ -469,8 +553,29 @@ func (m *httpRouteModelImpl) programRoute(
 		}
 	}
 
+	staleListenerNames := lo.Keys(prevRulesByListener)
+	sort.Strings(staleListenerNames)
+	for _, listenerName := range staleListenerNames {
+		if _, ok := currentListenerNames[listenerName]; ok {
+			continue
+		}
+		err := m.ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
+			loadBalancerID:  params.config.Spec.LoadBalancerID,
+			listenerName:    listenerName,
+			policyRules:     []loadbalancer.RoutingRule{},
+			prevPolicyRules: prevRulesByListener[listenerName],
+		})
+		if err != nil {
+			return programRouteResult{}, fmt.Errorf(
+				"failed to remove stale routing policy rules for listener %s: %w",
+				listenerName,
+				err,
+			)
+		}
+	}
+
 	return programRouteResult{
-		programmedPolicyRules: policyRulesNames,
+		programmedPolicyRules: programmedHTTPRoutePolicyRulesAnnotation(params.matchedListeners, policyRulesNames),
 	}, nil
 }
 
@@ -478,14 +583,12 @@ func (m *httpRouteModelImpl) deprovisionRoute(
 	ctx context.Context,
 	params deprovisionRouteParams,
 ) error {
-	var prevPolicyRules []string
+	var previousRules []programmedHTTPRoutePolicyRule
 	if prevPolicyRulesStr, ok := params.httpRoute.Annotations[HTTPRouteProgrammedPolicyRulesAnnotation]; ok {
-		if prevPolicyRulesStr != "" { // Ensure not to split an empty string, which results in [""]
-			prevPolicyRules = strings.Split(prevPolicyRulesStr, ",")
-		}
+		previousRules = parseProgrammedHTTPRoutePolicyRules(prevPolicyRulesStr)
 	}
 
-	if len(prevPolicyRules) == 0 {
+	if len(previousRules) == 0 {
 		m.logger.InfoContext(ctx, "No previous policy rules found in annotation, skipping deprovisioning.",
 			slog.String("route", params.httpRoute.Name),
 			slog.String("annotationKey", HTTPRouteProgrammedPolicyRulesAnnotation),
@@ -493,21 +596,25 @@ func (m *httpRouteModelImpl) deprovisionRoute(
 		return nil
 	}
 
-	for _, listener := range params.matchedListeners {
+	prevRulesByListener := previousPolicyRulesByListener(previousRules, params.matchedListeners)
+	listenerNames := lo.Keys(prevRulesByListener)
+	sort.Strings(listenerNames)
+
+	for _, listenerName := range listenerNames {
 		m.logger.DebugContext(ctx, "Deprovisioning listener policies for HTTPRoute",
 			slog.String("route", params.httpRoute.Name),
-			slog.String("listener", string(listener.Name)),
+			slog.String("listener", listenerName),
 			slog.String("loadBalancerID", params.config.Spec.LoadBalancerID),
-			slog.Any("prevPolicyRules", prevPolicyRules),
+			slog.Any("prevPolicyRules", prevRulesByListener[listenerName]),
 		)
 		err := m.ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
 			loadBalancerID:  params.config.Spec.LoadBalancerID,
-			listenerName:    string(listener.Name),
+			listenerName:    listenerName,
 			policyRules:     []loadbalancer.RoutingRule{}, // Empty rules for deprovisioning
-			prevPolicyRules: prevPolicyRules,
+			prevPolicyRules: prevRulesByListener[listenerName],
 		})
 		if err != nil {
-			return fmt.Errorf("failed to deprovision routing policy for listener %s: %w", listener.Name, err)
+			return fmt.Errorf("failed to deprovision routing policy for listener %s: %w", listenerName, err)
 		}
 	}
 

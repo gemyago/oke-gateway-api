@@ -58,7 +58,11 @@ func updateNetworkLoadBalancerBackendSet(
 		return fmt.Errorf("failed to %s Network Load Balancer backend set %s: %w", operation, backendSetName, err)
 	}
 	if response.OpcWorkRequestId == nil {
-		return nil
+		return fmt.Errorf(
+			"failed to %s Network Load Balancer backend set %s: missing work request id",
+			operation,
+			backendSetName,
+		)
 	}
 	if err = workRequestsWatcher.WaitFor(ctx, *response.OpcWorkRequestId); err != nil {
 		return fmt.Errorf("failed waiting for backend set %s %s: %w", backendSetName, operation, err)

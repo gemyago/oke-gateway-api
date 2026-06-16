@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -101,9 +102,10 @@ type removeMissingListenersParams struct {
 }
 
 type removeUnusedCertificatesParams struct {
-	loadBalancerID       string
-	listenerCertificates map[string][]loadbalancer.Certificate
-	knownCertificates    map[string]loadbalancer.Certificate
+	loadBalancerID                   string
+	previouslyProgrammedCertificates []string
+	desiredCertificates              []string
+	knownCertificates                map[string]loadbalancer.Certificate
 }
 
 type ociLoadBalancerModel interface {
@@ -160,17 +162,139 @@ type ociLoadBalancerModelImpl struct {
 	routingRulesMapper  ociLoadBalancerRoutingRulesMapper
 }
 
+func loadBalancerHealthCheckerMatches(
+	current *loadbalancer.HealthChecker,
+	desired loadbalancer.HealthCheckerDetails,
+) bool {
+	if current == nil {
+		return false
+	}
+	return lo.FromPtr(current.Protocol) == lo.FromPtr(desired.Protocol) &&
+		lo.FromPtr(current.Port) == lo.FromPtr(desired.Port)
+}
+
+func loadBalancerBackendSetMatches(
+	current loadbalancer.BackendSet,
+	policy string,
+	healthChecker loadbalancer.HealthCheckerDetails,
+) bool {
+	return lo.FromPtr(current.Policy) == policy &&
+		loadBalancerHealthCheckerMatches(current.HealthChecker, healthChecker)
+}
+
+func loadBalancerBackendSetHealthChecker(port int) loadbalancer.HealthCheckerDetails {
+	return loadbalancer.HealthCheckerDetails{
+		Protocol: new("TCP"),
+		Port:     new(port),
+	}
+}
+
+func (m *ociLoadBalancerModelImpl) updateBackendSetConfig(
+	ctx context.Context,
+	loadBalancerID string,
+	backendSetName string,
+	backendSet loadbalancer.BackendSet,
+	policy string,
+	healthChecker loadbalancer.HealthCheckerDetails,
+) error {
+	updateRes, err := m.ociClient.UpdateBackendSet(ctx, loadbalancer.UpdateBackendSetRequest{
+		LoadBalancerId: new(loadBalancerID),
+		BackendSetName: new(backendSetName),
+		UpdateBackendSetDetails: loadbalancer.UpdateBackendSetDetails{
+			Backends:                                lo.Map(backendSet.Backends, ociBackendToDetails),
+			Policy:                                  new(policy),
+			HealthChecker:                           &healthChecker,
+			SessionPersistenceConfiguration:         backendSet.SessionPersistenceConfiguration,
+			LbCookieSessionPersistenceConfiguration: backendSet.LbCookieSessionPersistenceConfiguration,
+			SslConfiguration:                        sslConfigurationDetailsFromBackendSet(backendSet.SslConfiguration),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update backend set %s: %w", backendSetName, err)
+	}
+	if updateRes.OpcWorkRequestId == nil {
+		return fmt.Errorf("failed to update backend set %s: missing work request id", backendSetName)
+	}
+	if err = m.workRequestsWatcher.WaitFor(ctx, *updateRes.OpcWorkRequestId); err != nil {
+		return fmt.Errorf("failed to wait for backend set %s update: %w", backendSetName, err)
+	}
+	return nil
+}
+
+func sslConfigurationDetailsFromBackendSet(
+	config *loadbalancer.SslConfiguration,
+) *loadbalancer.SslConfigurationDetails {
+	if config == nil {
+		return nil
+	}
+	return &loadbalancer.SslConfigurationDetails{
+		VerifyDepth:                    config.VerifyDepth,
+		VerifyPeerCertificate:          config.VerifyPeerCertificate,
+		HasSessionResumption:           config.HasSessionResumption,
+		TrustedCertificateAuthorityIds: config.TrustedCertificateAuthorityIds,
+		CertificateIds:                 config.CertificateIds,
+		CertificateName:                config.CertificateName,
+		Protocols:                      config.Protocols,
+		CipherSuiteName:                config.CipherSuiteName,
+		ServerOrderPreference: loadbalancer.SslConfigurationDetailsServerOrderPreferenceEnum(
+			config.ServerOrderPreference,
+		),
+	}
+}
+
+func ociBackendToDetails(backend loadbalancer.Backend, _ int) loadbalancer.BackendDetails {
+	return loadbalancer.BackendDetails{
+		Backup:         backend.Backup,
+		Drain:          backend.Drain,
+		IpAddress:      backend.IpAddress,
+		Offline:        backend.Offline,
+		Port:           backend.Port,
+		Weight:         backend.Weight,
+		MaxConnections: backend.MaxConnections,
+	}
+}
+
+func healthCheckerFromDetails(details loadbalancer.HealthCheckerDetails) *loadbalancer.HealthChecker {
+	return &loadbalancer.HealthChecker{
+		Protocol:          details.Protocol,
+		Port:              details.Port,
+		ReturnCode:        details.ReturnCode,
+		ResponseBodyRegex: details.ResponseBodyRegex,
+		UrlPath:           details.UrlPath,
+		Retries:           details.Retries,
+		TimeoutInMillis:   details.TimeoutInMillis,
+		IntervalInMillis:  details.IntervalInMillis,
+		IsForcePlainText:  details.IsForcePlainText,
+	}
+}
+
 func (m *ociLoadBalancerModelImpl) reconcileDefaultBackendSet(
 	ctx context.Context,
 	params reconcileDefaultBackendParams,
 ) (loadbalancer.BackendSet, error) {
 	defaultBackendSetName := params.gateway.Name + "-default"
-	if _, ok := params.knownBackendSets[defaultBackendSetName]; ok {
+	desiredPolicy := "ROUND_ROBIN"
+	desiredHealthChecker := loadBalancerBackendSetHealthChecker(defaultBackendSetPort)
+	if existingBackendSet, ok := params.knownBackendSets[defaultBackendSetName]; ok {
+		if !loadBalancerBackendSetMatches(existingBackendSet, desiredPolicy, desiredHealthChecker) {
+			if err := m.updateBackendSetConfig(
+				ctx,
+				params.loadBalancerID,
+				defaultBackendSetName,
+				existingBackendSet,
+				desiredPolicy,
+				desiredHealthChecker,
+			); err != nil {
+				return loadbalancer.BackendSet{}, err
+			}
+			existingBackendSet.Policy = new(desiredPolicy)
+			existingBackendSet.HealthChecker = healthCheckerFromDetails(desiredHealthChecker)
+		}
 		m.logger.DebugContext(ctx, "Default backend set already exists",
 			slog.String("loadBalancerId", params.loadBalancerID),
 			slog.String("backendName", defaultBackendSetName),
 		)
-		return params.knownBackendSets[defaultBackendSetName], nil
+		return existingBackendSet, nil
 	}
 
 	m.logger.InfoContext(ctx, "Default backend set not found, creating",
@@ -180,17 +304,18 @@ func (m *ociLoadBalancerModelImpl) reconcileDefaultBackendSet(
 	createRes, err := m.ociClient.CreateBackendSet(ctx, loadbalancer.CreateBackendSetRequest{
 		LoadBalancerId: &params.loadBalancerID,
 		CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
-			Name:   &defaultBackendSetName,
-			Policy: new("ROUND_ROBIN"),
-			HealthChecker: &loadbalancer.HealthCheckerDetails{
-				Protocol: new("TCP"),
-				Port:     new(int(defaultBackendSetPort)),
-			},
+			Name:          &defaultBackendSetName,
+			Policy:        new(desiredPolicy),
+			HealthChecker: &desiredHealthChecker,
 		},
 	})
 	if err != nil {
 		return loadbalancer.BackendSet{},
 			fmt.Errorf("failed to create default backend set %s: %w", defaultBackendSetName, err)
+	}
+	if createRes.OpcWorkRequestId == nil {
+		return loadbalancer.BackendSet{},
+			fmt.Errorf("failed to create default backend set %s: missing work request id", defaultBackendSetName)
 	}
 
 	if err = m.workRequestsWatcher.WaitFor(
@@ -397,61 +522,189 @@ func (m *ociLoadBalancerModelImpl) logCertificateAlreadyExists(
 	)
 }
 
+func defaultCatchAllRoutingRule(defaultBackendSetName string) loadbalancer.RoutingRule {
+	return loadbalancer.RoutingRule{
+		Name:      new(defaultCatchAllRuleName),
+		Condition: new("any(http.request.url.path sw '/')"),
+		Actions: []loadbalancer.Action{
+			loadbalancer.ForwardToBackendSet{
+				BackendSetName: new(defaultBackendSetName),
+			},
+		},
+	}
+}
+
+func routingRuleForwardsToBackendSet(rule loadbalancer.RoutingRule, backendSetName string) bool {
+	if len(rule.Actions) != 1 {
+		return false
+	}
+	forward, ok := rule.Actions[0].(loadbalancer.ForwardToBackendSet)
+	return ok && lo.FromPtr(forward.BackendSetName) == backendSetName
+}
+
+func defaultCatchAllRuleMatches(rule loadbalancer.RoutingRule, defaultBackendSetName string) bool {
+	return lo.FromPtr(rule.Name) == defaultCatchAllRuleName &&
+		lo.FromPtr(rule.Condition) == "any(http.request.url.path sw '/')" &&
+		routingRuleForwardsToBackendSet(rule, defaultBackendSetName)
+}
+
+func routingPolicyDefaultRuleDrifted(policy loadbalancer.RoutingPolicy, defaultBackendSetName string) bool {
+	for _, rule := range policy.Rules {
+		if lo.FromPtr(rule.Name) == defaultCatchAllRuleName {
+			return !defaultCatchAllRuleMatches(rule, defaultBackendSetName)
+		}
+	}
+	return true
+}
+
+func desiredRoutingPolicyRulesWithDefault(
+	policy loadbalancer.RoutingPolicy,
+	defaultBackendSetName string,
+) []loadbalancer.RoutingRule {
+	rules := make([]loadbalancer.RoutingRule, 0, len(policy.Rules)+1)
+	defaultRuleFound := false
+	for _, rule := range policy.Rules {
+		if lo.FromPtr(rule.Name) == defaultCatchAllRuleName {
+			defaultRuleFound = true
+			rules = append(rules, defaultCatchAllRoutingRule(defaultBackendSetName))
+			continue
+		}
+		rules = append(rules, rule)
+	}
+	if !defaultRuleFound {
+		rules = append(rules, defaultCatchAllRoutingRule(defaultBackendSetName))
+	}
+	return rules
+}
+
 func (m *ociLoadBalancerModelImpl) reconcileListenerRoutingPolicy(
 	ctx context.Context,
 	params reconcileHTTPListenerParams,
 ) error {
 	listenerName := string(params.listenerSpec.Name)
 	routingPolicyName := listenerPolicyName(listenerName)
+	policy, ok := params.knownRoutingPolicies[routingPolicyName]
 
-	if _, ok := params.knownRoutingPolicies[routingPolicyName]; !ok {
-		m.logger.InfoContext(ctx, "Creating routing policy for listener",
-			slog.String("loadBalancerId", params.loadBalancerID),
-			slog.String("routingPolicyName", routingPolicyName),
-			slog.String("listenerName", listenerName),
-		)
+	if !ok {
+		return m.createListenerRoutingPolicy(ctx, params, routingPolicyName, listenerName)
+	}
+	if routingPolicyDefaultRuleDrifted(policy, params.defaultBackendSetName) {
+		return m.updateListenerRoutingPolicyDefaultRule(ctx, params, routingPolicyName, policy)
+	}
 
-		createRoutingPolicyRes, err := m.ociClient.CreateRoutingPolicy(ctx, loadbalancer.CreateRoutingPolicyRequest{
-			LoadBalancerId: &params.loadBalancerID,
-			CreateRoutingPolicyDetails: loadbalancer.CreateRoutingPolicyDetails{
-				Name:                     new(routingPolicyName),
-				ConditionLanguageVersion: loadbalancer.CreateRoutingPolicyDetailsConditionLanguageVersionV1,
-				Rules: []loadbalancer.RoutingRule{
-					// We're creating routing policy to have it available when reconciling routes
-					// It's not possible to create an empty routing policy, so we're adding a default rule.
-					// Alternative could be to create and attach routing policy when reconciling routes, but
-					// it may be a bit more complex on the route reconciler side.
-					{
-						Name:      new(defaultCatchAllRuleName),
-						Condition: new("any(http.request.url.path sw '/')"),
-						Actions: []loadbalancer.Action{
-							loadbalancer.ForwardToBackendSet{
-								BackendSetName: new(params.defaultBackendSetName),
-							},
-						},
-					},
-				},
-			},
-		})
-		if err != nil {
-			return fmt.Errorf("failed to create routing policy %s: %w", routingPolicyName, err)
-		}
+	m.logger.DebugContext(ctx, "Routing policy already exists, skipping creation",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("routingPolicyName", routingPolicyName),
+		slog.String("listenerName", listenerName),
+	)
 
-		if err = m.workRequestsWatcher.WaitFor(
-			ctx,
-			*createRoutingPolicyRes.OpcWorkRequestId,
-		); err != nil {
-			return fmt.Errorf("failed to wait for routing policy %s: %w", routingPolicyName, err)
-		}
-	} else {
-		m.logger.DebugContext(ctx, "Routing policy already exists, skipping creation",
-			slog.String("loadBalancerId", params.loadBalancerID),
-			slog.String("routingPolicyName", routingPolicyName),
-			slog.String("listenerName", listenerName),
-		)
+	return nil
+}
+
+func (m *ociLoadBalancerModelImpl) createListenerRoutingPolicy(
+	ctx context.Context,
+	params reconcileHTTPListenerParams,
+	routingPolicyName string,
+	listenerName string,
+) error {
+	m.logger.InfoContext(ctx, "Creating routing policy for listener",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("routingPolicyName", routingPolicyName),
+		slog.String("listenerName", listenerName),
+	)
+
+	createRoutingPolicyRes, err := m.ociClient.CreateRoutingPolicy(ctx, loadbalancer.CreateRoutingPolicyRequest{
+		LoadBalancerId: &params.loadBalancerID,
+		CreateRoutingPolicyDetails: loadbalancer.CreateRoutingPolicyDetails{
+			Name:                     new(routingPolicyName),
+			ConditionLanguageVersion: loadbalancer.CreateRoutingPolicyDetailsConditionLanguageVersionV1,
+			// We're creating routing policy to have it available when reconciling routes.
+			// It's not possible to create an empty routing policy, so we're adding a default rule.
+			Rules: []loadbalancer.RoutingRule{defaultCatchAllRoutingRule(params.defaultBackendSetName)},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create routing policy %s: %w", routingPolicyName, err)
+	}
+	if createRoutingPolicyRes.OpcWorkRequestId == nil {
+		return fmt.Errorf("failed to create routing policy %s: missing work request id", routingPolicyName)
+	}
+
+	if err = m.workRequestsWatcher.WaitFor(ctx, *createRoutingPolicyRes.OpcWorkRequestId); err != nil {
+		return fmt.Errorf("failed to wait for routing policy %s: %w", routingPolicyName, err)
 	}
 
 	return nil
+}
+
+func (m *ociLoadBalancerModelImpl) updateListenerRoutingPolicyDefaultRule(
+	ctx context.Context,
+	params reconcileHTTPListenerParams,
+	routingPolicyName string,
+	policy loadbalancer.RoutingPolicy,
+) error {
+	updateRoutingPolicyRes, err := m.ociClient.UpdateRoutingPolicy(ctx, loadbalancer.UpdateRoutingPolicyRequest{
+		LoadBalancerId:    &params.loadBalancerID,
+		RoutingPolicyName: &routingPolicyName,
+		UpdateRoutingPolicyDetails: loadbalancer.UpdateRoutingPolicyDetails{
+			ConditionLanguageVersion: loadbalancer.UpdateRoutingPolicyDetailsConditionLanguageVersionEnum(
+				policy.ConditionLanguageVersion,
+			),
+			Rules: desiredRoutingPolicyRulesWithDefault(policy, params.defaultBackendSetName),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update routing policy %s: %w", routingPolicyName, err)
+	}
+	if updateRoutingPolicyRes.OpcWorkRequestId == nil {
+		return fmt.Errorf("failed to update routing policy %s: missing work request id", routingPolicyName)
+	}
+	if err = m.workRequestsWatcher.WaitFor(ctx, *updateRoutingPolicyRes.OpcWorkRequestId); err != nil {
+		return fmt.Errorf("failed to wait for routing policy %s update: %w", routingPolicyName, err)
+	}
+
+	return nil
+}
+
+func (m *ociLoadBalancerModelImpl) reconcileExistingBackendSet(
+	ctx context.Context,
+	params reconcileBackendSetParams,
+	backendSetName string,
+	existingBackendSet loadbalancer.BackendSet,
+	desiredPolicy string,
+	desiredHealthChecker loadbalancer.HealthCheckerDetails,
+) error {
+	if !loadBalancerBackendSetMatches(existingBackendSet, desiredPolicy, desiredHealthChecker) {
+		if err := m.updateBackendSetConfig(
+			ctx,
+			params.loadBalancerID,
+			backendSetName,
+			existingBackendSet,
+			desiredPolicy,
+			desiredHealthChecker,
+		); err != nil {
+			return err
+		}
+	}
+
+	m.logger.DebugContext(ctx, "Backend set found",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("backendSetName", backendSetName),
+	)
+
+	return nil
+}
+
+func backendSetLookupFound(err error) (bool, error) {
+	if err == nil {
+		return true, nil
+	}
+	serviceErr, ok := common.IsServiceError(err)
+	if ok && serviceErr.GetHTTPStatusCode() == http.StatusNotFound {
+		return false, nil
+	}
+
+	return false, err
 }
 
 func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
@@ -488,66 +741,87 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 		}
 	}
 
-	var workRequestID string
-	if _, ok := params.knownListeners[listenerName]; ok {
-		updateDetails, hasChanges := makeOciListenerUpdateDetails(makeOciListenerUpdateDetailsParams{
-			existingListenerData:  params.knownListeners[listenerName],
-			listenerName:          listenerName,
-			listenerSpec:          params.listenerSpec,
-			defaultBackendSetName: params.defaultBackendSetName,
-			sslConfig:             sslConfig,
-		})
-		if !hasChanges {
-			m.logger.DebugContext(ctx, "Listener already up to date, skipping update",
-				slog.String("loadBalancerId", params.loadBalancerID),
-				slog.String("listenerName", listenerName),
-			)
-			return nil
-		}
+	if existingListener, ok := params.knownListeners[listenerName]; ok {
+		return m.reconcileExistingHTTPListener(ctx, params, listenerName, existingListener, sslConfig)
+	}
 
-		m.logger.DebugContext(ctx, "Updating existing listener",
+	return m.createHTTPListener(ctx, params, listenerName, sslConfig)
+}
+
+func (m *ociLoadBalancerModelImpl) reconcileExistingHTTPListener(
+	ctx context.Context,
+	params reconcileHTTPListenerParams,
+	listenerName string,
+	existingListener loadbalancer.Listener,
+	sslConfig *loadbalancer.SslConfigurationDetails,
+) error {
+	updateDetails, hasChanges := makeOciListenerUpdateDetails(makeOciListenerUpdateDetailsParams{
+		existingListenerData:  existingListener,
+		listenerName:          listenerName,
+		listenerSpec:          params.listenerSpec,
+		defaultBackendSetName: params.defaultBackendSetName,
+		sslConfig:             sslConfig,
+	})
+	if !hasChanges {
+		m.logger.DebugContext(ctx, "Listener already up to date, skipping update",
 			slog.String("loadBalancerId", params.loadBalancerID),
 			slog.String("listenerName", listenerName),
 		)
-
-		updateRes, err := m.ociClient.UpdateListener(ctx, loadbalancer.UpdateListenerRequest{
-			ListenerName:          &listenerName,
-			LoadBalancerId:        &params.loadBalancerID,
-			UpdateListenerDetails: updateDetails,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to update listener %s: %w", listenerName, err)
-		}
-
-		workRequestID = *updateRes.OpcWorkRequestId
-	} else {
-		m.logger.InfoContext(ctx, "Listener not found, creating",
-			slog.String("loadBalancerId", params.loadBalancerID),
-			slog.String("name", listenerName),
-		)
-
-		createRes, err := m.ociClient.CreateListener(ctx, loadbalancer.CreateListenerRequest{
-			LoadBalancerId: &params.loadBalancerID,
-			CreateListenerDetails: loadbalancer.CreateListenerDetails{
-				Name:                  new(listenerName),
-				DefaultBackendSetName: new(params.defaultBackendSetName),
-				Port:                  new(int(params.listenerSpec.Port)),
-				Protocol:              new("HTTP"),
-				RoutingPolicyName:     new(listenerPolicyName(listenerName)),
-				SslConfiguration:      sslConfig,
-			},
-		})
-		if err != nil {
-			return fmt.Errorf("failed to create listener %s: %w", listenerName, err)
-		}
-
-		workRequestID = *createRes.OpcWorkRequestId
+		return nil
 	}
 
-	if err := m.workRequestsWatcher.WaitFor(
-		ctx,
-		workRequestID,
-	); err != nil {
+	m.logger.DebugContext(ctx, "Updating existing listener",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("listenerName", listenerName),
+	)
+
+	updateRes, err := m.ociClient.UpdateListener(ctx, loadbalancer.UpdateListenerRequest{
+		ListenerName:          &listenerName,
+		LoadBalancerId:        &params.loadBalancerID,
+		UpdateListenerDetails: updateDetails,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update listener %s: %w", listenerName, err)
+	}
+	if updateRes.OpcWorkRequestId == nil {
+		return fmt.Errorf("failed to update listener %s: missing work request id", listenerName)
+	}
+	if err = m.workRequestsWatcher.WaitFor(ctx, *updateRes.OpcWorkRequestId); err != nil {
+		return fmt.Errorf("failed to wait for listener %s: %w", listenerName, err)
+	}
+
+	return nil
+}
+
+func (m *ociLoadBalancerModelImpl) createHTTPListener(
+	ctx context.Context,
+	params reconcileHTTPListenerParams,
+	listenerName string,
+	sslConfig *loadbalancer.SslConfigurationDetails,
+) error {
+	m.logger.InfoContext(ctx, "Listener not found, creating",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("name", listenerName),
+	)
+
+	createRes, err := m.ociClient.CreateListener(ctx, loadbalancer.CreateListenerRequest{
+		LoadBalancerId: &params.loadBalancerID,
+		CreateListenerDetails: loadbalancer.CreateListenerDetails{
+			Name:                  new(listenerName),
+			DefaultBackendSetName: new(params.defaultBackendSetName),
+			Port:                  new(int(params.listenerSpec.Port)),
+			Protocol:              new("HTTP"),
+			RoutingPolicyName:     new(listenerPolicyName(listenerName)),
+			SslConfiguration:      sslConfig,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create listener %s: %w", listenerName, err)
+	}
+	if createRes.OpcWorkRequestId == nil {
+		return fmt.Errorf("failed to create listener %s: missing work request id", listenerName)
+	}
+	if err = m.workRequestsWatcher.WaitFor(ctx, *createRes.OpcWorkRequestId); err != nil {
 		return fmt.Errorf("failed to wait for listener %s: %w", listenerName, err)
 	}
 
@@ -559,29 +833,32 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 	params reconcileBackendSetParams,
 ) error {
 	backendSetName := ociBackendSetNameFromService(params.service)
-
-	_, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
-		BackendSetName: &backendSetName,
-		LoadBalancerId: &params.loadBalancerID,
-	})
-	if err != nil {
-		serviceErr, ok := common.IsServiceError(err)
-		if !ok || serviceErr.GetHTTPStatusCode() != http.StatusNotFound {
-			return fmt.Errorf("failed to get backend set %s: %w", backendSetName, err)
-		}
-	} else {
-		m.logger.DebugContext(ctx, "Backend set found, skipping creation",
-			slog.String("loadBalancerId", params.loadBalancerID),
-			slog.String("backendSetName", backendSetName),
-		)
-		return nil
-	}
-
 	healthCheckerPort := params.service.Spec.Ports[0].TargetPort.IntValue()
 	if healthCheckerPort == 0 {
 		// Not the best option. Potentially have to be refactored to use
 		// port from the backend ref. Some research is needed.
 		healthCheckerPort = int(params.service.Spec.Ports[0].Port)
+	}
+	desiredPolicy := "ROUND_ROBIN"
+	desiredHealthChecker := loadBalancerBackendSetHealthChecker(healthCheckerPort)
+
+	getResponse, err := m.ociClient.GetBackendSet(ctx, loadbalancer.GetBackendSetRequest{
+		BackendSetName: &backendSetName,
+		LoadBalancerId: &params.loadBalancerID,
+	})
+	found, lookupErr := backendSetLookupFound(err)
+	if lookupErr != nil {
+		return fmt.Errorf("failed to get backend set %s: %w", backendSetName, lookupErr)
+	}
+	if found {
+		return m.reconcileExistingBackendSet(
+			ctx,
+			params,
+			backendSetName,
+			getResponse.BackendSet,
+			desiredPolicy,
+			desiredHealthChecker,
+		)
 	}
 
 	m.logger.InfoContext(ctx, "Backend set not found, creating",
@@ -593,17 +870,17 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 	createRes, err := m.ociClient.CreateBackendSet(ctx, loadbalancer.CreateBackendSetRequest{
 		LoadBalancerId: &params.loadBalancerID,
 		CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
-			Name:   &backendSetName,
-			Policy: new("ROUND_ROBIN"),
-			HealthChecker: &loadbalancer.HealthCheckerDetails{
-				Protocol: new("TCP"),
-				Port:     new(healthCheckerPort),
-			},
+			Name:          &backendSetName,
+			Policy:        new(desiredPolicy),
+			HealthChecker: &desiredHealthChecker,
 		},
 	})
 
 	if err != nil {
 		return fmt.Errorf("failed to create backend set %s: %w", backendSetName, err)
+	}
+	if createRes.OpcWorkRequestId == nil {
+		return fmt.Errorf("failed to create backend set %s: missing work request id", backendSetName)
 	}
 
 	if err = m.workRequestsWatcher.WaitFor(
@@ -651,6 +928,9 @@ func (m *ociLoadBalancerModelImpl) deprovisionBackendSet(
 			return nil // Skip deletion as it's used in routing policy
 		}
 		return fmt.Errorf("failed to delete backend set %s: %w", backendSetName, err)
+	}
+	if deleteRes.OpcWorkRequestId == nil {
+		return fmt.Errorf("failed to delete backend set %s: missing work request id", backendSetName)
 	}
 
 	if err = m.workRequestsWatcher.WaitFor(
@@ -727,6 +1007,9 @@ func (m *ociLoadBalancerModelImpl) deleteMissingListener(
 		)
 		return fmt.Errorf("failed to delete listener %s: %w", lo.FromPtr(listener.Name), err)
 	}
+	if resp.OpcWorkRequestId == nil {
+		return fmt.Errorf("failed to delete listener %s: missing work request id", lo.FromPtr(listener.Name))
+	}
 
 	if err = m.workRequestsWatcher.WaitFor(ctx, *resp.OpcWorkRequestId); err != nil {
 		return fmt.Errorf("failed to wait for listener %s deletion: %w", lo.FromPtr(listener.Name), err)
@@ -752,6 +1035,12 @@ func (m *ociLoadBalancerModelImpl) deleteMissingRoutingPolicy(
 		})
 		if err != nil {
 			return fmt.Errorf("failed to delete routing policy %s: %w", *listener.RoutingPolicyName, err)
+		}
+		if deletePolicyRes.OpcWorkRequestId == nil {
+			return fmt.Errorf(
+				"failed to delete routing policy %s: missing work request id",
+				*listener.RoutingPolicyName,
+			)
 		}
 
 		if err = m.workRequestsWatcher.WaitFor(ctx, *deletePolicyRes.OpcWorkRequestId); err != nil {
@@ -803,6 +1092,34 @@ func (m *ociLoadBalancerModelImpl) removeMissingListeners(
 	return errors.Join(errs...)
 }
 
+func routingRuleLess(ruleI, ruleJ loadbalancer.RoutingRule) bool {
+	ruleNameI := lo.FromPtr(ruleI.Name)
+	ruleNameJ := lo.FromPtr(ruleJ.Name)
+	if ruleNameI == defaultCatchAllRuleName {
+		return false
+	}
+	if ruleNameJ == defaultCatchAllRuleName {
+		return true
+	}
+	return ruleNameI < ruleNameJ
+}
+
+func sortRoutingRules(rules []loadbalancer.RoutingRule) {
+	sort.Slice(rules, func(i, j int) bool {
+		return routingRuleLess(rules[i], rules[j])
+	})
+}
+
+func sortedRoutingRules(rules []loadbalancer.RoutingRule) []loadbalancer.RoutingRule {
+	sorted := slices.Clone(rules)
+	sortRoutingRules(sorted)
+	return sorted
+}
+
+func routingRulesEqual(rulesA, rulesB []loadbalancer.RoutingRule) bool {
+	return reflect.DeepEqual(sortedRoutingRules(rulesA), sortedRoutingRules(rulesB))
+}
+
 func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 	ctx context.Context,
 	params commitRoutingPolicyParams,
@@ -843,19 +1160,15 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 	}
 
 	mergedRules := lo.Values(currentRulesByName)
+	sortRoutingRules(mergedRules)
 
-	// Sort the rules: defaultCatchAllRuleName should be at the end
-	sort.Slice(mergedRules, func(i, j int) bool {
-		ruleI := lo.FromPtr(mergedRules[i].Name)
-		ruleJ := lo.FromPtr(mergedRules[j].Name)
-		if ruleI == defaultCatchAllRuleName {
-			return false
-		}
-		if ruleJ == defaultCatchAllRuleName {
-			return true
-		}
-		return ruleI < ruleJ
-	})
+	if routingRulesEqual(policyResponse.RoutingPolicy.Rules, mergedRules) {
+		m.logger.DebugContext(ctx, "Routing policy already up to date, skipping update",
+			slog.String("loadBalancerId", params.loadBalancerID),
+			slog.String("policyName", policyName),
+		)
+		return nil
+	}
 
 	updateRes, err := m.ociClient.UpdateRoutingPolicy(ctx, loadbalancer.UpdateRoutingPolicyRequest{
 		LoadBalancerId:    &params.loadBalancerID,
@@ -876,6 +1189,9 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 		)
 		return fmt.Errorf("failed to update routing policy %s: %w", policyName, err)
 	}
+	if updateRes.OpcWorkRequestId == nil {
+		return fmt.Errorf("failed to update routing policy %s: missing work request id", policyName)
+	}
 
 	if err = m.workRequestsWatcher.WaitFor(
 		ctx,
@@ -891,57 +1207,85 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 	return nil
 }
 
-//nolint:unparam // The error return is part of the ociLoadBalancerModel interface contract.
 func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
 	ctx context.Context,
 	params removeUnusedCertificatesParams,
 ) error {
-	// Create a set of all certificates that are in use by listeners
-	usedCertificates := make(map[string]struct{})
-	for _, certs := range params.listenerCertificates {
-		for _, cert := range certs {
-			usedCertificates[*cert.CertificateName] = struct{}{}
-		}
+	desiredCertificates := make(map[string]struct{}, len(params.desiredCertificates))
+	for _, certName := range params.desiredCertificates {
+		desiredCertificates[certName] = struct{}{}
 	}
 
-	// Iterate through all known certificates and remove those that are not in use
-	for certName, cert := range params.knownCertificates {
-		if _, isUsed := usedCertificates[certName]; !isUsed {
-			m.logger.InfoContext(ctx, "Removing unused certificate",
-				slog.String("loadBalancerId", params.loadBalancerID),
-				slog.String("certificateName", certName),
-			)
-
-			resp, err := m.ociClient.DeleteCertificate(ctx, loadbalancer.DeleteCertificateRequest{
-				LoadBalancerId:  &params.loadBalancerID,
-				CertificateName: cert.CertificateName,
-			})
-			if err != nil {
-				m.logger.WarnContext(ctx, "Failed to delete certificate",
-					diag.ErrAttr(err),
-					slog.String("certificateName", certName),
-					slog.String("loadBalancerId", params.loadBalancerID),
-				)
-				continue
-			}
-
-			if err = m.workRequestsWatcher.WaitFor(ctx, *resp.OpcWorkRequestId); err != nil {
-				m.logger.WarnContext(ctx, "Failed to wait for certificate deletion",
-					diag.ErrAttr(err),
-					slog.String("certificateName", certName),
-					slog.String("loadBalancerId", params.loadBalancerID),
-				)
-				continue
-			}
-
-			m.logger.DebugContext(ctx, "Successfully removed unused certificate",
-				slog.String("loadBalancerId", params.loadBalancerID),
-				slog.String("certificateName", certName),
-			)
+	for _, certName := range params.previouslyProgrammedCertificates {
+		if _, isDesired := desiredCertificates[certName]; isDesired {
+			continue
 		}
+
+		cert, exists := params.knownCertificates[certName]
+		if !exists {
+			continue
+		}
+
+		m.logger.InfoContext(ctx, "Removing unused certificate",
+			slog.String("loadBalancerId", params.loadBalancerID),
+			slog.String("certificateName", certName),
+		)
+
+		resp, err := m.ociClient.DeleteCertificate(ctx, loadbalancer.DeleteCertificateRequest{
+			LoadBalancerId:  &params.loadBalancerID,
+			CertificateName: cert.CertificateName,
+		})
+		if err != nil {
+			m.logger.WarnContext(ctx, "Failed to delete certificate",
+				diag.ErrAttr(err),
+				slog.String("certificateName", certName),
+				slog.String("loadBalancerId", params.loadBalancerID),
+			)
+			continue
+		}
+		if resp.OpcWorkRequestId == nil {
+			m.logger.WarnContext(ctx, "Failed to delete certificate: missing work request id",
+				slog.String("certificateName", certName),
+				slog.String("loadBalancerId", params.loadBalancerID),
+			)
+			continue
+		}
+
+		if err = m.workRequestsWatcher.WaitFor(ctx, *resp.OpcWorkRequestId); err != nil {
+			m.logger.WarnContext(ctx, "Failed to wait for certificate deletion",
+				diag.ErrAttr(err),
+				slog.String("loadBalancerId", params.loadBalancerID),
+				slog.String("certificateName", certName),
+			)
+			continue
+		}
+
+		m.logger.DebugContext(ctx, "Successfully removed unused certificate",
+			slog.String("loadBalancerId", params.loadBalancerID),
+			slog.String("certificateName", certName),
+		)
+	}
+
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("failed to remove unused certificates: %w", err)
 	}
 
 	return nil
+}
+
+func certificateNamesFromListenerCertificates(
+	listenerCertificates map[string][]loadbalancer.Certificate,
+) []string {
+	certNames := make([]string, 0, len(listenerCertificates))
+	for _, certificates := range listenerCertificates {
+		for _, cert := range certificates {
+			if cert.CertificateName == nil {
+				continue
+			}
+			certNames = append(certNames, *cert.CertificateName)
+		}
+	}
+	return normalizeProgrammedCertificateNames(certNames)
 }
 
 func listenerPolicyName(listenerName string) string {

@@ -688,8 +688,7 @@ func (m *WatchesModel) MapGatewayConfigToGateway(ctx context.Context, obj client
 	requests := make([]reconcile.Request, 0)
 	for _, gateway := range gatewayList.Items {
 		if gateway.DeletionTimestamp != nil ||
-			gateway.Annotations == nil ||
-			gateway.Annotations[ControllerClassName] != "true" ||
+			!gatewayUsesSupportedController(&gateway) ||
 			gateway.Spec.Infrastructure == nil ||
 			gateway.Spec.Infrastructure.ParametersRef == nil ||
 			gateway.Spec.Infrastructure.ParametersRef.Name != config.Name {
@@ -709,6 +708,14 @@ func (m *WatchesModel) MapGatewayConfigToGateway(ctx context.Context, obj client
 	}
 
 	return requests
+}
+
+func gatewayUsesSupportedController(gateway *gatewayv1.Gateway) bool {
+	if gateway.Annotations == nil {
+		return false
+	}
+	return gateway.Annotations[ControllerClassName] == "true" ||
+		gateway.Annotations[NetworkLoadBalancerControllerClassName] == "true"
 }
 
 // MapSecretToGateway maps Secret events to Gateway reconcile requests.

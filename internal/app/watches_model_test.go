@@ -1194,6 +1194,36 @@ func TestWatchesModel(t *testing.T) {
 					},
 				},
 				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "iot",
+						Name:      "edge-l4",
+						Annotations: map[string]string{
+							NetworkLoadBalancerControllerClassName: "true",
+						},
+					},
+					Spec: gatewayv1.GatewaySpec{
+						Infrastructure: &gatewayv1.GatewayInfrastructure{
+							ParametersRef: &gatewayv1.LocalParametersReference{
+								Name: "edge-config",
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace:   "iot",
+						Name:        "unsupported",
+						Annotations: map[string]string{"example.com/controller": "true"},
+					},
+					Spec: gatewayv1.GatewaySpec{
+						Infrastructure: &gatewayv1.GatewayInfrastructure{
+							ParametersRef: &gatewayv1.LocalParametersReference{
+								Name: "edge-config",
+							},
+						},
+					},
+				},
+				{
 					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "other"},
 					Spec: gatewayv1.GatewaySpec{
 						Infrastructure: &gatewayv1.GatewayInfrastructure{
@@ -1231,6 +1261,7 @@ func TestWatchesModel(t *testing.T) {
 
 			require.Equal(t, []reconcile.Request{
 				{NamespacedName: apitypes.NamespacedName{Namespace: "iot", Name: "edge"}},
+				{NamespacedName: apitypes.NamespacedName{Namespace: "iot", Name: "edge-l4"}},
 			}, model.MapGatewayConfigToGateway(t.Context(), config))
 			require.Nil(t, model.MapGatewayConfigToGateway(t.Context(), &corev1.Service{}))
 		})

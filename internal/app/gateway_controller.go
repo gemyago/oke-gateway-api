@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"go.uber.org/dig"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -19,6 +20,7 @@ type GatewayController struct {
 	logger         *slog.Logger
 	resourcesModel resourcesModel
 	gatewayModel   gatewayModel
+	driftInterval  time.Duration
 }
 
 // GatewayControllerDeps contains the dependencies for the GatewayController.
@@ -29,6 +31,7 @@ type GatewayControllerDeps struct {
 	K8sClient      k8sClient
 	ResourcesModel resourcesModel
 	GatewayModel   gatewayModel
+	DriftInterval  time.Duration `name:"config.reconcile.drift-interval"`
 }
 
 // NewGatewayController creates a new GatewayController.
@@ -38,6 +41,7 @@ func NewGatewayController(deps GatewayControllerDeps) *GatewayController {
 		logger:         deps.RootLogger.WithGroup("gateway-controller"),
 		resourcesModel: deps.ResourcesModel, // Initialize resourcesModel
 		gatewayModel:   deps.GatewayModel,
+		driftInterval:  deps.DriftInterval,
 	}
 }
 
@@ -75,7 +79,7 @@ func (r *GatewayController) processResourceError(
 			slog.String("gateway", gateway.GetName()),
 			slog.String("reason", reasonErr.Error()),
 		)
-		return reconcile.Result{}, nil
+		return driftRequeue(r.driftInterval), nil
 	}
 	return reconcile.Result{}, fmt.Errorf("failed to program Gateway %s: %w", gateway.Name, err)
 }
@@ -115,7 +119,8 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 		}
 	}
 
-	if !r.gatewayModel.isProgrammed(ctx, &data) {
+	programmed := r.gatewayModel.isProgrammed(ctx, &data)
+	if !programmed || r.driftInterval > 0 {
 		r.logger.DebugContext(ctx, "Programming gateway",
 			slog.Any("req", req),
 			slog.String("resourceVersion", data.gateway.ResourceVersion),
@@ -148,5 +153,5 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 		)
 	}
 
-	return reconcile.Result{}, nil
+	return driftRequeue(r.driftInterval), nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"go.uber.org/dig"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -14,6 +15,7 @@ import (
 type UDPRouteController struct {
 	logger        *slog.Logger
 	udpRouteModel udpRouteModel
+	driftInterval time.Duration
 }
 
 type UDPRouteControllerDeps struct {
@@ -21,12 +23,14 @@ type UDPRouteControllerDeps struct {
 
 	RootLogger    *slog.Logger
 	UDPRouteModel udpRouteModel
+	DriftInterval time.Duration `name:"config.reconcile.drift-interval"`
 }
 
 func NewUDPRouteController(deps UDPRouteControllerDeps) *UDPRouteController {
 	return &UDPRouteController{
 		logger:        deps.RootLogger.WithGroup("udproute-controller"),
 		udpRouteModel: deps.UDPRouteModel,
+		driftInterval: deps.DriftInterval,
 	}
 }
 
@@ -42,6 +46,7 @@ func (r *UDPRouteController) Reconcile(ctx context.Context, req reconcile.Reques
 		deprovision:   r.udpRouteModel.deprovisionRoute,
 		program:       r.udpRouteModel.programRoute,
 		setProgrammed: r.udpRouteModel.setProgrammed,
+		driftInterval: r.driftInterval,
 		setRejected: func(details resolvedUDPRouteDetails, err error) (bool, error) {
 			var statusErr udpRouteStatusError
 			if errors.As(err, &statusErr) {

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -33,5 +34,14 @@ func TestLoad(t *testing.T) {
 		cfg := New()
 		err := Load(cfg, NewLoadOpts().WithEnv("not-existing"))
 		require.ErrorIs(t, err, os.ErrNotExist)
+	})
+	t.Run("should load drift interval from env", func(t *testing.T) {
+		t.Setenv("APP_RECONCILE_DRIFT_INTERVAL", "2m")
+
+		cfg := New()
+		err := Load(cfg, NewLoadOpts())
+
+		require.NoError(t, err)
+		require.Equal(t, 2*time.Minute, cfg.GetDuration("reconcile.drift-interval"))
 	})
 }

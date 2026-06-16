@@ -23,6 +23,7 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
+	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
 	"github.com/gemyago/oke-gateway-api/internal/types"
 )
 
@@ -854,6 +855,9 @@ func TestGatewayModelImpl(t *testing.T) {
 			gateway := newRandomGateway(
 				randomGatewayWithRandomListenersOpt(),
 			)
+			gateway.Annotations = map[string]string{
+				GatewayProgrammedCertificatesAnnotation: "previous-cert",
+			}
 			loadBalancer := makeRandomOCILoadBalancer(
 				randomOCILoadBalancerWithRandomBackendSetsOpt(),
 				randomOCILoadBalancerWithRandomPoliciesOpt(),
@@ -927,9 +931,10 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			loadBalancerModel.EXPECT().
 				removeUnusedCertificates(t.Context(), removeUnusedCertificatesParams{
-					loadBalancerID:       config.Spec.LoadBalancerID,
-					listenerCertificates: certificatesByListener,
-					knownCertificates:    loadBalancer.Certificates,
+					loadBalancerID:                   config.Spec.LoadBalancerID,
+					previouslyProgrammedCertificates: []string{"previous-cert"},
+					desiredCertificates:              certificateNamesFromListenerCertificates(certificatesByListener),
+					knownCertificates:                loadBalancer.Certificates,
 				}).
 				Return(nil).
 				NotBefore(removeCall.Call)
@@ -972,6 +977,39 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			require.Error(t, err)
 			require.ErrorIs(t, err, wantErr)
+		})
+		t.Run("returns programmed false status error when OCI Load Balancer is not found", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			config := makeRandomGatewayConfig()
+			gateway := newRandomGateway(
+				randomGatewayWithRandomListenersOpt(),
+			)
+
+			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+				}).
+				Return(
+					loadbalancer.GetLoadBalancerResponse{},
+					ociapi.NewRandomServiceError(ociapi.RandomServiceErrorWithStatusCode(404)),
+				)
+
+			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
+				gateway: *gateway,
+				config:  config,
+			})
+
+			var statusErr *resourceStatusError
+			require.ErrorAs(t, err, &statusErr)
+			assert.Equal(t, string(gatewayv1.GatewayConditionProgrammed), statusErr.conditionType)
+			assert.Equal(t, string(gatewayv1.GatewayReasonPending), statusErr.reason)
+			assert.Equal(t,
+				fmt.Sprintf("referenced OCI Load Balancer %s not found", config.Spec.LoadBalancerID),
+				statusErr.message,
+			)
 		})
 		t.Run("failed to reconcile default backend set", func(t *testing.T) {
 			fake := faker.New()
@@ -1197,7 +1235,8 @@ func TestGatewayModelImpl(t *testing.T) {
 					reason:        string(gatewayv1.GatewayReasonProgrammed),
 					message:       fmt.Sprintf("Gateway %s programmed by %s", data.gateway.Name, ControllerClassName),
 					annotations: map[string]string{
-						GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+						GatewayProgrammingRevisionAnnotation:    GatewayProgrammingRevisionValue,
+						GatewayProgrammedCertificatesAnnotation: "",
 					},
 				},
 			).Return(nil)
@@ -1231,6 +1270,8 @@ func TestGatewayModelImpl(t *testing.T) {
 				secretUID := string(secret.UID)
 				expectedAnnotations[GatewayUsedSecretsAnnotationPrefix+"/"+secretUID] = secret.ResourceVersion
 			}
+			expectedAnnotations[GatewayProgrammedCertificatesAnnotation] =
+				programmedGatewayCertificatesAnnotation(programmedCertificateNamesFromSecrets(gatewaySecretsMap))
 
 			data := &resolvedGatewayDetails{
 				gateway:        *gateway,
@@ -1300,7 +1341,8 @@ func TestGatewayModelImpl(t *testing.T) {
 					conditions:    data.gateway.Status.Conditions,
 					conditionType: string(gatewayv1.GatewayConditionProgrammed),
 					annotations: map[string]string{
-						GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+						GatewayProgrammingRevisionAnnotation:    GatewayProgrammingRevisionValue,
+						GatewayProgrammedCertificatesAnnotation: "",
 					},
 				},
 			).Return(true)
@@ -1327,7 +1369,8 @@ func TestGatewayModelImpl(t *testing.T) {
 					conditions:    data.gateway.Status.Conditions,
 					conditionType: string(gatewayv1.GatewayConditionProgrammed),
 					annotations: map[string]string{
-						GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+						GatewayProgrammingRevisionAnnotation:    GatewayProgrammingRevisionValue,
+						GatewayProgrammedCertificatesAnnotation: "",
 					},
 				},
 			).Return(false)
@@ -1356,6 +1399,8 @@ func TestGatewayModelImpl(t *testing.T) {
 				secretUID := string(secret.UID)
 				expectedAnnotations[GatewayUsedSecretsAnnotationPrefix+"/"+secretUID] = secret.ResourceVersion
 			}
+			expectedAnnotations[GatewayProgrammedCertificatesAnnotation] =
+				programmedGatewayCertificatesAnnotation(programmedCertificateNamesFromSecrets(gatewaySecretsMap))
 
 			data := &resolvedGatewayDetails{
 				gateway:        *gateway,
@@ -1377,6 +1422,39 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			mockResourcesModel.AssertExpectations(t)
 		})
+	})
+}
+
+func TestProgrammedGatewayCertificatesAnnotation(t *testing.T) {
+	t.Run("normalizes annotation values", func(t *testing.T) {
+		got := programmedGatewayCertificatesAnnotation([]string{
+			"kora-cert-rev-2",
+			"",
+			"kora-cert-rev-1",
+			"kora-cert-rev-2",
+		})
+
+		assert.Equal(t, "kora-cert-rev-1,kora-cert-rev-2", got)
+	})
+
+	t.Run("parses annotation values", func(t *testing.T) {
+		got := parseProgrammedGatewayCertificatesAnnotation(" cert-b,,cert-a, cert-b ")
+
+		assert.Equal(t, []string{"cert-a", "cert-b"}, got)
+	})
+
+	t.Run("maps secrets to certificate names", func(t *testing.T) {
+		secretA := makeRandomSecret()
+		secretB := makeRandomSecret()
+		got := programmedCertificateNamesFromSecrets(map[string]corev1.Secret{
+			secretA.Namespace + "/" + secretA.Name: secretA,
+			secretB.Namespace + "/" + secretB.Name: secretB,
+		})
+
+		assert.ElementsMatch(t, []string{
+			ociCertificateNameFromSecret(secretA),
+			ociCertificateNameFromSecret(secretB),
+		}, got)
 	})
 }
 
