@@ -121,13 +121,20 @@ func TestGRPCRouteController(t *testing.T) {
 			},
 		}
 	}
-	newController := func(routeModel grpcRouteModel, backendModel httpBackendModel) *GRPCRouteController {
+	newControllerWithDriftInterval := func(
+		routeModel grpcRouteModel,
+		backendModel httpBackendModel,
+		driftInterval time.Duration,
+	) *GRPCRouteController {
 		return NewGRPCRouteController(GRPCRouteControllerDeps{
 			RootLogger:       diag.RootTestLogger(),
 			GRPCRouteModel:   routeModel,
 			HTTPBackendModel: backendModel,
-			DriftInterval:    2 * time.Minute,
+			DriftInterval:    driftInterval,
 		})
+	}
+	newController := func(routeModel grpcRouteModel, backendModel httpBackendModel) *GRPCRouteController {
+		return newControllerWithDriftInterval(routeModel, backendModel, 2*time.Minute)
 	}
 	resolvedMap := func(route gatewayv1.GRPCRoute, resolved resolvedGRPCRouteDetails) map[apitypes.NamespacedName]resolvedGRPCRouteDetails {
 		return map[apitypes.NamespacedName]resolvedGRPCRouteDetails{
@@ -202,9 +209,58 @@ func TestGRPCRouteController(t *testing.T) {
 			config:    resolved.gatewayDetails.config,
 		}).Return(nil).Once()
 
-		_, err := newController(routeModel, backendModel).Reconcile(t.Context(), reconcile.Request{})
+		_, err := newControllerWithDriftInterval(routeModel, backendModel, 0).Reconcile(
+			t.Context(),
+			reconcile.Request{},
+		)
 
 		require.NoError(t, err)
+	})
+
+	t.Run("programs route when programming is not required but drift interval is configured", func(t *testing.T) {
+		route := makeRoute()
+		resolved := makeResolved(route)
+		service := corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: route.Namespace, Name: "grpc-svc"}}
+		backendModel := NewMockhttpBackendModel(t)
+		routeModel := fakeGRPCRouteModel{
+			resolveRequestFunc: func(
+				_ context.Context,
+				_ reconcile.Request,
+			) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+				return resolvedMap(route, resolved), nil
+			},
+			isProgrammingRequiredFn: func(resolvedGRPCRouteDetails) bool { return false },
+			acceptRouteFunc: func(_ context.Context, details resolvedGRPCRouteDetails) (*gatewayv1.GRPCRoute, error) {
+				return &details.grpcRoute, nil
+			},
+			ensureProtocolFunc: func(_ context.Context, params ensureGRPCListenersProtocolParams) error {
+				assert.Equal(t, resolved.gatewayDetails.config.Spec.LoadBalancerID, params.config.Spec.LoadBalancerID)
+				assert.Equal(t, resolved.matchedListeners, params.matchedListeners)
+				return nil
+			},
+			resolveBackendRefsFunc: func(_ context.Context, params resolveGRPCBackendRefsParams) (map[string]corev1.Service, error) {
+				assert.Equal(t, route.Name, params.grpcRoute.Name)
+				return map[string]corev1.Service{service.Namespace + "/" + service.Name: service}, nil
+			},
+			programRouteFunc: func(_ context.Context, params programGRPCRouteParams) (programGRPCRouteResult, error) {
+				assert.Equal(t, route.Name, params.grpcRoute.Name)
+				assert.Equal(t, service, params.knownBackends[service.Namespace+"/"+service.Name])
+				return programGRPCRouteResult{programmedPolicyRules: []string{"grpc/rule"}}, nil
+			},
+			setProgrammedFunc: func(_ context.Context, params setGRPCRouteProgrammedParams) error {
+				assert.Equal(t, []string{"grpc/rule"}, params.programmedPolicyRules)
+				return nil
+			},
+		}
+		backendModel.EXPECT().syncGRPCRouteEndpoints(t.Context(), syncGRPCRouteEndpointsParams{
+			grpcRoute: route,
+			config:    resolved.gatewayDetails.config,
+		}).Return(nil).Once()
+
+		got, err := newController(routeModel, backendModel).Reconcile(t.Context(), reconcile.Request{})
+
+		require.NoError(t, err)
+		assertDriftRequeue(t, got, 2*time.Minute)
 	})
 
 	t.Run("returns listener protocol errors", func(t *testing.T) {
@@ -411,7 +467,10 @@ func TestGRPCRouteController(t *testing.T) {
 			Return(wantErr).
 			Once()
 
-		_, err := newController(routeModel, backendModel).Reconcile(t.Context(), reconcile.Request{})
+		_, err := newControllerWithDriftInterval(routeModel, backendModel, 0).Reconcile(
+			t.Context(),
+			reconcile.Request{},
+		)
 
 		require.ErrorIs(t, err, wantErr)
 	})

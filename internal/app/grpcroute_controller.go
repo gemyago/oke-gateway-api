@@ -72,7 +72,7 @@ func (r *GRPCRouteController) reconcileResolvedRoute(
 	}
 
 	programmingRequired := r.grpcRouteModel.isProgrammingRequired(resolvedData)
-	if !programmingRequired {
+	if !shouldProgramRoute(programmingRequired, r.driftInterval) {
 		return true, nil
 	}
 

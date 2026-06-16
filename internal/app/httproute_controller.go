@@ -82,7 +82,7 @@ func (r *HTTPRouteController) reconcileResolvedRoute(
 			resolvedData.gatewayDetails.gateway.Name, err)
 	}
 
-	if !programmingRequired {
+	if !shouldProgramRoute(programmingRequired, r.driftInterval) {
 		r.logger.DebugContext(ctx, "HTTPRoute programming not required for parent",
 			slog.String("httpRoute", resolvedData.httpRoute.Name),
 			slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
