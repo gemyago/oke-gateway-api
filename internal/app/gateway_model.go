@@ -351,6 +351,9 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 
 	for _, listener := range data.gateway.Spec.Listeners {
 		// TODO: Support listener with hostname
+		if listener.Protocol == gatewayv1.TLSProtocolType {
+			continue
+		}
 
 		listenerName := string(listener.Name)
 

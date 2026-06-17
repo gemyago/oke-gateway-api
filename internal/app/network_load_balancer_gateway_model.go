@@ -298,40 +298,11 @@ func (m *networkLoadBalancerGatewayModelImpl) reconcileListenerBackendSet(
 	port := int(listener.Port)
 	healthChecker := networkLoadBalancerHealthCheckerDetails(listener.Protocol, new(port))
 
-	backendSet, exists := nlb.BackendSets[backendSetName]
-	if exists && networkLoadBalancerBackendSetMatches(
-		backendSet,
-		networkloadbalancer.NetworkLoadBalancingPolicyFiveTuple,
-		healthChecker,
-	) {
+	if _, exists := nlb.BackendSets[backendSetName]; exists {
 		m.logger.DebugContext(ctx, "Network Load Balancer backend set already up to date",
 			slog.String("backendSetName", backendSetName),
 		)
 		return nil
-	}
-	if exists {
-		response, err := m.ociClient.UpdateBackendSet(ctx, networkloadbalancer.UpdateBackendSetRequest{
-			NetworkLoadBalancerId: nlb.Id,
-			BackendSetName:        new(backendSetName),
-			UpdateBackendSetDetails: networkloadbalancer.UpdateBackendSetDetails{
-				Policy:           new(string(networkloadbalancer.NetworkLoadBalancingPolicyFiveTuple)),
-				HealthChecker:    &healthChecker,
-				IsPreserveSource: new(false),
-			},
-		})
-		if err != nil {
-			if busyErr := networkLoadBalancerBusyErrorFromOCI(nlb.Id, err); busyErr != nil {
-				return busyErr
-			}
-			return fmt.Errorf("failed to update OCI Network Load Balancer backend set %s: %w", backendSetName, err)
-		}
-		if response.OpcWorkRequestId == nil {
-			return fmt.Errorf(
-				"failed to update OCI Network Load Balancer backend set %s: missing work request id",
-				backendSetName,
-			)
-		}
-		return m.workRequestsWatcher.WaitFor(ctx, *response.OpcWorkRequestId)
 	}
 
 	response, err := m.ociClient.CreateBackendSet(ctx, networkloadbalancer.CreateBackendSetRequest{

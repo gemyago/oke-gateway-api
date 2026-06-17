@@ -946,6 +946,69 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			require.NoError(t, err)
 		})
+		t.Run("skips TLS listeners because TLSRoute owns ALB TLS listener reconciliation", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			config := makeRandomGatewayConfig()
+			httpsListener := makeRandomListener(randomListenerWithHTTPSParamsOpt())
+			tlsListener := makeRandomListener(func(listener *gatewayv1.Listener) {
+				listener.Protocol = gatewayv1.TLSProtocolType
+				listener.TLS = &gatewayv1.ListenerTLSConfig{
+					CertificateRefs: []gatewayv1.SecretObjectReference{randomSecretObjectReference()},
+				}
+			})
+			gateway := newRandomGateway()
+			gateway.Spec.Listeners = []gatewayv1.Listener{httpsListener, tlsListener}
+			loadBalancer := makeRandomOCILoadBalancer(
+				randomOCILoadBalancerWithRandomBackendSetsOpt(),
+				randomOCILoadBalancerWithRandomPoliciesOpt(),
+				randomOCILoadBalancerWithRandomCertificatesOpt(),
+			)
+			defaultBackendSet := makeRandomOCIBackendSet()
+			certificatesByListener := map[string][]loadbalancer.Certificate{
+				string(httpsListener.Name): {makeRandomOCICertificate()},
+				string(tlsListener.Name):   {makeRandomOCICertificate()},
+			}
+
+			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+				}).
+				Return(loadbalancer.GetLoadBalancerResponse{LoadBalancer: loadBalancer}, nil)
+
+			loadBalancerModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			loadBalancerModel.EXPECT().
+				reconcileDefaultBackendSet(t.Context(), mock.Anything).
+				Return(defaultBackendSet, nil)
+			reconcileCertificatesCall := loadBalancerModel.EXPECT().
+				reconcileListenersCertificates(t.Context(), mock.Anything).
+				Return(reconcileListenersCertificatesResult{
+					certificatesByListener: certificatesByListener,
+				}, nil)
+			loadBalancerModel.EXPECT().
+				reconcileHTTPListener(t.Context(), mock.MatchedBy(func(params reconcileHTTPListenerParams) bool {
+					return params.listenerSpec != nil && params.listenerSpec.Name == httpsListener.Name
+				})).
+				Return(nil).
+				Once().
+				NotBefore(reconcileCertificatesCall.Call)
+			removeCall := loadBalancerModel.EXPECT().
+				removeMissingListeners(t.Context(), mock.Anything).
+				Return(nil)
+			loadBalancerModel.EXPECT().
+				removeUnusedCertificates(t.Context(), mock.Anything).
+				Return(nil).
+				NotBefore(removeCall.Call)
+
+			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
+				gateway: *gateway,
+				config:  config,
+			})
+
+			require.NoError(t, err)
+		})
 		t.Run("failed to get OCI Load Balancer", func(t *testing.T) {
 			fake := faker.New()
 			deps := newMockDeps(t)
