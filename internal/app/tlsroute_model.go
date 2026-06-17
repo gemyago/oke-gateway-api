@@ -505,6 +505,12 @@ func (m *tlsRouteModelImpl) updateNLBBackendSet(
 			}
 		}
 
+		m.logger.InfoContext(ctx, "Updating TLSRoute NLB backend set",
+			slog.String("tlsRoute", details.tlsRoute.Name),
+			slog.String("backendSetName", backendSetName),
+			slog.Int("desiredBackends", len(backends)),
+		)
+
 		return updateNetworkLoadBalancerBackendSet(
 			ctx,
 			m.ociNetworkLoadBalancerAPI,
@@ -712,6 +718,13 @@ func (m *tlsRouteModelImpl) reconcileLoadBalancerBackendSet(
 			existingBackendSet.SslConfiguration == nil {
 			return nil
 		}
+		m.logger.InfoContext(ctx, "Updating TLSRoute backend set",
+			slog.String("loadBalancerId", loadBalancerID),
+			slog.String("backendSetName", backendSetName),
+			slog.Int("desiredBackends", len(backends)),
+			slog.Int("healthCheckPort", healthCheckPort),
+		)
+
 		updateRes, err := m.ociLoadBalancerAPI.UpdateBackendSet(ctx, loadbalancer.UpdateBackendSetRequest{
 			LoadBalancerId: new(loadBalancerID),
 			BackendSetName: new(backendSetName),
