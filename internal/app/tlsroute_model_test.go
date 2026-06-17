@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
@@ -1856,6 +1857,115 @@ func TestTLSRouteModelBackendResolutionErrors(t *testing.T) {
 		_, err := model.endpointBackendsForRoute(t.Context(), route)
 
 		require.ErrorContains(t, err, "backendRef service iot/backend not found")
+	})
+
+	t.Run("resolves same namespace backend without reference grant", func(t *testing.T) {
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithRuntimeObjects(
+				&corev1.Service{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "backend"},
+					Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{{
+						Port: 443,
+					}}},
+				},
+				&discoveryv1.EndpointSlice{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "iot",
+						Name:      "backend-a",
+						Labels: map[string]string{
+							discoveryv1.LabelServiceName: "backend",
+						},
+					},
+					AddressType: discoveryv1.AddressTypeIPv4,
+					Endpoints: []discoveryv1.Endpoint{{
+						Addresses:  []string{"10.0.0.8"},
+						Conditions: discoveryv1.EndpointConditions{Ready: new(true)},
+					}},
+				},
+			).
+			Build()
+		model := newTLSRouteModel(tlsRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: k8sClient})
+
+		backends, err := model.endpointBackendsForRoute(t.Context(), route)
+
+		require.NoError(t, err)
+		require.Len(t, backends, 1)
+		assert.Equal(t, "10.0.0.8", lo.FromPtr(backends[0].IpAddress))
+		assert.Equal(t, 443, lo.FromPtr(backends[0].Port))
+	})
+
+	t.Run("rejects cross namespace backend without reference grant", func(t *testing.T) {
+		backendNamespace := gatewayv1.Namespace("media")
+		route := route.DeepCopy()
+		route.Spec.Rules[0].BackendRefs[0].Namespace = &backendNamespace
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			Build()
+		model := newTLSRouteModel(tlsRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: k8sClient})
+
+		_, err := model.endpointBackendsForRoute(t.Context(), *route)
+
+		var statusErr tlsRouteStatusError
+		require.ErrorAs(t, err, &statusErr)
+		assert.Equal(t, gatewayv1.RouteConditionResolvedRefs, statusErr.conditionType)
+		assert.Equal(t, gatewayv1.RouteReasonRefNotPermitted, statusErr.reason)
+		require.ErrorContains(t, err, "backendRef media/backend is not permitted by a ReferenceGrant")
+	})
+
+	t.Run("resolves cross namespace backend with reference grant", func(t *testing.T) {
+		backendNamespace := gatewayv1.Namespace("media")
+		route := route.DeepCopy()
+		route.Spec.Rules[0].BackendRefs[0].Namespace = &backendNamespace
+		serviceName := gatewayv1.ObjectName("backend")
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithRuntimeObjects(
+				&gatewayv1beta1.ReferenceGrant{
+					ObjectMeta: metav1.ObjectMeta{Namespace: string(backendNamespace), Name: "allow-iot-tls"},
+					Spec: gatewayv1beta1.ReferenceGrantSpec{
+						From: []gatewayv1beta1.ReferenceGrantFrom{{
+							Group:     gatewayv1.Group(gatewayAPIGroup),
+							Kind:      gatewayv1.Kind("TLSRoute"),
+							Namespace: gatewayv1.Namespace("iot"),
+						}},
+						To: []gatewayv1beta1.ReferenceGrantTo{{
+							Group: "",
+							Kind:  gatewayv1.Kind(serviceKind),
+							Name:  &serviceName,
+						}},
+					},
+				},
+				&corev1.Service{
+					ObjectMeta: metav1.ObjectMeta{Namespace: string(backendNamespace), Name: string(serviceName)},
+					Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{{
+						Port: 443,
+					}}},
+				},
+				&discoveryv1.EndpointSlice{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: string(backendNamespace),
+						Name:      "backend-a",
+						Labels: map[string]string{
+							discoveryv1.LabelServiceName: string(serviceName),
+						},
+					},
+					AddressType: discoveryv1.AddressTypeIPv4,
+					Endpoints: []discoveryv1.Endpoint{{
+						Addresses:  []string{"10.0.1.9"},
+						Conditions: discoveryv1.EndpointConditions{Ready: new(true)},
+					}},
+				},
+			).
+			Build()
+		model := newTLSRouteModel(tlsRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: k8sClient})
+
+		backends, err := model.endpointBackendsForRoute(t.Context(), *route)
+
+		require.NoError(t, err)
+		require.Len(t, backends, 1)
+		assert.Equal(t, "10.0.1.9", lo.FromPtr(backends[0].IpAddress))
+		assert.Equal(t, 443, lo.FromPtr(backends[0].Port))
 	})
 
 	t.Run("returns list errors", func(t *testing.T) {
