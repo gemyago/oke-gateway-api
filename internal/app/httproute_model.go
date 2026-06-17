@@ -1076,8 +1076,8 @@ func (m *httpRouteModelImpl) deprovisionRoute(
 		for _, backendRef := range rule.BackendRefs {
 			err := m.ociLoadBalancerModel.deprovisionBackendSet(ctx, deprovisionBackendSetParams{
 				loadBalancerID: params.config.Spec.LoadBalancerID,
-				httpRoute:      params.httpRoute,
-				backendRef:     backendRef,
+				routeNamespace: params.httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
 			})
 			if err != nil {
 				return fmt.Errorf(

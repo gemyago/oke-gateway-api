@@ -97,10 +97,34 @@ type grpcRouteModel interface {
 		params deprovisionGRPCRouteParams,
 	) error
 
+	setRejected(
+		ctx context.Context,
+		routeDetails resolvedGRPCRouteDetails,
+		statusErr grpcRouteStatusError,
+	) error
+
 	setProgrammed(
 		ctx context.Context,
 		params setGRPCRouteProgrammedParams,
 	) error
+}
+
+type grpcRouteStatusError struct {
+	conditionType gatewayv1.RouteConditionType
+	reason        gatewayv1.RouteConditionReason
+	message       string
+}
+
+func (e grpcRouteStatusError) Error() string {
+	return e.message
+}
+
+func newGRPCRouteRefNotPermittedStatusError(message string) grpcRouteStatusError {
+	return grpcRouteStatusError{
+		conditionType: gatewayv1.RouteConditionResolvedRefs,
+		reason:        gatewayv1.RouteReasonRefNotPermitted,
+		message:       message,
+	}
 }
 
 type grpcRouteModelImpl struct {
@@ -378,10 +402,25 @@ func (m *grpcRouteModelImpl) resolveBackendRefs(
 	for _, rule := range params.grpcRoute.Spec.Rules {
 		for _, backendRef := range rule.BackendRefs {
 			fullName := backendObjectRefName(backendRef.BackendObjectReference, params.grpcRoute.Namespace)
+			allowed, err := referenceGrantAllowsServiceBackend(
+				ctx,
+				m.client,
+				"GRPCRoute",
+				params.grpcRoute.Namespace,
+				fullName,
+			)
+			if err != nil {
+				return nil, err
+			}
+			if !allowed {
+				return nil, newGRPCRouteRefNotPermittedStatusError(
+					fmt.Sprintf("backendRef %s is not permitted by a ReferenceGrant", fullName.String()),
+				)
+			}
 
 			var service corev1.Service
-			if err := m.client.Get(ctx, fullName, &service); err != nil {
-				return nil, fmt.Errorf("failed to get service %s: %w", fullName.String(), err)
+			if getErr := m.client.Get(ctx, fullName, &service); getErr != nil {
+				return nil, fmt.Errorf("failed to get service %s: %w", fullName.String(), getErr)
 			}
 
 			resolvedBackendRefs[fullName.String()] = service
@@ -481,6 +520,28 @@ func (m *grpcRouteModelImpl) deprovisionRoute(
 		}
 	}
 
+	processedBackendRefs := make(map[string]struct{})
+	for _, backendRef := range grpcRouteBackendRefs(params.grpcRoute) {
+		key := l7BackendRefKey(backendRef, params.grpcRoute.Namespace)
+		if _, ok := processedBackendRefs[key]; ok {
+			continue
+		}
+		err := m.ociLoadBalancerModel.deprovisionBackendSet(ctx, deprovisionBackendSetParams{
+			loadBalancerID: params.config.Spec.LoadBalancerID,
+			routeNamespace: params.grpcRoute.Namespace,
+			backendRef:     backendRef,
+		})
+		if err != nil {
+			return fmt.Errorf(
+				"failed to deprovision backend set for rule %s/%s: %w",
+				params.grpcRoute.Namespace,
+				params.grpcRoute.Name,
+				err,
+			)
+		}
+		processedBackendRefs[key] = struct{}{}
+	}
+
 	routeToUpdate := params.grpcRoute.DeepCopy()
 	controllerutil.RemoveFinalizer(routeToUpdate, GRPCRouteProgrammedFinalizer)
 
@@ -490,6 +551,36 @@ func (m *grpcRouteModelImpl) deprovisionRoute(
 	}
 
 	return nil
+}
+
+func (m *grpcRouteModelImpl) setRejected(
+	ctx context.Context,
+	routeDetails resolvedGRPCRouteDetails,
+	statusErr grpcRouteStatusError,
+) error {
+	grpcRoute := routeDetails.grpcRoute.DeepCopy()
+	_, statusIndex, found := lo.FindIndexOf(
+		grpcRoute.Status.Parents,
+		func(status gatewayv1.RouteParentStatus) bool {
+			return status.ControllerName == routeDetails.gatewayDetails.gatewayClass.Spec.ControllerName &&
+				parentRefSameTarget(status.ParentRef, routeDetails.matchedRef)
+		},
+	)
+	if !found {
+		return fmt.Errorf("parent status not found for controller %s and parentRef %s",
+			routeDetails.gatewayDetails.gatewayClass.Spec.ControllerName,
+			routeDetails.matchedRef.Name,
+		)
+	}
+
+	return m.resourcesModel.setCondition(ctx, setConditionParams{
+		resource:      grpcRoute,
+		conditions:    &grpcRoute.Status.Parents[statusIndex].Conditions,
+		conditionType: string(statusErr.conditionType),
+		status:        metav1.ConditionFalse,
+		reason:        string(statusErr.reason),
+		message:       statusErr.message,
+	})
 }
 
 func (m *grpcRouteModelImpl) isProgrammingRequired(details resolvedGRPCRouteDetails) bool {

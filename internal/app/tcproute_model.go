@@ -433,7 +433,7 @@ func resolveL4BackendRefServicePort(
 		)
 	}
 
-	allowed, err := l4ReferenceGrantAllowsServiceBackend(ctx, k8sClient, routeKind, routeNamespace, fullName)
+	allowed, err := referenceGrantAllowsServiceBackend(ctx, k8sClient, routeKind, routeNamespace, fullName)
 	if err != nil {
 		return apitypes.NamespacedName{}, nil, err
 	}

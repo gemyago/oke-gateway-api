@@ -2235,8 +2235,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			for _, backendRef := range wantBackendRefs {
 				ociLBModel.EXPECT().deprovisionBackendSet(t.Context(), deprovisionBackendSetParams{
 					loadBalancerID: config.Spec.LoadBalancerID,
-					httpRoute:      httpRoute,
-					backendRef:     backendRef,
+					routeNamespace: httpRoute.Namespace,
+					backendRef:     backendRef.BackendRef,
 				}).Return(nil).Once().NotBefore(lastCommitCall)
 			}
 

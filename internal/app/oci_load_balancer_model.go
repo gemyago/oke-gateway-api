@@ -53,8 +53,8 @@ type reconcileBackendSetParams struct {
 
 type deprovisionBackendSetParams struct {
 	loadBalancerID string
-	httpRoute      gatewayv1.HTTPRoute
-	backendRef     gatewayv1.HTTPBackendRef
+	routeNamespace string
+	backendRef     gatewayv1.BackendRef
 }
 
 type reconcileHTTPListenerParams struct {
@@ -989,7 +989,10 @@ func (m *ociLoadBalancerModelImpl) deprovisionBackendSet(
 	ctx context.Context,
 	params deprovisionBackendSetParams,
 ) error {
-	backendSetName := ociBackendSetNameFromBackendRef(params.httpRoute, params.backendRef)
+	backendSetName := ociBackendSetNameFromBackendObjectRef(
+		params.routeNamespace,
+		params.backendRef.BackendObjectReference,
+	)
 
 	m.logger.InfoContext(ctx, "Deprovisioning backend set",
 		slog.String("loadBalancerId", params.loadBalancerID),

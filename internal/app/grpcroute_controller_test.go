@@ -27,6 +27,7 @@ type fakeGRPCRouteModel struct {
 	ensureProtocolFunc      func(context.Context, ensureGRPCListenersProtocolParams) error
 	programRouteFunc        func(context.Context, programGRPCRouteParams) (programGRPCRouteResult, error)
 	deprovisionRouteFunc    func(context.Context, deprovisionGRPCRouteParams) error
+	setRejectedFunc         func(context.Context, resolvedGRPCRouteDetails, grpcRouteStatusError) error
 	setProgrammedFunc       func(context.Context, setGRPCRouteProgrammedParams) error
 }
 
@@ -80,6 +81,14 @@ func (m fakeGRPCRouteModel) deprovisionRoute(
 	params deprovisionGRPCRouteParams,
 ) error {
 	return m.deprovisionRouteFunc(ctx, params)
+}
+
+func (m fakeGRPCRouteModel) setRejected(
+	ctx context.Context,
+	details resolvedGRPCRouteDetails,
+	statusErr grpcRouteStatusError,
+) error {
+	return m.setRejectedFunc(ctx, details, statusErr)
 }
 
 func (m fakeGRPCRouteModel) setProgrammed(
@@ -382,6 +391,37 @@ func TestGRPCRouteController(t *testing.T) {
 		_, err := newController(routeModel, NewMockhttpBackendModel(t)).Reconcile(t.Context(), reconcile.Request{})
 
 		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("sets rejected status for backend ref status errors", func(t *testing.T) {
+		route := makeRoute()
+		resolved := makeResolved(route)
+		statusErr := newGRPCRouteRefNotPermittedStatusError("cross namespace backend is not permitted")
+		routeModel := fakeGRPCRouteModel{
+			resolveRequestFunc: func(
+				_ context.Context,
+				_ reconcile.Request,
+			) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+				return resolvedMap(route, resolved), nil
+			},
+			isProgrammingRequiredFn: func(resolvedGRPCRouteDetails) bool { return true },
+			acceptRouteFunc: func(_ context.Context, details resolvedGRPCRouteDetails) (*gatewayv1.GRPCRoute, error) {
+				return &details.grpcRoute, nil
+			},
+			resolveBackendRefsFunc: func(context.Context, resolveGRPCBackendRefsParams) (map[string]corev1.Service, error) {
+				return nil, statusErr
+			},
+			setRejectedFunc: func(_ context.Context, details resolvedGRPCRouteDetails, gotErr grpcRouteStatusError) error {
+				assert.Equal(t, route.Name, details.grpcRoute.Name)
+				assert.Equal(t, statusErr, gotErr)
+				return nil
+			},
+		}
+
+		got, err := newController(routeModel, NewMockhttpBackendModel(t)).Reconcile(t.Context(), reconcile.Request{})
+
+		require.NoError(t, err)
+		assertDriftRequeue(t, got, 2*time.Minute)
 	})
 
 	t.Run("deprovisions deleted routes", func(t *testing.T) {

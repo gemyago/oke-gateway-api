@@ -3407,8 +3407,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			params := deprovisionBackendSetParams{
 				loadBalancerID: loadBalancerID,
-				httpRoute:      httpRoute,
-				backendRef:     backendRef,
+				routeNamespace: httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
 			}
 
 			ociLoadBalancerClient.EXPECT().DeleteBackendSet(t.Context(), loadbalancer.DeleteBackendSetRequest{
@@ -3438,8 +3438,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			params := deprovisionBackendSetParams{
 				loadBalancerID: loadBalancerID,
-				httpRoute:      httpRoute,
-				backendRef:     backendRef,
+				routeNamespace: httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
 			}
 
 			ociLoadBalancerClient.EXPECT().DeleteBackendSet(t.Context(), loadbalancer.DeleteBackendSetRequest{
@@ -3468,8 +3468,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			params := deprovisionBackendSetParams{
 				loadBalancerID: loadBalancerID,
-				httpRoute:      httpRoute,
-				backendRef:     backendRef,
+				routeNamespace: httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
 			}
 
 			ociLoadBalancerClient.EXPECT().DeleteBackendSet(t.Context(), loadbalancer.DeleteBackendSetRequest{
@@ -3499,8 +3499,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			params := deprovisionBackendSetParams{
 				loadBalancerID: loadBalancerID,
-				httpRoute:      httpRoute,
-				backendRef:     backendRef,
+				routeNamespace: httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
 			}
 
 			ociLoadBalancerClient.EXPECT().DeleteBackendSet(t.Context(), loadbalancer.DeleteBackendSetRequest{
@@ -3526,8 +3526,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			params := deprovisionBackendSetParams{
 				loadBalancerID: loadBalancerID,
-				httpRoute:      httpRoute,
-				backendRef:     backendRef,
+				routeNamespace: httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
 			}
 
 			ociLoadBalancerClient.EXPECT().DeleteBackendSet(t.Context(), loadbalancer.DeleteBackendSetRequest{
@@ -3554,8 +3554,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			params := deprovisionBackendSetParams{
 				loadBalancerID: loadBalancerID,
-				httpRoute:      httpRoute,
-				backendRef:     backendRef,
+				routeNamespace: httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
 			}
 
 			serviceErr := ociapi.NewRandomServiceError(

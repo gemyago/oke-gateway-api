@@ -24,6 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
@@ -53,9 +54,9 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		}
 		return route
 	}
-	makeGRPCBackendRef := func() gatewayv1.GRPCBackendRef {
+	makeGRPCBackendRef := func(opts ...func(*gatewayv1.GRPCBackendRef)) gatewayv1.GRPCBackendRef {
 		fake := faker.New()
-		return gatewayv1.GRPCBackendRef{
+		backendRef := gatewayv1.GRPCBackendRef{
 			BackendRef: gatewayv1.BackendRef{
 				BackendObjectReference: gatewayv1.BackendObjectReference{
 					Name: gatewayv1.ObjectName("svc-" + fake.Lorem().Word()),
@@ -63,6 +64,10 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 				},
 			},
 		}
+		for _, opt := range opts {
+			opt(&backendRef)
+		}
+		return backendRef
 	}
 	makeResolvedGateway := func(listeners ...gatewayv1.Listener) resolvedGatewayDetails {
 		fake := faker.New()
@@ -705,6 +710,116 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 
 			require.ErrorIs(t, err, wantErr)
 		})
+
+		t.Run("rejects cross namespace backend without reference grant", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newGRPCRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			backendNamespace := gatewayv1.Namespace("backend-" + fake.Lorem().Word())
+			backendRef := makeGRPCBackendRef(func(ref *gatewayv1.GRPCBackendRef) {
+				ref.Namespace = &backendNamespace
+			})
+			route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.Spec.Rules = []gatewayv1.GRPCRouteRule{{BackendRefs: []gatewayv1.GRPCBackendRef{backendRef}}}
+			})
+
+			k8sClient.EXPECT().
+				List(t.Context(), mock.AnythingOfType("*v1beta1.ReferenceGrantList"), mock.Anything).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					*list.(*gatewayv1beta1.ReferenceGrantList) = gatewayv1beta1.ReferenceGrantList{}
+					return nil
+				}).
+				Once()
+
+			_, err := model.resolveBackendRefs(t.Context(), resolveGRPCBackendRefsParams{grpcRoute: route})
+
+			var statusErr grpcRouteStatusError
+			require.ErrorAs(t, err, &statusErr)
+			assert.Equal(t, gatewayv1.RouteConditionResolvedRefs, statusErr.conditionType)
+			assert.Equal(t, gatewayv1.RouteReasonRefNotPermitted, statusErr.reason)
+		})
+
+		t.Run("returns reference grant lookup errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newGRPCRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			backendNamespace := gatewayv1.Namespace("backend-" + fake.Lorem().Word())
+			backendRef := makeGRPCBackendRef(func(ref *gatewayv1.GRPCBackendRef) {
+				ref.Namespace = &backendNamespace
+			})
+			route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.Spec.Rules = []gatewayv1.GRPCRouteRule{{BackendRefs: []gatewayv1.GRPCBackendRef{backendRef}}}
+			})
+			wantErr := errors.New(fake.Lorem().Sentence(10))
+
+			k8sClient.EXPECT().
+				List(t.Context(), mock.AnythingOfType("*v1beta1.ReferenceGrantList"), mock.Anything).
+				Return(wantErr).
+				Once()
+
+			_, err := model.resolveBackendRefs(t.Context(), resolveGRPCBackendRefsParams{grpcRoute: route})
+
+			require.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("permits cross namespace backend with reference grant", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newGRPCRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			backendNamespace := gatewayv1.Namespace("backend-" + fake.Lorem().Word())
+			backendRef := makeGRPCBackendRef(func(ref *gatewayv1.GRPCBackendRef) {
+				ref.Namespace = &backendNamespace
+			})
+			route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.Spec.Rules = []gatewayv1.GRPCRouteRule{{BackendRefs: []gatewayv1.GRPCBackendRef{backendRef}}}
+			})
+			service := corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: string(backendNamespace),
+					Name:      string(backendRef.Name),
+					UID:       apitypes.UID("svc-" + fake.UUID().V4()),
+				},
+			}
+			serviceName := gatewayv1.ObjectName(service.Name)
+			grants := gatewayv1beta1.ReferenceGrantList{Items: []gatewayv1beta1.ReferenceGrant{{
+				ObjectMeta: metav1.ObjectMeta{Namespace: service.Namespace, Name: "grant-" + fake.Lorem().Word()},
+				Spec: gatewayv1beta1.ReferenceGrantSpec{
+					From: []gatewayv1beta1.ReferenceGrantFrom{{
+						Group:     gatewayv1.Group(gatewayAPIGroup),
+						Kind:      gatewayv1.Kind("GRPCRoute"),
+						Namespace: gatewayv1.Namespace(route.Namespace),
+					}},
+					To: []gatewayv1beta1.ReferenceGrantTo{{
+						Group: "",
+						Kind:  gatewayv1.Kind(serviceKind),
+						Name:  &serviceName,
+					}},
+				},
+			}}}
+
+			k8sClient.EXPECT().
+				List(t.Context(), mock.AnythingOfType("*v1beta1.ReferenceGrantList"), mock.Anything).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					*list.(*gatewayv1beta1.ReferenceGrantList) = grants
+					return nil
+				}).
+				Once()
+			k8sClient.EXPECT().
+				Get(t.Context(), client.ObjectKey{Namespace: service.Namespace, Name: service.Name}, mock.Anything).
+				RunAndReturn(func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+					*obj.(*corev1.Service) = service
+					return nil
+				}).
+				Once()
+
+			got, err := model.resolveBackendRefs(t.Context(), resolveGRPCBackendRefsParams{grpcRoute: route})
+
+			require.NoError(t, err)
+			assert.Equal(t, map[string]corev1.Service{service.Namespace + "/" + service.Name: service}, got)
+		})
 	})
 
 	t.Run("deprovisionRoute", func(t *testing.T) {
@@ -730,6 +845,52 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 				policyRules:     []loadbalancer.RoutingRule{},
 				prevPolicyRules: []string{ruleName},
 			}).Return(nil).Once()
+			k8sClient.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				updatedRoute, ok := obj.(*gatewayv1.GRPCRoute)
+				return ok && !controllerutil.ContainsFinalizer(updatedRoute, GRPCRouteProgrammedFinalizer)
+			})).Return(nil).Once()
+
+			err := model.deprovisionRoute(t.Context(), deprovisionGRPCRouteParams{
+				config:           config,
+				grpcRoute:        route,
+				matchedListeners: []gatewayv1.Listener{{Name: listenerName}},
+			})
+
+			require.NoError(t, err)
+		})
+
+		t.Run("deprovisions backend sets once per unique backend ref", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newGRPCRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			config := makeRandomGatewayConfig()
+			listenerName := gatewayv1.SectionName("grpc")
+			ruleName := "rule-" + fake.Lorem().Word()
+			backendRef := makeGRPCBackendRef()
+			route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.Annotations = map[string]string{
+					GRPCRouteProgrammedPolicyRulesAnnotation: fmt.Sprintf("%s/%s", listenerName, ruleName),
+				}
+				route.Spec.Rules = []gatewayv1.GRPCRouteRule{
+					{BackendRefs: []gatewayv1.GRPCBackendRef{backendRef}},
+					{BackendRefs: []gatewayv1.GRPCBackendRef{backendRef}},
+				}
+				controllerutil.AddFinalizer(route, GRPCRouteProgrammedFinalizer)
+			})
+
+			commitCall := ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  config.Spec.LoadBalancerID,
+				listenerName:    string(listenerName),
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{ruleName},
+			}).Return(nil).Once()
+			ociLBModel.EXPECT().deprovisionBackendSet(t.Context(), deprovisionBackendSetParams{
+				loadBalancerID: config.Spec.LoadBalancerID,
+				routeNamespace: route.Namespace,
+				backendRef:     backendRef.BackendRef,
+			}).Return(nil).Once().NotBefore(commitCall)
 			k8sClient.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
 				updatedRoute, ok := obj.(*gatewayv1.GRPCRoute)
 				return ok && !controllerutil.ContainsFinalizer(updatedRoute, GRPCRouteProgrammedFinalizer)
@@ -783,6 +944,44 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 				policyRules:     []loadbalancer.RoutingRule{},
 				prevPolicyRules: []string{ruleName},
 			}).Return(wantErr).Once()
+
+			err := model.deprovisionRoute(t.Context(), deprovisionGRPCRouteParams{
+				config:           config,
+				grpcRoute:        route,
+				matchedListeners: []gatewayv1.Listener{{Name: listenerName}},
+			})
+
+			require.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("returns backend set cleanup errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newGRPCRouteModel(deps)
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			listenerName := gatewayv1.SectionName("grpc")
+			ruleName := "rule-" + fake.Lorem().Word()
+			backendRef := makeGRPCBackendRef()
+			route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.Annotations = map[string]string{
+					GRPCRouteProgrammedPolicyRulesAnnotation: fmt.Sprintf("%s/%s", listenerName, ruleName),
+				}
+				route.Spec.Rules = []gatewayv1.GRPCRouteRule{{BackendRefs: []gatewayv1.GRPCBackendRef{backendRef}}}
+			})
+			config := makeRandomGatewayConfig()
+			wantErr := errors.New(fake.Lorem().Sentence(10))
+
+			commitCall := ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  config.Spec.LoadBalancerID,
+				listenerName:    string(listenerName),
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{ruleName},
+			}).Return(nil).Once()
+			ociLBModel.EXPECT().deprovisionBackendSet(t.Context(), deprovisionBackendSetParams{
+				loadBalancerID: config.Spec.LoadBalancerID,
+				routeNamespace: route.Namespace,
+				backendRef:     backendRef.BackendRef,
+			}).Return(wantErr).Once().NotBefore(commitCall)
 
 			err := model.deprovisionRoute(t.Context(), deprovisionGRPCRouteParams{
 				config:           config,
@@ -1006,6 +1205,63 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		})
 
 		require.NoError(t, err)
+	})
+
+	t.Run("setRejected sets resolved refs condition false", func(t *testing.T) {
+		fake := faker.New()
+		deps := newMockDeps(t)
+		model := newGRPCRouteModel(deps)
+		resourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+		gatewayData := makeResolvedGateway()
+		parentRef := gatewayv1.ParentReference{Name: gatewayv1.ObjectName(gatewayData.gateway.Name)}
+		route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+			route.Status.Parents = []gatewayv1.RouteParentStatus{{
+				ParentRef:      parentRef,
+				ControllerName: ControllerClassName,
+			}}
+		})
+		statusErr := newGRPCRouteRefNotPermittedStatusError(fake.Lorem().Sentence(8))
+
+		resourcesModel.EXPECT().setCondition(t.Context(), mock.MatchedBy(func(params setConditionParams) bool {
+			return params.conditionType == string(gatewayv1.RouteConditionResolvedRefs) &&
+				params.status == metav1.ConditionFalse &&
+				params.reason == string(gatewayv1.RouteReasonRefNotPermitted) &&
+				params.message == statusErr.message
+		})).Return(nil).Once()
+
+		err := model.setRejected(t.Context(), resolvedGRPCRouteDetails{
+			gatewayDetails: gatewayData,
+			grpcRoute:      route,
+			matchedRef:     parentRef,
+		}, statusErr)
+
+		require.NoError(t, err)
+	})
+
+	t.Run("setRejected returns status update errors", func(t *testing.T) {
+		fake := faker.New()
+		deps := newMockDeps(t)
+		model := newGRPCRouteModel(deps)
+		resourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+		gatewayData := makeResolvedGateway()
+		parentRef := gatewayv1.ParentReference{Name: gatewayv1.ObjectName(gatewayData.gateway.Name)}
+		route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+			route.Status.Parents = []gatewayv1.RouteParentStatus{{
+				ParentRef:      parentRef,
+				ControllerName: ControllerClassName,
+			}}
+		})
+		wantErr := errors.New(fake.Lorem().Sentence(10))
+
+		resourcesModel.EXPECT().setCondition(t.Context(), mock.Anything).Return(wantErr).Once()
+
+		err := model.setRejected(t.Context(), resolvedGRPCRouteDetails{
+			gatewayDetails: gatewayData,
+			grpcRoute:      route,
+			matchedRef:     parentRef,
+		}, newGRPCRouteRefNotPermittedStatusError(fake.Lorem().Sentence(8)))
+
+		require.ErrorIs(t, err, wantErr)
 	})
 
 	t.Run("setProgrammed returns status update errors", func(t *testing.T) {

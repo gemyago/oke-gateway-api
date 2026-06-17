@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -80,6 +81,15 @@ func (r *GRPCRouteController) reconcileResolvedRoute(
 		grpcRoute: *acceptedRoute,
 	})
 	if err != nil {
+		var statusErr grpcRouteStatusError
+		if errors.As(err, &statusErr) {
+			rejectedRouteDetails := resolvedData
+			rejectedRouteDetails.grpcRoute = *acceptedRoute
+			if rejectErr := r.grpcRouteModel.setRejected(ctx, rejectedRouteDetails, statusErr); rejectErr != nil {
+				return false, fmt.Errorf("failed to reject route: %w", rejectErr)
+			}
+			return false, nil
+		}
 		return false, fmt.Errorf("failed to resolve backend refs: %w", err)
 	}
 
