@@ -518,6 +518,7 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 				Protocol:              networkloadbalancer.ListenerProtocolsTcp,
 				Port:                  new(1935),
 				DefaultBackendSetName: new("bs_rtmp"),
+				TcpIdleTimeout:        new(networkLoadBalancerTCPIdleTimeoutSeconds),
 			},
 			networkloadbalancer.ListenerProtocolsTcp,
 			1935,
@@ -682,10 +683,14 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 		assert.Equal(t, networkloadbalancer.ListenerProtocolsTcp, client.createListenerRequests[0].Protocol)
 		assert.Equal(t, 1935, lo.FromPtr(client.createListenerRequests[0].Port))
 		assert.Equal(t, "bs_rtmp", lo.FromPtr(client.createListenerRequests[0].DefaultBackendSetName))
+		assert.Equal(t, networkLoadBalancerTCPIdleTimeoutSeconds,
+			lo.FromPtr(client.createListenerRequests[0].TcpIdleTimeout))
 		assert.Equal(t, "coap-dtls", lo.FromPtr(client.createListenerRequests[1].Name))
 		assert.Equal(t, networkloadbalancer.ListenerProtocolsUdp, client.createListenerRequests[1].Protocol)
 		assert.Equal(t, 5684, lo.FromPtr(client.createListenerRequests[1].Port))
 		assert.Equal(t, "bs_coap_dtls", lo.FromPtr(client.createListenerRequests[1].DefaultBackendSetName))
+		assert.Equal(t, networkLoadBalancerUDPIdleTimeoutSeconds,
+			lo.FromPtr(client.createListenerRequests[1].UdpIdleTimeout))
 	})
 
 	t.Run("programs existing network load balancer by id without marking it managed", func(t *testing.T) {
@@ -770,6 +775,7 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 							DefaultBackendSetName: new("bs_rtmp"),
 							Port:                  new(1935),
 							Protocol:              networkloadbalancer.ListenerProtocolsTcp,
+							TcpIdleTimeout:        new(networkLoadBalancerTCPIdleTimeoutSeconds),
 						},
 					},
 					BackendSets: map[string]networkloadbalancer.BackendSet{
@@ -851,6 +857,54 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 		assert.Equal(t, 1935, lo.FromPtr(client.updateListenerRequests[0].UpdateListenerDetails.Port))
 		assert.Equal(t, "bs_rtmp",
 			lo.FromPtr(client.updateListenerRequests[0].UpdateListenerDetails.DefaultBackendSetName))
+		assert.Equal(t, networkLoadBalancerTCPIdleTimeoutSeconds,
+			lo.FromPtr(client.updateListenerRequests[0].UpdateListenerDetails.TcpIdleTimeout))
+	})
+
+	t.Run("updates drifted udp listener idle timeout", func(t *testing.T) {
+		healthChecker := networkLoadBalancerHealthCheckerDetails(gatewayv1.UDPProtocolType, new(5684))
+		client := &stubNetworkLoadBalancerClient{
+			getResponse: networkloadbalancer.GetNetworkLoadBalancerResponse{
+				NetworkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id:          new("ocid1.networkloadbalancer.oc1..existing"),
+					DisplayName: new("shared-nlb"),
+					Listeners: map[string]networkloadbalancer.Listener{
+						"coap-dtls": {
+							Name:                  new("coap-dtls"),
+							DefaultBackendSetName: new("bs_coap_dtls"),
+							Port:                  new(5684),
+							Protocol:              networkloadbalancer.ListenerProtocolsUdp,
+							UdpIdleTimeout:        new(networkLoadBalancerUDPIdleTimeoutSeconds + 1),
+						},
+					},
+					BackendSets: map[string]networkloadbalancer.BackendSet{
+						"bs_coap_dtls": {
+							Name:             new("bs_coap_dtls"),
+							Policy:           networkloadbalancer.NetworkLoadBalancingPolicyFiveTuple,
+							HealthChecker:    nlbHealthCheckerFromDetails(healthChecker),
+							IsPreserveSource: new(false),
+						},
+					},
+				},
+			},
+			updateListenerResponse: networkloadbalancer.UpdateListenerResponse{
+				OpcWorkRequestId: new("update-listener-work"),
+			},
+		}
+		model := newModel(client, &stubWorkRequestsWatcher{})
+		details := newDetails()
+		details.gateway.Spec.Listeners = []gatewayv1.Listener{
+			{Name: "coap-dtls", Protocol: gatewayv1.UDPProtocolType, Port: 5684},
+		}
+
+		err := model.programGateway(t.Context(), details)
+
+		require.NoError(t, err)
+		require.Len(t, client.updateListenerRequests, 1)
+		assert.Equal(t, networkloadbalancer.ListenerProtocolsUdp,
+			client.updateListenerRequests[0].UpdateListenerDetails.Protocol)
+		assert.Equal(t, networkLoadBalancerUDPIdleTimeoutSeconds,
+			lo.FromPtr(client.updateListenerRequests[0].UpdateListenerDetails.UdpIdleTimeout))
 	})
 
 	t.Run("rejects unsupported gateway listener protocol and empty load balancer id", func(t *testing.T) {

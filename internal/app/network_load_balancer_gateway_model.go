@@ -25,6 +25,8 @@ import (
 const networkLoadBalancerHealthCheckRetries = 3
 const networkLoadBalancerHealthCheckTimeoutMillis = 3000
 const networkLoadBalancerHealthCheckIntervalMillis = 10000
+const networkLoadBalancerTCPIdleTimeoutSeconds = 360
+const networkLoadBalancerUDPIdleTimeoutSeconds = 120
 
 type networkLoadBalancerGatewayModel interface {
 	resolveReconcileRequest(
@@ -124,9 +126,54 @@ func networkLoadBalancerListenerMatches(
 	desiredPort int,
 	desiredBackendSetName string,
 ) bool {
-	return actual.Protocol == desiredProtocol &&
-		lo.FromPtr(actual.Port) == desiredPort &&
-		lo.FromPtr(actual.DefaultBackendSetName) == desiredBackendSetName
+	if actual.Protocol != desiredProtocol ||
+		lo.FromPtr(actual.Port) != desiredPort ||
+		lo.FromPtr(actual.DefaultBackendSetName) != desiredBackendSetName {
+		return false
+	}
+	if desiredProtocol == networkloadbalancer.ListenerProtocolsTcp {
+		return lo.FromPtr(actual.TcpIdleTimeout) == networkLoadBalancerTCPIdleTimeoutSeconds
+	}
+	if desiredProtocol == networkloadbalancer.ListenerProtocolsUdp {
+		return lo.FromPtr(actual.UdpIdleTimeout) == networkLoadBalancerUDPIdleTimeoutSeconds
+	}
+	return true
+}
+
+func networkLoadBalancerListenerDetails(
+	backendSetName string,
+	port int,
+	protocol networkloadbalancer.ListenerProtocolsEnum,
+) networkloadbalancer.UpdateListenerDetails {
+	details := networkloadbalancer.UpdateListenerDetails{
+		DefaultBackendSetName: new(backendSetName),
+		Port:                  new(port),
+		Protocol:              protocol,
+	}
+	if protocol == networkloadbalancer.ListenerProtocolsTcp {
+		details.TcpIdleTimeout = new(networkLoadBalancerTCPIdleTimeoutSeconds)
+	}
+	if protocol == networkloadbalancer.ListenerProtocolsUdp {
+		details.UdpIdleTimeout = new(networkLoadBalancerUDPIdleTimeoutSeconds)
+	}
+	return details
+}
+
+func createNetworkLoadBalancerListenerDetails(
+	listenerName string,
+	backendSetName string,
+	port int,
+	protocol networkloadbalancer.ListenerProtocolsEnum,
+) networkloadbalancer.CreateListenerDetails {
+	updateDetails := networkLoadBalancerListenerDetails(backendSetName, port, protocol)
+	return networkloadbalancer.CreateListenerDetails{
+		Name:                  new(listenerName),
+		DefaultBackendSetName: updateDetails.DefaultBackendSetName,
+		Port:                  updateDetails.Port,
+		Protocol:              updateDetails.Protocol,
+		TcpIdleTimeout:        updateDetails.TcpIdleTimeout,
+		UdpIdleTimeout:        updateDetails.UdpIdleTimeout,
+	}
 }
 
 func gatewayStatusAddressesFromNetworkLoadBalancer(
@@ -373,11 +420,7 @@ func (m *networkLoadBalancerGatewayModelImpl) reconcileListener(
 		response, err := m.ociClient.UpdateListener(ctx, networkloadbalancer.UpdateListenerRequest{
 			NetworkLoadBalancerId: nlb.Id,
 			ListenerName:          new(listenerName),
-			UpdateListenerDetails: networkloadbalancer.UpdateListenerDetails{
-				DefaultBackendSetName: new(backendSetName),
-				Port:                  new(port),
-				Protocol:              protocol,
-			},
+			UpdateListenerDetails: networkLoadBalancerListenerDetails(backendSetName, port, protocol),
 		})
 		if err != nil {
 			if busyErr := networkLoadBalancerBusyErrorFromOCI(nlb.Id, err); busyErr != nil {
@@ -404,12 +447,12 @@ func (m *networkLoadBalancerGatewayModelImpl) reconcileListener(
 
 	response, err := m.ociClient.CreateListener(ctx, networkloadbalancer.CreateListenerRequest{
 		NetworkLoadBalancerId: nlb.Id,
-		CreateListenerDetails: networkloadbalancer.CreateListenerDetails{
-			Name:                  new(listenerName),
-			DefaultBackendSetName: new(backendSetName),
-			Port:                  new(port),
-			Protocol:              protocol,
-		},
+		CreateListenerDetails: createNetworkLoadBalancerListenerDetails(
+			listenerName,
+			backendSetName,
+			port,
+			protocol,
+		),
 	})
 	if err != nil {
 		if busyErr := networkLoadBalancerBusyErrorFromOCI(nlb.Id, err); busyErr != nil {
