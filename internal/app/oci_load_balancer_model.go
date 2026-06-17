@@ -234,6 +234,14 @@ func (m *ociLoadBalancerModelImpl) updateBackendSetConfig(
 	policy string,
 	healthChecker loadbalancer.HealthCheckerDetails,
 ) error {
+	m.logger.InfoContext(ctx, "Updating backend set configuration",
+		slog.String("loadBalancerId", loadBalancerID),
+		slog.String("backendSetName", backendSetName),
+		slog.String("policy", policy),
+		slog.String("healthCheckProtocol", lo.FromPtr(healthChecker.Protocol)),
+		slog.Int("healthCheckPort", lo.FromPtr(healthChecker.Port)),
+	)
+
 	updateRes, err := m.ociClient.UpdateBackendSet(ctx, loadbalancer.UpdateBackendSetRequest{
 		LoadBalancerId: new(loadBalancerID),
 		BackendSetName: new(backendSetName),
@@ -680,6 +688,12 @@ func (m *ociLoadBalancerModelImpl) updateListenerRoutingPolicyDefaultRule(
 	routingPolicyName string,
 	policy loadbalancer.RoutingPolicy,
 ) error {
+	m.logger.InfoContext(ctx, "Updating routing policy default rule",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("routingPolicyName", routingPolicyName),
+		slog.String("defaultBackendSetName", params.defaultBackendSetName),
+	)
+
 	updateRoutingPolicyRes, err := m.ociClient.UpdateRoutingPolicy(ctx, loadbalancer.UpdateRoutingPolicyRequest{
 		LoadBalancerId:    &params.loadBalancerID,
 		RoutingPolicyName: &routingPolicyName,
@@ -883,6 +897,12 @@ func (m *ociLoadBalancerModelImpl) ensureHTTP2ListenerProtocol(
 	if lo.FromPtr(listener.Protocol) == ociListenerProtocolHTTP2 {
 		return nil
 	}
+
+	m.logger.InfoContext(ctx, "Updating listener protocol to HTTP2",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("listenerName", params.listenerName),
+		slog.String("currentProtocol", lo.FromPtr(listener.Protocol)),
+	)
 
 	updateDetails := loadbalancer.UpdateListenerDetails{
 		DefaultBackendSetName:   listener.DefaultBackendSetName,

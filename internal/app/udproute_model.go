@@ -640,6 +640,13 @@ func (m *udpRouteModelImpl) updateBackendSet(
 			}
 		}
 
+		m.logger.InfoContext(ctx, "Updating UDPRoute backend set",
+			slog.String("udpRoute", details.udpRoute.Name),
+			slog.String("backendSetName", backendSetName),
+			slog.Int("desiredBackends", len(backends)),
+			slog.Int("healthCheckPort", healthCheckPort),
+		)
+
 		return updateNetworkLoadBalancerBackendSet(
 			ctx,
 			m.ociNetworkLoadBalancerAPI,

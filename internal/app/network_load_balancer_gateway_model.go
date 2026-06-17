@@ -362,6 +362,14 @@ func (m *networkLoadBalancerGatewayModelImpl) reconcileListener(
 		return nil
 	}
 	if exists {
+		m.logger.InfoContext(ctx, "Updating OCI Network Load Balancer listener",
+			slog.String("networkLoadBalancerId", lo.FromPtr(nlb.Id)),
+			slog.String("listenerName", listenerName),
+			slog.String("backendSetName", backendSetName),
+			slog.String("protocol", string(protocol)),
+			slog.Int("port", port),
+		)
+
 		response, err := m.ociClient.UpdateListener(ctx, networkloadbalancer.UpdateListenerRequest{
 			NetworkLoadBalancerId: nlb.Id,
 			ListenerName:          new(listenerName),
@@ -385,6 +393,14 @@ func (m *networkLoadBalancerGatewayModelImpl) reconcileListener(
 		}
 		return m.workRequestsWatcher.WaitFor(ctx, *response.OpcWorkRequestId)
 	}
+
+	m.logger.InfoContext(ctx, "Creating OCI Network Load Balancer listener",
+		slog.String("networkLoadBalancerId", lo.FromPtr(nlb.Id)),
+		slog.String("listenerName", listenerName),
+		slog.String("backendSetName", backendSetName),
+		slog.String("protocol", string(protocol)),
+		slog.Int("port", port),
+	)
 
 	response, err := m.ociClient.CreateListener(ctx, networkloadbalancer.CreateListenerRequest{
 		NetworkLoadBalancerId: nlb.Id,

@@ -1001,6 +1001,12 @@ func (m *tcpRouteModelImpl) updateBackendSet(
 		}
 
 		healthChecker := networkLoadBalancerHealthCheckerDetails(details.matchedListener.Protocol, nil)
+		m.logger.InfoContext(ctx, "Updating TCPRoute backend set",
+			slog.String("tcpRoute", details.tcpRoute.Name),
+			slog.String("backendSetName", backendSetName),
+			slog.Int("desiredBackends", len(backends)),
+		)
+
 		return updateNetworkLoadBalancerBackendSet(
 			ctx,
 			m.ociNetworkLoadBalancerAPI,
