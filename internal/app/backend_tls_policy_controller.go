@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"go.uber.org/dig"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -11,6 +13,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
+
+const backendTLSPolicyCleanupRequeueAfter = 30 * time.Second
 
 type BackendTLSPolicyController struct {
 	logger *slog.Logger
@@ -52,6 +56,14 @@ func (c *BackendTLSPolicyController) Reconcile(
 	}
 	if policy.DeletionTimestamp != nil {
 		if err := c.model.cleanupDeletingPolicy(ctx, policy); err != nil {
+			if errors.Is(err, errBackendTLSCABundleStillAssociated) {
+				c.logger.InfoContext(ctx,
+					"BackendTLSPolicy cleanup is waiting for OCI CA bundle associations to be removed",
+					slog.String("policy", req.NamespacedName.String()),
+					slog.Duration("requeueAfter", backendTLSPolicyCleanupRequeueAfter),
+				)
+				return reconcile.Result{RequeueAfter: backendTLSPolicyCleanupRequeueAfter}, nil
+			}
 			return reconcile.Result{}, fmt.Errorf("failed to cleanup BackendTLSPolicy %s: %w", req.NamespacedName, err)
 		}
 	}

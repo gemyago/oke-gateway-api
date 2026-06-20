@@ -137,6 +137,32 @@ func TestBackendTLSPolicyController(t *testing.T) {
 		assert.Equal(t, "deleting", model.cleanupPolicy.Name)
 	})
 
+	t.Run("requeues cleanup while OCI CA bundle associations remain", func(t *testing.T) {
+		now := metav1.Now()
+		policy := gatewayv1.BackendTLSPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:         "default",
+				Name:              "associated",
+				Finalizers:        []string{BackendTLSPolicyProgrammedFinalizer},
+				DeletionTimestamp: &now,
+			},
+		}
+		model := &stubBackendTLSPolicyModel{cleanupErr: errBackendTLSCABundleStillAssociated}
+		controller := NewBackendTLSPolicyController(BackendTLSPolicyControllerDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).WithObjects(&policy).Build(),
+			Model:      model,
+		})
+
+		result, err := controller.Reconcile(t.Context(), reconcile.Request{
+			NamespacedName: apitypes.NamespacedName{Namespace: "default", Name: "associated"},
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, model.cleanupPolicy)
+		assert.Equal(t, backendTLSPolicyCleanupRequeueAfter, result.RequeueAfter)
+	})
+
 	t.Run("wraps cleanup errors", func(t *testing.T) {
 		now := metav1.Now()
 		wantErr := errors.New("cleanup failed")
