@@ -1093,6 +1093,56 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		)
 	})
 
+	t.Run("programRoute removes stale backend SSL config when BackendTLSPolicy no longer matches", func(t *testing.T) {
+		fake := faker.New()
+		deps := newMockDeps(t)
+		model := newGRPCRouteModel(deps)
+		model.backendTLSPolicy = &stubBackendTLSPolicyModel{resolveErr: errBackendTLSPolicyNotFound}
+		ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+		config := makeRandomGatewayConfig()
+		backendRef := makeGRPCBackendRef()
+		listener := gatewayv1.Listener{Name: gatewayv1.SectionName("grpc"), Port: 50051}
+		route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+			route.Spec.Rules = []gatewayv1.GRPCRouteRule{{
+				BackendRefs: []gatewayv1.GRPCBackendRef{backendRef},
+			}}
+		})
+		service := corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Namespace: route.Namespace, Name: string(backendRef.Name)},
+		}
+		ruleName := "grpc_rule_" + fake.Lorem().Word()
+		routingRule := loadbalancer.RoutingRule{Name: &ruleName}
+
+		ociLBModel.EXPECT().
+			reconcileBackendSet(t.Context(), mock.MatchedBy(func(params reconcileBackendSetParams) bool {
+				return params.loadBalancerID == config.Spec.LoadBalancerID &&
+					params.service.Name == service.Name &&
+					params.backendRef.Name == backendRef.Name &&
+					params.manageSSLConfig &&
+					params.sslConfig == nil
+			})).
+			Return(nil).
+			Once()
+		ociLBModel.EXPECT().makeGRPCRoutingRule(t.Context(), makeGRPCRoutingRuleParams{
+			grpcRoute:          route,
+			grpcRouteRuleIndex: 0,
+		}).Return(routingRule, nil).Once()
+		ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+			loadBalancerID: config.Spec.LoadBalancerID,
+			listenerName:   string(listener.Name),
+			policyRules:    []loadbalancer.RoutingRule{routingRule},
+		}).Return(nil).Once()
+
+		_, err := model.programRoute(t.Context(), programGRPCRouteParams{
+			config:           config,
+			grpcRoute:        route,
+			knownBackends:    map[string]corev1.Service{service.Namespace + "/" + service.Name: service},
+			matchedListeners: []gatewayv1.Listener{listener},
+		})
+
+		require.NoError(t, err)
+	})
+
 	t.Run("ensureGRPCListenersProtocol updates matched listeners to HTTP2", func(t *testing.T) {
 		fake := faker.New()
 		deps := newMockDeps(t)

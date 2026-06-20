@@ -770,6 +770,190 @@ func TestTLSRouteLoadBalancerBackendsEqual(t *testing.T) {
 	))
 }
 
+func TestTLSRouteBackendTLSPolicyConfig(t *testing.T) {
+	namespace := "media"
+	makeDetails := func(serviceNames ...string) resolvedTLSRouteDetails {
+		backendRefs := lo.Map(serviceNames, func(name string, _ int) gatewayv1.BackendRef {
+			return gatewayv1.BackendRef{BackendObjectReference: gatewayv1.BackendObjectReference{
+				Name: gatewayv1.ObjectName(name),
+				Port: lo.ToPtr(gatewayv1.PortNumber(8443)),
+			}}
+		})
+		return resolvedTLSRouteDetails{
+			gatewayDetails: resolvedGatewayDetails{
+				gateway: *newRandomGateway(func(gateway *gatewayv1.Gateway) {
+					gateway.Namespace = namespace
+					gateway.Name = "edge"
+				}),
+				config: types.GatewayConfig{Spec: types.GatewayConfigSpec{LoadBalancerID: "lb-id"}},
+			},
+			tlsRoute: gatewayv1.TLSRoute{
+				ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "rtmps"},
+				Spec: gatewayv1.TLSRouteSpec{Rules: []gatewayv1.TLSRouteRule{{
+					BackendRefs: backendRefs,
+				}}},
+			},
+		}
+	}
+	makeClient := func(services ...string) k8sClient {
+		objects := lo.Map(services, func(name string, _ int) client.Object {
+			return &corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name}}
+		})
+		return fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).WithObjects(objects...).Build()
+	}
+
+	t.Run("does not manage backend SSL when BackendTLSPolicy support is disabled", func(t *testing.T) {
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  makeClient("rtmp"),
+		})
+
+		sslConfig, managed, err := model.loadBalancerBackendTLSConfigForRoute(t.Context(), makeDetails("rtmp"))
+
+		require.NoError(t, err)
+		require.Nil(t, sslConfig)
+		require.False(t, managed)
+	})
+
+	t.Run("manages backend SSL as nil when no policy matches", func(t *testing.T) {
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  makeClient("rtmp"),
+			BackendTLS: &stubBackendTLSPolicyModel{resolveErr: errBackendTLSPolicyNotFound},
+		})
+
+		sslConfig, managed, err := model.loadBalancerBackendTLSConfigForRoute(t.Context(), makeDetails("rtmp"))
+
+		require.NoError(t, err)
+		require.Nil(t, sslConfig)
+		require.True(t, managed)
+	})
+
+	t.Run("returns matching backend SSL config", func(t *testing.T) {
+		verifyDepth := 4
+		wantConfig := &loadbalancer.SslConfigurationDetails{VerifyDepth: &verifyDepth}
+		backendTLS := &stubBackendTLSPolicyModel{
+			resolveFunc: func(params resolveBackendTLSPolicyParams) (*loadbalancer.SslConfigurationDetails, error) {
+				require.Equal(t, "rtmp", params.service.Name)
+				return wantConfig, nil
+			},
+		}
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  makeClient("rtmp"),
+			BackendTLS: backendTLS,
+		})
+
+		sslConfig, managed, err := model.loadBalancerBackendTLSConfigForRoute(t.Context(), makeDetails("rtmp"))
+
+		require.NoError(t, err)
+		require.True(t, managed)
+		require.Same(t, wantConfig, sslConfig)
+	})
+
+	t.Run("rejects differing backend SSL configs in one backend set", func(t *testing.T) {
+		backendTLS := &stubBackendTLSPolicyModel{
+			resolveFunc: func(params resolveBackendTLSPolicyParams) (*loadbalancer.SslConfigurationDetails, error) {
+				verifyDepth := 1
+				if params.service.Name == "two" {
+					verifyDepth = 2
+				}
+				return &loadbalancer.SslConfigurationDetails{VerifyDepth: &verifyDepth}, nil
+			},
+		}
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  makeClient("one", "two"),
+			BackendTLS: backendTLS,
+		})
+
+		_, _, err := model.loadBalancerBackendTLSConfigForRoute(t.Context(), makeDetails("one", "two"))
+
+		require.Error(t, err)
+		require.ErrorContains(t, err, "all backendRefs must resolve to the same")
+	})
+
+	t.Run("rejects mixed backend policy presence in one backend set", func(t *testing.T) {
+		verifyDepth := 1
+		backendTLS := &stubBackendTLSPolicyModel{
+			resolveFunc: func(params resolveBackendTLSPolicyParams) (*loadbalancer.SslConfigurationDetails, error) {
+				if params.service.Name == "plain" {
+					return nil, errBackendTLSPolicyNotFound
+				}
+				return &loadbalancer.SslConfigurationDetails{VerifyDepth: &verifyDepth}, nil
+			},
+		}
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  makeClient("plain", "tls"),
+			BackendTLS: backendTLS,
+		})
+
+		_, _, err := model.loadBalancerBackendTLSConfigForRoute(t.Context(), makeDetails("plain", "tls"))
+
+		require.Error(t, err)
+		require.ErrorContains(t, err, "all backendRefs must resolve to the same")
+	})
+
+	t.Run("rejects mixed backend policy presence when policy backend is first", func(t *testing.T) {
+		verifyDepth := 1
+		backendTLS := &stubBackendTLSPolicyModel{
+			resolveFunc: func(params resolveBackendTLSPolicyParams) (*loadbalancer.SslConfigurationDetails, error) {
+				if params.service.Name == "plain" {
+					return nil, errBackendTLSPolicyNotFound
+				}
+				return &loadbalancer.SslConfigurationDetails{VerifyDepth: &verifyDepth}, nil
+			},
+		}
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  makeClient("tls", "plain"),
+			BackendTLS: backendTLS,
+		})
+
+		_, _, err := model.loadBalancerBackendTLSConfigForRoute(t.Context(), makeDetails("tls", "plain"))
+
+		require.Error(t, err)
+		require.ErrorContains(t, err, "all backendRefs must resolve to the same")
+	})
+
+	t.Run("skips zero weight backend refs", func(t *testing.T) {
+		details := makeDetails("rtmp")
+		zeroWeight := int32(0)
+		details.tlsRoute.Spec.Rules[0].BackendRefs[0].Weight = &zeroWeight
+		backendTLS := &stubBackendTLSPolicyModel{
+			resolveFunc: func(resolveBackendTLSPolicyParams) (*loadbalancer.SslConfigurationDetails, error) {
+				require.Fail(t, "zero-weight backend should not resolve BackendTLSPolicy")
+				return nil, errors.New("unexpected BackendTLSPolicy resolution")
+			},
+		}
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  makeClient("rtmp"),
+			BackendTLS: backendTLS,
+		})
+
+		sslConfig, managed, err := model.loadBalancerBackendTLSConfigForRoute(t.Context(), details)
+
+		require.NoError(t, err)
+		require.Nil(t, sslConfig)
+		require.True(t, managed)
+	})
+
+	t.Run("returns missing backend service errors", func(t *testing.T) {
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  makeClient(),
+			BackendTLS: &stubBackendTLSPolicyModel{},
+		})
+
+		_, _, err := model.loadBalancerBackendTLSConfigForRoute(t.Context(), makeDetails("missing"))
+
+		require.Error(t, err)
+		require.ErrorContains(t, err, "failed to get TLSRoute backend Service")
+	})
+}
+
 func TestTLSRouteModelLoadBalancerListener(t *testing.T) {
 	mode := gatewayv1.TLSModeTerminate
 	listener := gatewayv1.Listener{
