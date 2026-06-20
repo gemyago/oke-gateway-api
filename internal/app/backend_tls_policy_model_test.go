@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"math/big"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -30,20 +31,23 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
+	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
 	"github.com/gemyago/oke-gateway-api/internal/types"
 )
 
 type stubCertificatesManagementClient struct {
-	bundles     map[string]certificatesmanagement.CaBundleSummary
-	createCalls []certificatesmanagement.CreateCaBundleRequest
-	updateCalls []certificatesmanagement.UpdateCaBundleRequest
-	deleteCalls []certificatesmanagement.DeleteCaBundleRequest
-	getErrByID  map[string]error
-	createErr   error
-	listErr     error
-	updateErr   error
-	deleteErr   error
-	nextID      int
+	bundles            map[string]certificatesmanagement.CaBundleSummary
+	createCalls        []certificatesmanagement.CreateCaBundleRequest
+	updateCalls        []certificatesmanagement.UpdateCaBundleRequest
+	deleteCalls        []certificatesmanagement.DeleteCaBundleRequest
+	getErrByID         map[string]error
+	createErr          error
+	createState        certificatesmanagement.CaBundleLifecycleStateEnum
+	listErr            error
+	listEmptyResponses int
+	updateErr          error
+	deleteErr          error
+	nextID             int
 }
 
 func newStubCertificatesManagementClient() *stubCertificatesManagementClient {
@@ -64,11 +68,15 @@ func (s *stubCertificatesManagementClient) CreateCaBundle(
 	s.nextID++
 	id := "ocid1.cabundle.oc1..created" + string(rune('a'+s.nextID))
 	name := lo.FromPtr(request.CreateCaBundleDetails.Name)
+	lifecycleState := s.createState
+	if lifecycleState == "" {
+		lifecycleState = certificatesmanagement.CaBundleLifecycleStateActive
+	}
 	bundle := certificatesmanagement.CaBundleSummary{
 		Id:             &id,
 		Name:           &name,
 		CompartmentId:  request.CreateCaBundleDetails.CompartmentId,
-		LifecycleState: certificatesmanagement.CaBundleLifecycleStateActive,
+		LifecycleState: lifecycleState,
 		FreeformTags:   request.CreateCaBundleDetails.FreeformTags,
 	}
 	s.bundles[name] = bundle
@@ -77,7 +85,7 @@ func (s *stubCertificatesManagementClient) CreateCaBundle(
 			Id:             &id,
 			Name:           &name,
 			CompartmentId:  request.CreateCaBundleDetails.CompartmentId,
-			LifecycleState: certificatesmanagement.CaBundleLifecycleStateActive,
+			LifecycleState: lifecycleState,
 			FreeformTags:   request.CreateCaBundleDetails.FreeformTags,
 		},
 	}, nil
@@ -104,6 +112,12 @@ func (s *stubCertificatesManagementClient) ListCaBundles(
 ) (certificatesmanagement.ListCaBundlesResponse, error) {
 	if s.listErr != nil {
 		return certificatesmanagement.ListCaBundlesResponse{}, s.listErr
+	}
+	if s.listEmptyResponses > 0 {
+		s.listEmptyResponses--
+		return certificatesmanagement.ListCaBundlesResponse{
+			CaBundleCollection: certificatesmanagement.CaBundleCollection{Items: nil},
+		}, nil
 	}
 	items := make([]certificatesmanagement.CaBundleSummary, 0)
 	if request.Name != nil {
@@ -723,6 +737,120 @@ func TestBackendTLSPolicyModelValidationAndLifecycle(t *testing.T) {
 		assert.Empty(t, certsClient.updateCalls)
 	})
 
+	t.Run("waits for existing owned OCI CA bundle to become active", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "creating", serviceName, "tls", baseOptions, "ca")
+		targetRef := policy.Spec.TargetRefs[0]
+		ref := policy.Spec.Validation.CACertificateRefs[0]
+		name := backendTLSCABundleName(policy, targetRef, ref)
+		caPEM := testCAPEM(t)
+		certsClient := newStubCertificatesManagementClient()
+		bundleID := "ocid1.cabundle.oc1..creating"
+		certsClient.bundles[name] = certificatesmanagement.CaBundleSummary{
+			Id:             &bundleID,
+			Name:           &name,
+			LifecycleState: certificatesmanagement.CaBundleLifecycleStateCreating,
+			FreeformTags:   backendTLSCABundleTags(policy, sha256Hex(caPEM)),
+		}
+		model, _ := makeModel(t, certsClient)
+
+		_, err := model.ensureOCIManagedCABundle(t.Context(), policy, targetRef, ref, compartmentID, caPEM)
+
+		require.ErrorContains(t, err, "not ready")
+		assert.Empty(t, certsClient.createCalls)
+		assert.Empty(t, certsClient.updateCalls)
+	})
+
+	t.Run("waits when newly created OCI CA bundle is not active yet", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "create-wait", serviceName, "tls", baseOptions, "ca")
+		targetRef := policy.Spec.TargetRefs[0]
+		ref := policy.Spec.Validation.CACertificateRefs[0]
+		certsClient := newStubCertificatesManagementClient()
+		certsClient.createState = certificatesmanagement.CaBundleLifecycleStateCreating
+		model, _ := makeModel(t, certsClient)
+
+		_, err := model.ensureOCIManagedCABundle(t.Context(), policy, targetRef, ref, compartmentID, testCAPEM(t))
+
+		require.ErrorContains(t, err, "not ready")
+		assert.Len(t, certsClient.createCalls, 1)
+	})
+
+	t.Run("classifies OCI CA bundle lifecycle states for backend TLS", func(t *testing.T) {
+		name := "managed-ca"
+		require.NoError(t, ensureBackendTLSCABundleUsable(certificatesmanagement.CaBundleSummary{
+			Name:           &name,
+			LifecycleState: certificatesmanagement.CaBundleLifecycleStateActive,
+		}))
+		require.ErrorContains(t, ensureBackendTLSCABundleUsable(certificatesmanagement.CaBundleSummary{
+			Name:           &name,
+			LifecycleState: certificatesmanagement.CaBundleLifecycleStateDeleting,
+		}), "cannot be reused")
+		require.ErrorContains(t, ensureBackendTLSCABundleUsable(certificatesmanagement.CaBundleSummary{
+			Name:           &name,
+			LifecycleState: certificatesmanagement.CaBundleLifecycleStateFailed,
+		}), "not ready")
+		require.ErrorContains(t, ensureBackendTLSCABundleUsable(certificatesmanagement.CaBundleSummary{
+			Name:           &name,
+			LifecycleState: certificatesmanagement.CaBundleLifecycleStateEnum("UNKNOWN"),
+		}), "not ready")
+	})
+
+	t.Run("reuses owned OCI CA bundle after create already exists conflict", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "create-conflict", serviceName, "tls", baseOptions, "ca")
+		targetRef := policy.Spec.TargetRefs[0]
+		ref := policy.Spec.Validation.CACertificateRefs[0]
+		name := backendTLSCABundleName(policy, targetRef, ref)
+		caPEM := testCAPEM(t)
+		bundleID := "ocid1.cabundle.oc1..conflict"
+		certsClient := newStubCertificatesManagementClient()
+		certsClient.createErr = ociapi.NewRandomServiceError(
+			ociapi.RandomServiceErrorWithStatusCode(http.StatusBadRequest),
+			ociapi.RandomServiceErrorWithCode("InvalidParameter"),
+			ociapi.RandomServiceErrorWithMessage("A CA bundle with the name '"+name+"' already exists."),
+		)
+		certsClient.listEmptyResponses = 1
+		certsClient.bundles[name] = certificatesmanagement.CaBundleSummary{
+			Id:             &bundleID,
+			Name:           &name,
+			LifecycleState: certificatesmanagement.CaBundleLifecycleStateActive,
+			FreeformTags:   backendTLSCABundleTags(policy, sha256Hex(caPEM)),
+		}
+		model, _ := makeModel(t, certsClient)
+
+		caID, err := model.ensureOCIManagedCABundle(t.Context(), policy, targetRef, ref, compartmentID, caPEM)
+
+		require.NoError(t, err)
+		assert.Equal(t, bundleID, caID)
+		assert.Len(t, certsClient.createCalls, 1)
+		assert.Empty(t, certsClient.updateCalls)
+	})
+
+	t.Run("rejects unowned OCI CA bundle after create already exists conflict", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "create-conflict-unowned", serviceName, "tls", baseOptions, "ca")
+		targetRef := policy.Spec.TargetRefs[0]
+		ref := policy.Spec.Validation.CACertificateRefs[0]
+		name := backendTLSCABundleName(policy, targetRef, ref)
+		bundleID := "ocid1.cabundle.oc1..unowned"
+		certsClient := newStubCertificatesManagementClient()
+		certsClient.createErr = ociapi.NewRandomServiceError(
+			ociapi.RandomServiceErrorWithStatusCode(http.StatusBadRequest),
+			ociapi.RandomServiceErrorWithCode("InvalidParameter"),
+			ociapi.RandomServiceErrorWithMessage("A CA bundle with the name '"+name+"' already exists."),
+		)
+		certsClient.listEmptyResponses = 1
+		certsClient.bundles[name] = certificatesmanagement.CaBundleSummary{
+			Id:             &bundleID,
+			Name:           &name,
+			LifecycleState: certificatesmanagement.CaBundleLifecycleStateActive,
+		}
+		model, _ := makeModel(t, certsClient)
+
+		_, err := model.ensureOCIManagedCABundle(t.Context(), policy, targetRef, ref, compartmentID, testCAPEM(t))
+
+		require.ErrorContains(t, err, "not owned")
+		assert.Len(t, certsClient.createCalls, 1)
+		assert.Empty(t, certsClient.updateCalls)
+	})
+
 	t.Run("updates OCI CA bundle when referenced ConfigMap CA changes", func(t *testing.T) {
 		policy := backendTLSPolicy(namespace, "rotate", serviceName, "tls", baseOptions, "ca")
 		oldPEM := testCAPEM(t)
@@ -1183,6 +1311,89 @@ func TestBackendTLSPolicyModelValidationAndLifecycle(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, certsClient.deleteCalls, 1)
+	})
+
+	t.Run("cleanup ignores deleted owned OCI CA bundles", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "cleanup-deleted-bundle", serviceName, "tls", baseOptions, "ca")
+		policy.Finalizers = []string{BackendTLSPolicyProgrammedFinalizer}
+		policy.Annotations = map[string]string{BackendTLSPolicyCompartmentsAnnotation: compartmentID}
+		certsClient := newStubCertificatesManagementClient()
+		ownedID := "ocid1.cabundle.oc1..deleted"
+		ownedName := "deleted"
+		certsClient.bundles[ownedName] = certificatesmanagement.CaBundleSummary{
+			Id:             &ownedID,
+			Name:           &ownedName,
+			LifecycleState: certificatesmanagement.CaBundleLifecycleStateDeleted,
+			FreeformTags:   backendTLSCABundleTags(policy, "hash"),
+		}
+		deletingID := "ocid1.cabundle.oc1..deleting"
+		deletingName := "deleting"
+		certsClient.bundles[deletingName] = certificatesmanagement.CaBundleSummary{
+			Id:             &deletingID,
+			Name:           &deletingName,
+			LifecycleState: certificatesmanagement.CaBundleLifecycleStateDeleting,
+			FreeformTags:   backendTLSCABundleTags(policy, "hash"),
+		}
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithObjects(&policy).
+			Build()
+		model := newBackendTLSPolicyModel(backendTLSPolicyModelDeps{
+			RootLogger:                diag.RootTestLogger(),
+			K8sClient:                 k8sClient,
+			OciLoadBalancerClient:     NewMockociLoadBalancerClient(t),
+			OciCertificatesMgmtClient: certsClient,
+		})
+
+		err := model.cleanupDeletingPolicy(t.Context(), policy)
+
+		require.NoError(t, err)
+		assert.Empty(t, certsClient.deleteCalls)
+		var updated gatewayv1.BackendTLSPolicy
+		require.NoError(t, k8sClient.Get(t.Context(), apitypes.NamespacedName{
+			Namespace: namespace,
+			Name:      "cleanup-deleted-bundle",
+		}, &updated))
+		require.NotContains(t, updated.Finalizers, BackendTLSPolicyProgrammedFinalizer)
+	})
+
+	t.Run("cleanup treats missing OCI CA bundle as already deleted", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "cleanup-missing-bundle", serviceName, "tls", baseOptions, "ca")
+		policy.Finalizers = []string{BackendTLSPolicyProgrammedFinalizer}
+		policy.Annotations = map[string]string{BackendTLSPolicyCompartmentsAnnotation: compartmentID}
+		certsClient := newStubCertificatesManagementClient()
+		ownedID := "ocid1.cabundle.oc1..missing"
+		ownedName := "missing"
+		certsClient.bundles[ownedName] = certificatesmanagement.CaBundleSummary{
+			Id:           &ownedID,
+			Name:         &ownedName,
+			FreeformTags: backendTLSCABundleTags(policy, "hash"),
+		}
+		certsClient.deleteErr = ociapi.NewRandomServiceError(
+			ociapi.RandomServiceErrorWithStatusCode(http.StatusNotFound),
+			ociapi.RandomServiceErrorWithCode("NotAuthorizedOrNotFound"),
+		)
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithObjects(&policy).
+			Build()
+		model := newBackendTLSPolicyModel(backendTLSPolicyModelDeps{
+			RootLogger:                diag.RootTestLogger(),
+			K8sClient:                 k8sClient,
+			OciLoadBalancerClient:     NewMockociLoadBalancerClient(t),
+			OciCertificatesMgmtClient: certsClient,
+		})
+
+		err := model.cleanupDeletingPolicy(t.Context(), policy)
+
+		require.NoError(t, err)
+		assert.Len(t, certsClient.deleteCalls, 1)
+		var updated gatewayv1.BackendTLSPolicy
+		require.NoError(t, k8sClient.Get(t.Context(), apitypes.NamespacedName{
+			Namespace: namespace,
+			Name:      "cleanup-missing-bundle",
+		}, &updated))
+		require.NotContains(t, updated.Finalizers, BackendTLSPolicyProgrammedFinalizer)
 	})
 
 	t.Run("cleanup skips incomplete gateway state and returns CA delete errors", func(t *testing.T) {
