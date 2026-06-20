@@ -1396,6 +1396,48 @@ func TestBackendTLSPolicyModelValidationAndLifecycle(t *testing.T) {
 		require.NotContains(t, updated.Finalizers, BackendTLSPolicyProgrammedFinalizer)
 	})
 
+	t.Run("cleanup keeps finalizer when OCI CA bundle is still associated", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "cleanup-associated-bundle", serviceName, "tls", baseOptions, "ca")
+		policy.Finalizers = []string{BackendTLSPolicyProgrammedFinalizer}
+		policy.Annotations = map[string]string{BackendTLSPolicyCompartmentsAnnotation: compartmentID}
+		certsClient := newStubCertificatesManagementClient()
+		ownedID := "ocid1.cabundle.oc1..associated"
+		ownedName := "associated"
+		certsClient.bundles[ownedName] = certificatesmanagement.CaBundleSummary{
+			Id:           &ownedID,
+			Name:         &ownedName,
+			FreeformTags: backendTLSCABundleTags(policy, "hash"),
+		}
+		certsClient.deleteErr = ociapi.NewRandomServiceError(
+			ociapi.RandomServiceErrorWithStatusCode(http.StatusConflict),
+			ociapi.RandomServiceErrorWithCode("IncorrectState"),
+			ociapi.RandomServiceErrorWithMessage(
+				"A dependency exists between the child entity Association and the parent entity "+ownedID+".",
+			),
+		)
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithObjects(&policy).
+			Build()
+		model := newBackendTLSPolicyModel(backendTLSPolicyModelDeps{
+			RootLogger:                diag.RootTestLogger(),
+			K8sClient:                 k8sClient,
+			OciLoadBalancerClient:     NewMockociLoadBalancerClient(t),
+			OciCertificatesMgmtClient: certsClient,
+		})
+
+		err := model.cleanupDeletingPolicy(t.Context(), policy)
+
+		require.ErrorIs(t, err, errBackendTLSCABundleStillAssociated)
+		assert.Len(t, certsClient.deleteCalls, 1)
+		var updated gatewayv1.BackendTLSPolicy
+		require.NoError(t, k8sClient.Get(t.Context(), apitypes.NamespacedName{
+			Namespace: namespace,
+			Name:      "cleanup-associated-bundle",
+		}, &updated))
+		require.Contains(t, updated.Finalizers, BackendTLSPolicyProgrammedFinalizer)
+	})
+
 	t.Run("cleanup skips incomplete gateway state and returns CA delete errors", func(t *testing.T) {
 		policy := backendTLSPolicy(namespace, "cleanup-branches", serviceName, "tls", baseOptions, "ca")
 		policy.Finalizers = []string{BackendTLSPolicyProgrammedFinalizer}

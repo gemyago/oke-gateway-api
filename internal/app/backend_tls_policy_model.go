@@ -40,7 +40,10 @@ const (
 	defaultBackendTLSVerifyDepth         = 3
 )
 
-var errBackendTLSPolicyNotFound = errors.New("backend TLS policy not found")
+var (
+	errBackendTLSPolicyNotFound          = errors.New("backend TLS policy not found")
+	errBackendTLSCABundleStillAssociated = errors.New("backend TLS CA bundle still associated")
+)
 
 type resolveBackendTLSPolicyParams struct {
 	gateway    gatewayv1.Gateway
@@ -1032,6 +1035,9 @@ func (m *backendTLSPolicyModelImpl) deleteOwnedCABundles(
 			if isBackendTLSCABundleAlreadyDeleted(err) {
 				continue
 			}
+			if isBackendTLSCABundleStillAssociated(err) {
+				return errBackendTLSCABundleStillAssociated
+			}
 			return fmt.Errorf("failed to delete OCI CA bundle %s: %w", lo.FromPtr(bundle.Name), err)
 		}
 	}
@@ -1041,6 +1047,14 @@ func (m *backendTLSPolicyModelImpl) deleteOwnedCABundles(
 func isBackendTLSCABundleAlreadyDeleted(err error) bool {
 	serviceErr, ok := common.IsServiceError(err)
 	return ok && serviceErr.GetHTTPStatusCode() == http.StatusNotFound
+}
+
+func isBackendTLSCABundleStillAssociated(err error) bool {
+	serviceErr, ok := common.IsServiceError(err)
+	return ok &&
+		serviceErr.GetHTTPStatusCode() == http.StatusConflict &&
+		serviceErr.GetCode() == "IncorrectState" &&
+		strings.Contains(serviceErr.GetMessage(), "Association")
 }
 
 func isBackendTLSCABundleAlreadyExists(err error) bool {
