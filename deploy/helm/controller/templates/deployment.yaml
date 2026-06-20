@@ -51,8 +51,6 @@ spec:
           value: /etc/oci/config
         - name: APP_RECONCILE_DRIFT_INTERVAL
           value: {{ index .Values.reconcile "drift-interval" | quote }}
-        - name: APP_FEATURES_RECONCILE_BACKEND_TLS_POLICY
-          value: {{ .Values.features.reconcileBackendTLSPolicy | quote }}
         volumeMounts:
         - name: oci-config-volume
           mountPath: "/etc/oci"

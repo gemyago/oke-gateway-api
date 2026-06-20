@@ -12,9 +12,6 @@ reconcile:
   # Periodic OCI drift reconciliation interval. Use 0s to disable.
   drift-interval: 0s
 
-features:
-  reconcileBackendTLSPolicy: true
-
 serviceAccount:
   # Specifies whether a service account should be created
   create: true
