@@ -220,7 +220,7 @@ See [deploy/manifests/examples/grpcroute.yaml](./deploy/manifests/examples/grpcr
 
 OCI backend SSL validates the backend certificate chain but does not enforce hostname/SAN identity. Policies must explicitly set `oci.oraclecloud.com/backend-hostname-validation: Disabled`, and unsupported standard fields such as `subjectAltNames` are rejected.
 
-See [deploy/manifests/examples/backendtlspolicy.yaml](./deploy/manifests/examples/backendtlspolicy.yaml) for an example.
+See [deploy/manifests/examples/backendtlspolicy.yaml](./deploy/manifests/examples/backendtlspolicy.yaml) for a complete example with a Gateway, HTTPRoute, Service, CA ConfigMap, and BackendTLSPolicy.
 
 ## TCPRoute And UDPRoute With OCI Network Load Balancer
 
