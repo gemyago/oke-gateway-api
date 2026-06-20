@@ -9,11 +9,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/oracle/oci-go-sdk/v65/certificatesmanagement"
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
 	"go.uber.org/dig"
@@ -503,9 +505,8 @@ func (m *backendTLSPolicyModelImpl) ensureOCIManagedCABundle(
 	caHash := sha256Hex(caPEM)
 	tags := backendTLSCABundleTags(policy, caHash)
 	listResp, err := m.certsClient.ListCaBundles(ctx, certificatesmanagement.ListCaBundlesRequest{
-		CompartmentId:  &compartmentID,
-		Name:           &name,
-		LifecycleState: certificatesmanagement.ListCaBundlesLifecycleStateActive,
+		CompartmentId: &compartmentID,
+		Name:          &name,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to list OCI CA bundles for BackendTLSPolicy %s/%s: %w",
@@ -514,14 +515,19 @@ func (m *backendTLSPolicyModelImpl) ensureOCIManagedCABundle(
 			err,
 		)
 	}
-	if len(listResp.Items) > 0 {
-		bundle := listResp.Items[0]
+	for _, bundle := range listResp.Items {
+		if bundle.LifecycleState == certificatesmanagement.CaBundleLifecycleStateDeleted {
+			continue
+		}
 		if !isOwnedBackendTLSCABundle(bundle.FreeformTags, policy) {
 			return "", fmt.Errorf("OCI CA bundle %s already exists and is not owned by BackendTLSPolicy %s/%s",
 				name,
 				policy.Namespace,
 				policy.Name,
 			)
+		}
+		if usableErr := ensureBackendTLSCABundleUsable(bundle); usableErr != nil {
+			return "", usableErr
 		}
 		if bundle.FreeformTags[backendTLSCAHashTag] != caHash {
 			m.logger.InfoContext(ctx, "Updating OCI CA bundle for BackendTLSPolicy",
@@ -555,9 +561,86 @@ func (m *backendTLSPolicyModelImpl) ensureOCIManagedCABundle(
 		},
 	})
 	if err != nil {
+		if isBackendTLSCABundleAlreadyExists(err) {
+			return m.resolveExistingOCIManagedCABundle(ctx, policy, compartmentID, name, caHash)
+		}
 		return "", fmt.Errorf("failed to create OCI CA bundle %s: %w", name, err)
 	}
+	if createResp.CaBundle.LifecycleState != certificatesmanagement.CaBundleLifecycleStateActive {
+		return "", fmt.Errorf("OCI CA bundle %s is %s and is not ready for backend TLS",
+			name,
+			createResp.CaBundle.LifecycleState,
+		)
+	}
 	return lo.FromPtr(createResp.CaBundle.Id), nil
+}
+
+func (m *backendTLSPolicyModelImpl) resolveExistingOCIManagedCABundle(
+	ctx context.Context,
+	policy gatewayv1.BackendTLSPolicy,
+	compartmentID string,
+	name string,
+	caHash string,
+) (string, error) {
+	listResp, err := m.certsClient.ListCaBundles(ctx, certificatesmanagement.ListCaBundlesRequest{
+		CompartmentId: &compartmentID,
+		Name:          &name,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to re-list OCI CA bundle %s after create conflict: %w", name, err)
+	}
+	for _, bundle := range listResp.Items {
+		if bundle.LifecycleState == certificatesmanagement.CaBundleLifecycleStateDeleted {
+			continue
+		}
+		if !isOwnedBackendTLSCABundle(bundle.FreeformTags, policy) {
+			return "", fmt.Errorf("OCI CA bundle %s already exists and is not owned by BackendTLSPolicy %s/%s",
+				name,
+				policy.Namespace,
+				policy.Name,
+			)
+		}
+		if usableErr := ensureBackendTLSCABundleUsable(bundle); usableErr != nil {
+			return "", usableErr
+		}
+		if bundle.FreeformTags[backendTLSCAHashTag] != caHash {
+			return "", fmt.Errorf(
+				"OCI CA bundle %s already exists with stale CA data and is not ready for update",
+				name,
+			)
+		}
+		m.logger.InfoContext(ctx, "Reusing OCI CA bundle after create conflict",
+			slog.String("policy", fmt.Sprintf("%s/%s", policy.Namespace, policy.Name)),
+			slog.String("caBundleName", name),
+		)
+		return lo.FromPtr(bundle.Id), nil
+	}
+	return "", fmt.Errorf("OCI CA bundle %s already exists but was not visible in list response", name)
+}
+
+func ensureBackendTLSCABundleUsable(bundle certificatesmanagement.CaBundleSummary) error {
+	switch bundle.LifecycleState {
+	case "", certificatesmanagement.CaBundleLifecycleStateActive:
+		return nil
+	case certificatesmanagement.CaBundleLifecycleStateDeleting:
+		return fmt.Errorf("OCI CA bundle %s is %s and cannot be reused for backend TLS",
+			lo.FromPtr(bundle.Name),
+			bundle.LifecycleState,
+		)
+	case certificatesmanagement.CaBundleLifecycleStateCreating,
+		certificatesmanagement.CaBundleLifecycleStateUpdating,
+		certificatesmanagement.CaBundleLifecycleStateDeleted,
+		certificatesmanagement.CaBundleLifecycleStateFailed:
+		return fmt.Errorf("OCI CA bundle %s is %s and is not ready for backend TLS",
+			lo.FromPtr(bundle.Name),
+			bundle.LifecycleState,
+		)
+	default:
+		return fmt.Errorf("OCI CA bundle %s is %s and is not ready for backend TLS",
+			lo.FromPtr(bundle.Name),
+			bundle.LifecycleState,
+		)
+	}
 }
 
 func backendTLSCABundleName(
@@ -926,14 +1009,17 @@ func (m *backendTLSPolicyModelImpl) deleteOwnedCABundles(
 		return nil
 	}
 	listResp, err := m.certsClient.ListCaBundles(ctx, certificatesmanagement.ListCaBundlesRequest{
-		CompartmentId:  &compartmentID,
-		LifecycleState: certificatesmanagement.ListCaBundlesLifecycleStateActive,
+		CompartmentId: &compartmentID,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to list OCI CA bundles for BackendTLSPolicy cleanup: %w", err)
 	}
 	for _, bundle := range listResp.Items {
 		if !isOwnedBackendTLSCABundle(bundle.FreeformTags, policy) {
+			continue
+		}
+		if bundle.LifecycleState == certificatesmanagement.CaBundleLifecycleStateDeleted ||
+			bundle.LifecycleState == certificatesmanagement.CaBundleLifecycleStateDeleting {
 			continue
 		}
 		m.logger.InfoContext(ctx, "Deleting OCI CA bundle for BackendTLSPolicy",
@@ -943,10 +1029,26 @@ func (m *backendTLSPolicyModelImpl) deleteOwnedCABundles(
 		if _, err = m.certsClient.DeleteCaBundle(ctx, certificatesmanagement.DeleteCaBundleRequest{
 			CaBundleId: bundle.Id,
 		}); err != nil {
+			if isBackendTLSCABundleAlreadyDeleted(err) {
+				continue
+			}
 			return fmt.Errorf("failed to delete OCI CA bundle %s: %w", lo.FromPtr(bundle.Name), err)
 		}
 	}
 	return nil
+}
+
+func isBackendTLSCABundleAlreadyDeleted(err error) bool {
+	serviceErr, ok := common.IsServiceError(err)
+	return ok && serviceErr.GetHTTPStatusCode() == http.StatusNotFound
+}
+
+func isBackendTLSCABundleAlreadyExists(err error) bool {
+	serviceErr, ok := common.IsServiceError(err)
+	return ok &&
+		serviceErr.GetHTTPStatusCode() == http.StatusBadRequest &&
+		serviceErr.GetCode() == "InvalidParameter" &&
+		strings.Contains(serviceErr.GetMessage(), "already exists")
 }
 
 type backendTLSPolicyModelDeps struct {
