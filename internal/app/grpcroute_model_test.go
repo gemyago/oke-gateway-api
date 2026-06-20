@@ -1338,3 +1338,12 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		require.ErrorIs(t, err, wantErr)
 	})
 }
+
+func TestGRPCRouteStatusError(t *testing.T) {
+	message := "grpc route rejected"
+	err := newGRPCRouteRefNotPermittedStatusError(message)
+
+	assert.Equal(t, message, err.Error())
+	assert.Equal(t, gatewayv1.RouteConditionResolvedRefs, err.conditionType)
+	assert.Equal(t, gatewayv1.RouteReasonRefNotPermitted, err.reason)
+}

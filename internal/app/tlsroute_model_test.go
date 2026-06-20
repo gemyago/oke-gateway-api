@@ -1598,15 +1598,28 @@ func TestTLSRouteModelResolveRequestRejectedAndFinalizers(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("resolve request removes finalizers from detached ALB route", func(t *testing.T) {
+	t.Run("resolve request returns empty result when route is missing", func(t *testing.T) {
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient: fake.NewClientBuilder().
+				WithScheme(newL4TestScheme(t)).
+				Build(),
+		})
+
+		resolved, err := model.resolveRequest(t.Context(), reconcile.Request{
+			NamespacedName: apitypes.NamespacedName{Namespace: "media", Name: "missing"},
+		})
+
+		require.NoError(t, err)
+		assert.Empty(t, resolved)
+	})
+
+	t.Run("resolve request removes unresolved ALB finalizer", func(t *testing.T) {
 		route := &gatewayv1.TLSRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "media",
 				Name:       "rtmps",
 				Finalizers: []string{LoadBalancerTLSRouteProgrammedFinalizer},
-				Annotations: map[string]string{
-					LoadBalancerTLSRouteProgrammedBackendSetAnnotation: "bs",
-				},
 			},
 		}
 		k8sClient := fake.NewClientBuilder().
@@ -1616,7 +1629,7 @@ func TestTLSRouteModelResolveRequestRejectedAndFinalizers(t *testing.T) {
 		model := newTLSRouteModel(tlsRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: k8sClient})
 
 		resolved, err := model.resolveRequest(t.Context(), reconcile.Request{
-			NamespacedName: apitypes.NamespacedName{Namespace: "media", Name: "rtmps"},
+			NamespacedName: client.ObjectKeyFromObject(route),
 		})
 
 		require.NoError(t, err)
@@ -1624,7 +1637,611 @@ func TestTLSRouteModelResolveRequestRejectedAndFinalizers(t *testing.T) {
 		var updated gatewayv1.TLSRoute
 		require.NoError(t, k8sClient.Get(t.Context(), client.ObjectKeyFromObject(route), &updated))
 		assert.NotContains(t, updated.Finalizers, LoadBalancerTLSRouteProgrammedFinalizer)
+	})
+
+	t.Run("resolve request cleans detached ALB route resources before removing finalizer", func(t *testing.T) {
+		sectionName := gatewayv1.SectionName("rtmps")
+		route := &gatewayv1.TLSRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "media",
+				Name:       "rtmps",
+				Finalizers: []string{LoadBalancerTLSRouteProgrammedFinalizer},
+				Annotations: map[string]string{
+					LoadBalancerTLSRouteProgrammedBackendSetAnnotation: "bs",
+				},
+			},
+			Spec: gatewayv1.TLSRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+				ParentRefs: []gatewayv1.ParentReference{{
+					Name:        "edge",
+					SectionName: &sectionName,
+				}},
+			}},
+			Status: gatewayv1.TLSRouteStatus{RouteStatus: gatewayv1.RouteStatus{
+				Parents: []gatewayv1.RouteParentStatus{{
+					ParentRef: gatewayv1.ParentReference{
+						Name:        "edge",
+						SectionName: &sectionName,
+					},
+					ControllerName: ControllerClassName,
+				}},
+			}},
+		}
+		albGateway := &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "edge"},
+			Spec: gatewayv1.GatewaySpec{
+				GatewayClassName: "oke-alb",
+				Infrastructure: &gatewayv1.GatewayInfrastructure{
+					ParametersRef: &gatewayv1.LocalParametersReference{Name: "alb-config"},
+				},
+			},
+		}
+		albGatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{Name: "oke-alb"},
+			Spec: gatewayv1.GatewayClassSpec{
+				ControllerName: ControllerClassName,
+			},
+		}
+		albGatewayConfig := &types.GatewayConfig{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "alb-config"},
+			Spec:       types.GatewayConfigSpec{LoadBalancerID: "lb-id"},
+		}
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithRuntimeObjects(route, albGateway, albGatewayClass, albGatewayConfig).
+			Build()
+		ociClient := NewMockociLoadBalancerClient(t)
+		watcher := NewMockworkRequestsWatcher(t)
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger:          diag.RootTestLogger(),
+			K8sClient:           k8sClient,
+			OciLoadBalancerAPI:  ociClient,
+			WorkRequestsWatcher: watcher,
+		})
+		deleteListenerID := "delete-listener"
+		deleteBackendSetID := "delete-backend-set"
+		ociClient.EXPECT().
+			DeleteListener(t.Context(), mock.MatchedBy(func(request loadbalancer.DeleteListenerRequest) bool {
+				return lo.FromPtr(request.LoadBalancerId) == "lb-id" &&
+					lo.FromPtr(request.ListenerName) == "rtmps"
+			})).
+			Return(loadbalancer.DeleteListenerResponse{OpcWorkRequestId: &deleteListenerID}, nil)
+		watcher.EXPECT().WaitFor(t.Context(), deleteListenerID).Return(nil)
+		ociClient.EXPECT().
+			DeleteBackendSet(t.Context(), mock.MatchedBy(func(request loadbalancer.DeleteBackendSetRequest) bool {
+				return lo.FromPtr(request.LoadBalancerId) == "lb-id" &&
+					lo.FromPtr(request.BackendSetName) == "bs"
+			})).
+			Return(loadbalancer.DeleteBackendSetResponse{OpcWorkRequestId: &deleteBackendSetID}, nil)
+		watcher.EXPECT().WaitFor(t.Context(), deleteBackendSetID).Return(nil)
+
+		err := model.deprovisionDetachedRoute(t.Context(), *route)
+
+		require.NoError(t, err)
+		var updated gatewayv1.TLSRoute
+		require.NoError(t, k8sClient.Get(t.Context(), client.ObjectKeyFromObject(route), &updated))
+		assert.NotContains(t, updated.Finalizers, LoadBalancerTLSRouteProgrammedFinalizer)
 		assert.Empty(t, updated.Annotations[LoadBalancerTLSRouteProgrammedBackendSetAnnotation])
+	})
+
+	t.Run("resolve request cleans detached NLB route backend set before removing finalizer", func(t *testing.T) {
+		sectionName := gatewayv1.SectionName("tls")
+		route := &gatewayv1.TLSRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "media",
+				Name:       "tls",
+				Finalizers: []string{NetworkLoadBalancerTLSRouteProgrammedFinalizer},
+				Annotations: map[string]string{
+					NetworkLoadBalancerTLSRouteProgrammedBackendSetsAnnotation: "bs_tls",
+				},
+			},
+			Spec: gatewayv1.TLSRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+				ParentRefs: []gatewayv1.ParentReference{{
+					Name:        "edge",
+					SectionName: &sectionName,
+				}},
+			}},
+			Status: gatewayv1.TLSRouteStatus{RouteStatus: gatewayv1.RouteStatus{
+				Parents: []gatewayv1.RouteParentStatus{{
+					ParentRef: gatewayv1.ParentReference{
+						Name:        "edge",
+						SectionName: &sectionName,
+					},
+					ControllerName: NetworkLoadBalancerControllerClassName,
+				}},
+			}},
+		}
+		nlbGateway := &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "edge"},
+			Spec: gatewayv1.GatewaySpec{
+				GatewayClassName: "oke-nlb",
+				Infrastructure: &gatewayv1.GatewayInfrastructure{
+					ParametersRef: &gatewayv1.LocalParametersReference{Name: "nlb-config"},
+				},
+			},
+		}
+		nlbGatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{Name: "oke-nlb"},
+			Spec: gatewayv1.GatewayClassSpec{
+				ControllerName: NetworkLoadBalancerControllerClassName,
+			},
+		}
+		nlbGatewayConfig := &types.GatewayConfig{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "nlb-config"},
+			Spec:       types.GatewayConfigSpec{LoadBalancerID: "nlb-id"},
+		}
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithRuntimeObjects(route, nlbGateway, nlbGatewayClass, nlbGatewayConfig).
+			Build()
+		nlbClient := &stubNetworkLoadBalancerClient{}
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  k8sClient,
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{
+				networkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id: new("nlb-id"),
+					BackendSets: map[string]networkloadbalancer.BackendSet{
+						"bs_tls": {Name: new("bs_tls")},
+					},
+				},
+			},
+			OciNetworkLoadBalancerAPI: nlbClient,
+			NLBWorkRequestsWatcher:    &stubWorkRequestsWatcher{},
+		})
+
+		err := model.deprovisionDetachedRoute(t.Context(), *route)
+
+		require.NoError(t, err)
+		require.Len(t, nlbClient.updateBackendSetRequests, 1)
+		assert.Empty(t, nlbClient.updateBackendSetRequests[0].UpdateBackendSetDetails.Backends)
+		var updated gatewayv1.TLSRoute
+		require.NoError(t, k8sClient.Get(t.Context(), client.ObjectKeyFromObject(route), &updated))
+		assert.NotContains(t, updated.Finalizers, NetworkLoadBalancerTLSRouteProgrammedFinalizer)
+		assert.Empty(t, updated.Annotations[NetworkLoadBalancerTLSRouteProgrammedBackendSetsAnnotation])
+	})
+
+	t.Run("detached ALB cleanup waits for listener section before removing finalizer", func(t *testing.T) {
+		route := gatewayv1.TLSRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "media",
+				Name:       "rtmps",
+				Finalizers: []string{LoadBalancerTLSRouteProgrammedFinalizer},
+				Annotations: map[string]string{
+					LoadBalancerTLSRouteProgrammedBackendSetAnnotation: "bs",
+				},
+			},
+			Status: gatewayv1.TLSRouteStatus{RouteStatus: gatewayv1.RouteStatus{
+				Parents: []gatewayv1.RouteParentStatus{{
+					ParentRef:      gatewayv1.ParentReference{Name: "edge"},
+					ControllerName: ControllerClassName,
+				}},
+			}},
+		}
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).Build(),
+		})
+
+		err := model.deprovisionDetachedRoute(t.Context(), route)
+
+		require.NoError(t, err)
+	})
+
+	t.Run("detached ALB cleanup returns OCI delete errors", func(t *testing.T) {
+		sectionName := gatewayv1.SectionName("rtmps")
+		route := gatewayv1.TLSRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "media",
+				Name:      "rtmps",
+				Annotations: map[string]string{
+					LoadBalancerTLSRouteProgrammedBackendSetAnnotation: "bs",
+				},
+			},
+			Status: gatewayv1.TLSRouteStatus{RouteStatus: gatewayv1.RouteStatus{
+				Parents: []gatewayv1.RouteParentStatus{{
+					ParentRef: gatewayv1.ParentReference{
+						Name:        "edge",
+						SectionName: &sectionName,
+					},
+					ControllerName: ControllerClassName,
+				}},
+			}},
+		}
+		deleteErrorGateway := &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "edge"},
+			Spec: gatewayv1.GatewaySpec{
+				GatewayClassName: "oke-alb",
+				Infrastructure: &gatewayv1.GatewayInfrastructure{
+					ParametersRef: &gatewayv1.LocalParametersReference{Name: "alb-config"},
+				},
+			},
+		}
+		deleteErrorGatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{Name: "oke-alb"},
+			Spec: gatewayv1.GatewayClassSpec{
+				ControllerName: ControllerClassName,
+			},
+		}
+		deleteErrorGatewayConfig := &types.GatewayConfig{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "alb-config"},
+			Spec:       types.GatewayConfigSpec{LoadBalancerID: "lb-id"},
+		}
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithRuntimeObjects(deleteErrorGateway, deleteErrorGatewayClass, deleteErrorGatewayConfig).
+			Build()
+		ociClient := NewMockociLoadBalancerClient(t)
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger:         diag.RootTestLogger(),
+			K8sClient:          k8sClient,
+			OciLoadBalancerAPI: ociClient,
+		})
+		wantErr := errors.New("delete failed")
+		ociClient.EXPECT().
+			DeleteListener(t.Context(), mock.Anything).
+			Return(loadbalancer.DeleteListenerResponse{}, wantErr)
+
+		err := model.deprovisionDetachedRoute(t.Context(), route)
+
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("detached ALB cleanup ignores missing OCI resources", func(t *testing.T) {
+		sectionName := gatewayv1.SectionName("rtmps")
+		route := gatewayv1.TLSRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "media",
+				Name:       "rtmps",
+				Finalizers: []string{LoadBalancerTLSRouteProgrammedFinalizer},
+				Annotations: map[string]string{
+					LoadBalancerTLSRouteProgrammedBackendSetAnnotation: "bs",
+				},
+			},
+			Status: gatewayv1.TLSRouteStatus{RouteStatus: gatewayv1.RouteStatus{
+				Parents: []gatewayv1.RouteParentStatus{{
+					ParentRef: gatewayv1.ParentReference{
+						Name:        "edge",
+						SectionName: &sectionName,
+					},
+					ControllerName: ControllerClassName,
+				}},
+			}},
+		}
+		notFoundGateway := &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "edge"},
+			Spec: gatewayv1.GatewaySpec{
+				GatewayClassName: "oke-alb",
+				Infrastructure: &gatewayv1.GatewayInfrastructure{
+					ParametersRef: &gatewayv1.LocalParametersReference{Name: "alb-config"},
+				},
+			},
+		}
+		notFoundGatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{Name: "oke-alb"},
+			Spec: gatewayv1.GatewayClassSpec{
+				ControllerName: ControllerClassName,
+			},
+		}
+		notFoundGatewayConfig := &types.GatewayConfig{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "alb-config"},
+			Spec:       types.GatewayConfigSpec{LoadBalancerID: "lb-id"},
+		}
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithRuntimeObjects(&route, notFoundGateway, notFoundGatewayClass, notFoundGatewayConfig).
+			Build()
+		ociClient := NewMockociLoadBalancerClient(t)
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger:         diag.RootTestLogger(),
+			K8sClient:          k8sClient,
+			OciLoadBalancerAPI: ociClient,
+		})
+		notFoundErr := ociapi.NewRandomServiceError(ociapi.RandomServiceErrorWithStatusCode(http.StatusNotFound))
+		ociClient.EXPECT().
+			DeleteListener(t.Context(), mock.Anything).
+			Return(loadbalancer.DeleteListenerResponse{}, notFoundErr)
+		ociClient.EXPECT().
+			DeleteBackendSet(t.Context(), mock.Anything).
+			Return(loadbalancer.DeleteBackendSetResponse{}, notFoundErr)
+
+		err := model.deprovisionDetachedRoute(t.Context(), route)
+
+		require.NoError(t, err)
+		var updated gatewayv1.TLSRoute
+		require.NoError(t, k8sClient.Get(t.Context(), client.ObjectKeyFromObject(&route), &updated))
+		assert.NotContains(t, updated.Finalizers, LoadBalancerTLSRouteProgrammedFinalizer)
+		assert.Empty(t, updated.Annotations[LoadBalancerTLSRouteProgrammedBackendSetAnnotation])
+	})
+
+	t.Run("detached NLB cleanup removes finalizer when load balancer is gone", func(t *testing.T) {
+		sectionName := gatewayv1.SectionName("tls")
+		route := &gatewayv1.TLSRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "media",
+				Name:       "tls",
+				Finalizers: []string{NetworkLoadBalancerTLSRouteProgrammedFinalizer},
+				Annotations: map[string]string{
+					NetworkLoadBalancerTLSRouteProgrammedBackendSetsAnnotation: "bs_tls",
+				},
+			},
+			Status: gatewayv1.TLSRouteStatus{RouteStatus: gatewayv1.RouteStatus{
+				Parents: []gatewayv1.RouteParentStatus{{
+					ParentRef: gatewayv1.ParentReference{
+						Name:        "edge",
+						SectionName: &sectionName,
+					},
+					ControllerName: NetworkLoadBalancerControllerClassName,
+				}},
+			}},
+		}
+		missingNLBGateway := &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "edge"},
+			Spec: gatewayv1.GatewaySpec{
+				GatewayClassName: "oke-nlb",
+				Infrastructure: &gatewayv1.GatewayInfrastructure{
+					ParametersRef: &gatewayv1.LocalParametersReference{Name: "nlb-config"},
+				},
+			},
+		}
+		missingNLBGatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{Name: "oke-nlb"},
+			Spec: gatewayv1.GatewayClassSpec{
+				ControllerName: NetworkLoadBalancerControllerClassName,
+			},
+		}
+		missingNLBGatewayConfig := &types.GatewayConfig{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "nlb-config"},
+			Spec:       types.GatewayConfigSpec{LoadBalancerID: "nlb-id"},
+		}
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithRuntimeObjects(route, missingNLBGateway, missingNLBGatewayClass, missingNLBGatewayConfig).
+			Build()
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  k8sClient,
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{
+				returnNil: true,
+			},
+		})
+
+		err := model.deprovisionDetachedRoute(t.Context(), *route)
+
+		require.NoError(t, err)
+		var updated gatewayv1.TLSRoute
+		require.NoError(t, k8sClient.Get(t.Context(), client.ObjectKeyFromObject(route), &updated))
+		assert.NotContains(t, updated.Finalizers, NetworkLoadBalancerTLSRouteProgrammedFinalizer)
+		assert.Empty(t, updated.Annotations[NetworkLoadBalancerTLSRouteProgrammedBackendSetsAnnotation])
+	})
+
+	t.Run("detached NLB cleanup removes finalizer when backend set is gone", func(t *testing.T) {
+		sectionName := gatewayv1.SectionName("tls")
+		route := &gatewayv1.TLSRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "media",
+				Name:       "tls",
+				Finalizers: []string{NetworkLoadBalancerTLSRouteProgrammedFinalizer},
+				Annotations: map[string]string{
+					NetworkLoadBalancerTLSRouteProgrammedBackendSetsAnnotation: "bs_tls",
+				},
+			},
+			Status: gatewayv1.TLSRouteStatus{RouteStatus: gatewayv1.RouteStatus{
+				Parents: []gatewayv1.RouteParentStatus{{
+					ParentRef: gatewayv1.ParentReference{
+						Name:        "edge",
+						SectionName: &sectionName,
+					},
+					ControllerName: NetworkLoadBalancerControllerClassName,
+				}},
+			}},
+		}
+		missingBackendSetGateway := &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "edge"},
+			Spec: gatewayv1.GatewaySpec{
+				GatewayClassName: "oke-nlb",
+				Infrastructure: &gatewayv1.GatewayInfrastructure{
+					ParametersRef: &gatewayv1.LocalParametersReference{Name: "nlb-config"},
+				},
+			},
+		}
+		missingBackendSetGatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{Name: "oke-nlb"},
+			Spec: gatewayv1.GatewayClassSpec{
+				ControllerName: NetworkLoadBalancerControllerClassName,
+			},
+		}
+		missingBackendSetGatewayConfig := &types.GatewayConfig{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "nlb-config"},
+			Spec:       types.GatewayConfigSpec{LoadBalancerID: "nlb-id"},
+		}
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithRuntimeObjects(
+				route,
+				missingBackendSetGateway,
+				missingBackendSetGatewayClass,
+				missingBackendSetGatewayConfig,
+			).
+			Build()
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  k8sClient,
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{
+				networkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id:          new("nlb-id"),
+					BackendSets: map[string]networkloadbalancer.BackendSet{},
+				},
+			},
+		})
+
+		err := model.deprovisionDetachedRoute(t.Context(), *route)
+
+		require.NoError(t, err)
+		var updated gatewayv1.TLSRoute
+		require.NoError(t, k8sClient.Get(t.Context(), client.ObjectKeyFromObject(route), &updated))
+		assert.NotContains(t, updated.Finalizers, NetworkLoadBalancerTLSRouteProgrammedFinalizer)
+		assert.Empty(t, updated.Annotations[NetworkLoadBalancerTLSRouteProgrammedBackendSetsAnnotation])
+	})
+
+	t.Run("detached NLB cleanup returns load balancer lookup errors", func(t *testing.T) {
+		sectionName := gatewayv1.SectionName("tls")
+		route := gatewayv1.TLSRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "media",
+				Name:      "tls",
+				Annotations: map[string]string{
+					NetworkLoadBalancerTLSRouteProgrammedBackendSetsAnnotation: "bs_tls",
+				},
+			},
+			Status: gatewayv1.TLSRouteStatus{RouteStatus: gatewayv1.RouteStatus{
+				Parents: []gatewayv1.RouteParentStatus{{
+					ParentRef: gatewayv1.ParentReference{
+						Name:        "edge",
+						SectionName: &sectionName,
+					},
+					ControllerName: NetworkLoadBalancerControllerClassName,
+				}},
+			}},
+		}
+		lookupErrorGateway := &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "edge"},
+			Spec: gatewayv1.GatewaySpec{
+				GatewayClassName: "oke-nlb",
+				Infrastructure: &gatewayv1.GatewayInfrastructure{
+					ParametersRef: &gatewayv1.LocalParametersReference{Name: "nlb-config"},
+				},
+			},
+		}
+		lookupErrorGatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{Name: "oke-nlb"},
+			Spec: gatewayv1.GatewayClassSpec{
+				ControllerName: NetworkLoadBalancerControllerClassName,
+			},
+		}
+		lookupErrorGatewayConfig := &types.GatewayConfig{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "nlb-config"},
+			Spec:       types.GatewayConfigSpec{LoadBalancerID: "nlb-id"},
+		}
+		wantErr := errors.New("get nlb failed")
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient: fake.NewClientBuilder().
+				WithScheme(newL4TestScheme(t)).
+				WithRuntimeObjects(lookupErrorGateway, lookupErrorGatewayClass, lookupErrorGatewayConfig).
+				Build(),
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{err: wantErr},
+		})
+
+		err := model.deprovisionDetachedRoute(t.Context(), route)
+
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("detached ALB cleanup ignores unsupported GatewayClass", func(t *testing.T) {
+		sectionName := gatewayv1.SectionName("rtmps")
+		route := gatewayv1.TLSRoute{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "rtmps"},
+		}
+		unsupportedGateway := &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "edge"},
+			Spec: gatewayv1.GatewaySpec{
+				GatewayClassName: "other",
+				Infrastructure: &gatewayv1.GatewayInfrastructure{
+					ParametersRef: &gatewayv1.LocalParametersReference{Name: "config"},
+				},
+			},
+		}
+		unsupportedGatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{Name: "other"},
+			Spec: gatewayv1.GatewayClassSpec{
+				ControllerName: gatewayv1.GatewayController("example.com/other"),
+			},
+		}
+		unsupportedGatewayConfig := &types.GatewayConfig{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "config"},
+		}
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithRuntimeObjects(unsupportedGateway, unsupportedGatewayClass, unsupportedGatewayConfig).
+			Build()
+		model := newTLSRouteModel(tlsRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: k8sClient})
+
+		_, resolved, err := model.resolveDetachedLoadBalancerRouteGateway(
+			t.Context(),
+			route,
+			gatewayv1.RouteParentStatus{ParentRef: gatewayv1.ParentReference{
+				Name:        "edge",
+				SectionName: &sectionName,
+			}},
+		)
+
+		require.NoError(t, err)
+		assert.False(t, resolved)
+	})
+
+	t.Run("detached cleanup waits when no matching parent status exists", func(t *testing.T) {
+		model := newTLSRouteModel(tlsRouteModelDeps{RootLogger: diag.RootTestLogger()})
+
+		err := model.deprovisionDetachedRoute(t.Context(), gatewayv1.TLSRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "media",
+				Name:      "rtmps",
+				Annotations: map[string]string{
+					LoadBalancerTLSRouteProgrammedBackendSetAnnotation: "bs",
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		err = model.deprovisionDetachedRoute(t.Context(), gatewayv1.TLSRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "media",
+				Name:      "tls",
+				Annotations: map[string]string{
+					NetworkLoadBalancerTLSRouteProgrammedBackendSetsAnnotation: "bs_tls",
+				},
+			},
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("detached ALB gateway resolver ignores missing Gateway", func(t *testing.T) {
+		sectionName := gatewayv1.SectionName("rtmps")
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).Build(),
+		})
+
+		_, resolved, err := model.resolveDetachedLoadBalancerRouteGateway(
+			t.Context(),
+			gatewayv1.TLSRoute{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "rtmps"}},
+			gatewayv1.RouteParentStatus{ParentRef: gatewayv1.ParentReference{
+				Name:        "missing",
+				SectionName: &sectionName,
+			}},
+		)
+
+		require.NoError(t, err)
+		assert.False(t, resolved)
+	})
+
+	t.Run("detached finalizer removal returns update errors", func(t *testing.T) {
+		route := gatewayv1.TLSRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "media",
+				Name:       "rtmps",
+				Finalizers: []string{LoadBalancerTLSRouteProgrammedFinalizer},
+			},
+		}
+		k8sClient := NewMockk8sClient(t)
+		model := newTLSRouteModel(tlsRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: k8sClient})
+		wantErr := errors.New("update failed")
+		k8sClient.EXPECT().Update(t.Context(), mock.Anything).Return(wantErr)
+
+		err := model.removeDetachedRouteFinalizers(t.Context(), route)
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to update detached TLSRoute")
 	})
 
 	t.Run("handles unresolved deleting route", func(t *testing.T) {
@@ -2512,6 +3129,78 @@ func TestTLSRouteModelResolveParentGatewayFailures(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, resolved)
 	})
+}
+
+func TestTLSRouteModelResolveParentRefMatchesTLSListeners(t *testing.T) {
+	mode := gatewayv1.TLSModeTerminate
+	gateway := &gatewayv1.Gateway{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "edge"},
+		Spec: gatewayv1.GatewaySpec{
+			GatewayClassName: "oke-alb",
+			Infrastructure: &gatewayv1.GatewayInfrastructure{
+				ParametersRef: &gatewayv1.LocalParametersReference{Name: "alb-config"},
+			},
+			Listeners: []gatewayv1.Listener{
+				{
+					Name:     "rtmps",
+					Protocol: gatewayv1.TLSProtocolType,
+					Port:     443,
+					TLS:      &gatewayv1.ListenerTLSConfig{Mode: &mode},
+				},
+				{
+					Name:     "mqtts",
+					Protocol: gatewayv1.TLSProtocolType,
+					Port:     8883,
+					TLS:      &gatewayv1.ListenerTLSConfig{Mode: &mode},
+				},
+				{
+					Name:     "https",
+					Protocol: gatewayv1.HTTPSProtocolType,
+					Port:     8443,
+					TLS:      &gatewayv1.ListenerTLSConfig{Mode: &mode},
+				},
+			},
+		},
+	}
+	gatewayClass := &gatewayv1.GatewayClass{
+		ObjectMeta: metav1.ObjectMeta{Name: "oke-alb"},
+		Spec: gatewayv1.GatewayClassSpec{
+			ControllerName: ControllerClassName,
+		},
+	}
+	gatewayConfig := &types.GatewayConfig{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "alb-config"},
+	}
+	model := newTLSRouteModel(tlsRouteModelDeps{
+		RootLogger: diag.RootTestLogger(),
+		K8sClient: fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithRuntimeObjects(gateway, gatewayClass, gatewayConfig).
+			Build(),
+	})
+	route := gatewayv1.TLSRoute{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "rtmps"}}
+
+	resolved, matchedParent, err := model.resolveParentRef(t.Context(), route, gatewayv1.ParentReference{Name: "edge"})
+
+	require.NoError(t, err)
+	assert.True(t, matchedParent)
+	require.Len(t, resolved, 2)
+	assert.ElementsMatch(t, []gatewayv1.SectionName{"rtmps", "mqtts"}, []gatewayv1.SectionName{
+		resolved[0].matchedListener.Name,
+		resolved[1].matchedListener.Name,
+	})
+
+	sectionName := gatewayv1.SectionName("mqtts")
+	resolved, matchedParent, err = model.resolveParentRef(
+		t.Context(),
+		route,
+		gatewayv1.ParentReference{Name: "edge", SectionName: &sectionName},
+	)
+
+	require.NoError(t, err)
+	assert.True(t, matchedParent)
+	require.Len(t, resolved, 1)
+	assert.Equal(t, gatewayv1.SectionName("mqtts"), resolved[0].matchedListener.Name)
 }
 
 func TestTLSRouteModelProgramRouteOwnershipConflict(t *testing.T) {

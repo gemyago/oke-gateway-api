@@ -38,7 +38,7 @@ spec:
         image: registry.k8s.io/e2e-test-images/agnhost:2.45
         args:
           - netexec
-          - --http-port=8443
+          - --tls-port=8443
         ports:
         - containerPort: 8443
           name: tls

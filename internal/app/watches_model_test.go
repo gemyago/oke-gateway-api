@@ -183,6 +183,12 @@ func TestWatchesModel(t *testing.T) {
 			).Return(nil)
 			mockIndexer.EXPECT().IndexField(
 				t.Context(),
+				&gatewayv1.TLSRoute{},
+				tlsRouteParentGatewayIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
 				&gatewayv1.Gateway{},
 				gatewayCertificateIndexKey,
 				mock.AnythingOfType("client.IndexerFunc"),
@@ -472,6 +478,52 @@ func TestWatchesModel(t *testing.T) {
 			})
 			require.ErrorContains(t, err, "failed to index TLSRoute by backend service")
 			require.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("returns error if TLSRoute parent Gateway indexer registration fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			mockIndexer := k8sapi.NewMockFieldIndexer(t)
+			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.TLSRoute{},
+				tlsRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.TLSRoute{},
+				tlsRouteParentGatewayIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(wantErr)
+
+			err := model.registerTLSRouteIndexers(t.Context(), mockIndexer)
+
+			require.ErrorContains(t, err, "failed to index TLSRoute by parent Gateway")
+			require.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("registers TLSRoute indexers directly", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			mockIndexer := k8sapi.NewMockFieldIndexer(t)
+
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.TLSRoute{},
+				tlsRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.TLSRoute{},
+				tlsRouteParentGatewayIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+
+			require.NoError(t, model.registerTLSRouteIndexers(t.Context(), mockIndexer))
 		})
 	})
 
@@ -819,6 +871,23 @@ func TestWatchesModel(t *testing.T) {
 			require.ElementsMatch(t, []string{fmt.Sprintf("%s/%s", routeNamespace, gatewayName)}, result)
 		})
 
+		t.Run("indexes TLSRoute parent Gateway refs", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			routeNamespace := faker.New().Internet().Slug()
+			gatewayName := gatewayv1.ObjectName(faker.New().Internet().Domain())
+			route := gatewayv1.TLSRoute{
+				ObjectMeta: metav1.ObjectMeta{Namespace: routeNamespace},
+				Spec: gatewayv1.TLSRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{{Name: gatewayName}},
+				}},
+			}
+
+			result := model.indexTLSRouteByParentGateway(t.Context(), &route)
+
+			require.ElementsMatch(t, []string{fmt.Sprintf("%s/%s", routeNamespace, gatewayName)}, result)
+		})
+
 		t.Run("ignores deleted and non route objects", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
@@ -827,11 +896,14 @@ func TestWatchesModel(t *testing.T) {
 			httpRoute.DeletionTimestamp = &deletionTimestamp
 			grpcRoute := makeRandomGRPCRoute()
 			grpcRoute.DeletionTimestamp = &deletionTimestamp
+			tlsRoute := &gatewayv1.TLSRoute{ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: &deletionTimestamp}}
 
 			require.Nil(t, model.indexHTTPRouteByParentGateway(t.Context(), &httpRoute))
 			require.Nil(t, model.indexHTTPRouteByParentGateway(t.Context(), &corev1.Service{}))
 			require.Nil(t, model.indexGRPCRouteByParentGateway(t.Context(), &grpcRoute))
 			require.Nil(t, model.indexGRPCRouteByParentGateway(t.Context(), &corev1.Service{}))
+			require.Nil(t, model.indexTLSRouteByParentGateway(t.Context(), tlsRoute))
+			require.Nil(t, model.indexTLSRouteByParentGateway(t.Context(), &corev1.Service{}))
 		})
 	})
 
@@ -1500,12 +1572,6 @@ func TestWatchesModel(t *testing.T) {
 					ParentRefs: []gatewayv1.ParentReference{{Name: gatewayv1.ObjectName(gateway.Name)}},
 				}},
 			}
-			otherRoute := gatewayv1.TLSRoute{
-				ObjectMeta: metav1.ObjectMeta{Namespace: secret.Namespace, Name: "other"},
-				Spec: gatewayv1.TLSRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
-					ParentRefs: []gatewayv1.ParentReference{{Name: "other"}},
-				}},
-			}
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
 			mockK8sClient.EXPECT().
 				List(t.Context(), &gatewayv1.GatewayList{}, client.MatchingFields{gatewayCertificateIndexKey: indexKey}).
@@ -1519,11 +1585,13 @@ func TestWatchesModel(t *testing.T) {
 					*obj.(*gatewayv1.Gateway) = gateway
 					return nil
 				})
+			gatewayIndexKey := client.ObjectKeyFromObject(&gateway).String()
 			mockK8sClient.EXPECT().
-				List(t.Context(), &gatewayv1.TLSRouteList{}).
+				List(t.Context(), &gatewayv1.TLSRouteList{},
+					client.MatchingFields{tlsRouteParentGatewayIndexKey: gatewayIndexKey}).
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					reflect.ValueOf(list).Elem().FieldByName("Items").
-						Set(reflect.ValueOf([]gatewayv1.TLSRoute{matchingRoute, otherRoute}))
+						Set(reflect.ValueOf([]gatewayv1.TLSRoute{matchingRoute}))
 					return nil
 				})
 
@@ -1968,7 +2036,8 @@ func TestWatchesModel(t *testing.T) {
 				},
 			}
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.TLSRouteList{}).
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.TLSRouteList{}).
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(tlsRoutes))
 					return nil
@@ -2000,9 +2069,11 @@ func TestWatchesModel(t *testing.T) {
 				},
 			}
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.TLSRouteList{}).
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.TLSRouteList{},
+					client.MatchingFields{tlsRouteParentGatewayIndexKey: "iot/edge"}).
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(tlsRoutes))
+					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(tlsRoutes[:1]))
 					return nil
 				})
 
@@ -2011,6 +2082,19 @@ func TestWatchesModel(t *testing.T) {
 				model.MapGatewayToTLSRoute(t.Context(), gateway),
 			)
 			require.Nil(t, model.MapGatewayToTLSRoute(t.Context(), &corev1.Service{}))
+		})
+
+		t.Run("returns nil when indexed TLSRoute list fails for Gateway changes", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			gateway := &gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "edge"}}
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.TLSRouteList{},
+					client.MatchingFields{tlsRouteParentGatewayIndexKey: "iot/edge"}).
+				Return(errors.New(faker.New().Lorem().Sentence(10)))
+
+			require.Nil(t, model.MapGatewayToTLSRoute(t.Context(), gateway))
 		})
 
 		t.Run("maps Secret changes to TLSRoutes through referencing Gateways", func(t *testing.T) {
@@ -2051,7 +2135,9 @@ func TestWatchesModel(t *testing.T) {
 					*obj.(*gatewayv1.Gateway) = gateway
 					return nil
 				})
-			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.TLSRouteList{}).
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.TLSRouteList{},
+					client.MatchingFields{tlsRouteParentGatewayIndexKey: "iot/edge"}).
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(tlsRoutes))
 					return nil
