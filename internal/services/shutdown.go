@@ -70,7 +70,7 @@ func (h *ShutdownHooks) PerformShutdown(ctx context.Context) error {
 		})
 	}
 
-	done := make(chan error)
+	done := make(chan error, 1)
 	go func() {
 		done <- errGrp.Wait()
 	}()
