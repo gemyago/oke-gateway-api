@@ -223,6 +223,81 @@ func randomHTTPRouteWithRulesOpt(rules ...gatewayv1.HTTPRouteRule) randomHTTPRou
 	}
 }
 
+type randomGRPCRouteOpt func(*gatewayv1.GRPCRoute)
+
+func makeRandomGRPCRoute(
+	opts ...randomGRPCRouteOpt,
+) gatewayv1.GRPCRoute {
+	fake := faker.New()
+	route := gatewayv1.GRPCRoute{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       fake.Internet().Domain(),
+			Namespace:  fake.Internet().Slug(),
+			Generation: rand.Int64(),
+		},
+		Spec: gatewayv1.GRPCRouteSpec{},
+	}
+
+	for _, opt := range opts {
+		opt(&route)
+	}
+
+	return route
+}
+
+func randomGRPCRouteWithRulesOpt(rules ...gatewayv1.GRPCRouteRule) randomGRPCRouteOpt {
+	return func(route *gatewayv1.GRPCRoute) {
+		route.Spec.Rules = append(route.Spec.Rules, rules...)
+	}
+}
+
+type randomGRPCRouteRuleOpt func(*gatewayv1.GRPCRouteRule)
+
+func makeRandomGRPCRouteRule(
+	opts ...randomGRPCRouteRuleOpt,
+) gatewayv1.GRPCRouteRule {
+	rule := gatewayv1.GRPCRouteRule{
+		BackendRefs: []gatewayv1.GRPCBackendRef{},
+	}
+
+	for _, opt := range opts {
+		opt(&rule)
+	}
+
+	return rule
+}
+
+func randomGRPCRouteRuleWithRandomBackendRefsOpt(
+	refs ...gatewayv1.GRPCBackendRef,
+) randomGRPCRouteRuleOpt {
+	return func(rule *gatewayv1.GRPCRouteRule) {
+		rule.BackendRefs = append(rule.BackendRefs, refs...)
+	}
+}
+
+type randomGRPCBackendRefOpt func(*gatewayv1.GRPCBackendRef)
+
+func makeRandomGRPCBackendRef(
+	opts ...randomGRPCBackendRefOpt,
+) gatewayv1.GRPCBackendRef {
+	httpRef := makeRandomBackendRef()
+	ref := gatewayv1.GRPCBackendRef{
+		BackendRef: httpRef.BackendRef,
+	}
+
+	for _, opt := range opts {
+		opt(&ref)
+	}
+
+	return ref
+}
+
+func randomGRPCBackendRefWithNilNamespaceOpt() randomGRPCBackendRefOpt {
+	return func(ref *gatewayv1.GRPCBackendRef) {
+		ref.BackendObjectReference.Namespace = nil
+	}
+}
+
 type randomHTTPRouteRuleOpt func(*gatewayv1.HTTPRouteRule)
 
 func makeRandomHTTPRouteRule(
@@ -318,15 +393,6 @@ func makeRandomService(
 	}
 
 	return svc
-}
-
-func makeFewRandomServices() []corev1.Service {
-	count := 2 + rand.IntN(3)
-	services := make([]corev1.Service, count)
-	for i := range services {
-		services[i] = makeRandomService()
-	}
-	return services
 }
 
 func randomServiceFromBackendRef(ref gatewayv1.HTTPBackendRef, parent client.Object) randomServiceOpt {

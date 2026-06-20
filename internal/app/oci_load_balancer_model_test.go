@@ -7,9 +7,12 @@ import (
 	"hash/crc32"
 	"maps"
 	"math/rand/v2"
+	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/jaswdr/faker/v2"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -46,6 +49,206 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			},
 		}
 	}
+
+	t.Run("helper functions", func(t *testing.T) {
+		t.Run("compares health checkers", func(t *testing.T) {
+			fake := faker.New()
+			protocol := "TCP"
+			port := rand.IntN(60000) + 1
+			assert.False(t, loadBalancerHealthCheckerMatches(nil, loadbalancer.HealthCheckerDetails{
+				Protocol: &protocol,
+				Port:     &port,
+			}))
+			assert.False(t, loadBalancerHealthCheckerMatches(&loadbalancer.HealthChecker{
+				Protocol: &protocol,
+				Port:     new(port + 1),
+			}, loadbalancer.HealthCheckerDetails{
+				Protocol: &protocol,
+				Port:     &port,
+			}))
+			assert.False(t, loadBalancerBackendSetMatches(
+				loadbalancer.BackendSet{
+					Policy: new("IP_HASH"),
+					HealthChecker: &loadbalancer.HealthChecker{
+						Protocol: &protocol,
+						Port:     &port,
+					},
+				},
+				"ROUND_ROBIN",
+				loadbalancer.HealthCheckerDetails{Protocol: &protocol, Port: &port},
+			))
+			assert.NotEmpty(t, fake.Lorem().Word())
+		})
+
+		t.Run("copies backend and ssl details", func(t *testing.T) {
+			fake := faker.New()
+			backend := loadbalancer.Backend{
+				Backup:         new(true),
+				Drain:          new(false),
+				IpAddress:      new(fake.Internet().Ipv4()),
+				Offline:        new(false),
+				Port:           new(rand.IntN(60000) + 1),
+				Weight:         new(rand.IntN(100) + 1),
+				MaxConnections: new(rand.IntN(1000) + 1),
+			}
+
+			assert.Equal(t, loadbalancer.BackendDetails{
+				Backup:         backend.Backup,
+				Drain:          backend.Drain,
+				IpAddress:      backend.IpAddress,
+				Offline:        backend.Offline,
+				Port:           backend.Port,
+				Weight:         backend.Weight,
+				MaxConnections: backend.MaxConnections,
+			}, ociBackendToDetails(backend, 0))
+			assert.Nil(t, sslConfigurationDetailsFromBackendSet(nil))
+
+			certificateID := fake.UUID().V4()
+			config := loadbalancer.SslConfiguration{
+				VerifyDepth:                    new(rand.IntN(5) + 1),
+				VerifyPeerCertificate:          new(true),
+				HasSessionResumption:           new(true),
+				TrustedCertificateAuthorityIds: []string{fake.UUID().V4()},
+				CertificateIds:                 []string{certificateID},
+				CertificateName:                new("cert-" + fake.Lorem().Word()),
+				Protocols:                      []string{"TLSv1.2"},
+				CipherSuiteName:                new("cipher-" + fake.Lorem().Word()),
+				ServerOrderPreference:          loadbalancer.SslConfigurationServerOrderPreferenceEnabled,
+			}
+
+			got := sslConfigurationDetailsFromBackendSet(&config)
+
+			require.NotNil(t, got)
+			assert.Equal(t, config.VerifyDepth, got.VerifyDepth)
+			assert.Equal(t, config.VerifyPeerCertificate, got.VerifyPeerCertificate)
+			assert.Equal(t, config.HasSessionResumption, got.HasSessionResumption)
+			assert.Equal(t, config.TrustedCertificateAuthorityIds, got.TrustedCertificateAuthorityIds)
+			assert.Equal(t, config.CertificateIds, got.CertificateIds)
+			assert.Equal(t, config.CertificateName, got.CertificateName)
+			assert.Equal(t, config.Protocols, got.Protocols)
+			assert.Equal(t, config.CipherSuiteName, got.CipherSuiteName)
+			assert.Equal(t, loadbalancer.SslConfigurationDetailsServerOrderPreferenceEnabled, got.ServerOrderPreference)
+		})
+
+		t.Run("detects routing default rule shape", func(t *testing.T) {
+			fake := faker.New()
+			defaultBackendSetName := "default-" + fake.Lorem().Word()
+			assert.False(t, routingRuleForwardsToBackendSet(loadbalancer.RoutingRule{}, defaultBackendSetName))
+			assert.False(t, routingRuleForwardsToBackendSet(loadbalancer.RoutingRule{
+				Actions: []loadbalancer.Action{loadbalancer.RedirectRule{}},
+			}, defaultBackendSetName))
+			assert.True(t, routingPolicyDefaultRuleDrifted(loadbalancer.RoutingPolicy{
+				Rules: []loadbalancer.RoutingRule{makeRandomOCIRoutingRule()},
+			}, defaultBackendSetName))
+			assert.False(t, routingPolicyDefaultRuleDrifted(loadbalancer.RoutingPolicy{
+				Rules: []loadbalancer.RoutingRule{defaultCatchAllRoutingRule(defaultBackendSetName)},
+			}, defaultBackendSetName))
+		})
+
+		t.Run("includes grpc rule name when present", func(t *testing.T) {
+			fake := faker.New()
+			ruleName := gatewayv1.SectionName("grpc-" + fake.Lorem().Word())
+			route := makeRandomGRPCRoute(randomGRPCRouteWithRulesOpt(
+				makeRandomGRPCRouteRule(func(rule *gatewayv1.GRPCRouteRule) {
+					rule.Name = &ruleName
+				}),
+			))
+
+			got := ociGRPCListenerPolicyRuleName(route, 0)
+
+			assert.Equal(
+				t,
+				ociListenerPolicyRuleNameFromParts(0, "grpc", route.Namespace, route.Name, string(ruleName)),
+				got,
+			)
+			assert.NotEqual(
+				t,
+				ociListenerPolicyRuleNameFromParts(0, "grpc", route.Namespace, route.Name),
+				got,
+			)
+		})
+	})
+
+	t.Run("updateBackendSetConfig", func(t *testing.T) {
+		t.Run("returns update errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			wantErr := errors.New(fake.Lorem().Sentence(10))
+
+			ociLoadBalancerClient.EXPECT().UpdateBackendSet(t.Context(), mock.Anything).
+				Return(loadbalancer.UpdateBackendSetResponse{}, wantErr).
+				Once()
+
+			err := model.updateBackendSetConfig(
+				t.Context(),
+				fake.UUID().V4(),
+				"backend-"+fake.Lorem().Word(),
+				makeRandomOCIBackendSet(),
+				"ROUND_ROBIN",
+				loadBalancerBackendSetHealthChecker(rand.IntN(60000)+1),
+			)
+
+			require.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("returns missing work request id errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			loadBalancerID := fake.UUID().V4()
+			backendSetName := "backend-" + fake.Lorem().Word()
+
+			ociLoadBalancerClient.EXPECT().UpdateBackendSet(
+				t.Context(),
+				mock.MatchedBy(func(req loadbalancer.UpdateBackendSetRequest) bool {
+					return lo.FromPtr(req.LoadBalancerId) == loadBalancerID &&
+						lo.FromPtr(req.BackendSetName) == backendSetName
+				}),
+			).Return(loadbalancer.UpdateBackendSetResponse{}, nil).Once()
+
+			err := model.updateBackendSetConfig(
+				t.Context(),
+				loadBalancerID,
+				backendSetName,
+				makeRandomOCIBackendSet(),
+				"ROUND_ROBIN",
+				loadBalancerBackendSetHealthChecker(rand.IntN(60000)+1),
+			)
+
+			require.ErrorContains(t, err, "missing work request id")
+		})
+
+		t.Run("returns wait errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+			loadBalancerID := fake.UUID().V4()
+			backendSetName := "backend-" + fake.Lorem().Word()
+			workRequestID := fake.UUID().V4()
+			wantErr := errors.New(fake.Lorem().Sentence(10))
+
+			ociLoadBalancerClient.EXPECT().UpdateBackendSet(t.Context(), mock.Anything).
+				Return(loadbalancer.UpdateBackendSetResponse{OpcWorkRequestId: &workRequestID}, nil).
+				Once()
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(wantErr).Once()
+
+			err := model.updateBackendSetConfig(
+				t.Context(),
+				loadBalancerID,
+				backendSetName,
+				makeRandomOCIBackendSet(),
+				"ROUND_ROBIN",
+				loadBalancerBackendSetHealthChecker(rand.IntN(60000)+1),
+			)
+
+			require.ErrorIs(t, err, wantErr)
+		})
+	})
 
 	t.Run("reconcileDefaultBackendSet", func(t *testing.T) {
 		t.Run("when backend set exists", func(t *testing.T) {
@@ -1571,18 +1774,37 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 	})
 
 	t.Run("reconcileBackendSet", func(t *testing.T) {
+		makeParams := func(service corev1.Service, loadBalancerID string) reconcileBackendSetParams {
+			namespace := gatewayv1.Namespace(service.Namespace)
+			return reconcileBackendSetParams{
+				loadBalancerID: loadBalancerID,
+				service:        service,
+				routeNS:        service.Namespace,
+				backendRef: gatewayv1.BackendRef{
+					BackendObjectReference: gatewayv1.BackendObjectReference{
+						Name:      gatewayv1.ObjectName(service.Name),
+						Namespace: &namespace,
+						Port:      &service.Spec.Ports[0].Port,
+					},
+				},
+			}
+		}
+		backendSetNameFromParams := func(params reconcileBackendSetParams) string {
+			return ociBackendSetNameFromBackendObjectRef(
+				params.routeNS,
+				params.backendRef.BackendObjectReference,
+			)
+		}
+
 		t.Run("create new backend set", func(t *testing.T) {
 			fake := faker.New()
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 			service := makeRandomService()
 
-			params := reconcileBackendSetParams{
-				loadBalancerID: fake.UUID().V4(),
-				service:        service,
-			}
+			params := makeParams(service, fake.UUID().V4())
 
-			wantBsName := ociBackendSetNameFromService(service)
+			wantBsName := backendSetNameFromParams(params)
 
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 
@@ -1603,7 +1825,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					Name: &wantBsName,
 					HealthChecker: &loadbalancer.HealthCheckerDetails{
 						Protocol: new("TCP"),
-						Port:     new(service.Spec.Ports[0].TargetPort.IntValue()),
+						Port:     new(int(lo.FromPtr(params.backendRef.Port))),
 					},
 					Policy: new("ROUND_ROBIN"),
 				},
@@ -1626,12 +1848,10 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				},
 			)
 
-			params := reconcileBackendSetParams{
-				loadBalancerID: fake.UUID().V4(),
-				service:        service,
-			}
+			params := makeParams(service, fake.UUID().V4())
+			params.backendRef.Port = nil
 
-			wantBsName := ociBackendSetNameFromService(service)
+			wantBsName := backendSetNameFromParams(params)
 
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 
@@ -1672,20 +1892,16 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			model := newOciLoadBalancerModel(deps)
 
 			service := makeRandomService()
-			wantBsName := ociBackendSetNameFromService(service)
+			params := makeParams(service, fake.UUID().V4())
+			wantBsName := backendSetNameFromParams(params)
 			exitingBs := makeRandomOCIBackendSet(func(bs *loadbalancer.BackendSet) {
 				bs.Name = new(wantBsName)
 				bs.Policy = new("ROUND_ROBIN")
 				bs.HealthChecker = &loadbalancer.HealthChecker{
 					Protocol: new("TCP"),
-					Port:     new(service.Spec.Ports[0].TargetPort.IntValue()),
+					Port:     new(int(lo.FromPtr(params.backendRef.Port))),
 				}
 			})
-
-			params := reconcileBackendSetParams{
-				loadBalancerID: fake.UUID().V4(),
-				service:        service,
-			}
 
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 
@@ -1706,13 +1922,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			model := newOciLoadBalancerModel(deps)
 
 			service := makeRandomService()
-			wantBsName := ociBackendSetNameFromService(service)
+			params := makeParams(service, fake.UUID().V4())
+			wantBsName := backendSetNameFromParams(params)
 			existingBs := makeRandomOCIBackendSet(randomOCIBackendSetWithNameOpt(wantBsName))
-
-			params := reconcileBackendSetParams{
-				loadBalancerID: fake.UUID().V4(),
-				service:        service,
-			}
 
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
@@ -1732,7 +1944,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 						assert.Equal(t, wantBsName, *req.BackendSetName) &&
 						assert.Equal(t, "ROUND_ROBIN", *req.Policy) &&
 						assert.Equal(t, "TCP", *req.HealthChecker.Protocol) &&
-						assert.Equal(t, service.Spec.Ports[0].TargetPort.IntValue(), *req.HealthChecker.Port)
+						assert.Equal(t, int(lo.FromPtr(params.backendRef.Port)), *req.HealthChecker.Port)
 				}),
 			).Return(loadbalancer.UpdateBackendSetResponse{
 				OpcWorkRequestId: &workRequestID,
@@ -1748,12 +1960,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 			service := makeRandomService()
-			wantBsName := ociBackendSetNameFromService(service)
 			wantErr := errors.New(faker.New().Lorem().Sentence(10))
-			params := reconcileBackendSetParams{
-				loadBalancerID: faker.New().UUID().V4(),
-				service:        service,
-			}
+			params := makeParams(service, faker.New().UUID().V4())
+			wantBsName := backendSetNameFromParams(params)
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 
 			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
@@ -1770,12 +1979,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 			service := makeRandomService()
-			wantBsName := ociBackendSetNameFromService(service)
 			wantErr := ociapi.NewRandomServiceError(ociapi.RandomServiceErrorWithStatusCode(500))
-			params := reconcileBackendSetParams{
-				loadBalancerID: faker.New().UUID().V4(),
-				service:        service,
-			}
+			params := makeParams(service, faker.New().UUID().V4())
+			wantBsName := backendSetNameFromParams(params)
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 
 			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
@@ -1793,12 +1999,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 			service := makeRandomService()
-			wantBsName := ociBackendSetNameFromService(service)
 			wantErr := errors.New(faker.New().Lorem().Sentence(10))
-			params := reconcileBackendSetParams{
-				loadBalancerID: faker.New().UUID().V4(),
-				service:        service,
-			}
+			params := makeParams(service, faker.New().UUID().V4())
+			wantBsName := backendSetNameFromParams(params)
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 
 			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
@@ -1815,7 +2018,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					Name: &wantBsName,
 					HealthChecker: &loadbalancer.HealthCheckerDetails{
 						Protocol: new("TCP"),
-						Port:     new(service.Spec.Ports[0].TargetPort.IntValue()),
+						Port:     new(int(lo.FromPtr(params.backendRef.Port))),
 					},
 					Policy: new("ROUND_ROBIN"),
 				},
@@ -1830,11 +2033,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 			service := makeRandomService()
-			wantBsName := ociBackendSetNameFromService(service)
-			params := reconcileBackendSetParams{
-				loadBalancerID: faker.New().UUID().V4(),
-				service:        service,
-			}
+			params := makeParams(service, faker.New().UUID().V4())
+			wantBsName := backendSetNameFromParams(params)
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 
 			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
@@ -1851,7 +2051,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					Name: &wantBsName,
 					HealthChecker: &loadbalancer.HealthCheckerDetails{
 						Protocol: new("TCP"),
-						Port:     new(service.Spec.Ports[0].TargetPort.IntValue()),
+						Port:     new(int(lo.FromPtr(params.backendRef.Port))),
 					},
 					Policy: new("ROUND_ROBIN"),
 				},
@@ -1866,12 +2066,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 			service := makeRandomService()
-			wantBsName := ociBackendSetNameFromService(service)
 			wantErr := errors.New(faker.New().Lorem().Sentence(10))
-			params := reconcileBackendSetParams{
-				loadBalancerID: faker.New().UUID().V4(),
-				service:        service,
-			}
+			params := makeParams(service, faker.New().UUID().V4())
+			wantBsName := backendSetNameFromParams(params)
 			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
 			workRequestID := faker.New().UUID().V4()
@@ -1890,7 +2087,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					Name: &wantBsName,
 					HealthChecker: &loadbalancer.HealthCheckerDetails{
 						Protocol: new("TCP"),
-						Port:     new(service.Spec.Ports[0].TargetPort.IntValue()),
+						Port:     new(int(lo.FromPtr(params.backendRef.Port))),
 					},
 					Policy: new("ROUND_ROBIN"),
 				},
@@ -2422,6 +2619,136 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		})
 	})
 
+	t.Run("makeGRPCRoutingRule", func(t *testing.T) {
+		t.Run("uses a route-kind-specific rule name", func(t *testing.T) {
+			namespace := "default"
+			name := "shared-route-name"
+			ruleIndex := 0
+
+			httpRoute := gatewayv1.HTTPRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: namespace,
+					Name:      name,
+				},
+				Spec: gatewayv1.HTTPRouteSpec{
+					Rules: []gatewayv1.HTTPRouteRule{{}},
+				},
+			}
+			grpcRoute := gatewayv1.GRPCRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: namespace,
+					Name:      name,
+				},
+				Spec: gatewayv1.GRPCRouteSpec{
+					Rules: []gatewayv1.GRPCRouteRule{{}},
+				},
+			}
+
+			assert.NotEqual(
+				t,
+				ociListerPolicyRuleName(httpRoute, ruleIndex),
+				ociGRPCListenerPolicyRuleName(grpcRoute, ruleIndex),
+			)
+		})
+
+		t.Run("successfully creates a grpc routing rule", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			routingRulesMapper, _ := deps.RoutingRulesMapper.(*MockociLoadBalancerRoutingRulesMapper)
+
+			refs := []gatewayv1.GRPCBackendRef{
+				{BackendRef: gatewayv1.BackendRef{BackendObjectReference: gatewayv1.BackendObjectReference{
+					Name: gatewayv1.ObjectName("svc-" + fake.Lorem().Word() + "-a"),
+					Port: lo.ToPtr(gatewayv1.PortNumber(50051)),
+				}}},
+				{BackendRef: gatewayv1.BackendRef{BackendObjectReference: gatewayv1.BackendObjectReference{
+					Name: gatewayv1.ObjectName("svc-" + fake.Lorem().Word() + "-b"),
+					Port: lo.ToPtr(gatewayv1.PortNumber(50052)),
+				}}},
+			}
+			methodService := fmt.Sprintf("%s.%s", fake.Lorem().Word(), fake.Lorem().Word())
+			methodName := fake.Lorem().Word()
+			grpcRoute := gatewayv1.GRPCRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns-" + fake.Lorem().Word(),
+					Name:      "grpc-" + fake.Lorem().Word(),
+				},
+				Spec: gatewayv1.GRPCRouteSpec{
+					Hostnames: []gatewayv1.Hostname{gatewayv1.Hostname("grpc-" + fake.Internet().Domain())},
+					Rules: []gatewayv1.GRPCRouteRule{
+						{
+							Matches: []gatewayv1.GRPCRouteMatch{
+								{Method: &gatewayv1.GRPCMethodMatch{
+									Service: &methodService,
+									Method:  &methodName,
+								}},
+							},
+							BackendRefs: refs,
+						},
+					},
+				},
+			}
+			ruleIndex := 0
+
+			expectedCondition := fake.Lorem().Sentence(10)
+			routingRulesMapper.EXPECT().mapGRPCRouteHostnamesAndMatchesToCondition(
+				grpcRoute.Spec.Hostnames,
+				grpcRoute.Spec.Rules[ruleIndex].Matches,
+			).Return(expectedCondition, nil).Once()
+
+			expectedRuleName := ociGRPCListenerPolicyRuleName(grpcRoute, ruleIndex)
+			expectedBackendSets := lo.Map(refs, func(ref gatewayv1.GRPCBackendRef, _ int) string {
+				return ociBackendSetNameFromGRPCBackendRef(grpcRoute, ref)
+			})
+			expectedRule := loadbalancer.RoutingRule{
+				Name:      new(expectedRuleName),
+				Condition: new(expectedCondition),
+				Actions: lo.Map(expectedBackendSets, func(backendSet string, _ int) loadbalancer.Action {
+					return loadbalancer.ForwardToBackendSet{
+						BackendSetName: new(backendSet),
+					}
+				}),
+			}
+
+			actualRule, err := model.makeGRPCRoutingRule(t.Context(), makeGRPCRoutingRuleParams{
+				grpcRoute:          grpcRoute,
+				grpcRouteRuleIndex: ruleIndex,
+			})
+
+			require.NoError(t, err)
+			assert.Equal(t, expectedRule, actualRule)
+		})
+
+		t.Run("fails when grpc match mapping fails", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			routingRulesMapper, _ := deps.RoutingRulesMapper.(*MockociLoadBalancerRoutingRulesMapper)
+			grpcRoute := gatewayv1.GRPCRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns-" + fake.Lorem().Word(),
+					Name:      "grpc-" + fake.Lorem().Word(),
+				},
+				Spec: gatewayv1.GRPCRouteSpec{
+					Rules: []gatewayv1.GRPCRouteRule{{}},
+				},
+			}
+			wantErr := errors.New(fake.Lorem().Sentence(10))
+			routingRulesMapper.EXPECT().mapGRPCRouteHostnamesAndMatchesToCondition(
+				grpcRoute.Spec.Hostnames,
+				grpcRoute.Spec.Rules[0].Matches,
+			).Return("", wantErr).Once()
+
+			_, err := model.makeGRPCRoutingRule(t.Context(), makeGRPCRoutingRuleParams{
+				grpcRoute:          grpcRoute,
+				grpcRouteRuleIndex: 0,
+			})
+
+			require.ErrorIs(t, err, wantErr)
+		})
+	})
+
 	t.Run("commitRoutingPolicy", func(t *testing.T) {
 		t.Run("successfully merge and update routing policy", func(t *testing.T) {
 			fake := faker.New()
@@ -2659,6 +2986,220 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("orders grpc rules before http rules and default catch all", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			loadBalancerID := fake.UUID().V4()
+			listenerName := fake.UUID().V4()
+			policyName := listenerPolicyName(listenerName)
+			httpRule := loadbalancer.RoutingRule{
+				Name:      new("http-api"),
+				Condition: new("http.request.url.path sw '/'"),
+			}
+			grpcRule := loadbalancer.RoutingRule{
+				Name:      new("grpc-api"),
+				Condition: new(grpcContentTypeCondition()),
+			}
+			defaultRule := defaultCatchAllRoutingRule("default-backend")
+
+			ociLoadBalancerClient.EXPECT().GetRoutingPolicy(t.Context(), loadbalancer.GetRoutingPolicyRequest{
+				RoutingPolicyName: new(policyName),
+				LoadBalancerId:    &loadBalancerID,
+			}).Return(loadbalancer.GetRoutingPolicyResponse{
+				RoutingPolicy: loadbalancer.RoutingPolicy{
+					Name:                     new(policyName),
+					Rules:                    []loadbalancer.RoutingRule{httpRule, defaultRule},
+					ConditionLanguageVersion: loadbalancer.RoutingPolicyConditionLanguageVersionV1,
+				},
+			}, nil)
+
+			workRequestID := fake.UUID().V4()
+			ociLoadBalancerClient.EXPECT().UpdateRoutingPolicy(t.Context(), mock.MatchedBy(
+				func(req loadbalancer.UpdateRoutingPolicyRequest) bool {
+					assert.Equal(
+						t,
+						[]loadbalancer.RoutingRule{grpcRule, httpRule, defaultRule},
+						req.UpdateRoutingPolicyDetails.Rules,
+					)
+					return true
+				},
+			)).Return(loadbalancer.UpdateRoutingPolicyResponse{
+				OpcWorkRequestId: &workRequestID,
+			}, nil)
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
+
+			err := model.commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID: loadBalancerID,
+				listenerName:   listenerName,
+				policyRules:    []loadbalancer.RoutingRule{httpRule, grpcRule},
+			})
+			require.NoError(t, err)
+		})
+
+		t.Run("serializes concurrent commits for the same routing policy", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			loadBalancerID := fake.UUID().V4()
+			listenerName := fake.UUID().V4()
+			policyName := listenerPolicyName(listenerName)
+			defaultRule := defaultCatchAllRoutingRule("default-" + fake.Lorem().Word())
+			httpRule := loadbalancer.RoutingRule{
+				Name:      new("http-" + fake.Lorem().Word()),
+				Condition: new("http.request.url.path sw '/'"),
+			}
+			grpcRule := loadbalancer.RoutingRule{
+				Name:      new("grpc-" + fake.Lorem().Word()),
+				Condition: new(grpcContentTypeCondition()),
+			}
+
+			var policyMu sync.Mutex
+			currentPolicy := loadbalancer.RoutingPolicy{
+				Name:                     new(policyName),
+				Rules:                    []loadbalancer.RoutingRule{defaultRule},
+				ConditionLanguageVersion: loadbalancer.RoutingPolicyConditionLanguageVersionV1,
+			}
+			getCount := 0
+			secondGet := make(chan struct{})
+
+			ociLoadBalancerClient.EXPECT().GetRoutingPolicy(t.Context(), loadbalancer.GetRoutingPolicyRequest{
+				RoutingPolicyName: new(policyName),
+				LoadBalancerId:    &loadBalancerID,
+			}).RunAndReturn(func(context.Context, loadbalancer.GetRoutingPolicyRequest) (loadbalancer.GetRoutingPolicyResponse, error) {
+				policyMu.Lock()
+				getCount++
+				currentGet := getCount
+				if currentGet == 2 {
+					close(secondGet)
+				}
+				snapshot := currentPolicy
+				snapshot.Rules = slices.Clone(currentPolicy.Rules)
+				policyMu.Unlock()
+
+				if currentGet == 1 {
+					select {
+					case <-secondGet:
+					case <-time.After(50 * time.Millisecond):
+					}
+				}
+
+				return loadbalancer.GetRoutingPolicyResponse{RoutingPolicy: snapshot}, nil
+			}).Twice()
+
+			ociLoadBalancerClient.EXPECT().UpdateRoutingPolicy(t.Context(), mock.MatchedBy(
+				func(req loadbalancer.UpdateRoutingPolicyRequest) bool {
+					policyMu.Lock()
+					currentPolicy.Rules = slices.Clone(req.UpdateRoutingPolicyDetails.Rules)
+					policyMu.Unlock()
+					return true
+				},
+			)).Return(loadbalancer.UpdateRoutingPolicyResponse{
+				OpcWorkRequestId: new("wr-" + fake.UUID().V4()),
+			}, nil).Twice()
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), mock.Anything).Return(nil).Twice()
+
+			var wg sync.WaitGroup
+			wg.Add(2)
+			errs := make(chan error, 2)
+			go func() {
+				defer wg.Done()
+				errs <- model.commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+					loadBalancerID: loadBalancerID,
+					listenerName:   listenerName,
+					policyRules:    []loadbalancer.RoutingRule{httpRule},
+				})
+			}()
+			go func() {
+				defer wg.Done()
+				errs <- model.commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+					loadBalancerID: loadBalancerID,
+					listenerName:   listenerName,
+					policyRules:    []loadbalancer.RoutingRule{grpcRule},
+				})
+			}()
+			wg.Wait()
+			close(errs)
+
+			for err := range errs {
+				require.NoError(t, err)
+			}
+			policyMu.Lock()
+			gotRules := slices.Clone(currentPolicy.Rules)
+			policyMu.Unlock()
+
+			assert.ElementsMatch(t, []loadbalancer.RoutingRule{grpcRule, httpRule, defaultRule}, gotRules)
+			assert.Empty(t, model.routingPolicyLocks.locks)
+		})
+
+		t.Run("routing policy locks clean up after waiting operations finish", func(t *testing.T) {
+			fake := faker.New()
+			locks := routingPolicyLocks{}
+			lockKey := routingPolicyLockKey(fake.UUID().V4(), listenerPolicyName(fake.UUID().V4()))
+			firstStarted := make(chan struct{})
+			releaseFirst := make(chan struct{})
+			firstDone := make(chan error, 1)
+			secondDone := make(chan error, 1)
+
+			go func() {
+				firstDone <- locks.withLock(lockKey, func() error {
+					close(firstStarted)
+					<-releaseFirst
+					return nil
+				})
+			}()
+
+			select {
+			case <-firstStarted:
+			case <-time.After(time.Second):
+				require.Fail(t, "timed out waiting for first operation")
+			}
+
+			go func() {
+				secondDone <- locks.withLock(lockKey, func() error {
+					return nil
+				})
+			}()
+
+			require.EventuallyWithT(t, func(collect *assert.CollectT) {
+				locks.mu.Lock()
+				defer locks.mu.Unlock()
+
+				assert.Len(collect, locks.locks, 1)
+				if lock := locks.locks[lockKey]; assert.NotNil(collect, lock) {
+					assert.Equal(collect, 2, lock.refs)
+				}
+			}, time.Second, 10*time.Millisecond)
+
+			close(releaseFirst)
+
+			select {
+			case err := <-firstDone:
+				require.NoError(t, err)
+			case <-time.After(time.Second):
+				require.Fail(t, "timed out waiting for first operation")
+			}
+
+			select {
+			case err := <-secondDone:
+				require.NoError(t, err)
+			case <-time.After(time.Second):
+				require.Fail(t, "timed out waiting for second operation")
+			}
+
+			require.EventuallyWithT(t, func(collect *assert.CollectT) {
+				locks.mu.Lock()
+				defer locks.mu.Unlock()
+				assert.Empty(collect, locks.locks)
+			}, time.Second, 10*time.Millisecond)
+		})
+
 		t.Run("skips update when routing policy already matches desired rules", func(t *testing.T) {
 			fake := faker.New()
 			deps := makeMockDeps(t)
@@ -2866,8 +3407,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			params := deprovisionBackendSetParams{
 				loadBalancerID: loadBalancerID,
-				httpRoute:      httpRoute,
-				backendRef:     backendRef,
+				routeNamespace: httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
 			}
 
 			ociLoadBalancerClient.EXPECT().DeleteBackendSet(t.Context(), loadbalancer.DeleteBackendSetRequest{
@@ -2897,8 +3438,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			params := deprovisionBackendSetParams{
 				loadBalancerID: loadBalancerID,
-				httpRoute:      httpRoute,
-				backendRef:     backendRef,
+				routeNamespace: httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
 			}
 
 			ociLoadBalancerClient.EXPECT().DeleteBackendSet(t.Context(), loadbalancer.DeleteBackendSetRequest{
@@ -2927,8 +3468,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			params := deprovisionBackendSetParams{
 				loadBalancerID: loadBalancerID,
-				httpRoute:      httpRoute,
-				backendRef:     backendRef,
+				routeNamespace: httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
 			}
 
 			ociLoadBalancerClient.EXPECT().DeleteBackendSet(t.Context(), loadbalancer.DeleteBackendSetRequest{
@@ -2958,8 +3499,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			params := deprovisionBackendSetParams{
 				loadBalancerID: loadBalancerID,
-				httpRoute:      httpRoute,
-				backendRef:     backendRef,
+				routeNamespace: httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
 			}
 
 			ociLoadBalancerClient.EXPECT().DeleteBackendSet(t.Context(), loadbalancer.DeleteBackendSetRequest{
@@ -2985,8 +3526,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			params := deprovisionBackendSetParams{
 				loadBalancerID: loadBalancerID,
-				httpRoute:      httpRoute,
-				backendRef:     backendRef,
+				routeNamespace: httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
 			}
 
 			ociLoadBalancerClient.EXPECT().DeleteBackendSet(t.Context(), loadbalancer.DeleteBackendSetRequest{
@@ -3013,8 +3554,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			params := deprovisionBackendSetParams{
 				loadBalancerID: loadBalancerID,
-				httpRoute:      httpRoute,
-				backendRef:     backendRef,
+				routeNamespace: httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
 			}
 
 			serviceErr := ociapi.NewRandomServiceError(
@@ -3834,6 +4375,293 @@ func TestOciLoadBalancerModelOCICertificateIDs(t *testing.T) {
 	})
 }
 
+func TestOciLoadBalancerModelImpl_ensureHTTP2ListenerProtocol(t *testing.T) {
+	t.Run("updates listener protocol to HTTP2 and preserves existing listener settings", func(t *testing.T) {
+		fake := faker.New()
+		ociLoadBalancerClient := NewMockociLoadBalancerClient(t)
+		workRequestsWatcher := NewMockworkRequestsWatcher(t)
+		model := newOciLoadBalancerModel(ociLoadBalancerModelDeps{
+			RootLogger:          diag.RootTestLogger(),
+			OciClient:           ociLoadBalancerClient,
+			K8sClient:           NewMockk8sClient(t),
+			WorkRequestsWatcher: workRequestsWatcher,
+			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
+		})
+		loadBalancerID := fake.UUID().V4()
+		listenerName := "grpc-" + fake.Lorem().Word()
+		workRequestID := fake.UUID().V4()
+		backendSetName := "backend-" + fake.Lorem().Word()
+		port := rand.IntN(60000) + 1
+		routingPolicyName := listenerPolicyName(listenerName)
+		pathRouteSetName := "path-" + fake.Lorem().Word()
+		ruleSetName := "rule-" + fake.Lorem().Word()
+		hostnameName := "host-" + fake.Lorem().Word()
+		protocol := ociListenerProtocolHTTP
+		sslConfig := &loadbalancer.SslConfiguration{
+			CertificateIds:        []string{fake.UUID().V4()},
+			CertificateName:       new("cert-" + fake.Lorem().Word()),
+			HasSessionResumption:  new(true),
+			ServerOrderPreference: loadbalancer.SslConfigurationServerOrderPreferenceEnabled,
+		}
+		connectionConfig := &loadbalancer.ConnectionConfiguration{
+			IdleTimeout: new(int64(rand.IntN(300) + 1)),
+		}
+
+		ociLoadBalancerClient.EXPECT().GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+			LoadBalancerId: new(loadBalancerID),
+		}).Return(loadbalancer.GetLoadBalancerResponse{
+			LoadBalancer: loadbalancer.LoadBalancer{
+				Listeners: map[string]loadbalancer.Listener{
+					listenerName: {
+						Name:                    new(listenerName),
+						DefaultBackendSetName:   new(backendSetName),
+						Port:                    new(port),
+						Protocol:                new(protocol),
+						HostnameNames:           []string{hostnameName},
+						PathRouteSetName:        new(pathRouteSetName),
+						SslConfiguration:        sslConfig,
+						ConnectionConfiguration: connectionConfig,
+						RuleSetNames:            []string{ruleSetName},
+						RoutingPolicyName:       new(routingPolicyName),
+					},
+				},
+			},
+		}, nil).Once()
+		ociLoadBalancerClient.EXPECT().UpdateListener(t.Context(), loadbalancer.UpdateListenerRequest{
+			LoadBalancerId: new(loadBalancerID),
+			ListenerName:   new(listenerName),
+			UpdateListenerDetails: loadbalancer.UpdateListenerDetails{
+				DefaultBackendSetName:   new(backendSetName),
+				Port:                    new(port),
+				Protocol:                new(ociListenerProtocolHTTP2),
+				HostnameNames:           []string{hostnameName},
+				PathRouteSetName:        new(pathRouteSetName),
+				RoutingPolicyName:       new(routingPolicyName),
+				SslConfiguration:        sslConfigurationDetailsFromBackendSet(sslConfig),
+				ConnectionConfiguration: connectionConfig,
+				RuleSetNames:            []string{ruleSetName},
+			},
+		}).Return(loadbalancer.UpdateListenerResponse{
+			OpcWorkRequestId: new(workRequestID),
+		}, nil).Once()
+		workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil).Once()
+
+		err := model.ensureHTTP2ListenerProtocol(t.Context(), ensureHTTP2ListenerProtocolParams{
+			loadBalancerID: loadBalancerID,
+			listenerName:   listenerName,
+		})
+
+		require.NoError(t, err)
+	})
+
+	t.Run("skips update when listener already uses HTTP2", func(t *testing.T) {
+		fake := faker.New()
+		ociLoadBalancerClient := NewMockociLoadBalancerClient(t)
+		model := newOciLoadBalancerModel(ociLoadBalancerModelDeps{
+			RootLogger:          diag.RootTestLogger(),
+			OciClient:           ociLoadBalancerClient,
+			K8sClient:           NewMockk8sClient(t),
+			WorkRequestsWatcher: NewMockworkRequestsWatcher(t),
+			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
+		})
+		loadBalancerID := fake.UUID().V4()
+		listenerName := "grpc-" + fake.Lorem().Word()
+
+		ociLoadBalancerClient.EXPECT().GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+			LoadBalancerId: new(loadBalancerID),
+		}).Return(loadbalancer.GetLoadBalancerResponse{
+			LoadBalancer: loadbalancer.LoadBalancer{
+				Listeners: map[string]loadbalancer.Listener{
+					listenerName: {
+						Name:     new(listenerName),
+						Protocol: new(ociListenerProtocolHTTP2),
+					},
+				},
+			},
+		}, nil).Once()
+
+		err := model.ensureHTTP2ListenerProtocol(t.Context(), ensureHTTP2ListenerProtocolParams{
+			loadBalancerID: loadBalancerID,
+			listenerName:   listenerName,
+		})
+
+		require.NoError(t, err)
+		ociLoadBalancerClient.AssertNotCalled(t, "UpdateListener")
+	})
+
+	t.Run("returns load balancer lookup errors", func(t *testing.T) {
+		fake := faker.New()
+		ociLoadBalancerClient := NewMockociLoadBalancerClient(t)
+		model := newOciLoadBalancerModel(ociLoadBalancerModelDeps{
+			RootLogger:          diag.RootTestLogger(),
+			OciClient:           ociLoadBalancerClient,
+			K8sClient:           NewMockk8sClient(t),
+			WorkRequestsWatcher: NewMockworkRequestsWatcher(t),
+			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
+		})
+		loadBalancerID := fake.UUID().V4()
+		wantErr := errors.New(fake.Lorem().Sentence(10))
+
+		ociLoadBalancerClient.EXPECT().GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+			LoadBalancerId: new(loadBalancerID),
+		}).Return(loadbalancer.GetLoadBalancerResponse{}, wantErr).Once()
+
+		err := model.ensureHTTP2ListenerProtocol(t.Context(), ensureHTTP2ListenerProtocolParams{
+			loadBalancerID: loadBalancerID,
+			listenerName:   "grpc-" + fake.Lorem().Word(),
+		})
+
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("returns listener not found errors", func(t *testing.T) {
+		fake := faker.New()
+		ociLoadBalancerClient := NewMockociLoadBalancerClient(t)
+		model := newOciLoadBalancerModel(ociLoadBalancerModelDeps{
+			RootLogger:          diag.RootTestLogger(),
+			OciClient:           ociLoadBalancerClient,
+			K8sClient:           NewMockk8sClient(t),
+			WorkRequestsWatcher: NewMockworkRequestsWatcher(t),
+			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
+		})
+		loadBalancerID := fake.UUID().V4()
+		listenerName := "grpc-" + fake.Lorem().Word()
+
+		ociLoadBalancerClient.EXPECT().GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+			LoadBalancerId: new(loadBalancerID),
+		}).Return(loadbalancer.GetLoadBalancerResponse{
+			LoadBalancer: loadbalancer.LoadBalancer{
+				Listeners: map[string]loadbalancer.Listener{
+					"other-" + fake.Lorem().Word(): makeRandomOCIListener(),
+				},
+			},
+		}, nil).Once()
+
+		err := model.ensureHTTP2ListenerProtocol(t.Context(), ensureHTTP2ListenerProtocolParams{
+			loadBalancerID: loadBalancerID,
+			listenerName:   listenerName,
+		})
+
+		require.ErrorContains(t, err, "listener "+listenerName+" not found")
+	})
+
+	t.Run("returns update listener errors", func(t *testing.T) {
+		fake := faker.New()
+		ociLoadBalancerClient := NewMockociLoadBalancerClient(t)
+		model := newOciLoadBalancerModel(ociLoadBalancerModelDeps{
+			RootLogger:          diag.RootTestLogger(),
+			OciClient:           ociLoadBalancerClient,
+			K8sClient:           NewMockk8sClient(t),
+			WorkRequestsWatcher: NewMockworkRequestsWatcher(t),
+			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
+		})
+		loadBalancerID := fake.UUID().V4()
+		listenerName := "grpc-" + fake.Lorem().Word()
+		wantErr := errors.New(fake.Lorem().Sentence(10))
+
+		ociLoadBalancerClient.EXPECT().GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+			LoadBalancerId: new(loadBalancerID),
+		}).Return(loadbalancer.GetLoadBalancerResponse{
+			LoadBalancer: loadbalancer.LoadBalancer{
+				Listeners: map[string]loadbalancer.Listener{
+					listenerName: makeRandomOCIListener(func(listener *loadbalancer.Listener) {
+						listener.Protocol = new(ociListenerProtocolHTTP)
+					}),
+				},
+			},
+		}, nil).Once()
+		ociLoadBalancerClient.EXPECT().
+			UpdateListener(t.Context(), mock.Anything).
+			Return(loadbalancer.UpdateListenerResponse{}, wantErr).
+			Once()
+
+		err := model.ensureHTTP2ListenerProtocol(t.Context(), ensureHTTP2ListenerProtocolParams{
+			loadBalancerID: loadBalancerID,
+			listenerName:   listenerName,
+		})
+
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("returns missing work request id errors", func(t *testing.T) {
+		fake := faker.New()
+		ociLoadBalancerClient := NewMockociLoadBalancerClient(t)
+		model := newOciLoadBalancerModel(ociLoadBalancerModelDeps{
+			RootLogger:          diag.RootTestLogger(),
+			OciClient:           ociLoadBalancerClient,
+			K8sClient:           NewMockk8sClient(t),
+			WorkRequestsWatcher: NewMockworkRequestsWatcher(t),
+			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
+		})
+		loadBalancerID := fake.UUID().V4()
+		listenerName := "grpc-" + fake.Lorem().Word()
+
+		ociLoadBalancerClient.EXPECT().GetLoadBalancer(t.Context(), mock.Anything).
+			Return(loadbalancer.GetLoadBalancerResponse{
+				LoadBalancer: loadbalancer.LoadBalancer{
+					Listeners: map[string]loadbalancer.Listener{
+						listenerName: makeRandomOCIListener(func(listener *loadbalancer.Listener) {
+							listener.Protocol = new(ociListenerProtocolHTTP)
+						}),
+					},
+				},
+			}, nil).
+			Once()
+		ociLoadBalancerClient.EXPECT().
+			UpdateListener(t.Context(), mock.Anything).
+			Return(loadbalancer.UpdateListenerResponse{}, nil).
+			Once()
+
+		err := model.ensureHTTP2ListenerProtocol(t.Context(), ensureHTTP2ListenerProtocolParams{
+			loadBalancerID: loadBalancerID,
+			listenerName:   listenerName,
+		})
+
+		require.ErrorContains(t, err, "missing work request id")
+	})
+
+	t.Run("returns work request wait errors", func(t *testing.T) {
+		fake := faker.New()
+		ociLoadBalancerClient := NewMockociLoadBalancerClient(t)
+		workRequestsWatcher := NewMockworkRequestsWatcher(t)
+		model := newOciLoadBalancerModel(ociLoadBalancerModelDeps{
+			RootLogger:          diag.RootTestLogger(),
+			OciClient:           ociLoadBalancerClient,
+			K8sClient:           NewMockk8sClient(t),
+			WorkRequestsWatcher: workRequestsWatcher,
+			RoutingRulesMapper:  NewMockociLoadBalancerRoutingRulesMapper(t),
+		})
+		loadBalancerID := fake.UUID().V4()
+		listenerName := "grpc-" + fake.Lorem().Word()
+		workRequestID := fake.UUID().V4()
+		wantErr := errors.New(fake.Lorem().Sentence(10))
+
+		ociLoadBalancerClient.EXPECT().GetLoadBalancer(t.Context(), mock.Anything).
+			Return(loadbalancer.GetLoadBalancerResponse{
+				LoadBalancer: loadbalancer.LoadBalancer{
+					Listeners: map[string]loadbalancer.Listener{
+						listenerName: makeRandomOCIListener(func(listener *loadbalancer.Listener) {
+							listener.Protocol = new(ociListenerProtocolHTTP)
+						}),
+					},
+				},
+			}, nil).
+			Once()
+		ociLoadBalancerClient.EXPECT().
+			UpdateListener(t.Context(), mock.Anything).
+			Return(loadbalancer.UpdateListenerResponse{OpcWorkRequestId: new(workRequestID)}, nil).
+			Once()
+		workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(wantErr).Once()
+
+		err := model.ensureHTTP2ListenerProtocol(t.Context(), ensureHTTP2ListenerProtocolParams{
+			loadBalancerID: loadBalancerID,
+			listenerName:   listenerName,
+		})
+
+		require.ErrorIs(t, err, wantErr)
+	})
+}
+
 func Test_ociListerPolicyRuleName(t *testing.T) {
 	makeExpectedName := func(ruleIndex int, nameParts ...string) string {
 		unsanitizedInput := fmt.Sprintf(
@@ -4125,7 +4953,7 @@ func Test_ociBackendSetNameFromBackendRef(t *testing.T) {
 					br.Namespace = new(gatewayv1.Namespace(refNamespace))
 				},
 			)
-			wantName := fmt.Sprintf("%s-%s", refNamespace, refName)
+			wantName := fmt.Sprintf("%s-%s-%d", refNamespace, refName, lo.FromPtr(backendRef.Port))
 			return testCase{
 				name:       "with namespace in backendRef",
 				httpRoute:  httpRoute,
@@ -4152,7 +4980,7 @@ func Test_ociBackendSetNameFromBackendRef(t *testing.T) {
 					br.Namespace = nil // No namespace in ref
 				},
 			)
-			wantName := fmt.Sprintf("%s-%s", routeNs, refName)
+			wantName := fmt.Sprintf("%s-%s-%d", routeNs, refName, lo.FromPtr(backendRef.Port))
 			return testCase{
 				name:       "without namespace in backendRef, uses route namespace",
 				httpRoute:  httpRoute,
@@ -4174,7 +5002,7 @@ func Test_ociBackendSetNameFromBackendRef(t *testing.T) {
 					br.Namespace = new(gatewayv1.Namespace(longRefNs))
 				},
 			)
-			originalName := fmt.Sprintf("%s-%s", longRefNs, longRefName)
+			originalName := fmt.Sprintf("%s-%s-%d", longRefNs, longRefName, lo.FromPtr(backendRef.Port))
 			assert.Greater(t, len(originalName), maxBackendSetNameLength)
 			return testCase{
 				name:       "long name truncated",
@@ -4301,6 +5129,62 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 				},
 				want:   loadbalancer.UpdateListenerDetails{},
 				wantOk: false,
+			}
+		},
+		func() testCase {
+			fake := faker.New()
+			listenerName := fake.UUID().V4()
+			listenerSpec := makeRandomListener(
+				randomListenerWithHTTPProtocolOpt(),
+			)
+			defaultBackendSetName := fake.UUID().V4()
+
+			return testCase{
+				name: "preserves existing HTTP2 listener protocol",
+				params: makeOciListenerUpdateDetailsParams{
+					existingListenerData: loadbalancer.Listener{
+						Protocol:              new(ociListenerProtocolHTTP2),
+						Port:                  new(int(listenerSpec.Port)),
+						DefaultBackendSetName: new(defaultBackendSetName),
+						RoutingPolicyName:     new(listenerPolicyName(listenerName)),
+					},
+					listenerName:          listenerName,
+					listenerSpec:          &listenerSpec,
+					defaultBackendSetName: defaultBackendSetName,
+				},
+				want:   loadbalancer.UpdateListenerDetails{},
+				wantOk: false,
+			}
+		},
+		func() testCase {
+			fake := faker.New()
+			listenerName := fake.UUID().V4()
+			listenerSpec := makeRandomListener(
+				randomListenerWithHTTPProtocolOpt(),
+			)
+			defaultBackendSetName := fake.UUID().V4()
+			newPort := listenerSpec.Port + 1
+
+			return testCase{
+				name: "preserves existing HTTP2 listener protocol while updating other fields",
+				params: makeOciListenerUpdateDetailsParams{
+					existingListenerData: loadbalancer.Listener{
+						Protocol:              new(ociListenerProtocolHTTP2),
+						Port:                  new(int(newPort)),
+						DefaultBackendSetName: new(defaultBackendSetName),
+						RoutingPolicyName:     new(listenerPolicyName(listenerName)),
+					},
+					listenerName:          listenerName,
+					listenerSpec:          &listenerSpec,
+					defaultBackendSetName: defaultBackendSetName,
+				},
+				want: loadbalancer.UpdateListenerDetails{
+					Protocol:              new(ociListenerProtocolHTTP2),
+					Port:                  new(int(listenerSpec.Port)),
+					DefaultBackendSetName: new(defaultBackendSetName),
+					RoutingPolicyName:     new(listenerPolicyName(listenerName)),
+				},
+				wantOk: true,
 			}
 		},
 		func() testCase {

@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -34,6 +35,8 @@ const defaultCatchAllRuleName = "default_catch_all"
 const maxBackendSetNameLength = 32
 const maxListenerPolicyNameLength = 32
 const listenerPolicyNameHashLength = 16
+const ociListenerProtocolHTTP = "HTTP"
+const ociListenerProtocolHTTP2 = "HTTP2"
 
 type reconcileDefaultBackendParams struct {
 	loadBalancerID   string
@@ -44,12 +47,14 @@ type reconcileDefaultBackendParams struct {
 type reconcileBackendSetParams struct {
 	loadBalancerID string
 	service        corev1.Service
+	routeNS        string
+	backendRef     gatewayv1.BackendRef
 }
 
 type deprovisionBackendSetParams struct {
 	loadBalancerID string
-	httpRoute      gatewayv1.HTTPRoute
-	backendRef     gatewayv1.HTTPBackendRef
+	routeNamespace string
+	backendRef     gatewayv1.BackendRef
 }
 
 type reconcileHTTPListenerParams struct {
@@ -82,6 +87,22 @@ type reconcileListenersCertificatesResult struct {
 type makeRoutingRuleParams struct {
 	httpRoute          gatewayv1.HTTPRoute
 	httpRouteRuleIndex int
+}
+
+type makeGRPCRoutingRuleParams struct {
+	grpcRoute          gatewayv1.GRPCRoute
+	grpcRouteRuleIndex int
+}
+
+type makeBackendRoutingRuleParams[T any] struct {
+	ruleName            string
+	routeKind           string
+	routeName           string
+	routeRuleIndex      int
+	backendRefs         []T
+	backendSetName      func(T) string
+	mapCondition        func() (string, error)
+	conditionErrContext string
 }
 
 type commitRoutingPolicyParams struct {
@@ -124,6 +145,11 @@ type ociLoadBalancerModel interface {
 		params reconcileHTTPListenerParams,
 	) error
 
+	ensureHTTP2ListenerProtocol(
+		ctx context.Context,
+		params ensureHTTP2ListenerProtocolParams,
+	) error
+
 	reconcileBackendSet(
 		ctx context.Context,
 		params reconcileBackendSetParams,
@@ -138,6 +164,11 @@ type ociLoadBalancerModel interface {
 	makeRoutingRule(
 		ctx context.Context,
 		params makeRoutingRuleParams,
+	) (loadbalancer.RoutingRule, error)
+
+	makeGRPCRoutingRule(
+		ctx context.Context,
+		params makeGRPCRoutingRuleParams,
 	) (loadbalancer.RoutingRule, error)
 
 	commitRoutingPolicy(
@@ -160,6 +191,12 @@ type ociLoadBalancerModelImpl struct {
 	logger              *slog.Logger
 	workRequestsWatcher workRequestsWatcher
 	routingRulesMapper  ociLoadBalancerRoutingRulesMapper
+	routingPolicyLocks  routingPolicyLocks
+}
+
+type ensureHTTP2ListenerProtocolParams struct {
+	loadBalancerID string
+	listenerName   string
 }
 
 func loadBalancerHealthCheckerMatches(
@@ -197,6 +234,14 @@ func (m *ociLoadBalancerModelImpl) updateBackendSetConfig(
 	policy string,
 	healthChecker loadbalancer.HealthCheckerDetails,
 ) error {
+	m.logger.InfoContext(ctx, "Updating backend set configuration",
+		slog.String("loadBalancerId", loadBalancerID),
+		slog.String("backendSetName", backendSetName),
+		slog.String("policy", policy),
+		slog.String("healthCheckProtocol", lo.FromPtr(healthChecker.Protocol)),
+		slog.Int("healthCheckPort", lo.FromPtr(healthChecker.Port)),
+	)
+
 	updateRes, err := m.ociClient.UpdateBackendSet(ctx, loadbalancer.UpdateBackendSetRequest{
 		LoadBalancerId: new(loadBalancerID),
 		BackendSetName: new(backendSetName),
@@ -643,6 +688,12 @@ func (m *ociLoadBalancerModelImpl) updateListenerRoutingPolicyDefaultRule(
 	routingPolicyName string,
 	policy loadbalancer.RoutingPolicy,
 ) error {
+	m.logger.InfoContext(ctx, "Updating routing policy default rule",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("routingPolicyName", routingPolicyName),
+		slog.String("defaultBackendSetName", params.defaultBackendSetName),
+	)
+
 	updateRoutingPolicyRes, err := m.ociClient.UpdateRoutingPolicy(ctx, loadbalancer.UpdateRoutingPolicyRequest{
 		LoadBalancerId:    &params.loadBalancerID,
 		RoutingPolicyName: &routingPolicyName,
@@ -810,7 +861,7 @@ func (m *ociLoadBalancerModelImpl) createHTTPListener(
 			Name:                  new(listenerName),
 			DefaultBackendSetName: new(params.defaultBackendSetName),
 			Port:                  new(int(params.listenerSpec.Port)),
-			Protocol:              new("HTTP"),
+			Protocol:              new(ociListenerProtocolHTTP),
 			RoutingPolicyName:     new(listenerPolicyName(listenerName)),
 			SslConfiguration:      sslConfig,
 		},
@@ -828,12 +879,73 @@ func (m *ociLoadBalancerModelImpl) createHTTPListener(
 	return nil
 }
 
+func (m *ociLoadBalancerModelImpl) ensureHTTP2ListenerProtocol(
+	ctx context.Context,
+	params ensureHTTP2ListenerProtocolParams,
+) error {
+	getRes, err := m.ociClient.GetLoadBalancer(ctx, loadbalancer.GetLoadBalancerRequest{
+		LoadBalancerId: new(params.loadBalancerID),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get load balancer %s: %w", params.loadBalancerID, err)
+	}
+
+	listener, ok := getRes.LoadBalancer.Listeners[params.listenerName]
+	if !ok {
+		return fmt.Errorf("listener %s not found", params.listenerName)
+	}
+	if lo.FromPtr(listener.Protocol) == ociListenerProtocolHTTP2 {
+		return nil
+	}
+
+	m.logger.InfoContext(ctx, "Updating listener protocol to HTTP2",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("listenerName", params.listenerName),
+		slog.String("currentProtocol", lo.FromPtr(listener.Protocol)),
+	)
+
+	updateDetails := loadbalancer.UpdateListenerDetails{
+		DefaultBackendSetName:   listener.DefaultBackendSetName,
+		Port:                    listener.Port,
+		Protocol:                new(ociListenerProtocolHTTP2),
+		HostnameNames:           listener.HostnameNames,
+		PathRouteSetName:        listener.PathRouteSetName,
+		RoutingPolicyName:       listener.RoutingPolicyName,
+		SslConfiguration:        sslConfigurationDetailsFromBackendSet(listener.SslConfiguration),
+		ConnectionConfiguration: listener.ConnectionConfiguration,
+		RuleSetNames:            listener.RuleSetNames,
+	}
+
+	updateRes, err := m.ociClient.UpdateListener(ctx, loadbalancer.UpdateListenerRequest{
+		LoadBalancerId:        new(params.loadBalancerID),
+		ListenerName:          new(params.listenerName),
+		UpdateListenerDetails: updateDetails,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update listener %s protocol to HTTP2: %w", params.listenerName, err)
+	}
+	if updateRes.OpcWorkRequestId == nil {
+		return fmt.Errorf(
+			"failed to update listener %s protocol to HTTP2: missing work request id",
+			params.listenerName,
+		)
+	}
+	if err = m.workRequestsWatcher.WaitFor(ctx, *updateRes.OpcWorkRequestId); err != nil {
+		return fmt.Errorf("failed to wait for listener %s protocol update: %w", params.listenerName, err)
+	}
+
+	return nil
+}
+
 func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 	ctx context.Context,
 	params reconcileBackendSetParams,
 ) error {
-	backendSetName := ociBackendSetNameFromService(params.service)
-	healthCheckerPort := params.service.Spec.Ports[0].TargetPort.IntValue()
+	backendSetName := ociBackendSetNameFromBackendObjectRef(params.routeNS, params.backendRef.BackendObjectReference)
+	healthCheckerPort := int(lo.FromPtr(params.backendRef.BackendObjectReference.Port))
+	if healthCheckerPort == 0 && len(params.service.Spec.Ports) > 0 {
+		healthCheckerPort = params.service.Spec.Ports[0].TargetPort.IntValue()
+	}
 	if healthCheckerPort == 0 {
 		// Not the best option. Potentially have to be refactored to use
 		// port from the backend ref. Some research is needed.
@@ -897,7 +1009,10 @@ func (m *ociLoadBalancerModelImpl) deprovisionBackendSet(
 	ctx context.Context,
 	params deprovisionBackendSetParams,
 ) error {
-	backendSetName := ociBackendSetNameFromBackendRef(params.httpRoute, params.backendRef)
+	backendSetName := ociBackendSetNameFromBackendObjectRef(
+		params.routeNamespace,
+		params.backendRef.BackendObjectReference,
+	)
 
 	m.logger.InfoContext(ctx, "Deprovisioning backend set",
 		slog.String("loadBalancerId", params.loadBalancerID),
@@ -951,37 +1066,102 @@ func (m *ociLoadBalancerModelImpl) makeRoutingRule(
 	ctx context.Context,
 	params makeRoutingRuleParams,
 ) (loadbalancer.RoutingRule, error) {
-	ruleName := ociListerPolicyRuleName(params.httpRoute, params.httpRouteRuleIndex)
 	rule := params.httpRoute.Spec.Rules[params.httpRouteRuleIndex]
+	return makeBackendRoutingRule(ctx, makeBackendRoutingRuleParams[gatewayv1.HTTPBackendRef]{
+		ruleName:       ociListerPolicyRuleName(params.httpRoute, params.httpRouteRuleIndex),
+		routeKind:      "httpRoute",
+		routeName:      fmt.Sprintf("%s/%s", params.httpRoute.Namespace, params.httpRoute.Name),
+		routeRuleIndex: params.httpRouteRuleIndex,
+		backendRefs:    rule.BackendRefs,
+		backendSetName: func(backendRef gatewayv1.HTTPBackendRef) string {
+			return ociBackendSetNameFromBackendRef(params.httpRoute, backendRef)
+		},
+		mapCondition: func() (string, error) {
+			return m.routingRulesMapper.mapHTTPRouteHostnamesAndMatchesToCondition(
+				params.httpRoute.Spec.Hostnames,
+				rule.Matches,
+			)
+		},
+		conditionErrContext: "failed to map http route matches to condition",
+	}, m.buildForwardRoutingRule)
+}
 
-	targetBackends := lo.Map(rule.BackendRefs, func(backendRef gatewayv1.HTTPBackendRef, _ int) string {
-		return ociBackendSetNameFromBackendRef(params.httpRoute, backendRef)
+func (m *ociLoadBalancerModelImpl) makeGRPCRoutingRule(
+	ctx context.Context,
+	params makeGRPCRoutingRuleParams,
+) (loadbalancer.RoutingRule, error) {
+	rule := params.grpcRoute.Spec.Rules[params.grpcRouteRuleIndex]
+	return makeBackendRoutingRule(ctx, makeBackendRoutingRuleParams[gatewayv1.GRPCBackendRef]{
+		ruleName:       ociGRPCListenerPolicyRuleName(params.grpcRoute, params.grpcRouteRuleIndex),
+		routeKind:      "grpcRoute",
+		routeName:      fmt.Sprintf("%s/%s", params.grpcRoute.Namespace, params.grpcRoute.Name),
+		routeRuleIndex: params.grpcRouteRuleIndex,
+		backendRefs:    rule.BackendRefs,
+		backendSetName: func(backendRef gatewayv1.GRPCBackendRef) string {
+			return ociBackendSetNameFromGRPCBackendRef(params.grpcRoute, backendRef)
+		},
+		mapCondition: func() (string, error) {
+			return m.routingRulesMapper.mapGRPCRouteHostnamesAndMatchesToCondition(
+				params.grpcRoute.Spec.Hostnames,
+				rule.Matches,
+			)
+		},
+		conditionErrContext: "failed to map grpc route matches to condition",
+	}, m.buildForwardRoutingRule)
+}
+
+type buildForwardRoutingRuleParams struct {
+	routeKind      string
+	routeName      string
+	routeRuleIndex int
+	ruleName       string
+	condition      string
+	targetBackends []string
+}
+
+func makeBackendRoutingRule[T any](
+	ctx context.Context,
+	params makeBackendRoutingRuleParams[T],
+	buildForwardRoutingRule func(context.Context, buildForwardRoutingRuleParams) loadbalancer.RoutingRule,
+) (loadbalancer.RoutingRule, error) {
+	targetBackends := lo.Map(params.backendRefs, func(backendRef T, _ int) string {
+		return params.backendSetName(backendRef)
 	})
 
-	condition, err := m.routingRulesMapper.mapHTTPRouteHostnamesAndMatchesToCondition(
-		params.httpRoute.Spec.Hostnames,
-		rule.Matches,
-	)
+	condition, err := params.mapCondition()
 	if err != nil {
-		return loadbalancer.RoutingRule{}, fmt.Errorf("failed to map http route matches to condition: %w", err)
+		return loadbalancer.RoutingRule{}, fmt.Errorf("%s: %w", params.conditionErrContext, err)
 	}
 
-	m.logger.DebugContext(ctx, "Building OCI routing rule",
-		slog.String("httpRoute", fmt.Sprintf("%s/%s", params.httpRoute.Namespace, params.httpRoute.Name)),
-		slog.Int("httpRouteRuleIndex", params.httpRouteRuleIndex),
-		slog.String("ruleName", ruleName),
-		slog.Any("targetBackends", targetBackends),
-	)
+	return buildForwardRoutingRule(ctx, buildForwardRoutingRuleParams{
+		routeKind:      params.routeKind,
+		routeName:      params.routeName,
+		routeRuleIndex: params.routeRuleIndex,
+		ruleName:       params.ruleName,
+		condition:      condition,
+		targetBackends: targetBackends,
+	}), nil
+}
 
+func (m *ociLoadBalancerModelImpl) buildForwardRoutingRule(
+	ctx context.Context,
+	params buildForwardRoutingRuleParams,
+) loadbalancer.RoutingRule {
+	m.logger.DebugContext(ctx, "Building OCI routing rule",
+		slog.String(params.routeKind, params.routeName),
+		slog.Int(params.routeKind+"RuleIndex", params.routeRuleIndex),
+		slog.String("ruleName", params.ruleName),
+		slog.Any("targetBackends", params.targetBackends),
+	)
 	return loadbalancer.RoutingRule{
-		Name:      new(ruleName),
-		Condition: new(condition),
-		Actions: lo.Map(targetBackends, func(backendSetName string, _ int) loadbalancer.Action {
+		Name:      new(params.ruleName),
+		Condition: new(params.condition),
+		Actions: lo.Map(params.targetBackends, func(backendSetName string, _ int) loadbalancer.Action {
 			return loadbalancer.ForwardToBackendSet{
 				BackendSetName: new(backendSetName),
 			}
 		}),
-	}, nil
+	}
 }
 
 func (m *ociLoadBalancerModelImpl) deleteMissingListener(
@@ -1101,7 +1281,19 @@ func routingRuleLess(ruleI, ruleJ loadbalancer.RoutingRule) bool {
 	if ruleNameJ == defaultCatchAllRuleName {
 		return true
 	}
+	grpcRuleI := routingRuleMatchesNativeGRPC(ruleI)
+	grpcRuleJ := routingRuleMatchesNativeGRPC(ruleJ)
+	if grpcRuleI != grpcRuleJ {
+		return grpcRuleI
+	}
 	return ruleNameI < ruleNameJ
+}
+
+func routingRuleMatchesNativeGRPC(rule loadbalancer.RoutingRule) bool {
+	condition := lo.FromPtr(rule.Condition)
+	return strings.Contains(condition, "eq (i 'application/grpc')") ||
+		strings.Contains(condition, "sw (i 'application/grpc+')") ||
+		strings.Contains(condition, "sw (i 'application/grpc;')")
 }
 
 func sortRoutingRules(rules []loadbalancer.RoutingRule) {
@@ -1120,12 +1312,70 @@ func routingRulesEqual(rulesA, rulesB []loadbalancer.RoutingRule) bool {
 	return reflect.DeepEqual(sortedRoutingRules(rulesA), sortedRoutingRules(rulesB))
 }
 
+type routingPolicyLocks struct {
+	mu    sync.Mutex
+	locks map[string]*routingPolicyLock
+}
+
+type routingPolicyLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+func (l *routingPolicyLocks) withLock(key string, operation func() error) error {
+	lock := l.acquire(key)
+	lock.mu.Lock()
+	defer func() {
+		lock.mu.Unlock()
+		l.release(key, lock)
+	}()
+	return operation()
+}
+
+func (l *routingPolicyLocks) acquire(key string) *routingPolicyLock {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.locks == nil {
+		l.locks = make(map[string]*routingPolicyLock)
+	}
+	lock := l.locks[key]
+	if lock == nil {
+		lock = &routingPolicyLock{}
+		l.locks[key] = lock
+	}
+	lock.refs++
+	return lock
+}
+
+func (l *routingPolicyLocks) release(key string, lock *routingPolicyLock) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	lock.refs--
+	if lock.refs == 0 && l.locks[key] == lock {
+		delete(l.locks, key)
+	}
+}
+
 func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 	ctx context.Context,
 	params commitRoutingPolicyParams,
 ) error {
 	policyName := listenerPolicyName(params.listenerName)
+	return m.routingPolicyLocks.withLock(
+		routingPolicyLockKey(params.loadBalancerID, policyName),
+		func() error {
+			return m.commitRoutingPolicyLocked(ctx, params, policyName)
+		},
+	)
+}
 
+func (m *ociLoadBalancerModelImpl) commitRoutingPolicyLocked(
+	ctx context.Context,
+	params commitRoutingPolicyParams,
+	policyName string,
+) error {
 	policyResponse, err := m.ociClient.GetRoutingPolicy(ctx, loadbalancer.GetRoutingPolicyRequest{
 		RoutingPolicyName: &policyName,
 		LoadBalancerId:    &params.loadBalancerID,
@@ -1205,6 +1455,10 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 		slog.String("routingPolicyName", policyName),
 	)
 	return nil
+}
+
+func routingPolicyLockKey(loadBalancerID, policyName string) string {
+	return loadBalancerID + "/" + policyName
 }
 
 func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
@@ -1336,6 +1590,21 @@ func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string {
 		nameParts = append(nameParts, string(*rule.Name))
 	}
 
+	return ociListenerPolicyRuleNameFromParts(ruleIndex, nameParts...)
+}
+
+func ociGRPCListenerPolicyRuleName(route gatewayv1.GRPCRoute, ruleIndex int) string {
+	rule := route.Spec.Rules[ruleIndex]
+	nameParts := []string{"grpc", route.Namespace, route.Name}
+
+	if rule.Name != nil {
+		nameParts = append(nameParts, string(*rule.Name))
+	}
+
+	return ociListenerPolicyRuleNameFromParts(ruleIndex, nameParts...)
+}
+
+func ociListenerPolicyRuleNameFromParts(ruleIndex int, nameParts ...string) string {
 	resultingName := fmt.Sprintf(
 		"p%04d_%08x_%s",
 		ruleIndex,
@@ -1362,14 +1631,27 @@ func ociListenerPolicyRuleIdentity(ruleIndex int, nameParts ...string) string {
 // It's expected that the backend set name is unique within the load balancer for every route.
 // Sorting is not required, but keeping padding for consistency and readability.
 func ociBackendSetNameFromBackendRef(httpRoute gatewayv1.HTTPRoute, backendRef gatewayv1.HTTPBackendRef) string {
-	// TODO: Check if namespace is populated in the route if it's not in the spec
+	return ociBackendSetNameFromBackendObjectRef(httpRoute.Namespace, backendRef.BackendObjectReference)
+}
+
+func ociBackendSetNameFromGRPCBackendRef(grpcRoute gatewayv1.GRPCRoute, backendRef gatewayv1.GRPCBackendRef) string {
+	return ociBackendSetNameFromBackendObjectRef(grpcRoute.Namespace, backendRef.BackendObjectReference)
+}
+
+func ociBackendSetNameFromBackendObjectRef(
+	defaultNamespace string,
+	backendRef gatewayv1.BackendObjectReference,
+) string {
 	refName := string(backendRef.Name)
 	refNamespace := string(lo.FromPtr(backendRef.Namespace))
 	if refNamespace == "" {
-		refNamespace = httpRoute.Namespace
+		refNamespace = defaultNamespace
 	}
 
-	originalName := refNamespace + "-" + refName
+	originalName := fmt.Sprintf("%s-%s", refNamespace, refName)
+	if backendRef.Port != nil {
+		originalName = fmt.Sprintf("%s-%d", originalName, *backendRef.Port)
+	}
 
 	return ociapi.ConstructOCIResourceName(originalName, ociapi.OCIResourceNameConfig{
 		MaxLength: maxBackendSetNameLength,
@@ -1394,7 +1676,9 @@ type makeOciListenerUpdateDetailsParams struct {
 func makeOciListenerUpdateDetails(
 	params makeOciListenerUpdateDetailsParams,
 ) (loadbalancer.UpdateListenerDetails, bool) {
-	hasChanges := params.existingListenerData.Protocol == nil || *params.existingListenerData.Protocol != "HTTP"
+	expectedProtocol := expectedHTTPListenerProtocol(params.existingListenerData)
+	hasChanges := params.existingListenerData.Protocol == nil ||
+		*params.existingListenerData.Protocol != expectedProtocol
 
 	if params.existingListenerData.Port == nil || *params.existingListenerData.Port != int(params.listenerSpec.Port) {
 		hasChanges = true
@@ -1437,12 +1721,19 @@ func makeOciListenerUpdateDetails(
 	}
 
 	return loadbalancer.UpdateListenerDetails{
-		Protocol:              new("HTTP"),
+		Protocol:              new(expectedProtocol),
 		Port:                  new(int(params.listenerSpec.Port)),
 		DefaultBackendSetName: new(params.defaultBackendSetName),
 		RoutingPolicyName:     new(expectedPolicyName),
 		SslConfiguration:      params.sslConfig,
 	}, true
+}
+
+func expectedHTTPListenerProtocol(existingListener loadbalancer.Listener) string {
+	if lo.FromPtr(existingListener.Protocol) == ociListenerProtocolHTTP2 {
+		return ociListenerProtocolHTTP2
+	}
+	return ociListenerProtocolHTTP
 }
 
 func normalizeCertificateIDs(certificateIDs []string) []string {

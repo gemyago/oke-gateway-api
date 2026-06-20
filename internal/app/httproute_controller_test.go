@@ -258,8 +258,6 @@ func TestHTTPRouteController(t *testing.T) {
 				req.NamespacedName: wantResolvedData,
 			}, (error)(nil))
 
-			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
-
 			wantErr := fmt.Errorf("accept error: %s", fake.Lorem().Sentence(10))
 			mockModel.EXPECT().acceptRoute(
 				t.Context(),
@@ -420,6 +418,12 @@ func TestHTTPRouteController(t *testing.T) {
 				req.NamespacedName: wantResolvedData,
 			}, (error)(nil))
 
+			wantAcceptedRoute := makeRandomHTTPRoute()
+			mockModel.EXPECT().acceptRoute(
+				t.Context(),
+				wantResolvedData,
+			).Return(&wantAcceptedRoute, nil)
+
 			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, nil)
 
 			mockBackendModel, _ := deps.HTTPBackendModel.(*MockhttpBackendModel)
@@ -433,7 +437,6 @@ func TestHTTPRouteController(t *testing.T) {
 
 			result, err := controller.Reconcile(t.Context(), req)
 
-			mockModel.AssertNotCalled(t, "acceptRoute", mock.Anything, mock.Anything)
 			mockModel.AssertNotCalled(t, "resolveBackendRefs", mock.Anything, mock.Anything)
 			mockModel.AssertNotCalled(t, "programRoute", mock.Anything, mock.Anything)
 
@@ -471,7 +474,56 @@ func TestHTTPRouteController(t *testing.T) {
 				req.NamespacedName: wantResolvedData,
 			}, (error)(nil))
 
+			wantAcceptedRoute := makeRandomHTTPRoute()
+			mockModel.EXPECT().acceptRoute(
+				t.Context(),
+				wantResolvedData,
+			).Return(&wantAcceptedRoute, nil)
+
 			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, nil)
+
+			wantBackendRefs := make(map[string]v1.Service)
+			for range 3 {
+				svc := makeRandomService()
+				fullName := types.NamespacedName{
+					Namespace: svc.Namespace,
+					Name:      svc.Name,
+				}
+				wantBackendRefs[fullName.String()] = svc
+			}
+			mockModel.EXPECT().resolveBackendRefs(
+				t.Context(),
+				resolveBackendRefsParams{
+					httpRoute: wantAcceptedRoute,
+				},
+			).Return(wantBackendRefs, nil)
+
+			programmedPolicyRules := []string{
+				"policy1-" + fake.Lorem().Word(),
+				"policy2-" + fake.Lorem().Word(),
+			}
+			mockModel.EXPECT().programRoute(
+				t.Context(),
+				programRouteParams{
+					gateway:       wantResolvedData.gatewayDetails.gateway,
+					config:        wantResolvedData.gatewayDetails.config,
+					httpRoute:     wantAcceptedRoute,
+					knownBackends: wantBackendRefs,
+				},
+			).Return(programRouteResult{
+				programmedPolicyRules: programmedPolicyRules,
+			}, nil)
+
+			mockModel.EXPECT().setProgrammed(
+				t.Context(),
+				setProgrammedParams{
+					gatewayClass:          wantResolvedData.gatewayDetails.gatewayClass,
+					gateway:               wantResolvedData.gatewayDetails.gateway,
+					httpRoute:             wantAcceptedRoute,
+					matchedRef:            wantResolvedData.matchedRef,
+					programmedPolicyRules: programmedPolicyRules,
+				},
+			).Return(nil)
 
 			mockBackendModel, _ := deps.HTTPBackendModel.(*MockhttpBackendModel)
 			mockBackendModel.EXPECT().syncRouteEndpoints(

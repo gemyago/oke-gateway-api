@@ -174,6 +174,53 @@ func (_c *MockhttpBackendModel_syncRouteEndpoints_Call) RunAndReturn(run func(co
 	return _c
 }
 
+// syncGRPCRouteEndpoints provides a mock function with given fields: ctx, params
+func (_m *MockhttpBackendModel) syncGRPCRouteEndpoints(ctx context.Context, params syncGRPCRouteEndpointsParams) error {
+	ret := _m.Called(ctx, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for syncGRPCRouteEndpoints")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, syncGRPCRouteEndpointsParams) error); ok {
+		r0 = rf(ctx, params)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockhttpBackendModel_syncGRPCRouteEndpoints_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'syncGRPCRouteEndpoints'
+type MockhttpBackendModel_syncGRPCRouteEndpoints_Call struct {
+	*mock.Call
+}
+
+// syncGRPCRouteEndpoints is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params syncGRPCRouteEndpointsParams
+func (_e *MockhttpBackendModel_Expecter) syncGRPCRouteEndpoints(ctx interface{}, params interface{}) *MockhttpBackendModel_syncGRPCRouteEndpoints_Call {
+	return &MockhttpBackendModel_syncGRPCRouteEndpoints_Call{Call: _e.mock.On("syncGRPCRouteEndpoints", ctx, params)}
+}
+
+func (_c *MockhttpBackendModel_syncGRPCRouteEndpoints_Call) Run(run func(ctx context.Context, params syncGRPCRouteEndpointsParams)) *MockhttpBackendModel_syncGRPCRouteEndpoints_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(syncGRPCRouteEndpointsParams))
+	})
+	return _c
+}
+
+func (_c *MockhttpBackendModel_syncGRPCRouteEndpoints_Call) Return(_a0 error) *MockhttpBackendModel_syncGRPCRouteEndpoints_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockhttpBackendModel_syncGRPCRouteEndpoints_Call) RunAndReturn(run func(context.Context, syncGRPCRouteEndpointsParams) error) *MockhttpBackendModel_syncGRPCRouteEndpoints_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockhttpBackendModel creates a new instance of MockhttpBackendModel. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockhttpBackendModel(t interface {

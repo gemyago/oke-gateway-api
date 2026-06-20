@@ -17,7 +17,7 @@ import (
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 )
 
-func TestHTTPRouteObjectPredicate(t *testing.T) {
+func TestL7RouteObjectPredicate(t *testing.T) {
 	t.Run("accepts annotation only updates", func(t *testing.T) {
 		oldRoute := &gatewayv1.HTTPRoute{
 			ObjectMeta: metav1.ObjectMeta{
@@ -32,7 +32,7 @@ func TestHTTPRouteObjectPredicate(t *testing.T) {
 		newRoute := oldRoute.DeepCopy()
 		newRoute.Annotations["example.com/reconcile"] = "after"
 
-		result := httpRouteObjectPredicate().Update(event.UpdateEvent{
+		result := l7RouteObjectPredicate().Update(event.UpdateEvent{
 			ObjectOld: oldRoute,
 			ObjectNew: newRoute,
 		})

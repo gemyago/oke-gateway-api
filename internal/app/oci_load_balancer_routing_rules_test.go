@@ -682,4 +682,244 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			)
 		})
 	})
+
+	t.Run("mapGRPCRouteHostnamesAndMatchesToCondition", func(t *testing.T) {
+		grpcBranches := func(prefix []string, suffix ...string) string {
+			branches := make([]string, 0, len(grpcContentTypeConditions()))
+			for _, contentTypeCondition := range grpcContentTypeConditions() {
+				conditions := make([]string, 0, len(prefix)+1+len(suffix))
+				conditions = append(conditions, prefix...)
+				conditions = append(conditions, contentTypeCondition)
+				conditions = append(conditions, suffix...)
+				branches = append(branches, allRoutingConditions(conditions...))
+			}
+			return strings.Join(branches, ", ")
+		}
+
+		t.Run("maps service and method to exact grpc path", func(t *testing.T) {
+			fake := faker.New()
+			service := fmt.Sprintf("%s.%s", fake.Lorem().Word(), fake.Lorem().Word())
+			method := fake.Lorem().Word()
+
+			rs := newOciLoadBalancerRoutingRulesMapper()
+			actual, err := rs.mapGRPCRouteHostnamesAndMatchesToCondition(
+				nil,
+				[]gatewayv1.GRPCRouteMatch{
+					{
+						Method: &gatewayv1.GRPCMethodMatch{
+							Service: &service,
+							Method:  &method,
+						},
+					},
+				},
+			)
+
+			require.NoError(t, err)
+			assert.Equal(
+				t,
+				fmt.Sprintf(
+					"any(%s)",
+					grpcBranches(nil, fmt.Sprintf("http.request.url.path eq '/%s/%s'", service, method)),
+				),
+				actual,
+			)
+		})
+
+		t.Run("maps service only to grpc path prefix", func(t *testing.T) {
+			fake := faker.New()
+			service := fmt.Sprintf("%s.%s", fake.Lorem().Word(), fake.Lorem().Word())
+
+			rs := newOciLoadBalancerRoutingRulesMapper()
+			actual, err := rs.mapGRPCRouteHostnamesAndMatchesToCondition(
+				nil,
+				[]gatewayv1.GRPCRouteMatch{
+					{
+						Method: &gatewayv1.GRPCMethodMatch{
+							Service: &service,
+						},
+					},
+				},
+			)
+
+			require.NoError(t, err)
+			assert.Equal(
+				t,
+				fmt.Sprintf(
+					"any(%s)",
+					grpcBranches(nil, fmt.Sprintf("http.request.url.path sw '/%s/'", service)),
+				),
+				actual,
+			)
+		})
+
+		t.Run("maps method only to grpc path suffix", func(t *testing.T) {
+			fake := faker.New()
+			method := fake.Lorem().Word()
+
+			rs := newOciLoadBalancerRoutingRulesMapper()
+			actual, err := rs.mapGRPCRouteHostnamesAndMatchesToCondition(
+				nil,
+				[]gatewayv1.GRPCRouteMatch{
+					{
+						Method: &gatewayv1.GRPCMethodMatch{
+							Method: &method,
+						},
+					},
+				},
+			)
+
+			require.NoError(t, err)
+			assert.Equal(
+				t,
+				fmt.Sprintf(
+					"any(%s)",
+					grpcBranches(nil, fmt.Sprintf("http.request.url.path ew '/%s'", method)),
+				),
+				actual,
+			)
+		})
+
+		t.Run("combines hostname method and header conditions", func(t *testing.T) {
+			fake := faker.New()
+			hostname := gatewayv1.Hostname("grpc-" + fake.Internet().Domain())
+			service := fmt.Sprintf("%s.%s", fake.Lorem().Word(), fake.Lorem().Word())
+			method := fake.Lorem().Word()
+			headerName := gatewayv1.GRPCHeaderName("x-" + fake.Lorem().Word())
+			headerValue := fake.UUID().V4()
+
+			rs := newOciLoadBalancerRoutingRulesMapper()
+			actual, err := rs.mapGRPCRouteHostnamesAndMatchesToCondition(
+				[]gatewayv1.Hostname{hostname},
+				[]gatewayv1.GRPCRouteMatch{
+					{
+						Method: &gatewayv1.GRPCMethodMatch{
+							Service: &service,
+							Method:  &method,
+						},
+						Headers: []gatewayv1.GRPCHeaderMatch{
+							{
+								Name:  headerName,
+								Value: headerValue,
+							},
+						},
+					},
+				},
+			)
+
+			require.NoError(t, err)
+			hostCondition := fmt.Sprintf("http.request.headers[(i 'host')] eq (i '%s')", hostname)
+			matchCondition := fmt.Sprintf(
+				"all(http.request.url.path eq '/%s/%s', http.request.headers[(i '%s')] eq (i '%s'))",
+				service,
+				method,
+				headerName,
+				headerValue,
+			)
+			want := fmt.Sprintf(
+				"any(%s)",
+				grpcBranches([]string{hostCondition}, matchCondition),
+			)
+			assert.Equal(t, want, actual)
+		})
+
+		t.Run("uses hostnames when matches are empty", func(t *testing.T) {
+			fake := faker.New()
+			host1 := gatewayv1.Hostname("grpc-a-" + fake.Internet().Domain())
+			host2 := gatewayv1.Hostname("grpc-b-" + fake.Internet().Domain())
+
+			rs := newOciLoadBalancerRoutingRulesMapper()
+			actual, err := rs.mapGRPCRouteHostnamesAndMatchesToCondition(
+				[]gatewayv1.Hostname{host1, host2},
+				nil,
+			)
+
+			require.NoError(t, err)
+			hostCondition1 := fmt.Sprintf("http.request.headers[(i 'host')] eq (i '%s')", host1)
+			hostCondition2 := fmt.Sprintf("http.request.headers[(i 'host')] eq (i '%s')", host2)
+			assert.Equal(
+				t,
+				fmt.Sprintf(
+					"any(%s, %s)",
+					grpcBranches([]string{hostCondition1}),
+					grpcBranches([]string{hostCondition2}),
+				),
+				actual,
+			)
+		})
+
+		t.Run("returns native grpc content type condition when no grpc matches are configured", func(t *testing.T) {
+			rs := newOciLoadBalancerRoutingRulesMapper()
+
+			actual, err := rs.mapGRPCRouteMatchesToCondition(nil)
+
+			require.NoError(t, err)
+			assert.Equal(t, grpcContentTypeCondition(), actual)
+		})
+
+		t.Run("returns empty condition for an empty grpc match", func(t *testing.T) {
+			rs := newOciLoadBalancerRoutingRulesMapper()
+
+			actual, err := rs.mapGRPCRouteMatchToCondition(gatewayv1.GRPCRouteMatch{})
+
+			require.NoError(t, err)
+			assert.Empty(t, actual)
+		})
+
+		t.Run("returns method validation errors when hostname is configured", func(t *testing.T) {
+			fake := faker.New()
+			hostname := gatewayv1.Hostname("grpc-" + fake.Internet().Domain())
+
+			rs := newOciLoadBalancerRoutingRulesMapper()
+			_, err := rs.mapGRPCRouteHostnamesAndMatchesToCondition(
+				[]gatewayv1.Hostname{hostname},
+				[]gatewayv1.GRPCRouteMatch{{Method: &gatewayv1.GRPCMethodMatch{}}},
+			)
+
+			require.ErrorContains(t, err, "grpc method match requires service or method")
+		})
+
+		t.Run("rejects regex method matching", func(t *testing.T) {
+			fake := faker.New()
+			service := fmt.Sprintf("%s.%s", fake.Lorem().Word(), fake.Lorem().Word())
+			matchType := gatewayv1.GRPCMethodMatchRegularExpression
+
+			rs := newOciLoadBalancerRoutingRulesMapper()
+			_, err := rs.mapGRPCRouteHostnamesAndMatchesToCondition(
+				nil,
+				[]gatewayv1.GRPCRouteMatch{
+					{
+						Method: &gatewayv1.GRPCMethodMatch{
+							Type:    &matchType,
+							Service: &service,
+						},
+					},
+				},
+			)
+
+			require.ErrorIs(t, err, errUnsupportedMatch)
+		})
+
+		t.Run("rejects regex header matching", func(t *testing.T) {
+			fake := faker.New()
+			headerType := gatewayv1.GRPCHeaderMatchRegularExpression
+
+			rs := newOciLoadBalancerRoutingRulesMapper()
+			_, err := rs.mapGRPCRouteHostnamesAndMatchesToCondition(
+				nil,
+				[]gatewayv1.GRPCRouteMatch{
+					{
+						Headers: []gatewayv1.GRPCHeaderMatch{
+							{
+								Type:  &headerType,
+								Name:  gatewayv1.GRPCHeaderName("x-" + fake.Lorem().Word()),
+								Value: "^" + fake.Lorem().Word(),
+							},
+						},
+					},
+				},
+			)
+
+			require.ErrorIs(t, err, errUnsupportedMatch)
+		})
+	})
 }

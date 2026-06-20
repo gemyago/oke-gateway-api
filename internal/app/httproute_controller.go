@@ -8,7 +8,6 @@ import (
 
 	"go.uber.org/dig"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 // HTTPRouteController is a simple controller that watches HTTPRoute resources.
@@ -68,14 +67,22 @@ func (r *HTTPRouteController) reconcileResolvedRoute(
 		return false, nil
 	}
 
+	acceptedRoute, err := r.httpRouteModel.acceptRoute(ctx, resolvedData)
+	if err != nil {
+		return false, fmt.Errorf("failed to accept route: %w", err)
+	}
+	if acceptedRoute == nil {
+		return false, nil
+	}
+
 	var programmingRequired bool
-	programmingRequired, err := r.httpRouteModel.isProgrammingRequired(resolvedData)
+	programmingRequired, err = r.httpRouteModel.isProgrammingRequired(resolvedData)
 	if err != nil {
 		return false, fmt.Errorf("failed to check programming requirement for gateway %s: %w",
 			resolvedData.gatewayDetails.gateway.Name, err)
 	}
 
-	if !programmingRequired {
+	if !shouldProgramRoute(programmingRequired, r.driftInterval) {
 		r.logger.DebugContext(ctx, "HTTPRoute programming not required for parent",
 			slog.String("httpRoute", resolvedData.httpRoute.Name),
 			slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
@@ -87,12 +94,6 @@ func (r *HTTPRouteController) reconcileResolvedRoute(
 		slog.String("httpRoute", resolvedData.httpRoute.Name),
 		slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
 	)
-
-	var acceptedRoute *gatewayv1.HTTPRoute
-	acceptedRoute, err = r.httpRouteModel.acceptRoute(ctx, resolvedData)
-	if err != nil {
-		return false, fmt.Errorf("failed to accept route: %w", err)
-	}
 
 	knownBackends, err := r.httpRouteModel.resolveBackendRefs(ctx, resolveBackendRefsParams{
 		httpRoute: *acceptedRoute,

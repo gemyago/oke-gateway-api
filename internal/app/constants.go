@@ -34,6 +34,18 @@ const (
 	// It is used to clean up the resources when the http route is deleted.
 	HTTPRouteProgrammedFinalizer = "oke-gateway-api.gemyago.github.io/http-route-programmed"
 
+	// GRPCRouteProgrammingRevisionAnnotation is the annotation for the grpc route programming revision.
+	// The revision may be incremented if additional programming steps are introduced by the controller.
+	GRPCRouteProgrammingRevisionAnnotation = "oke-gateway-api.gemyago.github.io/grpc-route-programming-revision"
+
+	// GRPCRouteProgrammedPolicyRulesAnnotation is a comma-separated list of load balancer listener/policy rule names.
+	// The value is set by the controller when the grpc route is programmed.
+	GRPCRouteProgrammedPolicyRulesAnnotation = "oke-gateway-api.gemyago.github.io/grpc-route-programmed-lb-policy-rules"
+
+	// GRPCRouteProgrammedFinalizer is the finalizer that indicates that the grpc route has been programmed.
+	// It is used to clean up resources when the grpc route is deleted.
+	GRPCRouteProgrammedFinalizer = "oke-gateway-api.gemyago.github.io/grpc-route-programmed"
+
 	// GatewayProgrammingRevisionValue is the value for the gateway programming revision.
 	// Incremented when the controller programming steps are changed.
 	GatewayProgrammingRevisionValue = "2"
@@ -73,7 +85,11 @@ const (
 
 	// HTTPRouteProgrammingRevisionValue is the value for the http route programming revision.
 	// Incremented when the controller programming steps are changed.
-	HTTPRouteProgrammingRevisionValue = "4"
+	HTTPRouteProgrammingRevisionValue = "5"
+
+	// GRPCRouteProgrammingRevisionValue is the value for the grpc route programming revision.
+	// Incremented when the controller programming steps are changed.
+	GRPCRouteProgrammingRevisionValue = "2"
 )
 
 const ConfigRefGroup = "oke-gateway-api.gemyago.github.io"

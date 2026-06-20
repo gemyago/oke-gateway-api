@@ -7,6 +7,7 @@ import (
 	"math/rand/v2"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jaswdr/faker/v2"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -75,7 +76,203 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			}, parseProgrammedHTTPRoutePolicyRules(
 				fmt.Sprintf(" %s/%s , %s ,,", listenerName, scopedRule, legacyRule),
 			))
+			assert.Empty(t, parseProgrammedHTTPRoutePolicyRules(" ,, "))
 		})
+	})
+
+	t.Run("l7 route conflict helpers", func(t *testing.T) {
+		fake := faker.New()
+		listenerHostname := gatewayv1.Hostname("*.example.com")
+		grpcListener := gatewayv1.Listener{Name: "grpc", Hostname: &listenerHostname, Port: 443}
+		webListener := gatewayv1.Listener{Name: "web", Port: 80}
+		gateway := gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "gateway-ns", Name: "shared-gateway"},
+			Spec: gatewayv1.GatewaySpec{
+				Listeners: []gatewayv1.Listener{grpcListener, webListener},
+			},
+		}
+		parentNamespace := gatewayv1.Namespace(gateway.Namespace)
+		parentRef := gatewayv1.ParentReference{
+			Namespace:   &parentNamespace,
+			Name:        gatewayv1.ObjectName(gateway.Name),
+			SectionName: &grpcListener.Name,
+		}
+		current := l7RouteCandidate{
+			identity: l7RouteIdentity{
+				kind:              l7HTTPRouteKind,
+				namespace:         "routes",
+				name:              "api",
+				creationTimestamp: metav1.NewTime(time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)),
+			},
+			parentRefs: []gatewayv1.ParentReference{parentRef},
+			hostnames:  []gatewayv1.Hostname{"api.example.com"},
+		}
+		olderOpposite := l7RouteCandidate{
+			identity: l7RouteIdentity{
+				kind:              l7HTTPRouteKind,
+				namespace:         "routes",
+				name:              "grpc",
+				creationTimestamp: metav1.NewTime(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)),
+			},
+			parentRefs: []gatewayv1.ParentReference{parentRef},
+			hostnames:  []gatewayv1.Hostname{"*.example.com"},
+		}
+
+		winner, conflicted, err := checkL7RouteConflict(t.Context(), checkL7RouteConflictParams{
+			gateway:               gateway,
+			matchedListeners:      []gatewayv1.Listener{grpcListener},
+			current:               current,
+			oppositeRouteListName: "GRPCRoutes",
+			listOppositeRoutes: func(context.Context) ([]l7RouteCandidate, error) {
+				return []l7RouteCandidate{olderOpposite}, nil
+			},
+		})
+
+		require.NoError(t, err)
+		assert.True(t, conflicted)
+		assert.Equal(t, olderOpposite.identity, winner.identity)
+
+		olderOpposite.identity.kind = l7GRPCRouteKind
+		winner, conflicted, err = checkL7RouteConflict(t.Context(), checkL7RouteConflictParams{
+			gateway:               gateway,
+			matchedListeners:      []gatewayv1.Listener{grpcListener},
+			current:               current,
+			oppositeRouteListName: "GRPCRoutes",
+			listOppositeRoutes: func(context.Context) ([]l7RouteCandidate, error) {
+				return []l7RouteCandidate{olderOpposite}, nil
+			},
+		})
+		require.NoError(t, err)
+		assert.False(t, conflicted)
+		assert.Empty(t, winner)
+
+		assert.False(t, l7RouteHostnamesIntersect([]gatewayv1.Hostname{}, []gatewayv1.Hostname{"api.example.com"}))
+		assert.True(t, l7HostnamePatternsIntersect("API.EXAMPLE.COM", "api.example.com"))
+		assert.False(t, l7HostnamePatternsIntersect("*.example.com", "example.com"))
+		assert.False(t, l7HostnamePatternsIntersect("api.example.com", "web.example.com"))
+		assert.True(t, l7HostnamePatternsIntersect("*.foo.example.com", "*.example.com"))
+		assert.ElementsMatch(t, []gatewayv1.SectionName{grpcListener.Name}, l7RouteAttachedListenerNames(
+			gateway,
+			[]gatewayv1.ParentReference{parentRef, {Name: "other"}},
+			"routes",
+		))
+		assert.ElementsMatch(
+			t,
+			[]gatewayv1.SectionName{grpcListener.Name, webListener.Name},
+			l7RouteAttachedListenerNames(
+				gateway,
+				[]gatewayv1.ParentReference{{Namespace: &parentNamespace, Name: gatewayv1.ObjectName(gateway.Name)}},
+				"routes",
+			),
+		)
+		assert.Equal(
+			t,
+			[]gatewayv1.Hostname{listenerHostname},
+			l7RouteHostnamesForListener(nil, grpcListener),
+		)
+		assert.Equal(
+			t,
+			[]gatewayv1.Hostname{""},
+			l7RouteHostnamesForListener(nil, webListener),
+		)
+		assert.Empty(t, l7RouteHostnamesForListener(
+			[]gatewayv1.Hostname{"api.other.test"},
+			grpcListener,
+		))
+		assert.False(t, l7RoutesShareListenerHostname(
+			gateway,
+			[]gatewayv1.Listener{webListener},
+			current,
+			olderOpposite,
+		))
+		assert.False(t, l7RoutesShareListenerHostname(
+			gateway,
+			[]gatewayv1.Listener{{Name: "missing"}},
+			current,
+			olderOpposite,
+		))
+		newerOpposite := olderOpposite
+		newerOpposite.identity.kind = current.identity.kind
+		newerOpposite.identity.creationTimestamp = metav1.NewTime(time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC))
+		winner, conflicted = l7RouteConflictingWinner(l7RouteConflictParams{
+			gateway:          gateway,
+			matchedListeners: []gatewayv1.Listener{grpcListener},
+			current:          current,
+			oppositeRoutes:   []l7RouteCandidate{newerOpposite},
+		})
+		assert.False(t, conflicted)
+		assert.Empty(t, winner)
+
+		assert.True(t, l7RouteWins(
+			l7RouteIdentity{
+				kind:              l7HTTPRouteKind,
+				namespace:         "aaa",
+				name:              "route",
+				creationTimestamp: current.identity.creationTimestamp,
+			},
+			l7RouteIdentity{
+				kind:              l7GRPCRouteKind,
+				namespace:         "bbb",
+				name:              "route",
+				creationTimestamp: current.identity.creationTimestamp,
+			},
+		))
+		assert.True(t, l7RouteWins(
+			l7RouteIdentity{
+				kind:              l7GRPCRouteKind,
+				namespace:         "same",
+				name:              "route",
+				creationTimestamp: current.identity.creationTimestamp,
+			},
+			l7RouteIdentity{
+				kind:              l7HTTPRouteKind,
+				namespace:         "same",
+				name:              "route",
+				creationTimestamp: current.identity.creationTimestamp,
+			},
+		))
+
+		wantErr := errors.New(fake.Lorem().Sentence(10))
+		_, _, err = checkL7RouteConflict(t.Context(), checkL7RouteConflictParams{
+			matchedListeners:      []gatewayv1.Listener{grpcListener},
+			oppositeRouteListName: "GRPCRoutes",
+			listOppositeRoutes: func(context.Context) ([]l7RouteCandidate, error) {
+				return nil, wantErr
+			},
+		})
+		require.ErrorIs(t, err, wantErr)
+
+		deps := newMockDeps(t)
+		k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+		route := makeRandomHTTPRoute()
+		parentStatuses := []gatewayv1.RouteParentStatus{{
+			ParentRef:      parentRef,
+			ControllerName: ControllerClassName,
+		}}
+		k8sClient.EXPECT().Status().Return(mockStatusWriter)
+		mockStatusWriter.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+			condition := meta.FindStatusCondition(
+				parentStatuses[0].Conditions,
+				string(gatewayv1.RouteConditionAccepted),
+			)
+			return obj.GetName() == route.Name &&
+				condition != nil &&
+				condition.Status == metav1.ConditionFalse
+		})).Return(nil)
+
+		err = rejectL7Route(t.Context(), k8sClient, rejectL7RouteParams{
+			resource:       &route,
+			parentStatuses: &parentStatuses,
+			gatewayClass: gatewayv1.GatewayClass{
+				Spec: gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName},
+			},
+			matchedRef: parentRef,
+			message:    "conflicted",
+			routeKind:  "HTTPRoute",
+		})
+
+		require.NoError(t, err)
 	})
 
 	t.Run("resolveRequest", func(t *testing.T) {
@@ -648,6 +845,37 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 	})
 
+	t.Run("listGRPCRouteConflictCandidates", func(t *testing.T) {
+		deps := newMockDeps(t)
+		model := newHTTPRouteModel(deps)
+		k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+		deletionTimestamp := metav1.Now()
+		activeRoute := makeRandomGRPCRoute()
+		activeRoute.Spec.ParentRefs = []gatewayv1.ParentReference{makeRandomParentRef()}
+		activeRoute.Spec.Hostnames = []gatewayv1.Hostname{"api.example.com"}
+		deletedRoute := makeRandomGRPCRoute()
+		deletedRoute.DeletionTimestamp = &deletionTimestamp
+
+		k8sClient.EXPECT().List(t.Context(), &gatewayv1.GRPCRouteList{}).
+			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				list.(*gatewayv1.GRPCRouteList).Items = []gatewayv1.GRPCRoute{activeRoute, deletedRoute}
+				return nil
+			})
+
+		got, err := model.listGRPCRouteConflictCandidates(t.Context())
+
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, l7RouteIdentity{
+			kind:              l7GRPCRouteKind,
+			namespace:         activeRoute.Namespace,
+			name:              activeRoute.Name,
+			creationTimestamp: activeRoute.CreationTimestamp,
+		}, got[0].identity)
+		assert.Equal(t, activeRoute.Spec.ParentRefs, got[0].parentRefs)
+		assert.Equal(t, activeRoute.Spec.Hostnames, got[0].hostnames)
+	})
+
 	t.Run("acceptRoute", func(t *testing.T) {
 		t.Run("add new accepted parent", func(t *testing.T) {
 			fake := faker.New()
@@ -713,6 +941,126 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				LastTransitionTime: gotCondition.LastTransitionTime,
 				Message:            fmt.Sprintf("Route accepted by %s", routeData.gatewayDetails.gateway.Name),
 			}, gotCondition)
+		})
+
+		t.Run("accepts when an older GRPCRoute has an overlapping listener hostname", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+			listenerName := gatewayv1.SectionName("https")
+			hostname := gatewayv1.Hostname("grpc.example.com")
+			gateway := newRandomGateway(randomGatewayWithListenersOpt(gatewayv1.Listener{
+				Name:     listenerName,
+				Hostname: &hostname,
+				Port:     443,
+				Protocol: gatewayv1.HTTPSProtocolType,
+			}))
+			gatewayNamespace := gatewayv1.Namespace(gateway.Namespace)
+			parentRef := gatewayv1.ParentReference{
+				Namespace:   &gatewayNamespace,
+				Name:        gatewayv1.ObjectName(gateway.Name),
+				SectionName: &listenerName,
+			}
+			currentRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithNamespaceOpt(gateway.Namespace),
+				randomHTTPRouteWithRandomParentRefOpt(parentRef),
+			)
+			currentRoute.CreationTimestamp = metav1.NewTime(time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
+			currentRoute.Spec.Hostnames = []gatewayv1.Hostname{hostname}
+			olderGRPCRoute := gatewayv1.GRPCRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace:         gateway.Namespace,
+					Name:              "grpc-route",
+					CreationTimestamp: metav1.NewTime(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)),
+				},
+				Spec: gatewayv1.GRPCRouteSpec{
+					CommonRouteSpec: gatewayv1.CommonRouteSpec{ParentRefs: []gatewayv1.ParentReference{parentRef}},
+					Hostnames:       []gatewayv1.Hostname{hostname},
+				},
+			}
+
+			k8sClient.EXPECT().List(t.Context(), &gatewayv1.GRPCRouteList{}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					list.(*gatewayv1.GRPCRouteList).Items = []gatewayv1.GRPCRoute{olderGRPCRoute}
+					return nil
+				})
+			config := makeRandomGatewayConfig()
+			k8sClient.EXPECT().Status().Return(mockStatusWriter)
+			var updatedRoute *gatewayv1.HTTPRoute
+			mockStatusWriter.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				route, ok := obj.(*gatewayv1.HTTPRoute)
+				if !ok {
+					return false
+				}
+				updatedRoute = route
+				parentStatus := route.Status.Parents[0]
+				condition := meta.FindStatusCondition(parentStatus.Conditions, string(gatewayv1.RouteConditionAccepted))
+				return condition != nil &&
+					condition.Status == metav1.ConditionTrue &&
+					condition.Reason == string(gatewayv1.RouteReasonAccepted)
+			})).Return(nil)
+
+			got, err := model.acceptRoute(t.Context(), resolvedRouteDetails{
+				gatewayDetails: resolvedGatewayDetails{
+					gateway: *gateway,
+					gatewayClass: gatewayv1.GatewayClass{
+						Spec: gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName},
+					},
+					config: config,
+				},
+				httpRoute:        currentRoute,
+				matchedRef:       parentRef,
+				matchedListeners: []gatewayv1.Listener{gateway.Spec.Listeners[0]},
+			})
+
+			require.NoError(t, err)
+			assert.Same(t, updatedRoute, got)
+		})
+
+		t.Run("rejectRoute sets conflicted condition", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+			parentRef := makeRandomParentRef()
+			httpRoute := makeRandomHTTPRoute()
+			winner := l7RouteCandidate{
+				identity: l7RouteIdentity{
+					kind:      l7HTTPRouteKind,
+					namespace: "routes",
+					name:      "winner",
+				},
+			}
+			wantMessage := l7RouteConflictMessage(winner)
+
+			k8sClient.EXPECT().Status().Return(mockStatusWriter)
+			mockStatusWriter.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				route, ok := obj.(*gatewayv1.HTTPRoute)
+				if !ok {
+					return false
+				}
+				require.Len(t, route.Status.Parents, 1)
+				parentStatus := route.Status.Parents[0]
+				condition := meta.FindStatusCondition(parentStatus.Conditions, string(gatewayv1.RouteConditionAccepted))
+				return parentRefSameTarget(parentStatus.ParentRef, parentRef) &&
+					condition != nil &&
+					condition.Status == metav1.ConditionFalse &&
+					condition.Reason == string(routeReasonConflicted) &&
+					condition.Message == wantMessage
+			})).Return(nil)
+
+			err := model.rejectRoute(t.Context(), resolvedRouteDetails{
+				gatewayDetails: resolvedGatewayDetails{
+					gatewayClass: gatewayv1.GatewayClass{
+						Spec: gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName},
+					},
+				},
+				httpRoute:  httpRoute,
+				matchedRef: parentRef,
+			}, wantMessage)
+
+			require.NoError(t, err)
 		})
 
 		t.Run("set condition of existing parent", func(t *testing.T) {
@@ -1021,14 +1369,21 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			config := makeRandomGatewayConfig()
 
 			// Create HTTP route with multiple rules
+			backendRefs := []gatewayv1.HTTPBackendRef{
+				makeRandomBackendRef(),
+				makeRandomBackendRef(),
+			}
 			httpRoute := makeRandomHTTPRoute(
 				randomHTTPRouteWithRulesOpt(
-					makeRandomHTTPRouteRule(),
-					makeRandomHTTPRouteRule(),
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRefs[0])),
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRefs[1])),
 				),
 			)
 
-			knownServices := makeFewRandomServices()
+			knownServices := []corev1.Service{
+				makeRandomService(randomServiceFromBackendRef(backendRefs[0], &httpRoute)),
+				makeRandomService(randomServiceFromBackendRef(backendRefs[1], &httpRoute)),
+			}
 			knownServicesByName := lo.SliceToMap(knownServices, func(s corev1.Service) (string, corev1.Service) {
 				return types.NamespacedName{
 					Namespace: s.Namespace,
@@ -1048,11 +1403,14 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
 
-			// Expect reconciliation of backend sets for each service
-			for _, service := range knownServicesByName {
+			// Expect reconciliation of backend sets for each backendRef.
+			for _, ref := range backendRefs {
+				service := knownServicesByName[backendObjectRefName(ref.BackendObjectReference, httpRoute.Namespace).String()]
 				ociLBModel.EXPECT().reconcileBackendSet(t.Context(), reconcileBackendSetParams{
 					loadBalancerID: config.Spec.LoadBalancerID,
 					service:        service,
+					routeNS:        httpRoute.Namespace,
+					backendRef:     ref.BackendRef,
 				}).Return(nil)
 			}
 
@@ -1081,6 +1439,161 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("programs separate backend sets for the same service on different ports", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			gateway := newRandomGateway()
+			config := makeRandomGatewayConfig()
+			service := makeRandomService()
+			firstPort := gatewayv1.PortNumber(8000)
+			firstPort += rand.Int32N(1000)
+			secondPort := firstPort + 1
+			firstBackendRef := makeRandomBackendRef(
+				randomBackendRefWithNameOpt(service.Name),
+				randomBackendRefWithNamespaceOpt(service.Namespace),
+				func(ref *gatewayv1.HTTPBackendRef) {
+					ref.Port = &firstPort
+				},
+			)
+			secondBackendRef := makeRandomBackendRef(
+				randomBackendRefWithNameOpt(service.Name),
+				randomBackendRefWithNamespaceOpt(service.Namespace),
+				func(ref *gatewayv1.HTTPBackendRef) {
+					ref.Port = &secondPort
+				},
+			)
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithNameOpt("route-"+fake.Lorem().Word()),
+				randomHTTPRouteWithRulesOpt(
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(firstBackendRef)),
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(secondBackendRef)),
+				),
+			)
+			serviceKey := types.NamespacedName{Namespace: service.Namespace, Name: service.Name}.String()
+			listener := makeRandomListener()
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+
+			ociLBModel.EXPECT().reconcileBackendSet(t.Context(), reconcileBackendSetParams{
+				loadBalancerID: config.Spec.LoadBalancerID,
+				service:        service,
+				routeNS:        httpRoute.Namespace,
+				backendRef:     firstBackendRef.BackendRef,
+			}).Return(nil).Once()
+			ociLBModel.EXPECT().reconcileBackendSet(t.Context(), reconcileBackendSetParams{
+				loadBalancerID: config.Spec.LoadBalancerID,
+				service:        service,
+				routeNS:        httpRoute.Namespace,
+				backendRef:     secondBackendRef.BackendRef,
+			}).Return(nil).Once()
+
+			expectedRules := make([]loadbalancer.RoutingRule, 0, len(httpRoute.Spec.Rules))
+			for i := range httpRoute.Spec.Rules {
+				rule := makeRandomOCIRoutingRule()
+				expectedRules = append(expectedRules, rule)
+				ociLBModel.EXPECT().makeRoutingRule(t.Context(), makeRoutingRuleParams{
+					httpRoute:          httpRoute,
+					httpRouteRuleIndex: i,
+				}).Return(rule, nil).Once()
+			}
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID: config.Spec.LoadBalancerID,
+				listenerName:   string(listener.Name),
+				policyRules:    expectedRules,
+			}).Return(nil).Once()
+
+			_, err := model.programRoute(t.Context(), programRouteParams{
+				gateway:          *gateway,
+				config:           config,
+				httpRoute:        httpRoute,
+				knownBackends:    map[string]corev1.Service{serviceKey: service},
+				matchedListeners: []gatewayv1.Listener{listener},
+			})
+
+			require.NoError(t, err)
+		})
+
+		t.Run("deduplicates backend set reconciliation for the same backend ref", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			gateway := newRandomGateway()
+			config := makeRandomGatewayConfig()
+			backendRef := makeRandomBackendRef()
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef)),
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef)),
+				),
+			)
+			service := makeRandomService(randomServiceFromBackendRef(backendRef, &httpRoute))
+			listener := makeRandomListener()
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+
+			ociLBModel.EXPECT().reconcileBackendSet(t.Context(), reconcileBackendSetParams{
+				loadBalancerID: config.Spec.LoadBalancerID,
+				service:        service,
+				routeNS:        httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
+			}).Return(nil).Once()
+
+			expectedRules := make([]loadbalancer.RoutingRule, 0, len(httpRoute.Spec.Rules))
+			for i := range httpRoute.Spec.Rules {
+				rule := makeRandomOCIRoutingRule()
+				expectedRules = append(expectedRules, rule)
+				ociLBModel.EXPECT().makeRoutingRule(t.Context(), makeRoutingRuleParams{
+					httpRoute:          httpRoute,
+					httpRouteRuleIndex: i,
+				}).Return(rule, nil).Once()
+			}
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID: config.Spec.LoadBalancerID,
+				listenerName:   string(listener.Name),
+				policyRules:    expectedRules,
+			}).Return(nil).Once()
+
+			knownBackends := map[string]corev1.Service{
+				backendRefName(backendRef, httpRoute.Namespace).String(): service,
+			}
+
+			_, err := model.programRoute(t.Context(), programRouteParams{
+				gateway:       *gateway,
+				config:        config,
+				httpRoute:     httpRoute,
+				knownBackends: knownBackends,
+				matchedListeners: []gatewayv1.Listener{
+					listener,
+				},
+			})
+
+			require.NoError(t, err)
+		})
+
+		t.Run("fails when resolved backend service is missing", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			gateway := newRandomGateway()
+			config := makeRandomGatewayConfig()
+			backendRef := makeRandomBackendRef()
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef)),
+				),
+			)
+
+			_, err := model.programRoute(t.Context(), programRouteParams{
+				gateway:          *gateway,
+				config:           config,
+				httpRoute:        httpRoute,
+				knownBackends:    map[string]corev1.Service{},
+				matchedListeners: []gatewayv1.Listener{makeRandomListener()},
+			})
+
+			require.ErrorContains(t, err, "resolved backend service")
+		})
+
 		t.Run("program with previously programmed annotations passes stale rules for cleanup", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
@@ -1090,12 +1603,16 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			config := makeRandomGatewayConfig()
 
 			// Create HTTP route with multiple rules
+			backendRefs := []gatewayv1.HTTPBackendRef{
+				makeRandomBackendRef(),
+				makeRandomBackendRef(),
+			}
 			httpRoute := makeRandomHTTPRoute(
 				randomHTTPRouteWithNamespaceOpt(fmt.Sprintf("ns_%d", rand.IntN(1000))),
 				randomHTTPRouteWithNameOpt(fmt.Sprintf("rt_%d", rand.IntN(1000))),
 				randomHTTPRouteWithRulesOpt(
-					makeRandomHTTPRouteRule(),
-					makeRandomHTTPRouteRule(),
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRefs[0])),
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRefs[1])),
 				),
 			)
 			wantPreviousRules := []string{
@@ -1106,7 +1623,10 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				HTTPRouteProgrammedPolicyRulesAnnotation: strings.Join(wantPreviousRules, ","),
 			}
 
-			knownServices := makeFewRandomServices()
+			knownServices := []corev1.Service{
+				makeRandomService(randomServiceFromBackendRef(backendRefs[0], &httpRoute)),
+				makeRandomService(randomServiceFromBackendRef(backendRefs[1], &httpRoute)),
+			}
 			knownServicesByName := lo.SliceToMap(knownServices, func(s corev1.Service) (string, corev1.Service) {
 				return types.NamespacedName{
 					Namespace: s.Namespace,
@@ -1126,11 +1646,14 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
 
-			// Expect reconciliation of backend sets for each service
-			for _, service := range knownServicesByName {
+			// Expect reconciliation of backend sets for each backendRef.
+			for _, ref := range backendRefs {
+				service := knownServicesByName[backendObjectRefName(ref.BackendObjectReference, httpRoute.Namespace).String()]
 				ociLBModel.EXPECT().reconcileBackendSet(t.Context(), reconcileBackendSetParams{
 					loadBalancerID: config.Spec.LoadBalancerID,
 					service:        service,
+					routeNS:        httpRoute.Namespace,
+					backendRef:     ref.BackendRef,
 				}).Return(nil)
 			}
 
@@ -1168,8 +1691,11 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			gateway := newRandomGateway()
 			config := makeRandomGatewayConfig()
+			backendRef := makeRandomBackendRef()
 			httpRoute := makeRandomHTTPRoute(
-				randomHTTPRouteWithRulesOpt(makeRandomHTTPRouteRule()),
+				randomHTTPRouteWithRulesOpt(
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef)),
+				),
 			)
 
 			currentListener := makeRandomListener()
@@ -1185,7 +1711,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				}, ","),
 			}
 
-			service := makeRandomService()
+			service := makeRandomService(randomServiceFromBackendRef(backendRef, &httpRoute))
 			knownServicesByName := map[string]corev1.Service{
 				types.NamespacedName{
 					Namespace: service.Namespace,
@@ -1205,6 +1731,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			ociLBModel.EXPECT().reconcileBackendSet(t.Context(), reconcileBackendSetParams{
 				loadBalancerID: config.Spec.LoadBalancerID,
 				service:        service,
+				routeNS:        httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
 			}).Return(nil)
 
 			rule := makeRandomOCIRoutingRule()
@@ -1243,9 +1771,15 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			gateway := newRandomGateway()
 			config := makeRandomGatewayConfig()
 
-			httpRoute := makeRandomHTTPRoute()
+			backendRef := makeRandomBackendRef()
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef)),
+				),
+			)
+			service := makeRandomService(randomServiceFromBackendRef(backendRef, &httpRoute))
 			services := map[string]corev1.Service{
-				"service1": makeRandomService(),
+				types.NamespacedName{Namespace: service.Namespace, Name: service.Name}.String(): service,
 			}
 			listeners := []gatewayv1.Listener{
 				makeRandomListener(),
@@ -1280,13 +1814,15 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			gateway := newRandomGateway()
 			config := makeRandomGatewayConfig()
 
+			backendRef := makeRandomBackendRef()
 			httpRoute := makeRandomHTTPRoute(
 				randomHTTPRouteWithRulesOpt(
-					makeRandomHTTPRouteRule(),
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef)),
 				),
 			)
+			service := makeRandomService(randomServiceFromBackendRef(backendRef, &httpRoute))
 			services := map[string]corev1.Service{
-				"service1": makeRandomService(),
+				types.NamespacedName{Namespace: service.Namespace, Name: service.Name}.String(): service,
 			}
 			listeners := []gatewayv1.Listener{
 				makeRandomListener(),
@@ -1324,13 +1860,15 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			gateway := newRandomGateway()
 			config := makeRandomGatewayConfig()
 
+			backendRef := makeRandomBackendRef()
 			httpRoute := makeRandomHTTPRoute(
 				randomHTTPRouteWithRulesOpt(
-					makeRandomHTTPRouteRule(),
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef)),
 				),
 			)
+			service := makeRandomService(randomServiceFromBackendRef(backendRef, &httpRoute))
 			services := map[string]corev1.Service{
-				"service1": makeRandomService(),
+				types.NamespacedName{Namespace: service.Namespace, Name: service.Name}.String(): service,
 			}
 			listeners := []gatewayv1.Listener{
 				makeRandomListener(),
@@ -1697,8 +2235,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			for _, backendRef := range wantBackendRefs {
 				ociLBModel.EXPECT().deprovisionBackendSet(t.Context(), deprovisionBackendSetParams{
 					loadBalancerID: config.Spec.LoadBalancerID,
-					httpRoute:      httpRoute,
-					backendRef:     backendRef,
+					routeNamespace: httpRoute.Namespace,
+					backendRef:     backendRef.BackendRef,
 				}).Return(nil).Once().NotBefore(lastCommitCall)
 			}
 

@@ -38,6 +38,7 @@ type StartManagerDeps struct {
 	GatewayCtrl      *app.GatewayController
 	NLBGatewayCtrl   *app.NetworkLoadBalancerGatewayController
 	HTTPRouteCtrl    *app.HTTPRouteController
+	GRPCRouteCtrl    *app.GRPCRouteController
 	TCPRouteCtrl     *app.TCPRouteController
 	UDPRouteCtrl     *app.UDPRouteController
 	WatchesModel     *app.WatchesModel
@@ -50,6 +51,7 @@ type StartManagerDeps struct {
 	ReconcileTCPRoute                   bool `name:"config.features.reconcileTCPRoute"`
 	ReconcileUDPRoute                   bool `name:"config.features.reconcileUDPRoute"`
 	ReconcileHTTPRoute                  bool `name:"config.features.reconcileHTTPRoute"`
+	ReconcileGRPCRoute                  bool `name:"config.features.reconcileGRPCRoute"`
 }
 
 type experimentalRouteCapabilities struct {
@@ -260,18 +262,60 @@ func coreControllerSetupTasks(
 			disabledLog: "HTTPRoute controller is disabled",
 			setupErr:    "failed to setup HTTPRoute controller: %w",
 			setup: func() error {
-				return builder.ControllerManagedBy(mgr).
-					Named("httproute").
-					For(&gatewayv1.HTTPRoute{}).
-					Watches(
-						&discoveryv1.EndpointSlice{},
-						handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapEndpointSliceToHTTPRoute),
-					).
-					WithEventFilter(httpRouteObjectPredicate()).
-					Complete(wireupReconciler(deps.HTTPRouteCtrl, middlewares...))
+				return setupHTTPRouteController(mgr, deps, middlewares)
+			},
+		},
+		{
+			enabled:     deps.ReconcileGRPCRoute,
+			disabledLog: "GRPCRoute controller is disabled",
+			setupErr:    "failed to setup GRPCRoute controller: %w",
+			setup: func() error {
+				return setupGRPCRouteController(mgr, deps, middlewares)
 			},
 		},
 	}
+}
+
+func setupHTTPRouteController(
+	mgr manager.Manager,
+	deps StartManagerDeps,
+	middlewares []controllerMiddleware[reconcile.Request],
+) error {
+	return builder.ControllerManagedBy(mgr).
+		Named("httproute").
+		For(&gatewayv1.HTTPRoute{}).
+		Watches(
+			&discoveryv1.EndpointSlice{},
+			handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapEndpointSliceToHTTPRoute),
+		).
+		Watches(
+			&gatewayv1.GRPCRoute{},
+			handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapGRPCRouteToHTTPRoute),
+			builder.WithPredicates(l7RouteObjectPredicate()),
+		).
+		WithEventFilter(l7RouteObjectPredicate()).
+		Complete(wireupReconciler(deps.HTTPRouteCtrl, middlewares...))
+}
+
+func setupGRPCRouteController(
+	mgr manager.Manager,
+	deps StartManagerDeps,
+	middlewares []controllerMiddleware[reconcile.Request],
+) error {
+	return builder.ControllerManagedBy(mgr).
+		Named("grpcroute").
+		For(&gatewayv1.GRPCRoute{}).
+		Watches(
+			&discoveryv1.EndpointSlice{},
+			handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapEndpointSliceToGRPCRoute),
+		).
+		Watches(
+			&gatewayv1.HTTPRoute{},
+			handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapHTTPRouteToGRPCRoute),
+			builder.WithPredicates(l7RouteObjectPredicate()),
+		).
+		WithEventFilter(l7RouteObjectPredicate()).
+		Complete(wireupReconciler(deps.GRPCRouteCtrl, middlewares...))
 }
 
 func l4RouteControllerSetupTasks(
@@ -314,7 +358,7 @@ func l4RouteControllerSetupTasks(
 	}
 }
 
-func httpRouteObjectPredicate() predicate.Funcs {
+func l7RouteObjectPredicate() predicate.Funcs {
 	generationChanged := predicate.GenerationChangedPredicate{}
 	labelChanged := predicate.LabelChangedPredicate{}
 	annotationChanged := predicate.AnnotationChangedPredicate{}

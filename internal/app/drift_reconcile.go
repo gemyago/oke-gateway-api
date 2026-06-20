@@ -22,3 +22,7 @@ func driftRequeue(interval time.Duration) reconcile.Result {
 	}
 	return reconcile.Result{RequeueAfter: interval}
 }
+
+func shouldProgramRoute(programmingRequired bool, driftInterval time.Duration) bool {
+	return programmingRequired || driftInterval > 0
+}

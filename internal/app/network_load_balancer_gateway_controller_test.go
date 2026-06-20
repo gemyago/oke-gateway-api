@@ -231,6 +231,27 @@ func TestNetworkLoadBalancerGatewayController(t *testing.T) {
 		assert.True(t, resourcesModel.setCalled)
 	})
 
+	t.Run("returns busy requeue for network load balancer busy errors", func(t *testing.T) {
+		resourcesModel := &stubResourcesModel{conditionSet: true}
+		gatewayModel := &stubNLBGatewayModel{
+			relevant:   true,
+			data:       baseData,
+			programErr: &networkLoadBalancerBusyError{id: "nlb-id"},
+		}
+		controller := NewNetworkLoadBalancerGatewayController(NetworkLoadBalancerGatewayControllerDeps{
+			RootLogger:     diag.RootTestLogger(),
+			ResourcesModel: resourcesModel,
+			GatewayModel:   gatewayModel,
+		})
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		require.NoError(t, err)
+		assert.Equal(t, networkLoadBalancerBusyRequeueAfter, result.RequeueAfter)
+		assert.False(t, resourcesModel.setCalled)
+		assert.True(t, gatewayModel.programmedNow)
+	})
+
 	t.Run("wraps programmed network load balancer lookup errors", func(t *testing.T) {
 		controller := NewNetworkLoadBalancerGatewayController(NetworkLoadBalancerGatewayControllerDeps{
 			RootLogger:     diag.RootTestLogger(),

@@ -518,6 +518,7 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 				Protocol:              networkloadbalancer.ListenerProtocolsTcp,
 				Port:                  new(1935),
 				DefaultBackendSetName: new("bs_rtmp"),
+				TcpIdleTimeout:        new(networkLoadBalancerTCPIdleTimeoutSeconds),
 			},
 			networkloadbalancer.ListenerProtocolsTcp,
 			1935,
@@ -682,10 +683,14 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 		assert.Equal(t, networkloadbalancer.ListenerProtocolsTcp, client.createListenerRequests[0].Protocol)
 		assert.Equal(t, 1935, lo.FromPtr(client.createListenerRequests[0].Port))
 		assert.Equal(t, "bs_rtmp", lo.FromPtr(client.createListenerRequests[0].DefaultBackendSetName))
+		assert.Equal(t, networkLoadBalancerTCPIdleTimeoutSeconds,
+			lo.FromPtr(client.createListenerRequests[0].TcpIdleTimeout))
 		assert.Equal(t, "coap-dtls", lo.FromPtr(client.createListenerRequests[1].Name))
 		assert.Equal(t, networkloadbalancer.ListenerProtocolsUdp, client.createListenerRequests[1].Protocol)
 		assert.Equal(t, 5684, lo.FromPtr(client.createListenerRequests[1].Port))
 		assert.Equal(t, "bs_coap_dtls", lo.FromPtr(client.createListenerRequests[1].DefaultBackendSetName))
+		assert.Equal(t, networkLoadBalancerUDPIdleTimeoutSeconds,
+			lo.FromPtr(client.createListenerRequests[1].UdpIdleTimeout))
 	})
 
 	t.Run("programs existing network load balancer by id without marking it managed", func(t *testing.T) {
@@ -725,7 +730,7 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 		require.Len(t, client.createListenerRequests, 1)
 	})
 
-	t.Run("updates existing listener and backend set", func(t *testing.T) {
+	t.Run("updates existing listener without rewriting existing backend set", func(t *testing.T) {
 		client := &stubNetworkLoadBalancerClient{
 			getResponse: networkloadbalancer.GetNetworkLoadBalancerResponse{
 				NetworkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
@@ -738,9 +743,6 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 						"bs_rtmp": {Name: new("bs_rtmp")},
 					},
 				},
-			},
-			updateBackendSetResponse: networkloadbalancer.UpdateBackendSetResponse{
-				OpcWorkRequestId: new("update-backend-set-work"),
 			},
 			updateListenerResponse: networkloadbalancer.UpdateListenerResponse{
 				OpcWorkRequestId: new("update-listener-work"),
@@ -755,7 +757,7 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 		err := model.programGateway(t.Context(), details)
 
 		require.NoError(t, err)
-		require.Len(t, client.updateBackendSetRequests, 1)
+		assert.Empty(t, client.updateBackendSetRequests)
 		require.Len(t, client.updateListenerRequests, 1)
 		assert.Equal(t, "rtmp", lo.FromPtr(client.updateListenerRequests[0].ListenerName))
 	})
@@ -773,6 +775,7 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 							DefaultBackendSetName: new("bs_rtmp"),
 							Port:                  new(1935),
 							Protocol:              networkloadbalancer.ListenerProtocolsTcp,
+							TcpIdleTimeout:        new(networkLoadBalancerTCPIdleTimeoutSeconds),
 						},
 					},
 					BackendSets: map[string]networkloadbalancer.BackendSet{
@@ -807,7 +810,7 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 		assert.Empty(t, client.createListenerRequests)
 	})
 
-	t.Run("updates drifted listener and backend set fields", func(t *testing.T) {
+	t.Run("updates drifted listener and preserves existing backend set route-owned fields", func(t *testing.T) {
 		client := &stubNetworkLoadBalancerClient{
 			getResponse: networkloadbalancer.GetNetworkLoadBalancerResponse{
 				NetworkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
@@ -833,9 +836,6 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 					},
 				},
 			},
-			updateBackendSetResponse: networkloadbalancer.UpdateBackendSetResponse{
-				OpcWorkRequestId: new("update-backend-set-work"),
-			},
 			updateListenerResponse: networkloadbalancer.UpdateListenerResponse{
 				OpcWorkRequestId: new("update-listener-work"),
 			},
@@ -849,13 +849,7 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 		err := model.programGateway(t.Context(), details)
 
 		require.NoError(t, err)
-		require.Len(t, client.updateBackendSetRequests, 1)
-		assert.Equal(t, string(networkloadbalancer.NetworkLoadBalancingPolicyFiveTuple),
-			lo.FromPtr(client.updateBackendSetRequests[0].Policy))
-		assert.False(t, lo.FromPtr(client.updateBackendSetRequests[0].IsPreserveSource))
-		assert.Equal(t, networkloadbalancer.HealthCheckProtocolsTcp,
-			client.updateBackendSetRequests[0].HealthChecker.Protocol)
-		assert.Equal(t, 1935, lo.FromPtr(client.updateBackendSetRequests[0].HealthChecker.Port))
+		assert.Empty(t, client.updateBackendSetRequests)
 
 		require.Len(t, client.updateListenerRequests, 1)
 		assert.Equal(t, networkloadbalancer.ListenerProtocolsTcp,
@@ -863,6 +857,54 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 		assert.Equal(t, 1935, lo.FromPtr(client.updateListenerRequests[0].UpdateListenerDetails.Port))
 		assert.Equal(t, "bs_rtmp",
 			lo.FromPtr(client.updateListenerRequests[0].UpdateListenerDetails.DefaultBackendSetName))
+		assert.Equal(t, networkLoadBalancerTCPIdleTimeoutSeconds,
+			lo.FromPtr(client.updateListenerRequests[0].UpdateListenerDetails.TcpIdleTimeout))
+	})
+
+	t.Run("updates drifted udp listener idle timeout", func(t *testing.T) {
+		healthChecker := networkLoadBalancerHealthCheckerDetails(gatewayv1.UDPProtocolType, new(5684))
+		client := &stubNetworkLoadBalancerClient{
+			getResponse: networkloadbalancer.GetNetworkLoadBalancerResponse{
+				NetworkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id:          new("ocid1.networkloadbalancer.oc1..existing"),
+					DisplayName: new("shared-nlb"),
+					Listeners: map[string]networkloadbalancer.Listener{
+						"coap-dtls": {
+							Name:                  new("coap-dtls"),
+							DefaultBackendSetName: new("bs_coap_dtls"),
+							Port:                  new(5684),
+							Protocol:              networkloadbalancer.ListenerProtocolsUdp,
+							UdpIdleTimeout:        new(networkLoadBalancerUDPIdleTimeoutSeconds + 1),
+						},
+					},
+					BackendSets: map[string]networkloadbalancer.BackendSet{
+						"bs_coap_dtls": {
+							Name:             new("bs_coap_dtls"),
+							Policy:           networkloadbalancer.NetworkLoadBalancingPolicyFiveTuple,
+							HealthChecker:    nlbHealthCheckerFromDetails(healthChecker),
+							IsPreserveSource: new(false),
+						},
+					},
+				},
+			},
+			updateListenerResponse: networkloadbalancer.UpdateListenerResponse{
+				OpcWorkRequestId: new("update-listener-work"),
+			},
+		}
+		model := newModel(client, &stubWorkRequestsWatcher{})
+		details := newDetails()
+		details.gateway.Spec.Listeners = []gatewayv1.Listener{
+			{Name: "coap-dtls", Protocol: gatewayv1.UDPProtocolType, Port: 5684},
+		}
+
+		err := model.programGateway(t.Context(), details)
+
+		require.NoError(t, err)
+		require.Len(t, client.updateListenerRequests, 1)
+		assert.Equal(t, networkloadbalancer.ListenerProtocolsUdp,
+			client.updateListenerRequests[0].UpdateListenerDetails.Protocol)
+		assert.Equal(t, networkLoadBalancerUDPIdleTimeoutSeconds,
+			lo.FromPtr(client.updateListenerRequests[0].UpdateListenerDetails.UdpIdleTimeout))
 	})
 
 	t.Run("rejects unsupported gateway listener protocol and empty load balancer id", func(t *testing.T) {
@@ -918,9 +960,6 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 			deleteBackendSetResponse: networkloadbalancer.DeleteBackendSetResponse{
 				OpcWorkRequestId: new("delete-backend-set-work-request"),
 			},
-			updateBackendSetResponse: networkloadbalancer.UpdateBackendSetResponse{
-				OpcWorkRequestId: new("update-backend-set-work-request"),
-			},
 			updateListenerResponse: networkloadbalancer.UpdateListenerResponse{
 				OpcWorkRequestId: new("update-listener-work-request"),
 			},
@@ -944,7 +983,6 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 		assert.Equal(t, "bs_old", lo.FromPtr(client.deleteBackendSetRequests[0].BackendSetName))
 		assert.ElementsMatch(t,
 			[]string{
-				"update-backend-set-work-request",
 				"update-listener-work-request",
 				"delete-listener-work-request",
 				"delete-backend-set-work-request",
@@ -1079,16 +1117,8 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 				client: &stubNetworkLoadBalancerClient{createBackendSetErr: errors.New("create backend set failed")},
 				msg:    "failed to create OCI Network Load Balancer backend set",
 			},
-			"update backend set": {
-				client: &stubNetworkLoadBalancerClient{updateBackendSetErr: errors.New("update backend set failed")},
-				msg:    "failed to update OCI Network Load Balancer backend set",
-			},
 			"busy create backend set": {
 				client:   &stubNetworkLoadBalancerClient{createBackendSetErr: busyErr},
-				wantBusy: true,
-			},
-			"busy update backend set": {
-				client:   &stubNetworkLoadBalancerClient{updateBackendSetErr: busyErr},
 				wantBusy: true,
 			},
 			"create listener": {
@@ -1132,7 +1162,7 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 				nlb := networkloadbalancer.NetworkLoadBalancer{
 					Id: new("nlb-id"),
 				}
-				if tc.client.updateBackendSetErr != nil || tc.client.updateListenerErr != nil {
+				if tc.client.updateListenerErr != nil {
 					nlb.BackendSets = map[string]networkloadbalancer.BackendSet{"bs_rtmp": {Name: new("bs_rtmp")}}
 				}
 				if tc.client.updateListenerErr != nil {
@@ -1168,19 +1198,6 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 				},
 				nlb:    networkloadbalancer.NetworkLoadBalancer{Id: new("nlb-id")},
 				waited: "create-backend-set-work",
-			},
-			"update backend set": {
-				client: &stubNetworkLoadBalancerClient{
-					updateBackendSetResponse: networkloadbalancer.UpdateBackendSetResponse{
-						OpcWorkRequestId: new("update-backend-set-work"),
-					},
-					createListenerErr: errors.New("stop after backend set"),
-				},
-				nlb: networkloadbalancer.NetworkLoadBalancer{
-					Id:          new("nlb-id"),
-					BackendSets: map[string]networkloadbalancer.BackendSet{"bs_rtmp": {Name: new("bs_rtmp")}},
-				},
-				waited: "update-backend-set-work",
 			},
 			"create listener": {
 				client: &stubNetworkLoadBalancerClient{
@@ -1236,10 +1253,6 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 			"create backend set": {
 				Id: new("nlb-id"),
 			},
-			"update backend set": {
-				Id:          new("nlb-id"),
-				BackendSets: map[string]networkloadbalancer.BackendSet{"bs_rtmp": {Name: new("bs_rtmp")}},
-			},
 			"create listener": {
 				Id:          new("nlb-id"),
 				BackendSets: map[string]networkloadbalancer.BackendSet{"bs_rtmp": matchingNLBBackendSet(listener)},
@@ -1255,8 +1268,6 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 				switch name {
 				case "create backend set":
 					client.omitCreateBackendSetWorkRequest = true
-				case "update backend set":
-					client.omitUpdateBackendSetWorkRequest = true
 				case "create listener":
 					client.omitCreateListenerWorkRequest = true
 				case "update listener":

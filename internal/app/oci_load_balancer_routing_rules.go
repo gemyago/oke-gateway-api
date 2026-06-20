@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/samber/lo"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -60,6 +61,13 @@ type ociLoadBalancerRoutingRulesMapper interface {
 	mapHTTPRouteHostnamesAndMatchesToCondition(
 		hostnames []gatewayv1.Hostname,
 		matches []gatewayv1.HTTPRouteMatch,
+	) (string, error)
+
+	// mapGRPCRouteHostnamesAndMatchesToCondition translates Gateway API hostnames and gRPC matches
+	// to an OCI Load Balancer routing policy condition.
+	mapGRPCRouteHostnamesAndMatchesToCondition(
+		hostnames []gatewayv1.Hostname,
+		matches []gatewayv1.GRPCRouteMatch,
 	) (string, error)
 }
 
@@ -233,4 +241,178 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteHostnamesAndMatchesT
 	}
 
 	return fmt.Sprintf("any(%s)", strings.Join(conditions, ", ")), nil
+}
+
+func (r *ociLoadBalancerRoutingRulesMapperImpl) mapGRPCRouteHostnamesAndMatchesToCondition(
+	hostnames []gatewayv1.Hostname,
+	matches []gatewayv1.GRPCRouteMatch,
+) (string, error) {
+	if len(hostnames) == 0 {
+		return r.mapGRPCRouteMatchesToCondition(matches)
+	}
+
+	matchConditions, err := r.mapGRPCRouteMatchesToConditions(matches)
+	if err != nil {
+		return "", err
+	}
+
+	conditions := make([]string, 0, len(hostnames)*max(1, len(matchConditions))*len(grpcContentTypeConditions()))
+	for _, hostname := range hostnames {
+		hostCondition := fmt.Sprintf(`http.request.headers[(i 'host')] eq (i '%s')`, hostname)
+		if len(matchConditions) == 0 {
+			for _, contentTypeCondition := range grpcContentTypeConditions() {
+				conditions = append(conditions, allRoutingConditions(hostCondition, contentTypeCondition))
+			}
+			continue
+		}
+		for _, matchCondition := range matchConditions {
+			for _, contentTypeCondition := range grpcContentTypeConditions() {
+				conditions = append(
+					conditions,
+					allRoutingConditions(hostCondition, contentTypeCondition, matchCondition),
+				)
+			}
+		}
+	}
+
+	return fmt.Sprintf("any(%s)", strings.Join(conditions, ", ")), nil
+}
+
+func grpcContentTypeCondition() string {
+	return "any(" + strings.Join(grpcContentTypeConditions(), ", ") + ")"
+}
+
+func grpcContentTypeConditions() []string {
+	return []string{
+		"http.request.headers[(i 'content-type')][0] eq (i 'application/grpc')",
+		"http.request.headers[(i 'content-type')][0] sw (i 'application/grpc+')",
+		"http.request.headers[(i 'content-type')][0] sw (i 'application/grpc;')",
+	}
+}
+
+func allRoutingConditions(conditions ...string) string {
+	filteredConditions := lo.Filter(conditions, func(condition string, _ int) bool {
+		return condition != ""
+	})
+	if len(filteredConditions) == 0 {
+		return ""
+	}
+	if len(filteredConditions) == 1 {
+		return filteredConditions[0]
+	}
+	return "all(" + strings.Join(filteredConditions, ", ") + ")"
+}
+
+func (r *ociLoadBalancerRoutingRulesMapperImpl) mapGRPCRouteMatchesToCondition(
+	matches []gatewayv1.GRPCRouteMatch,
+) (string, error) {
+	conditions, err := r.mapGRPCRouteMatchesToConditions(matches)
+	if err != nil {
+		return "", err
+	}
+	if len(conditions) == 0 {
+		return grpcContentTypeCondition(), nil
+	}
+
+	grpcConditions := make([]string, 0, len(conditions)*len(grpcContentTypeConditions()))
+	for _, condition := range conditions {
+		for _, contentTypeCondition := range grpcContentTypeConditions() {
+			grpcConditions = append(grpcConditions, allRoutingConditions(contentTypeCondition, condition))
+		}
+	}
+
+	return fmt.Sprintf("any(%s)", strings.Join(grpcConditions, ", ")), nil
+}
+
+func (r *ociLoadBalancerRoutingRulesMapperImpl) mapGRPCRouteMatchesToConditions(
+	matches []gatewayv1.GRPCRouteMatch,
+) ([]string, error) {
+	if len(matches) == 0 {
+		return nil, nil
+	}
+
+	conditions := make([]string, 0, len(matches))
+	for _, match := range matches {
+		condition, err := r.mapGRPCRouteMatchToCondition(match)
+		if err != nil {
+			return nil, err
+		}
+		if condition != "" {
+			conditions = append(conditions, condition)
+		}
+	}
+
+	return conditions, nil
+}
+
+func (r *ociLoadBalancerRoutingRulesMapperImpl) mapGRPCRouteMatchToCondition(
+	match gatewayv1.GRPCRouteMatch,
+) (string, error) {
+	conditions := make([]string, 0, 1+len(match.Headers))
+
+	if match.Method != nil {
+		methodCondition, err := mapGRPCMethodMatchToCondition(*match.Method)
+		if err != nil {
+			return "", err
+		}
+		if methodCondition != "" {
+			conditions = append(conditions, methodCondition)
+		}
+	}
+
+	for _, headerMatch := range match.Headers {
+		condition, err := mapGRPCHeaderMatchToCondition(headerMatch)
+		if err != nil {
+			return "", err
+		}
+		conditions = append(conditions, condition)
+	}
+
+	if len(conditions) == 0 {
+		return "", nil
+	}
+	if len(conditions) == 1 {
+		return conditions[0], nil
+	}
+	return "all(" + strings.Join(conditions, ", ") + ")", nil
+}
+
+func mapGRPCMethodMatchToCondition(methodMatch gatewayv1.GRPCMethodMatch) (string, error) {
+	matchType := gatewayv1.GRPCMethodMatchExact
+	if methodMatch.Type != nil {
+		matchType = *methodMatch.Type
+	}
+	if matchType != gatewayv1.GRPCMethodMatchExact {
+		return "", fmt.Errorf("%w: grpc regex method matching", errUnsupportedMatch)
+	}
+
+	service := strings.TrimPrefix(lo.FromPtr(methodMatch.Service), ".")
+	method := lo.FromPtr(methodMatch.Method)
+	switch {
+	case service != "" && method != "":
+		return fmt.Sprintf(`http.request.url.path eq '/%s/%s'`, service, method), nil
+	case service != "":
+		return fmt.Sprintf(`http.request.url.path sw '/%s/'`, service), nil
+	case method != "":
+		return fmt.Sprintf(`http.request.url.path ew '/%s'`, method), nil
+	default:
+		return "", errors.New("grpc method match requires service or method")
+	}
+}
+
+func mapGRPCHeaderMatchToCondition(headerMatch gatewayv1.GRPCHeaderMatch) (string, error) {
+	headerType := gatewayv1.GRPCHeaderMatchExact
+	if headerMatch.Type != nil {
+		headerType = *headerMatch.Type
+	}
+	if headerType != gatewayv1.GRPCHeaderMatchExact {
+		return "", fmt.Errorf(
+			"%w: unsupported grpc header match type '%s' for header '%s'",
+			errUnsupportedMatch,
+			headerType,
+			headerMatch.Name,
+		)
+	}
+
+	return fmt.Sprintf(`http.request.headers[(i '%s')] eq (i '%s')`, headerMatch.Name, headerMatch.Value), nil
 }

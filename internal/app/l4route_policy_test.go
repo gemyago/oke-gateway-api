@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"reflect"
 	"testing"
 
 	"github.com/samber/lo"
@@ -17,7 +16,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 )
 
 func TestL4RoutePolicy(t *testing.T) {
@@ -233,160 +231,5 @@ func TestL4RoutePolicy(t *testing.T) {
 			Kind:  lo.ToPtr(gatewayv1.Kind(serviceKind)),
 			Name:  "edge",
 		}))
-	})
-
-	t.Run("l4ReferenceGrantAllowsServiceBackend permits same namespace backend", func(t *testing.T) {
-		allowed, err := l4ReferenceGrantAllowsServiceBackend(
-			t.Context(),
-			NewMockk8sClient(t),
-			"TCPRoute",
-			"iot",
-			types.NamespacedName{Namespace: "iot", Name: "rtmp"},
-		)
-
-		require.NoError(t, err)
-		assert.True(t, allowed)
-	})
-
-	t.Run("l4ReferenceGrantAllowsServiceBackend rejects cross namespace backend without grant", func(t *testing.T) {
-		mockClient := NewMockk8sClient(t)
-		mockClient.EXPECT().
-			List(t.Context(), mock.AnythingOfType("*v1beta1.ReferenceGrantList"), mock.Anything).
-			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1beta1.ReferenceGrantList{}))
-				return nil
-			})
-
-		allowed, err := l4ReferenceGrantAllowsServiceBackend(
-			t.Context(),
-			mockClient,
-			"TCPRoute",
-			"routes",
-			types.NamespacedName{Namespace: "backends", Name: "rtmp"},
-		)
-
-		require.NoError(t, err)
-		assert.False(t, allowed)
-	})
-
-	t.Run("l4ReferenceGrantAllowsServiceBackend wraps grant list errors", func(t *testing.T) {
-		mockClient := NewMockk8sClient(t)
-		mockClient.EXPECT().
-			List(t.Context(), mock.AnythingOfType("*v1beta1.ReferenceGrantList"), mock.Anything).
-			Return(errors.New("list failed"))
-
-		allowed, err := l4ReferenceGrantAllowsServiceBackend(
-			t.Context(),
-			mockClient,
-			"TCPRoute",
-			"routes",
-			types.NamespacedName{Namespace: "backends", Name: "rtmp"},
-		)
-
-		require.ErrorContains(t, err, "failed to list ReferenceGrants")
-		assert.False(t, allowed)
-	})
-
-	t.Run("l4ReferenceGrantAllowsServiceBackend ignores non matching grants", func(t *testing.T) {
-		mockClient := NewMockk8sClient(t)
-		mockClient.EXPECT().
-			List(t.Context(), mock.AnythingOfType("*v1beta1.ReferenceGrantList"), mock.Anything).
-			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1beta1.ReferenceGrantList{
-					Items: []gatewayv1beta1.ReferenceGrant{
-						{
-							Spec: gatewayv1beta1.ReferenceGrantSpec{
-								From: []gatewayv1beta1.ReferenceGrantFrom{
-									{
-										Group:     gatewayv1.Group(gatewayAPIGroup),
-										Kind:      gatewayv1.Kind("UDPRoute"),
-										Namespace: gatewayv1.Namespace("routes"),
-									},
-								},
-								To: []gatewayv1beta1.ReferenceGrantTo{
-									{Group: gatewayv1.Group(""), Kind: gatewayv1.Kind(serviceKind)},
-								},
-							},
-						},
-						{
-							Spec: gatewayv1beta1.ReferenceGrantSpec{
-								From: []gatewayv1beta1.ReferenceGrantFrom{
-									{
-										Group:     gatewayv1.Group(gatewayAPIGroup),
-										Kind:      gatewayv1.Kind("TCPRoute"),
-										Namespace: gatewayv1.Namespace("routes"),
-									},
-								},
-								To: []gatewayv1beta1.ReferenceGrantTo{
-									{Group: gatewayv1.Group("apps"), Kind: gatewayv1.Kind("Deployment")},
-									{
-										Group: gatewayv1.Group(""),
-										Kind:  gatewayv1.Kind(serviceKind),
-										Name:  lo.ToPtr(gatewayv1.ObjectName("other")),
-									},
-								},
-							},
-						},
-					},
-				}))
-				return nil
-			})
-
-		allowed, err := l4ReferenceGrantAllowsServiceBackend(
-			t.Context(),
-			mockClient,
-			"TCPRoute",
-			"routes",
-			types.NamespacedName{Namespace: "backends", Name: "rtmp"},
-		)
-
-		require.NoError(t, err)
-		assert.False(t, allowed)
-	})
-
-	t.Run("l4ReferenceGrantAllowsServiceBackend permits matching cross namespace backend grant", func(t *testing.T) {
-		mockClient := NewMockk8sClient(t)
-		mockClient.EXPECT().
-			List(t.Context(), mock.AnythingOfType("*v1beta1.ReferenceGrantList"), mock.Anything).
-			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1beta1.ReferenceGrantList{
-					Items: []gatewayv1beta1.ReferenceGrant{
-						{
-							ObjectMeta: metav1.ObjectMeta{
-								Namespace: "backends",
-								Name:      "allow-routes",
-							},
-							Spec: gatewayv1beta1.ReferenceGrantSpec{
-								From: []gatewayv1beta1.ReferenceGrantFrom{
-									{
-										Group:     gatewayv1.Group(gatewayAPIGroup),
-										Kind:      gatewayv1.Kind("TCPRoute"),
-										Namespace: gatewayv1.Namespace("routes"),
-									},
-								},
-								To: []gatewayv1beta1.ReferenceGrantTo{
-									{
-										Group: gatewayv1.Group(""),
-										Kind:  gatewayv1.Kind(serviceKind),
-										Name:  lo.ToPtr(gatewayv1.ObjectName("rtmp")),
-									},
-								},
-							},
-						},
-					},
-				}))
-				return nil
-			})
-
-		allowed, err := l4ReferenceGrantAllowsServiceBackend(
-			t.Context(),
-			mockClient,
-			"TCPRoute",
-			"routes",
-			types.NamespacedName{Namespace: "backends", Name: "rtmp"},
-		)
-
-		require.NoError(t, err)
-		assert.True(t, allowed)
 	})
 }

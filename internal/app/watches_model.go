@@ -23,7 +23,10 @@ import (
 )
 
 const httpRouteBackendServiceIndexKey = ".metadata.backendRefs.serviceName" // Virtual field name, indexed
-const gatewayCertificateIndexKey = ".metadata.certificates"                 // Virtual field name, indexed
+const grpcRouteBackendServiceIndexKey = ".metadata.grpcBackendRefs.serviceName"
+const httpRouteParentGatewayIndexKey = ".metadata.parentRefs.gateway"
+const grpcRouteParentGatewayIndexKey = ".metadata.grpcParentRefs.gateway"
+const gatewayCertificateIndexKey = ".metadata.certificates" // Virtual field name, indexed
 const tcpRouteBackendServiceIndexKey = ".metadata.tcpBackendRefs.serviceName"
 const udpRouteBackendServiceIndexKey = ".metadata.udpBackendRefs.serviceName"
 
@@ -78,6 +81,20 @@ func (m *WatchesModel) RegisterFieldIndexers(
 		return fmt.Errorf("failed to index HTTPRoute by backend service: %w", err)
 	}
 
+	if err := indexer.IndexField(ctx,
+		&gatewayv1.GRPCRoute{},
+		grpcRouteBackendServiceIndexKey,
+		func(o client.Object) []string {
+			return m.indexGRPCRouteByBackendService(ctx, o)
+		},
+	); err != nil {
+		return fmt.Errorf("failed to index GRPCRoute by backend service: %w", err)
+	}
+
+	if err := m.registerL7RouteParentGatewayIndexers(ctx, indexer); err != nil {
+		return err
+	}
+
 	if opts.EnableTCPRoute {
 		if err := indexer.IndexField(ctx,
 			&gatewayv1alpha2.TCPRoute{},
@@ -114,11 +131,133 @@ func (m *WatchesModel) RegisterFieldIndexers(
 
 	m.logger.DebugContext(ctx, "Field indexers registered",
 		slog.String("indexKey", httpRouteBackendServiceIndexKey),
+		slog.String("indexKey", grpcRouteBackendServiceIndexKey),
+		slog.String("indexKey", httpRouteParentGatewayIndexKey),
+		slog.String("indexKey", grpcRouteParentGatewayIndexKey),
 		slog.String("indexKey", gatewayCertificateIndexKey),
 		slog.Bool("tcpRouteIndexEnabled", opts.EnableTCPRoute),
 		slog.Bool("udpRouteIndexEnabled", opts.EnableUDPRoute),
 	)
 	return nil
+}
+
+func (m *WatchesModel) registerL7RouteParentGatewayIndexers(
+	ctx context.Context,
+	indexer client.FieldIndexer,
+) error {
+	if err := indexer.IndexField(ctx,
+		&gatewayv1.HTTPRoute{},
+		httpRouteParentGatewayIndexKey,
+		func(o client.Object) []string {
+			return m.indexHTTPRouteByParentGateway(ctx, o)
+		},
+	); err != nil {
+		return fmt.Errorf("failed to index HTTPRoute by parent Gateway: %w", err)
+	}
+
+	if err := indexer.IndexField(ctx,
+		&gatewayv1.GRPCRoute{},
+		grpcRouteParentGatewayIndexKey,
+		func(o client.Object) []string {
+			return m.indexGRPCRouteByParentGateway(ctx, o)
+		},
+	); err != nil {
+		return fmt.Errorf("failed to index GRPCRoute by parent Gateway: %w", err)
+	}
+	return nil
+}
+
+func (m *WatchesModel) indexHTTPRouteByParentGateway(ctx context.Context, obj client.Object) []string {
+	httpRoute, isRoute := obj.(*gatewayv1.HTTPRoute)
+	if !isRoute {
+		m.logger.WarnContext(ctx, "Received non-HTTPRoute object", slog.Any("object", obj))
+		return nil
+	}
+	if httpRoute.DeletionTimestamp != nil {
+		return nil
+	}
+	return parentGatewayIndexKeys(httpRoute.Namespace, httpRoute.Spec.ParentRefs)
+}
+
+func (m *WatchesModel) indexGRPCRouteByParentGateway(ctx context.Context, obj client.Object) []string {
+	grpcRoute, isRoute := obj.(*gatewayv1.GRPCRoute)
+	if !isRoute {
+		m.logger.WarnContext(ctx, "Received non-GRPCRoute object", slog.Any("object", obj))
+		return nil
+	}
+	if grpcRoute.DeletionTimestamp != nil {
+		return nil
+	}
+	return parentGatewayIndexKeys(grpcRoute.Namespace, grpcRoute.Spec.ParentRefs)
+}
+
+func parentGatewayIndexKeys(routeNamespace string, refs []gatewayv1.ParentReference) []string {
+	uniqueGatewayKeys := make(map[string]struct{})
+	for _, ref := range refs {
+		if ref.Group != nil && string(*ref.Group) != gatewayv1.GroupName {
+			continue
+		}
+		if ref.Kind != nil && string(*ref.Kind) != "Gateway" {
+			continue
+		}
+
+		namespace := routeNamespace
+		if ref.Namespace != nil {
+			namespace = string(*ref.Namespace)
+		}
+		uniqueGatewayKeys[path.Join(namespace, string(ref.Name))] = struct{}{}
+	}
+	return lo.Keys(uniqueGatewayKeys)
+}
+
+func (m *WatchesModel) indexGRPCRouteByBackendService(ctx context.Context, obj client.Object) []string {
+	grpcRoute, isRoute := obj.(*gatewayv1.GRPCRoute)
+	logger := m.logger.WithGroup("grpc-route-backend-service-index")
+	if !isRoute {
+		logger.WarnContext(ctx, "Received non-GRPCRoute object", slog.Any("object", obj))
+		return nil
+	}
+	if grpcRoute.DeletionTimestamp != nil {
+		return nil
+	}
+
+	matchingParentStatus, found := lo.Find(
+		grpcRoute.Status.Parents,
+		func(status gatewayv1.RouteParentStatus) bool {
+			return status.ControllerName == ControllerClassName
+		})
+	if !found {
+		return nil
+	}
+	if condition := meta.FindStatusCondition(
+		matchingParentStatus.Conditions,
+		string(gatewayv1.RouteConditionResolvedRefs),
+	); condition == nil || condition.Status != v1.ConditionTrue {
+		return nil
+	}
+
+	uniqueServiceKeys := make(map[string]struct{})
+	for _, rule := range grpcRoute.Spec.Rules {
+		for _, key := range indexBackendRefsByService(grpcRoute.Namespace, grpcBackendRefsToBackendRefs(rule.BackendRefs)) {
+			uniqueServiceKeys[key] = struct{}{}
+		}
+	}
+
+	serviceKeys := lo.Keys(uniqueServiceKeys)
+	logger.DebugContext(ctx, "Indexed GRPCRoute by backend service",
+		slog.String("grpcRoute", client.ObjectKeyFromObject(grpcRoute).String()),
+		slog.String("indexKey", grpcRouteBackendServiceIndexKey),
+		slog.Any("serviceKeys", serviceKeys),
+	)
+	return serviceKeys
+}
+
+func grpcBackendRefsToBackendRefs(refs []gatewayv1.GRPCBackendRef) []gatewayv1.BackendRef {
+	backendRefs := make([]gatewayv1.BackendRef, 0, len(refs))
+	for _, ref := range refs {
+		backendRefs = append(backendRefs, ref.BackendRef)
+	}
+	return backendRefs
 }
 
 func indexBackendRefsByService(namespace string, refs []gatewayv1.BackendRef) []string {
@@ -411,6 +550,113 @@ func (m *WatchesModel) MapEndpointSliceToHTTPRoute(ctx context.Context, obj clie
 	}
 
 	return requests
+}
+
+func (m *WatchesModel) MapEndpointSliceToGRPCRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	var routeList gatewayv1.GRPCRouteList
+	return mapEndpointSliceToL4Route(
+		ctx,
+		m.logger,
+		m.k8sClient,
+		obj,
+		&routeList,
+		grpcRouteBackendServiceIndexKey,
+		"GRPCRoutes",
+		func(routeList *gatewayv1.GRPCRouteList) []reconcile.Request {
+			requests := make([]reconcile.Request, 0, len(routeList.Items))
+			for _, route := range routeList.Items {
+				if route.DeletionTimestamp != nil {
+					continue
+				}
+				requests = append(requests, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(&route),
+				})
+			}
+			return requests
+		},
+	)
+}
+
+func (m *WatchesModel) MapHTTPRouteToGRPCRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	httpRoute, ok := obj.(*gatewayv1.HTTPRoute)
+	if !ok {
+		m.logger.WarnContext(ctx, "Received non-HTTPRoute object", slog.Any("object", obj))
+		return nil
+	}
+
+	return mapParentGatewaysToL7RouteRequests(
+		ctx,
+		m.logger,
+		m.k8sClient,
+		parentGatewayIndexKeys(httpRoute.Namespace, httpRoute.Spec.ParentRefs),
+		grpcRouteParentGatewayIndexKey,
+		"GRPCRoutes",
+		func() *gatewayv1.GRPCRouteList { return &gatewayv1.GRPCRouteList{} },
+		func(routeList *gatewayv1.GRPCRouteList, requestsByKey map[client.ObjectKey]reconcile.Request) {
+			for _, route := range routeList.Items {
+				if route.DeletionTimestamp != nil {
+					continue
+				}
+				key := client.ObjectKeyFromObject(&route)
+				requestsByKey[key] = reconcile.Request{NamespacedName: key}
+			}
+		},
+	)
+}
+
+func mapParentGatewaysToL7RouteRequests[T client.ObjectList](
+	ctx context.Context,
+	logger *slog.Logger,
+	k8sClient k8sClient,
+	parentGatewayKeys []string,
+	indexKey string,
+	routeKind string,
+	newRouteList func() T,
+	appendRequests func(T, map[client.ObjectKey]reconcile.Request),
+) []reconcile.Request {
+	requestsByKey := make(map[client.ObjectKey]reconcile.Request)
+	for _, parentGatewayKey := range parentGatewayKeys {
+		routeList := newRouteList()
+		if err := k8sClient.List(
+			ctx,
+			routeList,
+			client.MatchingFields{indexKey: parentGatewayKey},
+		); err != nil {
+			logger.ErrorContext(ctx, fmt.Sprintf("Failed to list %s for parent Gateway change", routeKind),
+				slog.String("indexKey", parentGatewayKey),
+				diag.ErrAttr(err))
+			return nil
+		}
+		appendRequests(routeList, requestsByKey)
+	}
+	return lo.Values(requestsByKey)
+}
+
+func (m *WatchesModel) MapGRPCRouteToHTTPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	grpcRoute, ok := obj.(*gatewayv1.GRPCRoute)
+	if !ok {
+		m.logger.WarnContext(ctx, "Received non-GRPCRoute object", slog.Any("object", obj))
+		return nil
+	}
+
+	return mapParentGatewaysToL7RouteRequests(
+		ctx,
+		m.logger,
+		m.k8sClient,
+		parentGatewayIndexKeys(grpcRoute.Namespace, grpcRoute.Spec.ParentRefs),
+		httpRouteParentGatewayIndexKey,
+		"HTTPRoutes",
+		func() *gatewayv1.HTTPRouteList { return &gatewayv1.HTTPRouteList{} },
+		func(routeList *gatewayv1.HTTPRouteList, requestsByKey map[client.ObjectKey]reconcile.Request) {
+			for _, route := range routeList.Items {
+				if route.DeletionTimestamp != nil {
+					continue
+				}
+				key := client.ObjectKeyFromObject(&route)
+				requestsByKey[key] = reconcile.Request{NamespacedName: key}
+			}
+		},
+	)
 }
 
 func (m *WatchesModel) MapEndpointSliceToTCPRoute(ctx context.Context, obj client.Object) []reconcile.Request {

@@ -433,7 +433,7 @@ func resolveL4BackendRefServicePort(
 		)
 	}
 
-	allowed, err := l4ReferenceGrantAllowsServiceBackend(ctx, k8sClient, routeKind, routeNamespace, fullName)
+	allowed, err := referenceGrantAllowsServiceBackend(ctx, k8sClient, routeKind, routeNamespace, fullName)
 	if err != nil {
 		return apitypes.NamespacedName{}, nil, err
 	}
@@ -1001,6 +1001,12 @@ func (m *tcpRouteModelImpl) updateBackendSet(
 		}
 
 		healthChecker := networkLoadBalancerHealthCheckerDetails(details.matchedListener.Protocol, nil)
+		m.logger.InfoContext(ctx, "Updating TCPRoute backend set",
+			slog.String("tcpRoute", details.tcpRoute.Name),
+			slog.String("backendSetName", backendSetName),
+			slog.Int("desiredBackends", len(backends)),
+		)
+
 		return updateNetworkLoadBalancerBackendSet(
 			ctx,
 			m.ociNetworkLoadBalancerAPI,
