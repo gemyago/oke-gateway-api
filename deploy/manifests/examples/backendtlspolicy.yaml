@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-ca
+data:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    REPLACE_WITH_BACKEND_CA_CERTIFICATE_PEM
+    -----END CERTIFICATE-----
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-tls-server
+  labels:
+    app: backend-tls-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend-tls-server
+  template:
+    metadata:
+      labels:
+        app: backend-tls-server
+    spec:
+      containers:
+      - name: app
+        # Replace this with an application image that serves TLS on port 8443
+        # using a certificate signed by backend-ca.
+        image: example.com/backend-tls-server:latest
+        ports:
+        - containerPort: 8443
+          name: https
+          protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-tls-server
+  labels:
+    app: backend-tls-server
+spec:
+  selector:
+    app: backend-tls-server
+  ports:
+  - name: https
+    port: 8443
+    targetPort: https
+    protocol: TCP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: backend-tls-server
+spec:
+  targetRefs:
+  - group: ""
+    kind: Service
+    name: backend-tls-server
+    sectionName: https
+  validation:
+    hostname: backend.example.com
+    caCertificateRefs:
+    - group: ""
+      kind: ConfigMap
+      name: backend-ca
+  options:
+    oci.oraclecloud.com/backend-hostname-validation: Disabled
+    oci.oraclecloud.com/tls-protocols: TLSv1.2,TLSv1.3
+    oci.oraclecloud.com/verify-depth: "3"

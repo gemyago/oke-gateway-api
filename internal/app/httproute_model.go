@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -117,6 +118,8 @@ type rejectL7RouteParams struct {
 
 type programL7RoutePolicyParams struct {
 	loadBalancerID      string
+	gateway             gatewayv1.Gateway
+	config              types.GatewayConfig
 	routeName           string
 	routeNamespace      string
 	backendRefs         []gatewayv1.BackendRef
@@ -125,6 +128,7 @@ type programL7RoutePolicyParams struct {
 	previousPolicyRules []programmedHTTPRoutePolicyRule
 	ruleCount           int
 	makeRoutingRule     func(ruleIndex int) (loadbalancer.RoutingRule, error)
+	backendTLSPolicy    backendTLSPolicyModel
 }
 
 type setL7RouteProgrammedParams struct {
@@ -561,6 +565,7 @@ type httpRouteModelImpl struct {
 	gatewayModel         gatewayModel
 	resourcesModel       resourcesModel
 	ociLoadBalancerModel ociLoadBalancerModel
+	backendTLSPolicy     backendTLSPolicyModel
 }
 
 // resolveRouteParentRefData attempts to resolve a single parent reference for an HTTPRoute.
@@ -924,11 +929,17 @@ func programL7RoutePolicy(
 		if !ok {
 			return nil, fmt.Errorf("resolved backend service %s not found", serviceName)
 		}
-		err := ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
-			loadBalancerID: params.loadBalancerID,
-			service:        service,
-			routeNS:        params.routeNamespace,
-			backendRef:     backendRef,
+		backendSSLConfig, _, err := resolveL7BackendSSLConfig(ctx, params, service, backendRef)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve BackendTLSPolicy for service %s: %w", key, err)
+		}
+		err = ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
+			loadBalancerID:  params.loadBalancerID,
+			service:         service,
+			routeNS:         params.routeNamespace,
+			backendRef:      backendRef,
+			sslConfig:       backendSSLConfig,
+			manageSSLConfig: params.backendTLSPolicy != nil,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to reconcile backend set for service %s: %w", key, err)
@@ -988,6 +999,27 @@ func programL7RoutePolicy(
 	return programmedHTTPRoutePolicyRulesAnnotation(params.matchedListeners, policyRuleNames), nil
 }
 
+func resolveL7BackendSSLConfig(
+	ctx context.Context,
+	params programL7RoutePolicyParams,
+	service v1.Service,
+	backendRef gatewayv1.BackendRef,
+) (*loadbalancer.SslConfigurationDetails, bool, error) {
+	if params.backendTLSPolicy == nil {
+		return nil, false, nil
+	}
+	sslConfig, err := params.backendTLSPolicy.resolveForBackendRef(ctx, resolveBackendTLSPolicyParams{
+		gateway:    params.gateway,
+		config:     params.config,
+		service:    service,
+		backendRef: backendRef,
+	})
+	if errors.Is(err, errBackendTLSPolicyNotFound) {
+		return nil, false, nil
+	}
+	return sslConfig, true, err
+}
+
 func (m *httpRouteModelImpl) programRoute(
 	ctx context.Context,
 	params programRouteParams,
@@ -999,12 +1031,15 @@ func (m *httpRouteModelImpl) programRoute(
 
 	programmedPolicyRules, err := programL7RoutePolicy(ctx, m.ociLoadBalancerModel, programL7RoutePolicyParams{
 		loadBalancerID:      params.config.Spec.LoadBalancerID,
+		gateway:             params.gateway,
+		config:              params.config,
 		routeName:           params.httpRoute.Name,
 		routeNamespace:      params.httpRoute.Namespace,
 		backendRefs:         httpRouteBackendRefs(params.httpRoute),
 		knownBackends:       params.knownBackends,
 		matchedListeners:    params.matchedListeners,
 		previousPolicyRules: previousRules,
+		backendTLSPolicy:    m.backendTLSPolicy,
 		ruleCount:           len(params.httpRoute.Spec.Rules),
 		makeRoutingRule: func(ruleIndex int) (loadbalancer.RoutingRule, error) {
 			return m.ociLoadBalancerModel.makeRoutingRule(ctx, makeRoutingRuleParams{
@@ -1199,6 +1234,7 @@ type httpRouteModelDeps struct {
 	GatewayModel   gatewayModel
 	OciLBModel     ociLoadBalancerModel
 	ResourcesModel resourcesModel
+	BackendTLS     backendTLSPolicyModel
 }
 
 // newHTTPRouteModel creates a new instance of httpRouteModel.
@@ -1209,5 +1245,6 @@ func newHTTPRouteModel(deps httpRouteModelDeps) *httpRouteModelImpl {
 		gatewayModel:         deps.GatewayModel,
 		ociLoadBalancerModel: deps.OciLBModel,
 		resourcesModel:       deps.ResourcesModel,
+		backendTLSPolicy:     deps.BackendTLS,
 	}
 }

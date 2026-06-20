@@ -133,6 +133,7 @@ type grpcRouteModelImpl struct {
 	gatewayModel         gatewayModel
 	resourcesModel       resourcesModel
 	ociLoadBalancerModel ociLoadBalancerModel
+	backendTLSPolicy     backendTLSPolicyModel
 }
 
 func (m *grpcRouteModelImpl) resolveRouteParentRefData(
@@ -441,12 +442,15 @@ func (m *grpcRouteModelImpl) programRoute(
 
 	routePolicyParams := programL7RoutePolicyParams{
 		loadBalancerID:      params.config.Spec.LoadBalancerID,
+		gateway:             params.gateway,
+		config:              params.config,
 		routeName:           params.grpcRoute.Name,
 		routeNamespace:      params.grpcRoute.Namespace,
 		backendRefs:         grpcRouteBackendRefs(params.grpcRoute),
 		knownBackends:       params.knownBackends,
 		matchedListeners:    params.matchedListeners,
 		previousPolicyRules: previousRules,
+		backendTLSPolicy:    m.backendTLSPolicy,
 		ruleCount:           len(params.grpcRoute.Spec.Rules),
 		makeRoutingRule: func(ruleIndex int) (loadbalancer.RoutingRule, error) {
 			return m.ociLoadBalancerModel.makeGRPCRoutingRule(ctx, makeGRPCRoutingRuleParams{
@@ -635,6 +639,7 @@ type grpcRouteModelDeps struct {
 	GatewayModel   gatewayModel
 	OciLBModel     ociLoadBalancerModel
 	ResourcesModel resourcesModel
+	BackendTLS     backendTLSPolicyModel
 }
 
 func newGRPCRouteModel(deps grpcRouteModelDeps) *grpcRouteModelImpl {
@@ -644,5 +649,6 @@ func newGRPCRouteModel(deps grpcRouteModelDeps) *grpcRouteModelImpl {
 		gatewayModel:         deps.GatewayModel,
 		ociLoadBalancerModel: deps.OciLBModel,
 		resourcesModel:       deps.ResourcesModel,
+		backendTLSPolicy:     deps.BackendTLS,
 	}
 }
