@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rtmp-server
+  labels:
+    app: rtmp-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rtmp-server
+  template:
+    metadata:
+      labels:
+        app: rtmp-server
+    spec:
+      containers:
+      - name: netexec
+        image: registry.k8s.io/e2e-test-images/agnhost:2.45
+        args:
+          - netexec
+          - --http-port=1935
+        ports:
+        - containerPort: 1935
+          name: rtmp
+          protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rtmp-service
+  labels:
+    app: rtmp-server
+spec:
+  selector:
+    app: rtmp-server
+  ports:
+  - name: rtmp
+    port: 1935
+    targetPort: rtmp
+    protocol: TCP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: oke-tls-gateway
+spec:
+  gatewayClassName: oke-gateway-api
+  infrastructure:
+    parametersRef:
+      group: oke-gateway-api.gemyago.github.io
+      kind: GatewayConfig
+      name: oke-gateway-config
+  listeners:
+    - name: rtmps
+      protocol: TLS
+      port: 443
+      hostname: rtmps.example.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: rtmps-cert
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: TLSRoute
+metadata:
+  name: rtmps
+spec:
+  parentRefs:
+    - name: oke-tls-gateway
+      sectionName: rtmps
+  hostnames:
+    - rtmps.example.com
+  rules:
+    - backendRefs:
+        - name: rtmp-service
+          port: 1935

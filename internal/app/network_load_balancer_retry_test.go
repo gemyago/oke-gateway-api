@@ -49,6 +49,23 @@ func TestNetworkLoadBalancerRetry(t *testing.T) {
 		assert.Contains(t, err.Error(), nlbID)
 	})
 
+	t.Run("detects OCI invalid state transition conflict by code", func(t *testing.T) {
+		cause := ociapi.NewRandomServiceError(
+			ociapi.RandomServiceErrorWithStatusCode(http.StatusConflict),
+			ociapi.RandomServiceErrorWithCode("InvalidStateTransition"),
+			ociapi.RandomServiceErrorWithMessage("conflict"),
+		)
+
+		err := networkLoadBalancerBusyErrorFromOCI(nil, cause)
+
+		require.ErrorIs(t, err, cause)
+		assert.NotContains(t, err.Error(), "nlb-id")
+	})
+
+	t.Run("ignores nil OCI errors", func(t *testing.T) {
+		require.Nil(t, networkLoadBalancerBusyErrorFromOCI(new(string), nil))
+	})
+
 	t.Run("ignores unrelated OCI errors", func(t *testing.T) {
 		cause := ociapi.NewRandomServiceError(
 			ociapi.RandomServiceErrorWithStatusCode(http.StatusInternalServerError),

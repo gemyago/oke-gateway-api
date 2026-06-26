@@ -41,6 +41,7 @@ type StartManagerDeps struct {
 	GRPCRouteCtrl    *app.GRPCRouteController
 	TCPRouteCtrl     *app.TCPRouteController
 	UDPRouteCtrl     *app.UDPRouteController
+	TLSRouteCtrl     *app.TLSRouteController
 	WatchesModel     *app.WatchesModel
 	Config           *rest.Config
 
@@ -50,6 +51,7 @@ type StartManagerDeps struct {
 	ReconcileNetworkLoadBalancerGateway bool `name:"config.features.reconcileNetworkLoadBalancerGateway"`
 	ReconcileTCPRoute                   bool `name:"config.features.reconcileTCPRoute"`
 	ReconcileUDPRoute                   bool `name:"config.features.reconcileUDPRoute"`
+	ReconcileTLSRoute                   bool `name:"config.features.reconcileTLSRoute"`
 	ReconcileHTTPRoute                  bool `name:"config.features.reconcileHTTPRoute"`
 	ReconcileGRPCRoute                  bool `name:"config.features.reconcileGRPCRoute"`
 }
@@ -70,6 +72,7 @@ type setupL4RouteControllerParams struct {
 	mapEndpoint handler.MapFunc
 	mapGrant    handler.MapFunc
 	mapGateway  handler.MapFunc
+	mapSecret   handler.MapFunc
 	reconciler  reconcile.TypedReconciler[reconcile.Request]
 }
 
@@ -169,7 +172,7 @@ func setupL4RouteController(
 	params setupL4RouteControllerParams,
 	middlewares ...controllerMiddleware[reconcile.Request],
 ) error {
-	return builder.ControllerManagedBy(mgr).
+	controllerBuilder := builder.ControllerManagedBy(mgr).
 		Named(params.name).
 		For(
 			params.route,
@@ -189,8 +192,15 @@ func setupL4RouteController(
 			&gatewayv1.Gateway{},
 			handler.EnqueueRequestsFromMapFunc(params.mapGateway),
 			builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})),
-		).
-		Complete(wireupReconciler(params.reconciler, middlewares...))
+		)
+	if params.mapSecret != nil {
+		controllerBuilder = controllerBuilder.Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(params.mapSecret),
+			builder.WithPredicates(gatewaySecretPredicate()),
+		)
+	}
+	return controllerBuilder.Complete(wireupReconciler(params.reconciler, middlewares...))
 }
 
 func coreControllerSetupTasks(
@@ -271,6 +281,22 @@ func coreControllerSetupTasks(
 			setupErr:    "failed to setup GRPCRoute controller: %w",
 			setup: func() error {
 				return setupGRPCRouteController(mgr, deps, middlewares)
+			},
+		},
+		{
+			enabled:     deps.ReconcileTLSRoute,
+			disabledLog: "TLSRoute controller is disabled",
+			setupErr:    "failed to setup TLSRoute controller: %w",
+			setup: func() error {
+				return setupL4RouteController(mgr, setupL4RouteControllerParams{
+					name:        "tlsroute",
+					route:       &gatewayv1.TLSRoute{},
+					mapEndpoint: deps.WatchesModel.MapEndpointSliceToTLSRoute,
+					mapGrant:    deps.WatchesModel.MapReferenceGrantToTLSRoute,
+					mapGateway:  deps.WatchesModel.MapGatewayToTLSRoute,
+					mapSecret:   deps.WatchesModel.MapSecretToTLSRoute,
+					reconciler:  deps.TLSRouteCtrl,
+				}, middlewares...)
 			},
 		},
 	}
@@ -397,6 +423,7 @@ func StartManager(ctx context.Context, deps StartManagerDeps) error {
 	if err := deps.WatchesModel.RegisterFieldIndexers(ctx, mgr.GetFieldIndexer(), app.RegisterFieldIndexersOptions{
 		EnableTCPRoute: experimentalRoutes.reconcileTCPRoute,
 		EnableUDPRoute: experimentalRoutes.reconcileUDPRoute,
+		EnableTLSRoute: deps.ReconcileTLSRoute,
 	}); err != nil {
 		return fmt.Errorf("failed to register field indexers: %w", err)
 	}
