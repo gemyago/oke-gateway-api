@@ -4,7 +4,7 @@
 threshold:
   # (optional; default 0) 
   # The minimum coverage that each file should have
-  file: 90
+  file: 91
 
   # (optional; default 0) 
   # The minimum coverage that each package should have
@@ -12,7 +12,7 @@ threshold:
 
   # (optional; default 0) 
   # The minimum total coverage project should have
-  total: 90
+  total: 97
 
 # Holds regexp rules which will exclude matched files or packages
 # from coverage statistics
