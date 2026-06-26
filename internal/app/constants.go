@@ -121,6 +121,10 @@ const (
 	LoadBalancerTLSRouteProgrammedBackendSetAnnotation = "oke-gateway-api.gemyago.github.io/" +
 		"alb-tlsroute-backendset"
 
+	// LoadBalancerTLSRouteProgrammedResourcesAnnotation tracks ALB listener/backend set resources programmed by a TLSRoute.
+	LoadBalancerTLSRouteProgrammedResourcesAnnotation = "oke-gateway-api.gemyago.github.io/" +
+		"alb-tlsroute-resources"
+
 	// HTTPRouteProgrammingRevisionValue is the value for the http route programming revision.
 	// Incremented when the controller programming steps are changed.
 	HTTPRouteProgrammingRevisionValue = "5"

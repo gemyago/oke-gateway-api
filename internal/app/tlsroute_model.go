@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
+	"strings"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -28,6 +30,7 @@ import (
 
 const tlsRouteBackendSetPolicy = "ROUND_ROBIN"
 const tlsRouteLoadBalancerProtocol = "TCP"
+const tlsRouteLoadBalancerResourceSeparator = "/"
 
 type resolvedTLSRouteDetails struct {
 	gatewayDetails  resolvedGatewayDetails
@@ -110,6 +113,54 @@ func tlsRouteBackendSetName(route gatewayv1.TLSRoute, listener gatewayv1.Listene
 			Name:      fmt.Sprintf("%s-%s", route.Name, listener.Name),
 		},
 	})
+}
+
+func annotatedLoadBalancerTLSRouteResources(route client.Object) map[string]string {
+	result := make(map[string]string)
+	value := route.GetAnnotations()[LoadBalancerTLSRouteProgrammedResourcesAnnotation]
+	for resource := range strings.SplitSeq(value, ",") {
+		resource = strings.TrimSpace(resource)
+		if resource == "" {
+			continue
+		}
+		listenerName, backendSetName, ok := strings.Cut(resource, tlsRouteLoadBalancerResourceSeparator)
+		if !ok {
+			continue
+		}
+		listenerName = strings.TrimSpace(listenerName)
+		backendSetName = strings.TrimSpace(backendSetName)
+		if listenerName != "" && backendSetName != "" {
+			result[listenerName] = backendSetName
+		}
+	}
+	return result
+}
+
+func setAnnotatedLoadBalancerTLSRouteResources(route client.Object, resources map[string]string) {
+	annotations := route.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+
+	if len(resources) == 0 {
+		delete(annotations, LoadBalancerTLSRouteProgrammedResourcesAnnotation)
+		route.SetAnnotations(annotations)
+		return
+	}
+
+	listenerNames := make([]string, 0, len(resources))
+	for listenerName := range resources {
+		listenerNames = append(listenerNames, listenerName)
+	}
+	sort.Strings(listenerNames)
+	encodedResources := make([]string, 0, len(listenerNames))
+	for _, listenerName := range listenerNames {
+		encodedResources = append(encodedResources,
+			listenerName+tlsRouteLoadBalancerResourceSeparator+resources[listenerName],
+		)
+	}
+	annotations[LoadBalancerTLSRouteProgrammedResourcesAnnotation] = strings.Join(encodedResources, ",")
+	route.SetAnnotations(annotations)
 }
 
 func (m *tlsRouteModelImpl) resolveRequest(
@@ -436,7 +487,13 @@ func (m *tlsRouteModelImpl) programRoute(ctx context.Context, details resolvedTL
 	}
 
 	if details.gatewayDetails.gatewayClass.Spec.ControllerName == ControllerClassName {
+		if err = m.cleanupStaleNetworkLoadBalancerProgrammedState(ctx, details.tlsRoute); err != nil {
+			return err
+		}
 		return m.programLoadBalancerTerminateRoute(ctx, details)
+	}
+	if err = m.cleanupStaleLoadBalancerProgrammedState(ctx, details.tlsRoute); err != nil {
+		return err
 	}
 	return m.programNetworkLoadBalancerPassthroughRoute(ctx, details)
 }
@@ -1059,6 +1116,7 @@ func (m *tlsRouteModelImpl) deprovisionLoadBalancerRoute(ctx context.Context, de
 	routeToUpdate := details.tlsRoute.DeepCopy()
 	controllerutil.RemoveFinalizer(routeToUpdate, LoadBalancerTLSRouteProgrammedFinalizer)
 	setAnnotatedBackendSetNames(routeToUpdate, LoadBalancerTLSRouteProgrammedBackendSetAnnotation, nil)
+	setAnnotatedLoadBalancerTLSRouteResources(routeToUpdate, nil)
 	if updateErr := m.client.Update(ctx, routeToUpdate); updateErr != nil {
 		return fmt.Errorf("failed to remove ALB TLSRoute finalizer from %s/%s: %w",
 			routeToUpdate.Namespace,
@@ -1133,11 +1191,17 @@ func (m *tlsRouteModelImpl) deprovisionDetachedRoute(ctx context.Context, route 
 		return m.deprovisionDetachedNetworkLoadBalancerRoute(ctx, route, backendSets)
 	}
 
+	if resources := annotatedLoadBalancerTLSRouteResources(&route); len(resources) > 0 {
+		return m.deprovisionDetachedLoadBalancerRoute(ctx, route, resources)
+	}
+
 	if backendSets := annotatedBackendSetNames(
 		&route,
 		LoadBalancerTLSRouteProgrammedBackendSetAnnotation,
 	); len(backendSets) > 0 {
-		return m.deprovisionDetachedLoadBalancerRoute(ctx, route, backendSets)
+		return m.deprovisionDetachedLoadBalancerRoute(ctx, route,
+			loadBalancerTLSRouteResourcesFromLegacyStatus(route, backendSets),
+		)
 	}
 
 	return m.removeDetachedRouteFinalizers(ctx, route)
@@ -1190,14 +1254,16 @@ func (m *tlsRouteModelImpl) deprovisionDetachedNetworkLoadBalancerRoute(
 func (m *tlsRouteModelImpl) deprovisionDetachedLoadBalancerRoute(
 	ctx context.Context,
 	route gatewayv1.TLSRoute,
-	programmedBackendSets map[string]struct{},
+	programmedResources map[string]string,
 ) error {
+	if len(programmedResources) == 0 {
+		return nil
+	}
 	for _, parentStatus := range route.Status.Parents {
 		if parentStatus.ControllerName != gatewayv1.GatewayController(ControllerClassName) {
 			continue
 		}
-		listenerName, ok := detachedRouteListenerName(parentStatus)
-		if !ok {
+		if !loadBalancerTLSRouteParentHasProgrammedResource(parentStatus, programmedResources) {
 			return nil
 		}
 		gatewayDetails, resolved, err := m.resolveDetachedLoadBalancerRouteGateway(ctx, route, parentStatus)
@@ -1205,7 +1271,7 @@ func (m *tlsRouteModelImpl) deprovisionDetachedLoadBalancerRoute(
 			return err
 		}
 
-		for backendSetName := range programmedBackendSets {
+		for listenerName, backendSetName := range programmedResources {
 			if err = m.deleteLoadBalancerRouteResourcesByName(
 				ctx,
 				gatewayDetails.config.Spec.LoadBalancerID,
@@ -1219,6 +1285,41 @@ func (m *tlsRouteModelImpl) deprovisionDetachedLoadBalancerRoute(
 	}
 
 	return nil
+}
+
+func loadBalancerTLSRouteResourcesFromLegacyStatus(
+	route gatewayv1.TLSRoute,
+	backendSets map[string]struct{},
+) map[string]string {
+	resources := make(map[string]string)
+	for _, parentStatus := range route.Status.Parents {
+		if parentStatus.ControllerName != gatewayv1.GatewayController(ControllerClassName) {
+			continue
+		}
+		listenerName, ok := detachedRouteListenerName(parentStatus)
+		if !ok {
+			continue
+		}
+		for backendSetName := range backendSets {
+			resources[listenerName] = backendSetName
+		}
+	}
+	return resources
+}
+
+func loadBalancerTLSRouteParentHasProgrammedResource(
+	parentStatus gatewayv1.RouteParentStatus,
+	resources map[string]string,
+) bool {
+	if len(resources) == 0 {
+		return false
+	}
+	listenerName, ok := detachedRouteListenerName(parentStatus)
+	if !ok {
+		return true
+	}
+	_, found := resources[listenerName]
+	return found
 }
 
 func detachedRouteListenerName(parentStatus gatewayv1.RouteParentStatus) (string, bool) {
@@ -1254,8 +1355,144 @@ func (m *tlsRouteModelImpl) removeDetachedRouteFinalizers(ctx context.Context, r
 	controllerutil.RemoveFinalizer(routeToUpdate, LoadBalancerTLSRouteProgrammedFinalizer)
 	setAnnotatedBackendSetNames(routeToUpdate, NetworkLoadBalancerTLSRouteProgrammedBackendSetsAnnotation, nil)
 	setAnnotatedBackendSetNames(routeToUpdate, LoadBalancerTLSRouteProgrammedBackendSetAnnotation, nil)
+	setAnnotatedLoadBalancerTLSRouteResources(routeToUpdate, nil)
 	if err := m.client.Update(ctx, routeToUpdate); err != nil {
 		return fmt.Errorf("failed to update detached TLSRoute %s/%s after cleanup: %w",
+			routeToUpdate.Namespace,
+			routeToUpdate.Name,
+			err,
+		)
+	}
+	return nil
+}
+
+func (m *tlsRouteModelImpl) cleanupStaleNetworkLoadBalancerProgrammedState(
+	ctx context.Context,
+	route gatewayv1.TLSRoute,
+) error {
+	backendSets := annotatedBackendSetNames(&route, NetworkLoadBalancerTLSRouteProgrammedBackendSetsAnnotation)
+	hasFinalizer := controllerutil.ContainsFinalizer(&route, NetworkLoadBalancerTLSRouteProgrammedFinalizer)
+	if len(backendSets) == 0 && !hasFinalizer {
+		return nil
+	}
+	if len(backendSets) == 0 {
+		return m.removeProgrammedState(ctx, route,
+			NetworkLoadBalancerTLSRouteProgrammedFinalizer,
+			NetworkLoadBalancerTLSRouteProgrammedBackendSetsAnnotation,
+		)
+	}
+
+	for _, parentStatus := range route.Status.Parents {
+		if parentStatus.ControllerName != gatewayv1.GatewayController(NetworkLoadBalancerControllerClassName) {
+			continue
+		}
+		gatewayDetails, resolved, err := resolveDetachedL4RouteGateway(
+			ctx,
+			m.client,
+			tlsRouteParentRefTarget(parentStatus.ParentRef, route.Namespace),
+			"TLSRoute",
+		)
+		if err != nil || !resolved {
+			return err
+		}
+
+		tcpModel := &tcpRouteModelImpl{
+			client:                    m.client,
+			logger:                    m.logger,
+			networkLoadBalancerModel:  m.networkLoadBalancerModel,
+			ociNetworkLoadBalancerAPI: m.ociNetworkLoadBalancerAPI,
+			workRequestsWatcher:       m.nlbWorkRequestsWatcher,
+			operationLocks:            m.operationLocks,
+		}
+		for backendSetName := range backendSets {
+			if err = tcpModel.clearBackendSetByName(
+				ctx,
+				gatewayDetails,
+				tlsRouteKey(route),
+				backendSetName,
+				nil,
+			); err != nil {
+				return err
+			}
+		}
+		return m.removeProgrammedState(ctx, route,
+			NetworkLoadBalancerTLSRouteProgrammedFinalizer,
+			NetworkLoadBalancerTLSRouteProgrammedBackendSetsAnnotation,
+		)
+	}
+	return nil
+}
+
+func (m *tlsRouteModelImpl) cleanupStaleLoadBalancerProgrammedState(
+	ctx context.Context,
+	route gatewayv1.TLSRoute,
+) error {
+	resources := annotatedLoadBalancerTLSRouteResources(&route)
+	if len(resources) == 0 {
+		resources = loadBalancerTLSRouteResourcesFromLegacyStatus(
+			route,
+			annotatedBackendSetNames(&route, LoadBalancerTLSRouteProgrammedBackendSetAnnotation),
+		)
+	}
+	if len(resources) == 0 && !controllerutil.ContainsFinalizer(&route, LoadBalancerTLSRouteProgrammedFinalizer) {
+		return nil
+	}
+	if len(resources) == 0 {
+		return m.removeProgrammedState(ctx, route,
+			LoadBalancerTLSRouteProgrammedFinalizer,
+			LoadBalancerTLSRouteProgrammedBackendSetAnnotation,
+			LoadBalancerTLSRouteProgrammedResourcesAnnotation,
+		)
+	}
+
+	for _, parentStatus := range route.Status.Parents {
+		if parentStatus.ControllerName != gatewayv1.GatewayController(ControllerClassName) {
+			continue
+		}
+		if !loadBalancerTLSRouteParentHasProgrammedResource(parentStatus, resources) {
+			continue
+		}
+		gatewayDetails, resolved, err := m.resolveDetachedLoadBalancerRouteGateway(ctx, route, parentStatus)
+		if err != nil || !resolved {
+			return err
+		}
+		for listenerName, backendSetName := range resources {
+			if err = m.deleteLoadBalancerRouteResourcesByName(
+				ctx,
+				gatewayDetails.config.Spec.LoadBalancerID,
+				listenerName,
+				backendSetName,
+			); err != nil {
+				return err
+			}
+		}
+		return m.removeProgrammedState(ctx, route,
+			LoadBalancerTLSRouteProgrammedFinalizer,
+			LoadBalancerTLSRouteProgrammedBackendSetAnnotation,
+			LoadBalancerTLSRouteProgrammedResourcesAnnotation,
+		)
+	}
+	return nil
+}
+
+func (m *tlsRouteModelImpl) removeProgrammedState(
+	ctx context.Context,
+	route gatewayv1.TLSRoute,
+	finalizer string,
+	annotationKeys ...string,
+) error {
+	routeToUpdate := route.DeepCopy()
+	controllerutil.RemoveFinalizer(routeToUpdate, finalizer)
+	for _, annotationKey := range annotationKeys {
+		switch annotationKey {
+		case LoadBalancerTLSRouteProgrammedResourcesAnnotation:
+			setAnnotatedLoadBalancerTLSRouteResources(routeToUpdate, nil)
+		default:
+			setAnnotatedBackendSetNames(routeToUpdate, annotationKey, nil)
+		}
+	}
+	if err := m.client.Update(ctx, routeToUpdate); err != nil {
+		return fmt.Errorf("failed to update TLSRoute %s/%s after stale programmed state cleanup: %w",
 			routeToUpdate.Namespace,
 			routeToUpdate.Name,
 			err,
@@ -1325,9 +1562,18 @@ func (m *tlsRouteModelImpl) setProgrammed(ctx context.Context, details resolvedT
 	)
 	desiredBackendSets := map[string]struct{}{}
 	if details.gatewayDetails.gatewayClass.Spec.ControllerName == ControllerClassName {
-		desiredBackendSets[tlsRouteBackendSetName(details.tlsRoute, details.matchedListener)] = struct{}{}
+		backendSetName := tlsRouteBackendSetName(details.tlsRoute, details.matchedListener)
+		desiredBackendSets[backendSetName] = struct{}{}
+		setAnnotatedLoadBalancerTLSRouteResources(routeToUpdate,
+			map[string]string{string(details.matchedListener.Name): backendSetName},
+		)
+		controllerutil.RemoveFinalizer(routeToUpdate, NetworkLoadBalancerTLSRouteProgrammedFinalizer)
+		setAnnotatedBackendSetNames(routeToUpdate, NetworkLoadBalancerTLSRouteProgrammedBackendSetsAnnotation, nil)
 	} else {
 		desiredBackendSets[networkLoadBalancerBackendSetName(details.matchedListener)] = struct{}{}
+		controllerutil.RemoveFinalizer(routeToUpdate, LoadBalancerTLSRouteProgrammedFinalizer)
+		setAnnotatedBackendSetNames(routeToUpdate, LoadBalancerTLSRouteProgrammedBackendSetAnnotation, nil)
+		setAnnotatedLoadBalancerTLSRouteResources(routeToUpdate, nil)
 	}
 	if err := setL4RouteProgrammed(ctx, setL4RouteProgrammedParams{
 		k8sClient:          m.client,
