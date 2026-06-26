@@ -136,5 +136,19 @@ func TestShutdownHooks(t *testing.T) {
 				hook.AssertExpectations(t)
 			}
 		})
+
+		t.Run("should return error when shutdown times out", func(t *testing.T) {
+			deps := makeMockDeps()
+			deps.GracefulShutdownTimeout = time.Millisecond
+			registry := NewShutdownHooks(deps)
+			registry.Register("slow-hook", func(_ context.Context) error {
+				time.Sleep(10 * time.Millisecond)
+				return nil
+			})
+
+			err := registry.PerformShutdown(t.Context())
+
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+		})
 	})
 }

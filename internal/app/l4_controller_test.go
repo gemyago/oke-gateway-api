@@ -87,6 +87,41 @@ func (s *stubUDPRouteModel) setRejected(context.Context, resolvedUDPRouteDetails
 	return s.setRejectedErr
 }
 
+type stubTLSRouteModel struct {
+	resolved         []resolvedTLSRouteDetails
+	resolveErr       error
+	programErr       error
+	deprovisionErr   error
+	setProgrammedErr error
+	setRejectedErr   error
+	deprovisioned    bool
+	programmed       bool
+	rejected         bool
+}
+
+func (s *stubTLSRouteModel) resolveRequest(context.Context, reconcile.Request) ([]resolvedTLSRouteDetails, error) {
+	return s.resolved, s.resolveErr
+}
+
+func (s *stubTLSRouteModel) programRoute(context.Context, resolvedTLSRouteDetails) error {
+	return s.programErr
+}
+
+func (s *stubTLSRouteModel) deprovisionRoute(context.Context, resolvedTLSRouteDetails) error {
+	s.deprovisioned = true
+	return s.deprovisionErr
+}
+
+func (s *stubTLSRouteModel) setProgrammed(context.Context, resolvedTLSRouteDetails) error {
+	s.programmed = true
+	return s.setProgrammedErr
+}
+
+func (s *stubTLSRouteModel) setRejected(context.Context, resolvedTLSRouteDetails, tlsRouteStatusError) error {
+	s.rejected = true
+	return s.setRejectedErr
+}
+
 func TestTCPRouteController(t *testing.T) {
 	req := reconcile.Request{NamespacedName: apitypes.NamespacedName{Namespace: "iot", Name: "rtmp"}}
 
@@ -264,6 +299,195 @@ func TestTCPRouteController(t *testing.T) {
 				controller := NewTCPRouteController(TCPRouteControllerDeps{
 					RootLogger:    diag.RootTestLogger(),
 					TCPRouteModel: model,
+				})
+
+				_, err := controller.Reconcile(t.Context(), req)
+
+				require.Error(t, err)
+			})
+		}
+	})
+}
+
+func TestTLSRouteController(t *testing.T) {
+	req := reconcile.Request{NamespacedName: apitypes.NamespacedName{Namespace: "media", Name: "rtmps"}}
+
+	t.Run("programs resolved route", func(t *testing.T) {
+		model := &stubTLSRouteModel{resolved: []resolvedTLSRouteDetails{{tlsRoute: gatewayv1.TLSRoute{}}}}
+		controller := NewTLSRouteController(TLSRouteControllerDeps{
+			RootLogger:    diag.RootTestLogger(),
+			TLSRouteModel: model,
+		})
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		require.NoError(t, err)
+		assert.Empty(t, result)
+		assert.True(t, model.programmed)
+	})
+
+	t.Run("returns drift requeue for resolved route when interval is configured", func(t *testing.T) {
+		driftInterval := 23 * time.Minute
+		model := &stubTLSRouteModel{resolved: []resolvedTLSRouteDetails{{tlsRoute: gatewayv1.TLSRoute{}}}}
+		controller := NewTLSRouteController(TLSRouteControllerDeps{
+			RootLogger:    diag.RootTestLogger(),
+			TLSRouteModel: model,
+			DriftInterval: driftInterval,
+		})
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		require.NoError(t, err)
+		assertDriftRequeue(t, result, driftInterval)
+		assert.True(t, model.programmed)
+	})
+
+	t.Run("returns busy requeue for network load balancer busy errors", func(t *testing.T) {
+		model := &stubTLSRouteModel{
+			resolved:   []resolvedTLSRouteDetails{{tlsRoute: gatewayv1.TLSRoute{}}},
+			programErr: &networkLoadBalancerBusyError{id: "nlb-id"},
+		}
+		controller := NewTLSRouteController(TLSRouteControllerDeps{
+			RootLogger:    diag.RootTestLogger(),
+			TLSRouteModel: model,
+		})
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		require.NoError(t, err)
+		assert.Equal(t, networkLoadBalancerBusyRequeueAfter, result.RequeueAfter)
+		assert.False(t, model.programmed)
+		assert.False(t, model.rejected)
+	})
+
+	t.Run("sets rejected status for route status errors", func(t *testing.T) {
+		model := &stubTLSRouteModel{
+			resolved: []resolvedTLSRouteDetails{{tlsRoute: gatewayv1.TLSRoute{}}},
+			programErr: newTLSRouteAcceptedStatusError(
+				gatewayv1.RouteReasonNotAllowedByListeners,
+				"rejected",
+			),
+		}
+		controller := NewTLSRouteController(TLSRouteControllerDeps{
+			RootLogger:    diag.RootTestLogger(),
+			TLSRouteModel: model,
+		})
+
+		_, err := controller.Reconcile(t.Context(), req)
+
+		require.NoError(t, err)
+		assert.True(t, model.rejected)
+		assert.False(t, model.programmed)
+	})
+
+	t.Run("deprovisions deleted route with matching finalizer", func(t *testing.T) {
+		model := &stubTLSRouteModel{resolved: []resolvedTLSRouteDetails{{
+			gatewayDetails: resolvedGatewayDetails{
+				gatewayClass: gatewayv1.GatewayClass{Spec: gatewayv1.GatewayClassSpec{
+					ControllerName: NetworkLoadBalancerControllerClassName,
+				}},
+			},
+			tlsRoute: gatewayv1.TLSRoute{ObjectMeta: metav1.ObjectMeta{
+				DeletionTimestamp: &metav1.Time{},
+				Finalizers:        []string{NetworkLoadBalancerTLSRouteProgrammedFinalizer},
+			}},
+		}}}
+		controller := NewTLSRouteController(TLSRouteControllerDeps{
+			RootLogger:    diag.RootTestLogger(),
+			TLSRouteModel: model,
+		})
+
+		_, err := controller.Reconcile(t.Context(), req)
+
+		require.NoError(t, err)
+		assert.True(t, model.deprovisioned)
+	})
+
+	t.Run("wraps resolve errors", func(t *testing.T) {
+		model := &stubTLSRouteModel{resolveErr: errors.New("boom")}
+		controller := NewTLSRouteController(TLSRouteControllerDeps{
+			RootLogger:    diag.RootTestLogger(),
+			TLSRouteModel: model,
+		})
+
+		_, err := controller.Reconcile(t.Context(), req)
+
+		require.ErrorContains(t, err, "failed to resolve TLSRoute parent")
+	})
+
+	t.Run("ignores routes with no resolved parents", func(t *testing.T) {
+		model := &stubTLSRouteModel{}
+		controller := NewTLSRouteController(TLSRouteControllerDeps{
+			RootLogger:    diag.RootTestLogger(),
+			TLSRouteModel: model,
+		})
+
+		_, err := controller.Reconcile(t.Context(), req)
+
+		require.NoError(t, err)
+		assert.False(t, model.programmed)
+	})
+
+	t.Run("skips deleted route without matching finalizer", func(t *testing.T) {
+		model := &stubTLSRouteModel{resolved: []resolvedTLSRouteDetails{{
+			gatewayDetails: resolvedGatewayDetails{
+				gatewayClass: gatewayv1.GatewayClass{Spec: gatewayv1.GatewayClassSpec{
+					ControllerName: ControllerClassName,
+				}},
+			},
+			tlsRoute: gatewayv1.TLSRoute{ObjectMeta: metav1.ObjectMeta{
+				DeletionTimestamp: &metav1.Time{},
+				Finalizers:        []string{NetworkLoadBalancerTLSRouteProgrammedFinalizer},
+			}},
+		}}}
+		controller := NewTLSRouteController(TLSRouteControllerDeps{
+			RootLogger:    diag.RootTestLogger(),
+			TLSRouteModel: model,
+		})
+
+		_, err := controller.Reconcile(t.Context(), req)
+
+		require.NoError(t, err)
+		assert.False(t, model.deprovisioned)
+	})
+
+	t.Run("wraps program and status errors", func(t *testing.T) {
+		for name, model := range map[string]*stubTLSRouteModel{
+			"program": {
+				resolved:   []resolvedTLSRouteDetails{{tlsRoute: gatewayv1.TLSRoute{}}},
+				programErr: errors.New("boom"),
+			},
+			"set programmed": {
+				resolved:         []resolvedTLSRouteDetails{{tlsRoute: gatewayv1.TLSRoute{}}},
+				setProgrammedErr: errors.New("boom"),
+			},
+			"set rejected": {
+				resolved: []resolvedTLSRouteDetails{{tlsRoute: gatewayv1.TLSRoute{}}},
+				programErr: newTLSRouteAcceptedStatusError(
+					gatewayv1.RouteReasonNotAllowedByListeners,
+					"rejected",
+				),
+				setRejectedErr: errors.New("boom"),
+			},
+			"deprovision": {
+				resolved: []resolvedTLSRouteDetails{{
+					gatewayDetails: resolvedGatewayDetails{
+						gatewayClass: gatewayv1.GatewayClass{Spec: gatewayv1.GatewayClassSpec{
+							ControllerName: ControllerClassName,
+						}},
+					},
+					tlsRoute: gatewayv1.TLSRoute{ObjectMeta: metav1.ObjectMeta{
+						DeletionTimestamp: &metav1.Time{},
+						Finalizers:        []string{LoadBalancerTLSRouteProgrammedFinalizer},
+					}},
+				}},
+				deprovisionErr: errors.New("boom"),
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				controller := NewTLSRouteController(TLSRouteControllerDeps{
+					RootLogger:    diag.RootTestLogger(),
+					TLSRouteModel: model,
 				})
 
 				_, err := controller.Reconcile(t.Context(), req)

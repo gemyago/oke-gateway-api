@@ -22,6 +22,30 @@ const (
 	// ListenerTLSOptionOCICertificateOCID configures an existing OCI Certificates Service certificate for a listener.
 	ListenerTLSOptionOCICertificateOCID = "oci.oraclecloud.com/certificate-ocid"
 
+	// BackendTLSPolicyProgrammedFinalizer is used to clean up controller-managed OCI CA bundles.
+	BackendTLSPolicyProgrammedFinalizer = "oke-gateway-api.gemyago.github.io/backend-tls-policy-programmed"
+
+	// BackendTLSPolicyCompartmentsAnnotation stores OCI compartments with controller-managed CA bundles.
+	BackendTLSPolicyCompartmentsAnnotation = "oke-gateway-api.gemyago.github.io/backend-tls-policy-compartments"
+
+	// BackendTLSOptionHostnameValidation acknowledges OCI backend TLS does not enforce hostname/SAN validation.
+	BackendTLSOptionHostnameValidation = "oci.oraclecloud.com/backend-hostname-validation"
+
+	// BackendTLSOptionTrustedCABundleOCIDs adds existing OCI Certificates Management CA bundle OCIDs.
+	BackendTLSOptionTrustedCABundleOCIDs = "oci.oraclecloud.com/trusted-ca-bundle-ocids"
+
+	// BackendTLSOptionProtocols configures OCI backend SSL protocols as a comma-separated list.
+	BackendTLSOptionProtocols = "oci.oraclecloud.com/tls-protocols"
+
+	// BackendTLSOptionCipherSuiteName configures OCI backend SSL cipher suite name.
+	BackendTLSOptionCipherSuiteName = "oci.oraclecloud.com/cipher-suite-name"
+
+	// BackendTLSOptionVerifyDepth configures OCI backend SSL peer certificate verification depth.
+	BackendTLSOptionVerifyDepth = "oci.oraclecloud.com/verify-depth"
+
+	// BackendTLSOptionSessionResumption configures OCI backend SSL session resumption.
+	BackendTLSOptionSessionResumption = "oci.oraclecloud.com/session-resumption"
+
 	// HTTPRouteProgrammingRevisionAnnotation is the annotation for the http route programming revision.
 	// The revision may be incremented if additional programming steps are introduced by the controller.
 	HTTPRouteProgrammingRevisionAnnotation = "oke-gateway-api.gemyago.github.io/http-route-programming-revision"
@@ -82,6 +106,24 @@ const (
 	// NetworkLoadBalancerUDPRouteHealthCheckPortAnnotation overrides the TCP health check port for UDPRoute backends.
 	NetworkLoadBalancerUDPRouteHealthCheckPortAnnotation = "oke-gateway-api.gemyago.github.io/" +
 		"nlb-udp-health-check-port"
+
+	// NetworkLoadBalancerTLSRouteProgrammedFinalizer indicates a TLSRoute has programmed OCI NLB resources.
+	NetworkLoadBalancerTLSRouteProgrammedFinalizer = "oke-gateway-api.gemyago.github.io/nlb-tlsroute-programmed"
+
+	// NetworkLoadBalancerTLSRouteProgrammedBackendSetsAnnotation tracks NLB backend sets programmed by a TLSRoute.
+	NetworkLoadBalancerTLSRouteProgrammedBackendSetsAnnotation = "oke-gateway-api.gemyago.github.io/" +
+		"nlb-tlsroute-backendsets"
+
+	// LoadBalancerTLSRouteProgrammedFinalizer indicates a TLSRoute has programmed OCI ALB resources.
+	LoadBalancerTLSRouteProgrammedFinalizer = "oke-gateway-api.gemyago.github.io/alb-tlsroute-programmed"
+
+	// LoadBalancerTLSRouteProgrammedBackendSetAnnotation tracks the ALB backend set programmed by a TLSRoute.
+	LoadBalancerTLSRouteProgrammedBackendSetAnnotation = "oke-gateway-api.gemyago.github.io/" +
+		"alb-tlsroute-backendset"
+
+	// LoadBalancerTLSRouteProgrammedResourcesAnnotation tracks ALB listener/backend set resources programmed by a TLSRoute.
+	LoadBalancerTLSRouteProgrammedResourcesAnnotation = "oke-gateway-api.gemyago.github.io/" +
+		"alb-tlsroute-resources"
 
 	// HTTPRouteProgrammingRevisionValue is the value for the http route programming revision.
 	// Incremented when the controller programming steps are changed.

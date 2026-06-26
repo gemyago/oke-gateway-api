@@ -41,6 +41,8 @@ type StartManagerDeps struct {
 	GRPCRouteCtrl    *app.GRPCRouteController
 	TCPRouteCtrl     *app.TCPRouteController
 	UDPRouteCtrl     *app.UDPRouteController
+	TLSRouteCtrl     *app.TLSRouteController
+	BackendTLSCtrl   *app.BackendTLSPolicyController
 	WatchesModel     *app.WatchesModel
 	Config           *rest.Config
 
@@ -50,27 +52,48 @@ type StartManagerDeps struct {
 	ReconcileNetworkLoadBalancerGateway bool `name:"config.features.reconcileNetworkLoadBalancerGateway"`
 	ReconcileTCPRoute                   bool `name:"config.features.reconcileTCPRoute"`
 	ReconcileUDPRoute                   bool `name:"config.features.reconcileUDPRoute"`
+	ReconcileTLSRoute                   bool `name:"config.features.reconcileTLSRoute"`
 	ReconcileHTTPRoute                  bool `name:"config.features.reconcileHTTPRoute"`
 	ReconcileGRPCRoute                  bool `name:"config.features.reconcileGRPCRoute"`
+	ReconcileBackendTLSPolicy           bool `name:"config.features.reconcileBackendTLSPolicy"`
 }
 
 type experimentalRouteCapabilities struct {
-	TCPRoute bool
-	UDPRoute bool
+	TCPRoute         bool
+	UDPRoute         bool
+	BackendTLSPolicy bool
 }
 
 type resolvedExperimentalRouteCapabilities struct {
-	reconcileTCPRoute bool
-	reconcileUDPRoute bool
+	reconcileTCPRoute         bool
+	reconcileUDPRoute         bool
+	reconcileBackendTLSPolicy bool
+	backendTLSPolicyAvailable bool
 }
 
 type setupL4RouteControllerParams struct {
-	name        string
-	route       client.Object
-	mapEndpoint handler.MapFunc
-	mapGrant    handler.MapFunc
-	mapGateway  handler.MapFunc
-	reconciler  reconcile.TypedReconciler[reconcile.Request]
+	name                string
+	route               client.Object
+	mapEndpoint         handler.MapFunc
+	mapGrant            handler.MapFunc
+	mapGateway          handler.MapFunc
+	mapSecret           handler.MapFunc
+	mapBackendTLSPolicy handler.MapFunc
+	mapConfigMap        handler.MapFunc
+	mapService          handler.MapFunc
+	reconciler          reconcile.TypedReconciler[reconcile.Request]
+}
+
+type setupL7RouteControllerParams struct {
+	name                       string
+	route                      client.Object
+	mapEndpoint                handler.MapFunc
+	pairedRoute                client.Object
+	mapPairedRoute             handler.MapFunc
+	mapBackendTLSPolicyToRoute handler.MapFunc
+	mapConfigMapToRoute        handler.MapFunc
+	mapServiceToRoute          handler.MapFunc
+	reconciler                 reconcile.TypedReconciler[reconcile.Request]
 }
 
 type controllerSetupTask struct {
@@ -111,10 +134,19 @@ func detectExperimentalRouteCapabilities(mapper meta.RESTMapper) (experimentalRo
 	if err != nil {
 		return experimentalRouteCapabilities{}, fmt.Errorf("failed to detect UDPRoute availability: %w", err)
 	}
+	backendTLSPolicyAvailable, err := resourceKindAvailable(
+		mapper,
+		schema.GroupKind{Group: gatewayv1.GroupName, Kind: "BackendTLSPolicy"},
+		"v1",
+	)
+	if err != nil {
+		return experimentalRouteCapabilities{}, fmt.Errorf("failed to detect BackendTLSPolicy availability: %w", err)
+	}
 
 	return experimentalRouteCapabilities{
-		TCPRoute: tcpRouteAvailable,
-		UDPRoute: udpRouteAvailable,
+		TCPRoute:         tcpRouteAvailable,
+		UDPRoute:         udpRouteAvailable,
+		BackendTLSPolicy: backendTLSPolicyAvailable,
 	}, nil
 }
 
@@ -157,19 +189,25 @@ func resolveExperimentalRouteCapabilities(
 	if deps.ReconcileUDPRoute && !experimentalRouteCRDs.UDPRoute {
 		logger.InfoContext(ctx, "UDPRoute CRD is not installed; UDPRoute support is disabled")
 	}
+	if deps.ReconcileBackendTLSPolicy && !experimentalRouteCRDs.BackendTLSPolicy {
+		logger.InfoContext(ctx, "BackendTLSPolicy CRD is not installed; BackendTLSPolicy support is disabled")
+	}
 
 	return resolvedExperimentalRouteCapabilities{
-		reconcileTCPRoute: deps.ReconcileTCPRoute && experimentalRouteCRDs.TCPRoute,
-		reconcileUDPRoute: deps.ReconcileUDPRoute && experimentalRouteCRDs.UDPRoute,
+		reconcileTCPRoute:         deps.ReconcileTCPRoute && experimentalRouteCRDs.TCPRoute,
+		reconcileUDPRoute:         deps.ReconcileUDPRoute && experimentalRouteCRDs.UDPRoute,
+		reconcileBackendTLSPolicy: deps.ReconcileBackendTLSPolicy && experimentalRouteCRDs.BackendTLSPolicy,
+		backendTLSPolicyAvailable: experimentalRouteCRDs.BackendTLSPolicy,
 	}, nil
 }
 
 func setupL4RouteController(
 	mgr manager.Manager,
 	params setupL4RouteControllerParams,
+	enableBackendTLSPolicy bool,
 	middlewares ...controllerMiddleware[reconcile.Request],
 ) error {
-	return builder.ControllerManagedBy(mgr).
+	controllerBuilder := builder.ControllerManagedBy(mgr).
 		Named(params.name).
 		For(
 			params.route,
@@ -189,8 +227,33 @@ func setupL4RouteController(
 			&gatewayv1.Gateway{},
 			handler.EnqueueRequestsFromMapFunc(params.mapGateway),
 			builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})),
-		).
-		Complete(wireupReconciler(params.reconciler, middlewares...))
+		)
+	if params.mapSecret != nil {
+		controllerBuilder = controllerBuilder.Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(params.mapSecret),
+			builder.WithPredicates(gatewaySecretPredicate()),
+		)
+	}
+	if enableBackendTLSPolicy && params.name == "tlsroute" {
+		controllerBuilder = controllerBuilder.
+			Watches(
+				&gatewayv1.BackendTLSPolicy{},
+				handler.EnqueueRequestsFromMapFunc(params.mapBackendTLSPolicy),
+				builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+			).
+			Watches(
+				&corev1.ConfigMap{},
+				handler.EnqueueRequestsFromMapFunc(params.mapConfigMap),
+				builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+			).
+			Watches(
+				&corev1.Service{},
+				handler.EnqueueRequestsFromMapFunc(params.mapService),
+				builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+			)
+	}
+	return controllerBuilder.Complete(wireupReconciler(params.reconciler, middlewares...))
 }
 
 func coreControllerSetupTasks(
@@ -257,12 +320,22 @@ func coreControllerSetupTasks(
 					Complete(wireupReconciler(deps.NLBGatewayCtrl, middlewares...))
 			},
 		},
+	}
+}
+
+func l7AndTLSControllerSetupTasks(
+	mgr manager.Manager,
+	deps StartManagerDeps,
+	experimentalRoutes resolvedExperimentalRouteCapabilities,
+	middlewares []controllerMiddleware[reconcile.Request],
+) []controllerSetupTask {
+	return []controllerSetupTask{
 		{
 			enabled:     deps.ReconcileHTTPRoute,
 			disabledLog: "HTTPRoute controller is disabled",
 			setupErr:    "failed to setup HTTPRoute controller: %w",
 			setup: func() error {
-				return setupHTTPRouteController(mgr, deps, middlewares)
+				return setupHTTPRouteController(mgr, deps, experimentalRoutes.reconcileBackendTLSPolicy, middlewares)
 			},
 		},
 		{
@@ -270,7 +343,37 @@ func coreControllerSetupTasks(
 			disabledLog: "GRPCRoute controller is disabled",
 			setupErr:    "failed to setup GRPCRoute controller: %w",
 			setup: func() error {
-				return setupGRPCRouteController(mgr, deps, middlewares)
+				return setupGRPCRouteController(mgr, deps, experimentalRoutes.reconcileBackendTLSPolicy, middlewares)
+			},
+		},
+		{
+			enabled:     deps.ReconcileTLSRoute,
+			disabledLog: "TLSRoute controller is disabled",
+			setupErr:    "failed to setup TLSRoute controller: %w",
+			setup: func() error {
+				return setupL4RouteController(mgr, setupL4RouteControllerParams{
+					name:                "tlsroute",
+					route:               &gatewayv1.TLSRoute{},
+					mapEndpoint:         deps.WatchesModel.MapEndpointSliceToTLSRoute,
+					mapGrant:            deps.WatchesModel.MapReferenceGrantToTLSRoute,
+					mapGateway:          deps.WatchesModel.MapGatewayToTLSRoute,
+					mapSecret:           deps.WatchesModel.MapSecretToTLSRoute,
+					mapBackendTLSPolicy: deps.WatchesModel.MapBackendTLSPolicyToTLSRoute,
+					mapConfigMap:        deps.WatchesModel.MapConfigMapToTLSRoute,
+					mapService:          deps.WatchesModel.MapServiceToTLSRoute,
+					reconciler:          deps.TLSRouteCtrl,
+				}, experimentalRoutes.reconcileBackendTLSPolicy, middlewares...)
+			},
+		},
+		{
+			enabled:     experimentalRoutes.backendTLSPolicyAvailable,
+			disabledLog: "BackendTLSPolicy controller is disabled",
+			setupErr:    "failed to setup BackendTLSPolicy controller: %w",
+			setup: func() error {
+				return builder.ControllerManagedBy(mgr).
+					Named("backendtlspolicy").
+					For(&gatewayv1.BackendTLSPolicy{}).
+					Complete(wireupReconciler(deps.BackendTLSCtrl, middlewares...))
 			},
 		},
 	}
@@ -279,43 +382,79 @@ func coreControllerSetupTasks(
 func setupHTTPRouteController(
 	mgr manager.Manager,
 	deps StartManagerDeps,
+	enableBackendTLSPolicy bool,
 	middlewares []controllerMiddleware[reconcile.Request],
 ) error {
-	return builder.ControllerManagedBy(mgr).
-		Named("httproute").
-		For(&gatewayv1.HTTPRoute{}).
-		Watches(
-			&discoveryv1.EndpointSlice{},
-			handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapEndpointSliceToHTTPRoute),
-		).
-		Watches(
-			&gatewayv1.GRPCRoute{},
-			handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapGRPCRouteToHTTPRoute),
-			builder.WithPredicates(l7RouteObjectPredicate()),
-		).
-		WithEventFilter(l7RouteObjectPredicate()).
-		Complete(wireupReconciler(deps.HTTPRouteCtrl, middlewares...))
+	return setupL7RouteController(mgr, setupL7RouteControllerParams{
+		name:                       "httproute",
+		route:                      &gatewayv1.HTTPRoute{},
+		mapEndpoint:                deps.WatchesModel.MapEndpointSliceToHTTPRoute,
+		pairedRoute:                &gatewayv1.GRPCRoute{},
+		mapPairedRoute:             deps.WatchesModel.MapGRPCRouteToHTTPRoute,
+		mapBackendTLSPolicyToRoute: deps.WatchesModel.MapBackendTLSPolicyToHTTPRoute,
+		mapConfigMapToRoute:        deps.WatchesModel.MapConfigMapToHTTPRoute,
+		mapServiceToRoute:          deps.WatchesModel.MapServiceToHTTPRoute,
+		reconciler:                 deps.HTTPRouteCtrl,
+	}, enableBackendTLSPolicy, middlewares)
 }
 
 func setupGRPCRouteController(
 	mgr manager.Manager,
 	deps StartManagerDeps,
+	enableBackendTLSPolicy bool,
 	middlewares []controllerMiddleware[reconcile.Request],
 ) error {
-	return builder.ControllerManagedBy(mgr).
-		Named("grpcroute").
-		For(&gatewayv1.GRPCRoute{}).
+	return setupL7RouteController(mgr, setupL7RouteControllerParams{
+		name:                       "grpcroute",
+		route:                      &gatewayv1.GRPCRoute{},
+		mapEndpoint:                deps.WatchesModel.MapEndpointSliceToGRPCRoute,
+		pairedRoute:                &gatewayv1.HTTPRoute{},
+		mapPairedRoute:             deps.WatchesModel.MapHTTPRouteToGRPCRoute,
+		mapBackendTLSPolicyToRoute: deps.WatchesModel.MapBackendTLSPolicyToGRPCRoute,
+		mapConfigMapToRoute:        deps.WatchesModel.MapConfigMapToGRPCRoute,
+		mapServiceToRoute:          deps.WatchesModel.MapServiceToGRPCRoute,
+		reconciler:                 deps.GRPCRouteCtrl,
+	}, enableBackendTLSPolicy, middlewares)
+}
+
+func setupL7RouteController(
+	mgr manager.Manager,
+	params setupL7RouteControllerParams,
+	enableBackendTLSPolicy bool,
+	middlewares []controllerMiddleware[reconcile.Request],
+) error {
+	controllerBuilder := builder.ControllerManagedBy(mgr).
+		Named(params.name).
+		For(params.route).
 		Watches(
 			&discoveryv1.EndpointSlice{},
-			handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapEndpointSliceToGRPCRoute),
+			handler.EnqueueRequestsFromMapFunc(params.mapEndpoint),
 		).
 		Watches(
-			&gatewayv1.HTTPRoute{},
-			handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapHTTPRouteToGRPCRoute),
+			params.pairedRoute,
+			handler.EnqueueRequestsFromMapFunc(params.mapPairedRoute),
 			builder.WithPredicates(l7RouteObjectPredicate()),
 		).
-		WithEventFilter(l7RouteObjectPredicate()).
-		Complete(wireupReconciler(deps.GRPCRouteCtrl, middlewares...))
+		WithEventFilter(l7RouteObjectPredicate())
+	if enableBackendTLSPolicy {
+		controllerBuilder = controllerBuilder.
+			Watches(
+				&gatewayv1.BackendTLSPolicy{},
+				handler.EnqueueRequestsFromMapFunc(params.mapBackendTLSPolicyToRoute),
+				builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+			).
+			Watches(
+				&corev1.ConfigMap{},
+				handler.EnqueueRequestsFromMapFunc(params.mapConfigMapToRoute),
+				builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+			).
+			Watches(
+				&corev1.Service{},
+				handler.EnqueueRequestsFromMapFunc(params.mapServiceToRoute),
+				builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+			)
+	}
+	return controllerBuilder.Complete(wireupReconciler(params.reconciler, middlewares...))
 }
 
 func l4RouteControllerSetupTasks(
@@ -337,7 +476,7 @@ func l4RouteControllerSetupTasks(
 					mapGrant:    deps.WatchesModel.MapReferenceGrantToTCPRoute,
 					mapGateway:  deps.WatchesModel.MapGatewayToTCPRoute,
 					reconciler:  deps.TCPRouteCtrl,
-				}, middlewares...)
+				}, false, middlewares...)
 			},
 		},
 		{
@@ -352,7 +491,7 @@ func l4RouteControllerSetupTasks(
 					mapGrant:    deps.WatchesModel.MapReferenceGrantToUDPRoute,
 					mapGateway:  deps.WatchesModel.MapGatewayToUDPRoute,
 					reconciler:  deps.UDPRouteCtrl,
-				}, middlewares...)
+				}, false, middlewares...)
 			},
 		},
 	}
@@ -397,6 +536,7 @@ func StartManager(ctx context.Context, deps StartManagerDeps) error {
 	if err := deps.WatchesModel.RegisterFieldIndexers(ctx, mgr.GetFieldIndexer(), app.RegisterFieldIndexersOptions{
 		EnableTCPRoute: experimentalRoutes.reconcileTCPRoute,
 		EnableUDPRoute: experimentalRoutes.reconcileUDPRoute,
+		EnableTLSRoute: deps.ReconcileTLSRoute,
 	}); err != nil {
 		return fmt.Errorf("failed to register field indexers: %w", err)
 	}
@@ -406,6 +546,7 @@ func StartManager(ctx context.Context, deps StartManagerDeps) error {
 		newErrorHandlingMiddleware(deps.RootLogger),
 	}
 	tasks := coreControllerSetupTasks(mgr, deps, middlewares)
+	tasks = append(tasks, l7AndTLSControllerSetupTasks(mgr, deps, experimentalRoutes, middlewares)...)
 	tasks = append(tasks, l4RouteControllerSetupTasks(mgr, deps, experimentalRoutes, middlewares)...)
 	if err := runControllerSetupTasks(loggerCtx, logger, tasks); err != nil {
 		return err

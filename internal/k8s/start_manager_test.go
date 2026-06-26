@@ -196,6 +196,30 @@ func TestResolveExperimentalRouteCapabilities(t *testing.T) {
 		assert.False(t, got.reconcileTCPRoute)
 		assert.False(t, got.reconcileUDPRoute)
 	})
+
+	t.Run("keeps BackendTLSPolicy controller available for cleanup when feature is disabled", func(t *testing.T) {
+		mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{
+			{Group: gatewayv1.GroupName, Version: "v1"},
+		})
+		mapper.Add(schema.GroupVersionKind{
+			Group:   gatewayv1.GroupName,
+			Version: "v1",
+			Kind:    "BackendTLSPolicy",
+		}, meta.RESTScopeNamespace)
+
+		got, err := resolveExperimentalRouteCapabilities(
+			t.Context(),
+			diag.RootTestLogger(),
+			mapper,
+			StartManagerDeps{
+				ReconcileBackendTLSPolicy: false,
+			},
+		)
+
+		require.NoError(t, err)
+		assert.False(t, got.reconcileBackendTLSPolicy)
+		assert.True(t, got.backendTLSPolicyAvailable)
+	})
 }
 
 type failingRESTMapper struct {
