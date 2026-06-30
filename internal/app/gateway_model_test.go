@@ -1586,17 +1586,17 @@ func TestGatewayCertificateOptionsValidation(t *testing.T) {
 			Port:     80,
 		}, "ocid1.certificate.oc1..test")))
 
-		require.ErrorContains(t, err, "can only be used with HTTPS listeners")
+		require.ErrorContains(t, err, "can only be used with HTTPS or TLS listeners")
 	})
 
-	t.Run("rejects certificate option on TLS listener", func(t *testing.T) {
+	t.Run("accepts certificate option on TLS terminate listener", func(t *testing.T) {
 		err := validateGatewayCertificateOptions(makeGateway(withOCICertificateOption(gatewayv1.Listener{
 			Name:     "tls",
 			Protocol: gatewayv1.TLSProtocolType,
 			Port:     443,
 		}, "ocid1.certificate.oc1..test")))
 
-		require.ErrorContains(t, err, "can only be used with HTTPS listeners")
+		require.NoError(t, err)
 	})
 
 	t.Run("rejects certificate option with passthrough TLS mode", func(t *testing.T) {

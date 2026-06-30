@@ -83,6 +83,24 @@ const (
 	NetworkLoadBalancerUDPRouteHealthCheckPortAnnotation = "oke-gateway-api.gemyago.github.io/" +
 		"nlb-udp-health-check-port"
 
+	// NetworkLoadBalancerTLSRouteProgrammedFinalizer indicates a TLSRoute has programmed OCI NLB resources.
+	NetworkLoadBalancerTLSRouteProgrammedFinalizer = "oke-gateway-api.gemyago.github.io/nlb-tlsroute-programmed"
+
+	// NetworkLoadBalancerTLSRouteProgrammedBackendSetsAnnotation tracks NLB backend sets programmed by a TLSRoute.
+	NetworkLoadBalancerTLSRouteProgrammedBackendSetsAnnotation = "oke-gateway-api.gemyago.github.io/" +
+		"nlb-tlsroute-backendsets"
+
+	// LoadBalancerTLSRouteProgrammedFinalizer indicates a TLSRoute has programmed OCI ALB resources.
+	LoadBalancerTLSRouteProgrammedFinalizer = "oke-gateway-api.gemyago.github.io/alb-tlsroute-programmed"
+
+	// LoadBalancerTLSRouteProgrammedBackendSetAnnotation tracks the ALB backend set programmed by a TLSRoute.
+	LoadBalancerTLSRouteProgrammedBackendSetAnnotation = "oke-gateway-api.gemyago.github.io/" +
+		"alb-tlsroute-backendset"
+
+	// LoadBalancerTLSRouteProgrammedResourcesAnnotation tracks ALB listener/backend set resources programmed by a TLSRoute.
+	LoadBalancerTLSRouteProgrammedResourcesAnnotation = "oke-gateway-api.gemyago.github.io/" +
+		"alb-tlsroute-resources"
+
 	// HTTPRouteProgrammingRevisionValue is the value for the http route programming revision.
 	// Incremented when the controller programming steps are changed.
 	HTTPRouteProgrammingRevisionValue = "5"

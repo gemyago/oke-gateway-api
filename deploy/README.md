@@ -88,6 +88,25 @@ kubectl apply -n oke-gw -f manifests/examples/tcproute-nlb.yaml
 kubectl apply -n oke-gw -f manifests/examples/udproute-nlb.yaml
 ```
 
+## TLSRoute examples
+
+`TLSRoute` supports OCI Load Balancer termination and OCI Network Load Balancer passthrough.
+ALB termination forwards plain TCP to the backend Service port. NLB passthrough forwards
+encrypted TCP bytes to a backend that terminates TLS itself. OCI does not support SNI fanout
+for these listener types, so use one effective `TLSRoute` per TLS listener.
+
+```sh
+# ALB TLS termination
+kubectl apply -n oke-gw -f manifests/examples/gatewayconfig.yaml
+kubectl apply -n oke-gw -f manifests/examples/gatewayclass.yaml
+kubectl apply -n oke-gw -f manifests/examples/tlsroute-alb.yaml
+
+# NLB TLS passthrough
+kubectl apply -n oke-gw -f manifests/examples/gatewayconfig-nlb.yaml
+kubectl apply -f manifests/examples/gatewayclass-nlb.yaml
+kubectl apply -n oke-gw -f manifests/examples/tlsroute-nlb.yaml
+```
+
 ## Publish helm chart
 
 Helm chart is built and published automatically with each release. Steps below are for local testing. Run the following from deploy directory.

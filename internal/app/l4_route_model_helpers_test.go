@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
@@ -87,6 +88,65 @@ func mustNetworkLoadBalancerGatewayModelImpl(
 }
 
 func TestL4RouteModelHelpers(t *testing.T) {
+	t.Run("listener matches are ordered by creation timestamp then route key", func(t *testing.T) {
+		listener := gatewayv1.Listener{
+			Name:     "tls",
+			Protocol: gatewayv1.TLSProtocolType,
+		}
+		gatewayNamespace := gatewayv1.Namespace("media")
+		routes := []gatewayv1.TLSRoute{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace:         "media",
+					Name:              "zzz-newer",
+					CreationTimestamp: metav1.Unix(20, 0),
+				},
+				Spec: gatewayv1.TLSRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
+				}},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace:         "media",
+					Name:              "older",
+					CreationTimestamp: metav1.Unix(10, 0),
+				},
+				Spec: gatewayv1.TLSRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
+				}},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace:         "alpha",
+					Name:              "tie",
+					CreationTimestamp: metav1.Unix(20, 0),
+				},
+				Spec: gatewayv1.TLSRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{{Namespace: &gatewayNamespace, Name: "edge"}},
+				}},
+			},
+		}
+
+		matches := matchingL4RoutesForListener(
+			routes,
+			apitypes.NamespacedName{Namespace: "media", Name: "edge"},
+			listener,
+			"",
+			tlsRouteKey,
+			func(route gatewayv1.TLSRoute) string { return route.Namespace },
+			func(route gatewayv1.TLSRoute) metav1.Time { return route.CreationTimestamp },
+			func(route gatewayv1.TLSRoute) []gatewayv1.ParentReference { return route.Spec.ParentRefs },
+			func(route gatewayv1.TLSRoute) bool { return route.DeletionTimestamp != nil },
+			tlsRouteParentRefTarget,
+			tlsRouteMatchesListener,
+		)
+
+		require.Len(t, matches, 3)
+		assert.Equal(t, "media/older", matches[0].key)
+		assert.Equal(t, "alpha/tie", matches[1].key)
+		assert.Equal(t, "media/zzz-newer", matches[2].key)
+	})
+
 	t.Run("TCP helpers handle namespaces listeners backend equality and status errors", func(t *testing.T) {
 		routeNamespace := gatewayv1.Namespace("media")
 		port := gatewayv1.PortNumber(1935)
@@ -180,6 +240,60 @@ func TestL4RouteModelHelpers(t *testing.T) {
 		assert.Equal(t, "bad refs",
 			newUDPRouteResolvedRefsStatusError(gatewayv1.RouteReasonInvalidKind, "bad refs").Error())
 	})
+
+	t.Run("TLS helpers handle listeners modes backend equality and status errors", func(t *testing.T) {
+		routeNamespace := gatewayv1.Namespace("media")
+		port := gatewayv1.PortNumber(443)
+		backendRef := gatewayv1.BackendRef{BackendObjectReference: gatewayv1.BackendObjectReference{
+			Namespace: &routeNamespace,
+			Name:      "rtmps",
+			Port:      &port,
+		}}
+		assert.Equal(t, apitypes.NamespacedName{Namespace: "media", Name: "rtmps"},
+			tcpRouteBackendRefName(backendRef, "iot"))
+		assert.Equal(t, apitypes.NamespacedName{Namespace: "media", Name: "edge"},
+			tlsRouteParentRefTarget(gatewayv1.ParentReference{Namespace: &routeNamespace, Name: "edge"}, "iot"))
+		assert.False(t, tlsRouteMatchesListener(gatewayv1.ParentReference{}, gatewayv1.Listener{
+			Protocol: gatewayv1.TCPProtocolType,
+		}))
+		assert.False(t, tlsRouteMatchesListener(
+			gatewayv1.ParentReference{SectionName: lo.ToPtr(gatewayv1.SectionName("other"))},
+			gatewayv1.Listener{Name: "rtmps", Protocol: gatewayv1.TLSProtocolType},
+		))
+		assert.False(t, tlsRouteMatchesListener(
+			gatewayv1.ParentReference{Port: lo.ToPtr(gatewayv1.PortNumber(8443))},
+			gatewayv1.Listener{Name: "rtmps", Protocol: gatewayv1.TLSProtocolType, Port: 443},
+		))
+		assert.True(t, tlsRouteMatchesListener(
+			gatewayv1.ParentReference{SectionName: lo.ToPtr(gatewayv1.SectionName("rtmps"))},
+			gatewayv1.Listener{Name: "rtmps", Protocol: gatewayv1.TLSProtocolType, Port: 443},
+		))
+		mode, ok := tlsRouteMode(gatewayv1.Listener{TLS: &gatewayv1.ListenerTLSConfig{
+			Mode: lo.ToPtr(gatewayv1.TLSModeTerminate),
+		}})
+		require.True(t, ok)
+		assert.Equal(t, gatewayv1.TLSModeTerminate, mode)
+		_, ok = tlsRouteMode(gatewayv1.Listener{})
+		assert.False(t, ok)
+		assert.Equal(t, "rejected", tlsRouteStatusError{message: "rejected"}.Error())
+		assert.Equal(t, "bad refs",
+			newTLSRouteResolvedRefsStatusError(gatewayv1.RouteReasonInvalidKind, "bad refs").Error())
+		assert.True(t, loadBalancerBackendsEqual(
+			[]loadbalancer.Backend{{
+				IpAddress: new("10.0.0.10"),
+				Port:      new(443),
+				Weight:    new(2),
+				Drain:     new(false),
+			}},
+			[]loadbalancer.BackendDetails{{
+				IpAddress: new("10.0.0.10"),
+				Port:      new(443),
+				Weight:    new(2),
+				Drain:     new(false),
+			}},
+		))
+		assert.False(t, loadBalancerBackendsEqual(nil, []loadbalancer.BackendDetails{{}}))
+	})
 }
 
 func TestL4RouteModelSetRejected(t *testing.T) {
@@ -188,6 +302,7 @@ func TestL4RouteModelSetRejected(t *testing.T) {
 	}{
 		"tcp": {routeKind: "tcp"},
 		"udp": {routeKind: "udp"},
+		"tls": {routeKind: "tls"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			mockClient := NewMockk8sClient(t)
@@ -201,6 +316,8 @@ func TestL4RouteModelSetRejected(t *testing.T) {
 						require.Len(t, route.Status.Parents, 1)
 					case *gatewayv1alpha2.UDPRoute:
 						require.Len(t, route.Status.Parents, 1)
+					case *gatewayv1.TLSRoute:
+						require.Len(t, route.Status.Parents, 1)
 					default:
 						t.Fatalf("unexpected status object %T", obj)
 					}
@@ -213,6 +330,21 @@ func TestL4RouteModelSetRejected(t *testing.T) {
 					tcpRoute:   gatewayv1alpha2.TCPRoute{ObjectMeta: metav1.ObjectMeta{Name: "rtmp", Generation: 1}},
 					matchedRef: gatewayv1.ParentReference{Name: "edge"},
 				}, newTCPRouteAcceptedStatusError(gatewayv1.RouteReasonNotAllowedByListeners, "blocked"))
+				require.NoError(t, err)
+				return
+			}
+
+			if tc.routeKind == "tls" {
+				model := newTLSRouteModel(tlsRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
+				err := model.setRejected(t.Context(), resolvedTLSRouteDetails{
+					gatewayDetails: resolvedGatewayDetails{
+						gatewayClass: gatewayv1.GatewayClass{Spec: gatewayv1.GatewayClassSpec{
+							ControllerName: NetworkLoadBalancerControllerClassName,
+						}},
+					},
+					tlsRoute:   gatewayv1.TLSRoute{ObjectMeta: metav1.ObjectMeta{Name: "rtmps", Generation: 1}},
+					matchedRef: gatewayv1.ParentReference{Name: "edge"},
+				}, newTLSRouteAcceptedStatusError(gatewayv1.RouteReasonNotAllowedByListeners, "blocked"))
 				require.NoError(t, err)
 				return
 			}
