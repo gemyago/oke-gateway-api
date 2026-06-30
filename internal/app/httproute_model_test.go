@@ -1514,7 +1514,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
-		t.Run("does not manage backend SSL config when BackendTLSPolicy no longer matches", func(t *testing.T) {
+		t.Run("clears backend SSL config when BackendTLSPolicy no longer matches", func(t *testing.T) {
 			fake := faker.New()
 			ociLBModel := NewMockociLoadBalancerModel(t)
 			config := makeRandomGatewayConfig()
@@ -1533,7 +1533,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 					return params.loadBalancerID == config.Spec.LoadBalancerID &&
 						params.service.Name == service.Name &&
 						params.backendRef.Name == backendRef.Name &&
-						!params.manageSSLConfig &&
+						params.manageSSLConfig &&
 						params.sslConfig == nil
 				})).
 				Return(nil).
@@ -2432,7 +2432,7 @@ func TestResolveL7BackendSSLConfig(t *testing.T) {
 		require.False(t, managed)
 	})
 
-	t.Run("does not manage SSL config when no policy matches", func(t *testing.T) {
+	t.Run("manages nil SSL config when no policy matches", func(t *testing.T) {
 		sslConfig, managed, err := resolveL7BackendSSLConfig(
 			t.Context(),
 			programL7RoutePolicyParams{
@@ -2444,7 +2444,7 @@ func TestResolveL7BackendSSLConfig(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Nil(t, sslConfig)
-		require.False(t, managed)
+		require.True(t, managed)
 	})
 
 	t.Run("returns resolved SSL config", func(t *testing.T) {

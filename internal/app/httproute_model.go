@@ -1015,7 +1015,7 @@ func resolveL7BackendSSLConfig(
 		backendRef: backendRef,
 	})
 	if errors.Is(err, errBackendTLSPolicyNotFound) {
-		return nil, false, nil
+		return nil, true, nil
 	}
 	return sslConfig, true, err
 }
