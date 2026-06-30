@@ -2447,6 +2447,34 @@ func TestResolveL7BackendSSLConfig(t *testing.T) {
 		require.True(t, managed)
 	})
 
+	t.Run("manages nil SSL config when matching policy is invalid", func(t *testing.T) {
+		fake := faker.New()
+		invalidPolicy := gatewayv1.BackendTLSPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "policy-" + fake.Lorem().Word(),
+				Name:      "policy-" + fake.Lorem().Word(),
+			},
+		}
+		sslConfig, managed, err := resolveL7BackendSSLConfig(
+			t.Context(),
+			programL7RoutePolicyParams{
+				backendTLSPolicy: &stubBackendTLSPolicyModel{
+					resolveErr: backendTLSPolicyStatusError{
+						policy:  invalidPolicy,
+						reason:  gatewayv1.BackendTLSPolicyReasonInvalidCACertificateRef,
+						message: "CA certificate reference was not found",
+					},
+				},
+			},
+			service,
+			backendRef,
+		)
+
+		require.NoError(t, err)
+		require.Nil(t, sslConfig)
+		require.True(t, managed)
+	})
+
 	t.Run("returns resolved SSL config", func(t *testing.T) {
 		verifyDepth := 2
 		wantConfig := &loadbalancer.SslConfigurationDetails{VerifyDepth: &verifyDepth}
