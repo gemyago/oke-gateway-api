@@ -367,7 +367,7 @@ func l7AndTLSControllerSetupTasks(
 		},
 		{
 			enabled:     experimentalRoutes.backendTLSPolicyAvailable,
-			disabledLog: "BackendTLSPolicy controller is disabled",
+			disabledLog: "BackendTLSPolicy controller is disabled because the CRD is not installed",
 			setupErr:    "failed to setup BackendTLSPolicy controller: %w",
 			setup: func() error {
 				return builder.ControllerManagedBy(mgr).

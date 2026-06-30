@@ -10,6 +10,7 @@ import (
 	"errors"
 	"math/big"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -372,6 +373,31 @@ func TestBackendTLSPolicyModelValidationAndLifecycle(t *testing.T) {
 	t.Run("returns sentinel when no policy matches backend service", func(t *testing.T) {
 		otherNamespacePolicy := backendTLSPolicy("other", "other-namespace", serviceName, "tls", baseOptions, "ca")
 		model, _ := makeModel(t, newStubCertificatesManagementClient(), &service, &otherNamespacePolicy)
+
+		_, err := model.resolveForBackendRef(t.Context(), resolveParams)
+
+		require.ErrorIs(t, err, errBackendTLSPolicyNotFound)
+	})
+
+	t.Run("lists policies only in backend service namespace", func(t *testing.T) {
+		k8sClient := NewMockk8sClient(t)
+		model := newBackendTLSPolicyModel(backendTLSPolicyModelDeps{
+			RootLogger:                diag.RootTestLogger(),
+			K8sClient:                 k8sClient,
+			OciLoadBalancerClient:     NewMockociLoadBalancerClient(t),
+			OciCertificatesMgmtClient: newStubCertificatesManagementClient(),
+		})
+		k8sClient.EXPECT().
+			List(t.Context(), &gatewayv1.BackendTLSPolicyList{}, mock.Anything).
+			RunAndReturn(func(_ context.Context, list client.ObjectList, opts ...client.ListOption) error {
+				listOptions := &client.ListOptions{}
+				for _, opt := range opts {
+					opt.ApplyToList(listOptions)
+				}
+				assert.Equal(t, namespace, listOptions.Namespace)
+				reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.BackendTLSPolicy{}))
+				return nil
+			})
 
 		_, err := model.resolveForBackendRef(t.Context(), resolveParams)
 
@@ -1591,6 +1617,53 @@ func TestBackendTLSPolicyModelValidationAndLifecycle(t *testing.T) {
 		}, &updated))
 		require.Len(t, updated.Status.Ancestors, 1)
 		require.Equal(t, metav1.ConditionTrue, updated.Status.Ancestors[0].Conditions[0].Status)
+	})
+
+	t.Run("setPolicyCondition skips status update when condition is unchanged", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "unchanged-status", serviceName, "tls", baseOptions, "ca")
+		policy.Generation = 7
+		gatewayNamespace := gatewayv1.Namespace(gateway.Namespace)
+		policy.Status.Ancestors = []gatewayv1.PolicyAncestorStatus{{
+			AncestorRef: gatewayv1.ParentReference{
+				Group:     lo.ToPtr(gatewayv1.Group(gatewayv1.GroupName)),
+				Kind:      lo.ToPtr(gatewayv1.Kind("Gateway")),
+				Namespace: &gatewayNamespace,
+				Name:      gatewayv1.ObjectName(gateway.Name),
+			},
+			ControllerName: gatewayv1.GatewayController(ControllerClassName),
+			Conditions: []metav1.Condition{{
+				Type:               string(gatewayv1.PolicyConditionAccepted),
+				Status:             metav1.ConditionTrue,
+				Reason:             string(gatewayv1.PolicyReasonAccepted),
+				Message:            "accepted",
+				ObservedGeneration: policy.Generation,
+				LastTransitionTime: metav1.Now(),
+			}},
+		}}
+		k8sClient := NewMockk8sClient(t)
+		model := newBackendTLSPolicyModel(backendTLSPolicyModelDeps{
+			RootLogger:                diag.RootTestLogger(),
+			K8sClient:                 k8sClient,
+			OciLoadBalancerClient:     NewMockociLoadBalancerClient(t),
+			OciCertificatesMgmtClient: newStubCertificatesManagementClient(),
+		})
+		k8sClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Namespace: namespace, Name: "unchanged-status"}, mock.Anything).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				*obj.(*gatewayv1.BackendTLSPolicy) = policy
+				return nil
+			})
+
+		err := model.setPolicyCondition(
+			t.Context(),
+			policy,
+			gateway,
+			metav1.ConditionTrue,
+			gatewayv1.PolicyReasonAccepted,
+			"accepted",
+		)
+
+		require.NoError(t, err)
 	})
 
 	t.Run("wraps direct Kubernetes write and lookup errors", func(t *testing.T) {

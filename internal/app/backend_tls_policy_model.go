@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
@@ -166,12 +168,12 @@ func (m *backendTLSPolicyModelImpl) matchingPolicies(
 	backendRef gatewayv1.BackendRef,
 ) ([]backendTLSPolicyCandidate, error) {
 	var policyList gatewayv1.BackendTLSPolicyList
-	if err := m.k8sClient.List(ctx, &policyList); err != nil {
+	if err := m.k8sClient.List(ctx, &policyList, client.InNamespace(service.Namespace)); err != nil {
 		return nil, fmt.Errorf("failed to list BackendTLSPolicies: %w", err)
 	}
 	matches := make([]backendTLSPolicyCandidate, 0)
 	for _, policy := range policyList.Items {
-		if policy.Namespace != service.Namespace || policy.DeletionTimestamp != nil {
+		if policy.DeletionTimestamp != nil {
 			continue
 		}
 		for _, targetRef := range policy.Spec.TargetRefs {
@@ -880,6 +882,7 @@ func (m *backendTLSPolicyModelImpl) setPolicyConditions(
 		Name:      gatewayv1.ObjectName(gateway.Name),
 	}
 	controllerName := gatewayv1.GatewayController(ControllerClassName)
+	originalAncestors := policyToUpdate.DeepCopy().Status.Ancestors
 	ancestorIndex := -1
 	for i := range policyToUpdate.Status.Ancestors {
 		ancestor := policyToUpdate.Status.Ancestors[i]
@@ -899,6 +902,9 @@ func (m *backendTLSPolicyModelImpl) setPolicyConditions(
 		for _, condition := range conditions {
 			meta.SetStatusCondition(&policyToUpdate.Status.Ancestors[ancestorIndex].Conditions, condition)
 		}
+	}
+	if reflect.DeepEqual(originalAncestors, policyToUpdate.Status.Ancestors) {
+		return nil
 	}
 	if err := m.k8sClient.Status().Update(ctx, &policyToUpdate); err != nil {
 		return fmt.Errorf("failed to update BackendTLSPolicy %s/%s status: %w",

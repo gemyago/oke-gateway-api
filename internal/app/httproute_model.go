@@ -929,7 +929,7 @@ func programL7RoutePolicy(
 		if !ok {
 			return nil, fmt.Errorf("resolved backend service %s not found", serviceName)
 		}
-		backendSSLConfig, _, err := resolveL7BackendSSLConfig(ctx, params, service, backendRef)
+		backendSSLConfig, manageSSLConfig, err := resolveL7BackendSSLConfig(ctx, params, service, backendRef)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve BackendTLSPolicy for service %s: %w", key, err)
 		}
@@ -939,7 +939,7 @@ func programL7RoutePolicy(
 			routeNS:         params.routeNamespace,
 			backendRef:      backendRef,
 			sslConfig:       backendSSLConfig,
-			manageSSLConfig: params.backendTLSPolicy != nil,
+			manageSSLConfig: manageSSLConfig,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to reconcile backend set for service %s: %w", key, err)

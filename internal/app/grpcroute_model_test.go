@@ -1093,7 +1093,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		)
 	})
 
-	t.Run("programRoute removes stale backend SSL config when BackendTLSPolicy no longer matches", func(t *testing.T) {
+	t.Run("programRoute leaves backend SSL unmanaged without matching policy", func(t *testing.T) {
 		fake := faker.New()
 		deps := newMockDeps(t)
 		model := newGRPCRouteModel(deps)
@@ -1118,7 +1118,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 				return params.loadBalancerID == config.Spec.LoadBalancerID &&
 					params.service.Name == service.Name &&
 					params.backendRef.Name == backendRef.Name &&
-					params.manageSSLConfig &&
+					!params.manageSSLConfig &&
 					params.sslConfig == nil
 			})).
 			Return(nil).
