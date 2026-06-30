@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/certificatesmanagement"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -653,9 +654,10 @@ func backendTLSCABundleName(
 	targetRef gatewayv1.LocalPolicyTargetReferenceWithSectionName,
 	ref gatewayv1.LocalObjectReference,
 ) string {
-	hashInput := fmt.Sprintf("%s/%s/%s/%s/%s/%s/%s/%s/%s",
+	hashInput := fmt.Sprintf("%s/%s/%s/%s/%s/%s/%s/%s/%s/%s",
 		policy.Namespace,
 		policy.Name,
+		backendTLSPolicyObjectIdentity(policy),
 		targetRef.Group,
 		targetRef.Kind,
 		targetRef.Name,
@@ -665,6 +667,16 @@ func backendTLSCABundleName(
 		ref.Name,
 	)
 	return backendTLSCABundleNamePrefix + sha256Hex(hashInput)[:24]
+}
+
+func backendTLSPolicyObjectIdentity(policy gatewayv1.BackendTLSPolicy) string {
+	if policy.UID != "" {
+		return string(policy.UID)
+	}
+	if !policy.CreationTimestamp.IsZero() {
+		return policy.CreationTimestamp.UTC().Format(time.RFC3339Nano)
+	}
+	return strconv.FormatInt(policy.Generation, 10)
 }
 
 func backendTLSCABundleTags(policy gatewayv1.BackendTLSPolicy, caHash string) map[string]string {

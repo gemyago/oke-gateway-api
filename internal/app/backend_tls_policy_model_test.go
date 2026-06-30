@@ -8,6 +8,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"math/big"
 	"net/http"
 	"reflect"
@@ -43,6 +44,7 @@ type stubCertificatesManagementClient struct {
 	deleteCalls        []certificatesmanagement.DeleteCaBundleRequest
 	getErrByID         map[string]error
 	createErr          error
+	createErrByName    map[string]error
 	createState        certificatesmanagement.CaBundleLifecycleStateEnum
 	listErr            error
 	listEmptyResponses int
@@ -53,8 +55,9 @@ type stubCertificatesManagementClient struct {
 
 func newStubCertificatesManagementClient() *stubCertificatesManagementClient {
 	return &stubCertificatesManagementClient{
-		bundles:    map[string]certificatesmanagement.CaBundleSummary{},
-		getErrByID: map[string]error{},
+		bundles:         map[string]certificatesmanagement.CaBundleSummary{},
+		getErrByID:      map[string]error{},
+		createErrByName: map[string]error{},
 	}
 }
 
@@ -66,9 +69,12 @@ func (s *stubCertificatesManagementClient) CreateCaBundle(
 	if s.createErr != nil {
 		return certificatesmanagement.CreateCaBundleResponse{}, s.createErr
 	}
+	name := lo.FromPtr(request.CreateCaBundleDetails.Name)
+	if err := s.createErrByName[name]; err != nil {
+		return certificatesmanagement.CreateCaBundleResponse{}, err
+	}
 	s.nextID++
 	id := "ocid1.cabundle.oc1..created" + string(rune('a'+s.nextID))
-	name := lo.FromPtr(request.CreateCaBundleDetails.Name)
 	lifecycleState := s.createState
 	if lifecycleState == "" {
 		lifecycleState = certificatesmanagement.CaBundleLifecycleStateActive
@@ -820,6 +826,24 @@ func TestBackendTLSPolicyModelValidationAndLifecycle(t *testing.T) {
 		}), "not ready")
 	})
 
+	t.Run("uses stable BackendTLSPolicy object identity for OCI CA bundle names", func(t *testing.T) {
+		creationTime := metav1.NewTime(time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC))
+
+		assert.Equal(t, "policy-uid", backendTLSPolicyObjectIdentity(gatewayv1.BackendTLSPolicy{
+			ObjectMeta: metav1.ObjectMeta{UID: apitypes.UID("policy-uid"), CreationTimestamp: creationTime},
+		}))
+		assert.Equal(
+			t,
+			creationTime.UTC().Format(time.RFC3339Nano),
+			backendTLSPolicyObjectIdentity(gatewayv1.BackendTLSPolicy{
+				ObjectMeta: metav1.ObjectMeta{CreationTimestamp: creationTime, Generation: 7},
+			}),
+		)
+		assert.Equal(t, "7", backendTLSPolicyObjectIdentity(gatewayv1.BackendTLSPolicy{
+			ObjectMeta: metav1.ObjectMeta{Generation: 7},
+		}))
+	})
+
 	t.Run("reuses owned OCI CA bundle after create already exists conflict", func(t *testing.T) {
 		policy := backendTLSPolicy(namespace, "create-conflict", serviceName, "tls", baseOptions, "ca")
 		targetRef := policy.Spec.TargetRefs[0]
@@ -848,6 +872,35 @@ func TestBackendTLSPolicyModelValidationAndLifecycle(t *testing.T) {
 		assert.Equal(t, bundleID, caID)
 		assert.Len(t, certsClient.createCalls, 1)
 		assert.Empty(t, certsClient.updateCalls)
+	})
+
+	t.Run("creates usable OCI CA bundle when deleted legacy name still conflicts", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "create-conflict-deleted", serviceName, "tls", baseOptions, "ca")
+		targetRef := policy.Spec.TargetRefs[0]
+		ref := policy.Spec.Validation.CACertificateRefs[0]
+		legacyName := legacyBackendTLSCABundleName(policy, targetRef, ref)
+		caPEM := testCAPEM(t)
+		deletedID := "ocid1.cabundle.oc1..deleted"
+		certsClient := newStubCertificatesManagementClient()
+		certsClient.createErrByName[legacyName] = ociapi.NewRandomServiceError(
+			ociapi.RandomServiceErrorWithStatusCode(http.StatusBadRequest),
+			ociapi.RandomServiceErrorWithCode("InvalidParameter"),
+			ociapi.RandomServiceErrorWithMessage("A CA bundle with the name '"+legacyName+"' already exists."),
+		)
+		certsClient.bundles[legacyName] = certificatesmanagement.CaBundleSummary{
+			Id:             &deletedID,
+			Name:           &legacyName,
+			LifecycleState: certificatesmanagement.CaBundleLifecycleStateDeleted,
+			FreeformTags:   backendTLSCABundleTags(policy, sha256Hex(caPEM)),
+		}
+		model, _ := makeModel(t, certsClient)
+
+		caID, err := model.ensureOCIManagedCABundle(t.Context(), policy, targetRef, ref, compartmentID, caPEM)
+
+		require.NoError(t, err)
+		require.NotEmpty(t, caID)
+		require.Len(t, certsClient.createCalls, 1)
+		assert.NotEqual(t, legacyName, lo.FromPtr(certsClient.createCalls[0].CreateCaBundleDetails.Name))
 	})
 
 	t.Run("rejects unowned OCI CA bundle after create already exists conflict", func(t *testing.T) {
@@ -1779,6 +1832,25 @@ func assertBackendTLSPolicyCondition(
 	require.NotNil(t, condition)
 	assert.Equal(t, status, condition.Status)
 	assert.Equal(t, string(reason), condition.Reason)
+}
+
+func legacyBackendTLSCABundleName(
+	policy gatewayv1.BackendTLSPolicy,
+	targetRef gatewayv1.LocalPolicyTargetReferenceWithSectionName,
+	ref gatewayv1.LocalObjectReference,
+) string {
+	hashInput := fmt.Sprintf("%s/%s/%s/%s/%s/%s/%s/%s/%s",
+		policy.Namespace,
+		policy.Name,
+		targetRef.Group,
+		targetRef.Kind,
+		targetRef.Name,
+		lo.FromPtr(targetRef.SectionName),
+		ref.Group,
+		ref.Kind,
+		ref.Name,
+	)
+	return backendTLSCABundleNamePrefix + sha256Hex(hashInput)[:24]
 }
 
 func testCAPEM(t *testing.T) string {
