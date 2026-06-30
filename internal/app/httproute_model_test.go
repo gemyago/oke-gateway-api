@@ -1514,6 +1514,57 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("clears backend SSL config when BackendTLSPolicy no longer matches", func(t *testing.T) {
+			fake := faker.New()
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			config := makeRandomGatewayConfig()
+			service := makeRandomService()
+			backendRef := makeRandomBackendRef(
+				randomBackendRefWithNameOpt(service.Name),
+				randomBackendRefWithNamespaceOpt(service.Namespace),
+			)
+			routeNamespace := "route-" + fake.Lorem().Word()
+			listener := makeRandomListener()
+			rule := makeRandomOCIRoutingRule()
+			serviceKey := types.NamespacedName{Namespace: service.Namespace, Name: service.Name}.String()
+
+			ociLBModel.EXPECT().
+				reconcileBackendSet(t.Context(), mock.MatchedBy(func(params reconcileBackendSetParams) bool {
+					return params.loadBalancerID == config.Spec.LoadBalancerID &&
+						params.service.Name == service.Name &&
+						params.backendRef.Name == backendRef.Name &&
+						params.manageSSLConfig &&
+						params.sslConfig == nil
+				})).
+				Return(nil).
+				Once()
+			ociLBModel.EXPECT().
+				commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+					loadBalancerID: config.Spec.LoadBalancerID,
+					listenerName:   string(listener.Name),
+					policyRules:    []loadbalancer.RoutingRule{rule},
+				}).
+				Return(nil).
+				Once()
+
+			rules, err := programL7RoutePolicy(t.Context(), ociLBModel, programL7RoutePolicyParams{
+				loadBalancerID:   config.Spec.LoadBalancerID,
+				routeName:        "http-" + fake.Lorem().Word(),
+				routeNamespace:   routeNamespace,
+				backendRefs:      []gatewayv1.BackendRef{backendRef.BackendRef},
+				knownBackends:    map[string]corev1.Service{serviceKey: service},
+				matchedListeners: []gatewayv1.Listener{listener},
+				backendTLSPolicy: &stubBackendTLSPolicyModel{resolveErr: errBackendTLSPolicyNotFound},
+				ruleCount:        1,
+				makeRoutingRule: func(int) (loadbalancer.RoutingRule, error) {
+					return rule, nil
+				},
+			})
+
+			require.NoError(t, err)
+			require.Len(t, rules, 1)
+		})
+
 		t.Run("deduplicates backend set reconciliation for the same backend ref", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
@@ -2359,5 +2410,106 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			require.Error(t, err)
 			assert.ErrorIs(t, err, wantErr)
 		})
+	})
+}
+
+func TestResolveL7BackendSSLConfig(t *testing.T) {
+	service := corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "backend"}}
+	backendRef := gatewayv1.BackendRef{BackendObjectReference: gatewayv1.BackendObjectReference{
+		Name: gatewayv1.ObjectName("backend"),
+	}}
+
+	t.Run("does not manage SSL config without BackendTLSPolicy model", func(t *testing.T) {
+		sslConfig, managed, err := resolveL7BackendSSLConfig(
+			t.Context(),
+			programL7RoutePolicyParams{},
+			service,
+			backendRef,
+		)
+
+		require.NoError(t, err)
+		require.Nil(t, sslConfig)
+		require.False(t, managed)
+	})
+
+	t.Run("manages nil SSL config when no policy matches", func(t *testing.T) {
+		sslConfig, managed, err := resolveL7BackendSSLConfig(
+			t.Context(),
+			programL7RoutePolicyParams{
+				backendTLSPolicy: &stubBackendTLSPolicyModel{resolveErr: errBackendTLSPolicyNotFound},
+			},
+			service,
+			backendRef,
+		)
+
+		require.NoError(t, err)
+		require.Nil(t, sslConfig)
+		require.True(t, managed)
+	})
+
+	t.Run("manages nil SSL config when matching policy is invalid", func(t *testing.T) {
+		fake := faker.New()
+		invalidPolicy := gatewayv1.BackendTLSPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "policy-" + fake.Lorem().Word(),
+				Name:      "policy-" + fake.Lorem().Word(),
+			},
+		}
+		sslConfig, managed, err := resolveL7BackendSSLConfig(
+			t.Context(),
+			programL7RoutePolicyParams{
+				backendTLSPolicy: &stubBackendTLSPolicyModel{
+					resolveErr: backendTLSPolicyStatusError{
+						policy:  invalidPolicy,
+						reason:  gatewayv1.BackendTLSPolicyReasonInvalidCACertificateRef,
+						message: "CA certificate reference was not found",
+					},
+				},
+			},
+			service,
+			backendRef,
+		)
+
+		require.NoError(t, err)
+		require.Nil(t, sslConfig)
+		require.True(t, managed)
+	})
+
+	t.Run("returns resolved SSL config", func(t *testing.T) {
+		verifyDepth := 2
+		wantConfig := &loadbalancer.SslConfigurationDetails{VerifyDepth: &verifyDepth}
+		backendTLS := &stubBackendTLSPolicyModel{
+			resolveFunc: func(params resolveBackendTLSPolicyParams) (*loadbalancer.SslConfigurationDetails, error) {
+				require.Equal(t, service.Name, params.service.Name)
+				return wantConfig, nil
+			},
+		}
+		sslConfig, managed, err := resolveL7BackendSSLConfig(
+			t.Context(),
+			programL7RoutePolicyParams{
+				backendTLSPolicy: backendTLS,
+			},
+			service,
+			backendRef,
+		)
+
+		require.NoError(t, err)
+		require.True(t, managed)
+		require.Same(t, wantConfig, sslConfig)
+	})
+
+	t.Run("returns resolution errors", func(t *testing.T) {
+		wantErr := errors.New("policy invalid")
+		_, managed, err := resolveL7BackendSSLConfig(
+			t.Context(),
+			programL7RoutePolicyParams{
+				backendTLSPolicy: &stubBackendTLSPolicyModel{resolveErr: wantErr},
+			},
+			service,
+			backendRef,
+		)
+
+		require.ErrorIs(t, err, wantErr)
+		require.True(t, managed)
 	})
 }

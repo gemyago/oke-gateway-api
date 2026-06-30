@@ -16,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
@@ -2257,5 +2258,150 @@ func TestWatchesModel(t *testing.T) {
 
 			require.Nil(t, model.MapGatewayConfigToGateway(t.Context(), config))
 		})
+	})
+
+	t.Run("BackendTLSPolicy watches", func(t *testing.T) {
+		namespace := "iot"
+		serviceName := "backend"
+		serviceKey := "iot/backend"
+		httpRoute := &gatewayv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "http"}}
+		deletionTime := metav1.Now()
+		deletingHTTPRoute := &gatewayv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{
+			Namespace:         namespace,
+			Name:              "http-deleting",
+			DeletionTimestamp: &deletionTime,
+			Finalizers:        []string{"test-finalizer"},
+		}}
+		grpcRoute := &gatewayv1.GRPCRoute{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "grpc"}}
+		tlsRoute := &gatewayv1.TLSRoute{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "tls"}}
+		policy := &gatewayv1.BackendTLSPolicy{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "backend-tls"},
+			Spec: gatewayv1.BackendTLSPolicySpec{
+				TargetRefs: []gatewayv1.LocalPolicyTargetReferenceWithSectionName{{
+					LocalPolicyTargetReference: gatewayv1.LocalPolicyTargetReference{
+						Group: "",
+						Kind:  "Service",
+						Name:  gatewayv1.ObjectName(serviceName),
+					},
+				}},
+				Validation: gatewayv1.BackendTLSPolicyValidation{
+					CACertificateRefs: []gatewayv1.LocalObjectReference{{
+						Group: "",
+						Kind:  "ConfigMap",
+						Name:  "ca",
+					}},
+				},
+			},
+		}
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithObjects(httpRoute, deletingHTTPRoute, grpcRoute, tlsRoute, policy).
+			WithIndex(&gatewayv1.HTTPRoute{}, httpRouteBackendServiceIndexKey, func(_ client.Object) []string {
+				return []string{serviceKey}
+			}).
+			WithIndex(&gatewayv1.GRPCRoute{}, grpcRouteBackendServiceIndexKey, func(_ client.Object) []string {
+				return []string{serviceKey}
+			}).
+			WithIndex(&gatewayv1.TLSRoute{}, tlsRouteBackendServiceIndexKey, func(_ client.Object) []string {
+				return []string{serviceKey}
+			}).
+			Build()
+		model := NewWatchesModel(WatchesModelDeps{
+			K8sClient: k8sClient,
+			Logger:    diag.RootTestLogger(),
+		})
+
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: "http"},
+		}}, model.MapBackendTLSPolicyToHTTPRoute(t.Context(), policy))
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: "grpc"},
+		}}, model.MapBackendTLSPolicyToGRPCRoute(t.Context(), policy))
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: "tls"},
+		}}, model.MapBackendTLSPolicyToTLSRoute(t.Context(), policy))
+
+		configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "ca"}}
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: "http"},
+		}}, model.MapConfigMapToHTTPRoute(t.Context(), configMap))
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: "grpc"},
+		}}, model.MapConfigMapToGRPCRoute(t.Context(), configMap))
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: "tls"},
+		}}, model.MapConfigMapToTLSRoute(t.Context(), configMap))
+
+		service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: serviceName}}
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: "http"},
+		}}, model.MapServiceToHTTPRoute(t.Context(), service))
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: "grpc"},
+		}}, model.MapServiceToGRPCRoute(t.Context(), service))
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: "tls"},
+		}}, model.MapServiceToTLSRoute(t.Context(), service))
+
+		require.Nil(t, model.MapBackendTLSPolicyToHTTPRoute(t.Context(), &corev1.Service{}))
+		require.Nil(t, model.MapConfigMapToHTTPRoute(t.Context(), &corev1.Service{}))
+		require.Nil(t, model.MapServiceToHTTPRoute(t.Context(), &corev1.ConfigMap{}))
+		require.False(t, backendTLSPolicyReferencesConfigMap(*policy, "other"))
+		require.Nil(t, objectListItems(&corev1.ServiceList{}))
+	})
+
+	t.Run("BackendTLSPolicy watch error and skip paths", func(t *testing.T) {
+		deps := makeMockDeps(t)
+		model := NewWatchesModel(deps)
+		mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+		policy := &gatewayv1.BackendTLSPolicy{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "backend-tls"},
+			Spec: gatewayv1.BackendTLSPolicySpec{
+				TargetRefs: []gatewayv1.LocalPolicyTargetReferenceWithSectionName{
+					{LocalPolicyTargetReference: gatewayv1.LocalPolicyTargetReference{
+						Group: "apps",
+						Kind:  "Deployment",
+						Name:  "ignored",
+					}},
+					{LocalPolicyTargetReference: gatewayv1.LocalPolicyTargetReference{
+						Group: "",
+						Kind:  "Service",
+						Name:  "backend",
+					}},
+				},
+				Validation: gatewayv1.BackendTLSPolicyValidation{
+					CACertificateRefs: []gatewayv1.LocalObjectReference{{
+						Group: "",
+						Kind:  "ConfigMap",
+						Name:  "ca",
+					}},
+				},
+			},
+		}
+		mockK8sClient.EXPECT().
+			List(t.Context(), &gatewayv1.HTTPRouteList{}, client.MatchingFields{
+				httpRouteBackendServiceIndexKey: "iot/backend",
+			}).
+			Return(errors.New("route list failed"))
+
+		require.Nil(t, model.MapBackendTLSPolicyToHTTPRoute(t.Context(), policy))
+
+		mockK8sClient.EXPECT().
+			List(t.Context(), &gatewayv1.BackendTLSPolicyList{}, client.InNamespace("iot")).
+			Return(errors.New("policy list failed"))
+
+		require.Nil(t, model.MapConfigMapToHTTPRoute(
+			t.Context(),
+			&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "ca"}},
+		))
+
+		mockK8sClient.EXPECT().
+			List(t.Context(), &gatewayv1.HTTPRouteList{},
+				client.MatchingFields{httpRouteBackendServiceIndexKey: "iot/backend"}).
+			Return(errors.New("route list failed"))
+		require.Nil(t, model.MapServiceToHTTPRoute(
+			t.Context(),
+			&corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "backend"}},
+		))
 	})
 }

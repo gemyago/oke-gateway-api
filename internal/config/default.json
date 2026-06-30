@@ -29,6 +29,7 @@
     "reconcileUDPRoute": true,
     "reconcileTLSRoute": true,
     "reconcileHTTPRoute": true,
-    "reconcileGRPCRoute": true
+    "reconcileGRPCRoute": true,
+    "reconcileBackendTLSPolicy": true
   }
 }

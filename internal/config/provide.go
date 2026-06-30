@@ -74,5 +74,6 @@ func Provide(container *dig.Container, cfg *viper.Viper) error {
 		provideConfigValue(cfg, "features.reconcileTLSRoute").asBool(),
 		provideConfigValue(cfg, "features.reconcileHTTPRoute").asBool(),
 		provideConfigValue(cfg, "features.reconcileGRPCRoute").asBool(),
+		provideConfigValue(cfg, "features.reconcileBackendTLSPolicy").asBool(),
 	)
 }

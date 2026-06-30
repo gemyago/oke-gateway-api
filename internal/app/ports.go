@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 
+	"github.com/oracle/oci-go-sdk/v65/certificatesmanagement"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -85,6 +86,23 @@ type noopWorkRequestsWatcher struct{}
 
 func (noopWorkRequestsWatcher) WaitFor(context.Context, string) error {
 	return nil
+}
+
+type ociCertificatesManagementClient interface {
+	CreateCaBundle(ctx context.Context, request certificatesmanagement.CreateCaBundleRequest) (
+		response certificatesmanagement.CreateCaBundleResponse, err error)
+
+	GetCaBundle(ctx context.Context, request certificatesmanagement.GetCaBundleRequest) (
+		response certificatesmanagement.GetCaBundleResponse, err error)
+
+	ListCaBundles(ctx context.Context, request certificatesmanagement.ListCaBundlesRequest) (
+		response certificatesmanagement.ListCaBundlesResponse, err error)
+
+	UpdateCaBundle(ctx context.Context, request certificatesmanagement.UpdateCaBundleRequest) (
+		response certificatesmanagement.UpdateCaBundleResponse, err error)
+
+	DeleteCaBundle(ctx context.Context, request certificatesmanagement.DeleteCaBundleRequest) (
+		response certificatesmanagement.DeleteCaBundleResponse, err error)
 }
 
 // ociNetworkLoadBalancerClient defines the interface for OCI Network Load Balancer operations.
