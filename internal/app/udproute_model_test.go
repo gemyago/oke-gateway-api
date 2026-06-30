@@ -19,7 +19,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
@@ -48,9 +47,9 @@ func TestUDPRouteModel(t *testing.T) {
 	t.Run("desired backend sets ignore non gateway parent refs", func(t *testing.T) {
 		otherGroup := gatewayv1.Group("example.com")
 		details := resolvedUDPRouteDetails{
-			udpRoute: gatewayv1alpha2.UDPRoute{
+			udpRoute: gatewayv1.UDPRoute{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "coap"},
-				Spec: gatewayv1alpha2.UDPRouteSpec{
+				Spec: gatewayv1.UDPRouteSpec{
 					CommonRouteSpec: gatewayv1.CommonRouteSpec{
 						ParentRefs: []gatewayv1.ParentReference{
 							{Group: &otherGroup, Name: "edge"},
@@ -75,7 +74,7 @@ func TestUDPRouteModel(t *testing.T) {
 	})
 
 	t.Run("resolveRequest wraps Kubernetes read errors", func(t *testing.T) {
-		route := gatewayv1alpha2.UDPRoute{
+		route := gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "iot",
 				Name:      "coap",
@@ -83,7 +82,7 @@ func TestUDPRouteModel(t *testing.T) {
 					NetworkLoadBalancerUDPRouteHealthCheckPortAnnotation: "5684",
 				},
 			},
-			Spec: gatewayv1alpha2.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+			Spec: gatewayv1.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
 				ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
 			}},
 		}
@@ -97,7 +96,7 @@ func TestUDPRouteModel(t *testing.T) {
 						Get(
 							t.Context(),
 							apitypes.NamespacedName{Namespace: "iot", Name: "coap"},
-							mock.AnythingOfType("*v1alpha2.UDPRoute"),
+							mock.AnythingOfType("*v1.UDPRoute"),
 						).
 						Return(errors.New("route failed"))
 				},
@@ -109,7 +108,7 @@ func TestUDPRouteModel(t *testing.T) {
 						Get(
 							t.Context(),
 							apitypes.NamespacedName{Namespace: "iot", Name: "coap"},
-							mock.AnythingOfType("*v1alpha2.UDPRoute"),
+							mock.AnythingOfType("*v1.UDPRoute"),
 						).
 						RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
 							*(mustUDPRoute(t, obj)) = route
@@ -127,7 +126,7 @@ func TestUDPRouteModel(t *testing.T) {
 						Get(
 							t.Context(),
 							apitypes.NamespacedName{Namespace: "iot", Name: "coap"},
-							mock.AnythingOfType("*v1alpha2.UDPRoute"),
+							mock.AnythingOfType("*v1.UDPRoute"),
 						).
 						RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
 							*(mustUDPRoute(t, obj)) = route
@@ -154,7 +153,7 @@ func TestUDPRouteModel(t *testing.T) {
 						Get(
 							t.Context(),
 							apitypes.NamespacedName{Namespace: "iot", Name: "coap"},
-							mock.AnythingOfType("*v1alpha2.UDPRoute"),
+							mock.AnythingOfType("*v1.UDPRoute"),
 						).
 						RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
 							*(mustUDPRoute(t, obj)) = route
@@ -206,15 +205,15 @@ func TestUDPRouteModel(t *testing.T) {
 	})
 
 	t.Run("resolveRequest returns status update errors for unmatched listener", func(t *testing.T) {
-		route := gatewayv1alpha2.UDPRoute{
+		route := gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "coap"},
-			Spec: gatewayv1alpha2.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+			Spec: gatewayv1.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
 				ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
 			}},
 		}
 		mockClient := NewMockk8sClient(t)
 		mockClient.EXPECT().
-			Get(t.Context(), apitypes.NamespacedName{Namespace: "iot", Name: "coap"}, mock.AnythingOfType("*v1alpha2.UDPRoute")).
+			Get(t.Context(), apitypes.NamespacedName{Namespace: "iot", Name: "coap"}, mock.AnythingOfType("*v1.UDPRoute")).
 			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
 				*(mustUDPRoute(t, obj)) = route
 				return nil
@@ -252,7 +251,7 @@ func TestUDPRouteModel(t *testing.T) {
 		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
 		mockClient.EXPECT().Status().Return(mockStatusWriter)
 		mockStatusWriter.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.UDPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute")).
 			Return(errors.New("status failed"))
 		model := newUDPRouteModel(udpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
 
@@ -266,7 +265,7 @@ func TestUDPRouteModel(t *testing.T) {
 	t.Run("resolveRequest removes finalizer from deleting route with no resolved parent", func(t *testing.T) {
 		now := metav1.Now()
 		otherGroup := gatewayv1.Group("example.com")
-		route := gatewayv1alpha2.UDPRoute{
+		route := gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:         "iot",
 				Name:              "coap",
@@ -276,19 +275,19 @@ func TestUDPRouteModel(t *testing.T) {
 					NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation: "bs_coap",
 				},
 			},
-			Spec: gatewayv1alpha2.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+			Spec: gatewayv1.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
 				ParentRefs: []gatewayv1.ParentReference{{Group: &otherGroup, Name: "edge"}},
 			}},
 		}
 		mockClient := NewMockk8sClient(t)
 		mockClient.EXPECT().
-			Get(t.Context(), apitypes.NamespacedName{Namespace: "iot", Name: "coap"}, mock.AnythingOfType("*v1alpha2.UDPRoute")).
+			Get(t.Context(), apitypes.NamespacedName{Namespace: "iot", Name: "coap"}, mock.AnythingOfType("*v1.UDPRoute")).
 			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
 				*(mustUDPRoute(t, obj)) = route
 				return nil
 			})
 		mockClient.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.UDPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute")).
 			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.UpdateOption) error {
 				updated := mustUDPRoute(t, obj)
 				assert.NotContains(t, updated.Finalizers, NetworkLoadBalancerUDPRouteProgrammedFinalizer)
@@ -306,13 +305,13 @@ func TestUDPRouteModel(t *testing.T) {
 	})
 
 	t.Run("programRoute rejects route when listener is already owned", func(t *testing.T) {
-		currentRoute := gatewayv1alpha2.UDPRoute{
+		currentRoute := gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "z-route",
 				Generation: 1,
 			},
-			Spec: gatewayv1alpha2.UDPRouteSpec{
+			Spec: gatewayv1.UDPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{
 						{
@@ -328,10 +327,10 @@ func TestUDPRouteModel(t *testing.T) {
 
 		mockClient := NewMockk8sClient(t)
 		mockClient.EXPECT().
-			List(t.Context(), mock.AnythingOfType("*v1alpha2.UDPRouteList")).
+			List(t.Context(), mock.AnythingOfType("*v1.UDPRouteList")).
 			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1alpha2.UDPRouteList{
-					Items: []gatewayv1alpha2.UDPRoute{currentRoute, otherRoute},
+				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1.UDPRouteList{
+					Items: []gatewayv1.UDPRoute{currentRoute, otherRoute},
 				}))
 				return nil
 			})
@@ -367,7 +366,7 @@ func TestUDPRouteModel(t *testing.T) {
 	t.Run("listener ownership helpers return list errors", func(t *testing.T) {
 		mockClient := NewMockk8sClient(t)
 		mockClient.EXPECT().
-			List(t.Context(), mock.AnythingOfType("*v1alpha2.UDPRouteList")).
+			List(t.Context(), mock.AnythingOfType("*v1.UDPRouteList")).
 			Return(errors.New("list failed")).
 			Twice()
 		model := newUDPRouteModel(udpRouteModelDeps{
@@ -384,23 +383,23 @@ func TestUDPRouteModel(t *testing.T) {
 
 	t.Run("listener ownership ignores non matching parent refs", func(t *testing.T) {
 		serviceKind := gatewayv1.Kind("Service")
-		routes := gatewayv1alpha2.UDPRouteList{Items: []gatewayv1alpha2.UDPRoute{
+		routes := gatewayv1.UDPRouteList{Items: []gatewayv1.UDPRoute{
 			{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "service-parent"},
-				Spec: gatewayv1alpha2.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+				Spec: gatewayv1.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{{Kind: &serviceKind, Name: "backend"}},
 				}},
 			},
 			{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "other-gateway"},
-				Spec: gatewayv1alpha2.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+				Spec: gatewayv1.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{{Name: "other"}},
 				}},
 			},
 		}}
 		mockClient := NewMockk8sClient(t)
 		mockClient.EXPECT().
-			List(t.Context(), mock.AnythingOfType("*v1alpha2.UDPRouteList")).
+			List(t.Context(), mock.AnythingOfType("*v1.UDPRouteList")).
 			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(routes))
 				return nil
@@ -411,20 +410,20 @@ func TestUDPRouteModel(t *testing.T) {
 			gatewayDetails: resolvedGatewayDetails{
 				gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "edge"}},
 			},
-			udpRoute:        gatewayv1alpha2.UDPRoute{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "coap"}},
+			udpRoute:        gatewayv1.UDPRoute{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "coap"}},
 			matchedListener: gatewayv1.Listener{Name: "coap", Protocol: gatewayv1.UDPProtocolType, Port: 5684},
 		})
 		require.NoError(t, err)
 	})
 
 	t.Run("deprovisionRoute clears backend set and removes finalizer when no successor exists", func(t *testing.T) {
-		currentRoute := gatewayv1alpha2.UDPRoute{
+		currentRoute := gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "coap",
 				Finalizers: []string{NetworkLoadBalancerUDPRouteProgrammedFinalizer},
 			},
-			Spec: gatewayv1alpha2.UDPRouteSpec{
+			Spec: gatewayv1.UDPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
 				},
@@ -433,15 +432,15 @@ func TestUDPRouteModel(t *testing.T) {
 
 		mockClient := NewMockk8sClient(t)
 		mockClient.EXPECT().
-			List(t.Context(), mock.AnythingOfType("*v1alpha2.UDPRouteList")).
+			List(t.Context(), mock.AnythingOfType("*v1.UDPRouteList")).
 			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1alpha2.UDPRouteList{
-					Items: []gatewayv1alpha2.UDPRoute{currentRoute},
+				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1.UDPRouteList{
+					Items: []gatewayv1.UDPRoute{currentRoute},
 				}))
 				return nil
 			})
 		mockClient.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.UDPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute")).
 			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.UpdateOption) error {
 				assert.NotContains(t, obj.GetFinalizers(), NetworkLoadBalancerUDPRouteProgrammedFinalizer)
 				assert.NotContains(t, obj.GetAnnotations(), NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation)
@@ -493,10 +492,10 @@ func TestUDPRouteModel(t *testing.T) {
 			K8sClient:  fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).Build(),
 		})
 		modelImpl := mustUDPRouteModelImpl(t, model)
-		_, err := modelImpl.endpointBackendsForRoute(t.Context(), gatewayv1alpha2.UDPRoute{
+		_, err := modelImpl.endpointBackendsForRoute(t.Context(), gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "coap"},
-			Spec: gatewayv1alpha2.UDPRouteSpec{
-				Rules: []gatewayv1alpha2.UDPRouteRule{
+			Spec: gatewayv1.UDPRouteSpec{
+				Rules: []gatewayv1.UDPRouteRule{
 					{
 						BackendRefs: []gatewayv1.BackendRef{
 							{BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend"}},
@@ -510,10 +509,10 @@ func TestUDPRouteModel(t *testing.T) {
 		assert.Equal(t, gatewayv1.RouteReasonInvalidKind, statusErr.reason)
 
 		backendNamespace := gatewayv1.Namespace("other")
-		_, err = modelImpl.endpointBackendsForRoute(t.Context(), gatewayv1alpha2.UDPRoute{
+		_, err = modelImpl.endpointBackendsForRoute(t.Context(), gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "coap"},
-			Spec: gatewayv1alpha2.UDPRouteSpec{
-				Rules: []gatewayv1alpha2.UDPRouteRule{{
+			Spec: gatewayv1.UDPRouteSpec{
+				Rules: []gatewayv1.UDPRouteRule{{
 					BackendRefs: []gatewayv1.BackendRef{{
 						BackendObjectReference: gatewayv1.BackendObjectReference{
 							Namespace: &backendNamespace,
@@ -542,10 +541,10 @@ func TestUDPRouteModel(t *testing.T) {
 			Return(errors.New("list failed"))
 		model = newUDPRouteModel(udpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
 		modelImpl = mustUDPRouteModelImpl(t, model)
-		_, err = modelImpl.endpointBackendsForRoute(t.Context(), gatewayv1alpha2.UDPRoute{
+		_, err = modelImpl.endpointBackendsForRoute(t.Context(), gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "coap"},
-			Spec: gatewayv1alpha2.UDPRouteSpec{
-				Rules: []gatewayv1alpha2.UDPRouteRule{{
+			Spec: gatewayv1.UDPRouteSpec{
+				Rules: []gatewayv1.UDPRouteRule{{
 					BackendRefs: []gatewayv1.BackendRef{{
 						BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
 					}},
@@ -560,10 +559,10 @@ func TestUDPRouteModel(t *testing.T) {
 			Return(errors.New("get failed"))
 		model = newUDPRouteModel(udpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
 		modelImpl = mustUDPRouteModelImpl(t, model)
-		_, err = modelImpl.endpointBackendsForRoute(t.Context(), gatewayv1alpha2.UDPRoute{
+		_, err = modelImpl.endpointBackendsForRoute(t.Context(), gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "coap"},
-			Spec: gatewayv1alpha2.UDPRouteSpec{
-				Rules: []gatewayv1alpha2.UDPRouteRule{{
+			Spec: gatewayv1.UDPRouteSpec{
+				Rules: []gatewayv1.UDPRouteRule{{
 					BackendRefs: []gatewayv1.BackendRef{{
 						BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
 					}},
@@ -574,13 +573,13 @@ func TestUDPRouteModel(t *testing.T) {
 	})
 
 	t.Run("setProgrammed adds finalizer and backend set annotation", func(t *testing.T) {
-		route := gatewayv1alpha2.UDPRoute{
+		route := gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "coap",
 				Generation: 1,
 			},
-			Spec: gatewayv1alpha2.UDPRouteSpec{
+			Spec: gatewayv1.UDPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{
 						{Name: "edge", SectionName: lo.ToPtr(gatewayv1.SectionName("coap"))},
@@ -593,10 +592,10 @@ func TestUDPRouteModel(t *testing.T) {
 		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
 		mockClient.EXPECT().Status().Return(mockStatusWriter)
 		mockStatusWriter.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.UDPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute")).
 			Return(nil)
 		mockClient.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.UDPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute")).
 			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.UpdateOption) error {
 				assert.Contains(t, obj.GetFinalizers(), NetworkLoadBalancerUDPRouteProgrammedFinalizer)
 				assert.Equal(
@@ -638,7 +637,7 @@ func TestUDPRouteModel(t *testing.T) {
 	})
 
 	t.Run("setProgrammed updates existing parent status and wraps errors", func(t *testing.T) {
-		route := gatewayv1alpha2.UDPRoute{
+		route := gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "coap",
@@ -648,7 +647,7 @@ func TestUDPRouteModel(t *testing.T) {
 					NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation: "bs_coap",
 				},
 			},
-			Status: gatewayv1alpha2.UDPRouteStatus{
+			Status: gatewayv1.UDPRouteStatus{
 				RouteStatus: gatewayv1.RouteStatus{
 					Parents: []gatewayv1.RouteParentStatus{{
 						ParentRef:      gatewayv1.ParentReference{Name: "edge"},
@@ -675,7 +674,7 @@ func TestUDPRouteModel(t *testing.T) {
 		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
 		mockClient.EXPECT().Status().Return(mockStatusWriter)
 		mockStatusWriter.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.UDPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute")).
 			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.SubResourceUpdateOption) error {
 				updated := mustUDPRoute(t, obj)
 				require.Len(t, updated.Status.Parents, 1)
@@ -687,7 +686,7 @@ func TestUDPRouteModel(t *testing.T) {
 
 		mockClient = NewMockk8sClient(t)
 		mockClient.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.UDPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute")).
 			Return(errors.New("update failed"))
 		model = newUDPRouteModel(udpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
 		details.udpRoute.Finalizers = nil
@@ -699,7 +698,7 @@ func TestUDPRouteModel(t *testing.T) {
 		mockStatusWriter = k8sapi.NewMockSubResourceWriter(t)
 		mockClient.EXPECT().Status().Return(mockStatusWriter)
 		mockStatusWriter.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.UDPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute")).
 			Return(errors.New("status failed"))
 		model = newUDPRouteModel(udpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
 		details.udpRoute = route
@@ -708,7 +707,7 @@ func TestUDPRouteModel(t *testing.T) {
 	})
 
 	t.Run("deprovisionDetachedRoute clears annotated backend set and removes finalizer", func(t *testing.T) {
-		route := gatewayv1alpha2.UDPRoute{
+		route := gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "coap",
@@ -717,7 +716,7 @@ func TestUDPRouteModel(t *testing.T) {
 					NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation: "bs_old",
 				},
 			},
-			Status: gatewayv1alpha2.UDPRouteStatus{
+			Status: gatewayv1.UDPRouteStatus{
 				RouteStatus: gatewayv1.RouteStatus{
 					Parents: []gatewayv1.RouteParentStatus{
 						{
@@ -756,7 +755,7 @@ func TestUDPRouteModel(t *testing.T) {
 				return nil
 			})
 		mockClient.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.UDPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute")).
 			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.UpdateOption) error {
 				assert.NotContains(t, obj.GetFinalizers(), NetworkLoadBalancerUDPRouteProgrammedFinalizer)
 				assert.NotContains(t, obj.GetAnnotations(), NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation)
@@ -805,7 +804,7 @@ func TestUDPRouteModel(t *testing.T) {
 	})
 
 	t.Run("deprovisionDetachedRoute removes finalizer when no backend sets are annotated", func(t *testing.T) {
-		route := gatewayv1alpha2.UDPRoute{
+		route := gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "coap",
@@ -814,7 +813,7 @@ func TestUDPRouteModel(t *testing.T) {
 		}
 		mockClient := NewMockk8sClient(t)
 		mockClient.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.UDPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute")).
 			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.UpdateOption) error {
 				assert.NotContains(t, obj.GetFinalizers(), NetworkLoadBalancerUDPRouteProgrammedFinalizer)
 				return nil
@@ -832,7 +831,7 @@ func TestUDPRouteModel(t *testing.T) {
 
 	t.Run("deprovisionDetachedRoute returns finalizer update error "+
 		"when no backend sets are annotated", func(t *testing.T) {
-		route := gatewayv1alpha2.UDPRoute{
+		route := gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "coap",
@@ -840,7 +839,7 @@ func TestUDPRouteModel(t *testing.T) {
 			},
 		}
 		mockClient := NewMockk8sClient(t)
-		mockClient.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1alpha2.UDPRoute")).
+		mockClient.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute")).
 			Return(errors.New("update failed"))
 		model := newUDPRouteModel(udpRouteModelDeps{
 			RootLogger: diag.RootTestLogger(),
@@ -854,7 +853,7 @@ func TestUDPRouteModel(t *testing.T) {
 	})
 
 	t.Run("deprovisionDetachedRoute returns cleanup and update errors", func(t *testing.T) {
-		route := gatewayv1alpha2.UDPRoute{
+		route := gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "coap",
@@ -863,7 +862,7 @@ func TestUDPRouteModel(t *testing.T) {
 					NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation: "bs_old",
 				},
 			},
-			Status: gatewayv1alpha2.UDPRouteStatus{
+			Status: gatewayv1.UDPRouteStatus{
 				RouteStatus: gatewayv1.RouteStatus{
 					Parents: []gatewayv1.RouteParentStatus{{
 						ParentRef:      gatewayv1.ParentReference{Name: "edge"},
@@ -928,7 +927,7 @@ func TestUDPRouteModel(t *testing.T) {
 				return nil
 			})
 		mockClient.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.UDPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute")).
 			Return(errors.New("update failed"))
 		model = newUDPRouteModel(udpRouteModelDeps{
 			RootLogger: diag.RootTestLogger(),
@@ -947,7 +946,7 @@ func TestUDPRouteModel(t *testing.T) {
 	})
 
 	t.Run("deprovisionDetachedRoute returns gateway read errors", func(t *testing.T) {
-		route := gatewayv1alpha2.UDPRoute{
+		route := gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "coap",
@@ -956,7 +955,7 @@ func TestUDPRouteModel(t *testing.T) {
 					NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation: "bs_old",
 				},
 			},
-			Status: gatewayv1alpha2.UDPRouteStatus{
+			Status: gatewayv1.UDPRouteStatus{
 				RouteStatus: gatewayv1.RouteStatus{
 					Parents: []gatewayv1.RouteParentStatus{{
 						ParentRef:      gatewayv1.ParentReference{Name: "edge"},
@@ -1049,14 +1048,14 @@ func TestUDPRouteModel(t *testing.T) {
 		port := gatewayv1.PortNumber(5684)
 		listener := gatewayv1.Listener{Name: "coap", Protocol: gatewayv1.UDPProtocolType, Port: port}
 		now := metav1.Now()
-		currentRoute := &gatewayv1alpha2.UDPRoute{
+		currentRoute := &gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:         "iot",
 				Name:              "coap-old",
 				Finalizers:        []string{NetworkLoadBalancerUDPRouteProgrammedFinalizer},
 				DeletionTimestamp: &now,
 			},
-			Spec: gatewayv1alpha2.UDPRouteSpec{
+			Spec: gatewayv1.UDPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{
 						{Name: "edge", SectionName: lo.ToPtr(gatewayv1.SectionName("coap"))},
@@ -1064,7 +1063,7 @@ func TestUDPRouteModel(t *testing.T) {
 				},
 			},
 		}
-		nextRoute := &gatewayv1alpha2.UDPRoute{
+		nextRoute := &gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "coap-new",
@@ -1073,13 +1072,13 @@ func TestUDPRouteModel(t *testing.T) {
 					NetworkLoadBalancerUDPRouteHealthCheckPortAnnotation: "5684",
 				},
 			},
-			Spec: gatewayv1alpha2.UDPRouteSpec{
+			Spec: gatewayv1.UDPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{
 						{Name: "edge", SectionName: lo.ToPtr(gatewayv1.SectionName("coap"))},
 					},
 				},
-				Rules: []gatewayv1alpha2.UDPRouteRule{{
+				Rules: []gatewayv1.UDPRouteRule{{
 					BackendRefs: []gatewayv1.BackendRef{{
 						BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
 					}},
@@ -1091,7 +1090,7 @@ func TestUDPRouteModel(t *testing.T) {
 		k8sClient := fake.NewClientBuilder().
 			WithScheme(newL4TestScheme(t)).
 			WithRuntimeObjects(objects...).
-			WithStatusSubresource(&gatewayv1alpha2.UDPRoute{}).
+			WithStatusSubresource(&gatewayv1.UDPRoute{}).
 			Build()
 		nlbClient := &stubNetworkLoadBalancerClient{}
 		model := newUDPRouteModel(udpRouteModelDeps{
@@ -1121,7 +1120,7 @@ func TestUDPRouteModel(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, nlbClient.updateBackendSetRequests, 1)
-		var updatedNext gatewayv1alpha2.UDPRoute
+		var updatedNext gatewayv1.UDPRoute
 		require.NoError(t, k8sClient.Get(
 			t.Context(),
 			apitypes.NamespacedName{Namespace: "iot", Name: "coap-new"},
@@ -1133,7 +1132,7 @@ func TestUDPRouteModel(t *testing.T) {
 
 	t.Run("deprovisionRoute wraps list update and next route errors", func(t *testing.T) {
 		listener := gatewayv1.Listener{Name: "coap", Protocol: gatewayv1.UDPProtocolType, Port: 5684}
-		currentRoute := gatewayv1alpha2.UDPRoute{
+		currentRoute := gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "coap-old",
@@ -1150,7 +1149,7 @@ func TestUDPRouteModel(t *testing.T) {
 
 		mockClient := NewMockk8sClient(t)
 		mockClient.EXPECT().
-			List(t.Context(), mock.AnythingOfType("*v1alpha2.UDPRouteList")).
+			List(t.Context(), mock.AnythingOfType("*v1.UDPRouteList")).
 			Return(errors.New("list failed"))
 		model := newUDPRouteModel(udpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
 		err := model.deprovisionRoute(t.Context(), details)
@@ -1158,15 +1157,15 @@ func TestUDPRouteModel(t *testing.T) {
 
 		mockClient = NewMockk8sClient(t)
 		mockClient.EXPECT().
-			List(t.Context(), mock.AnythingOfType("*v1alpha2.UDPRouteList")).
+			List(t.Context(), mock.AnythingOfType("*v1.UDPRouteList")).
 			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1alpha2.UDPRouteList{
-					Items: []gatewayv1alpha2.UDPRoute{currentRoute},
+				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1.UDPRouteList{
+					Items: []gatewayv1.UDPRoute{currentRoute},
 				}))
 				return nil
 			})
 		mockClient.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.UDPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute")).
 			Return(errors.New("update failed"))
 		model = newUDPRouteModel(udpRouteModelDeps{
 			RootLogger: diag.RootTestLogger(),
@@ -1183,13 +1182,13 @@ func TestUDPRouteModel(t *testing.T) {
 		now := metav1.Now()
 		deletingRoute := currentRoute
 		deletingRoute.DeletionTimestamp = &now
-		nextRoute := &gatewayv1alpha2.UDPRoute{
+		nextRoute := &gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "coap-new"},
-			Spec: gatewayv1alpha2.UDPRouteSpec{
+			Spec: gatewayv1.UDPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
 				},
-				Rules: []gatewayv1alpha2.UDPRouteRule{
+				Rules: []gatewayv1.UDPRouteRule{
 					{
 						BackendRefs: []gatewayv1.BackendRef{
 							{BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend"}},
@@ -1223,7 +1222,7 @@ func TestUDPRouteModel(t *testing.T) {
 
 	t.Run("programRoute returns update and wait errors", func(t *testing.T) {
 		port := gatewayv1.PortNumber(5684)
-		route := gatewayv1alpha2.UDPRoute{
+		route := gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "iot",
 				Name:      "coap",
@@ -1231,11 +1230,11 @@ func TestUDPRouteModel(t *testing.T) {
 					NetworkLoadBalancerUDPRouteHealthCheckPortAnnotation: "5684",
 				},
 			},
-			Spec: gatewayv1alpha2.UDPRouteSpec{
+			Spec: gatewayv1.UDPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
 				},
-				Rules: []gatewayv1alpha2.UDPRouteRule{{
+				Rules: []gatewayv1.UDPRouteRule{{
 					BackendRefs: []gatewayv1.BackendRef{{
 						BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
 					}},
@@ -1307,7 +1306,7 @@ func TestUDPRouteModel(t *testing.T) {
 
 	t.Run("programRoute returns busy error for backend set update conflict", func(t *testing.T) {
 		port := gatewayv1.PortNumber(5684)
-		route := gatewayv1alpha2.UDPRoute{
+		route := gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "iot",
 				Name:      "coap",
@@ -1315,11 +1314,11 @@ func TestUDPRouteModel(t *testing.T) {
 					NetworkLoadBalancerUDPRouteHealthCheckPortAnnotation: "5684",
 				},
 			},
-			Spec: gatewayv1alpha2.UDPRouteSpec{
+			Spec: gatewayv1.UDPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
 				},
-				Rules: []gatewayv1alpha2.UDPRouteRule{{
+				Rules: []gatewayv1.UDPRouteRule{{
 					BackendRefs: []gatewayv1.BackendRef{{
 						BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
 					}},
@@ -1370,7 +1369,7 @@ func TestUDPRouteModel(t *testing.T) {
 	t.Run("programRoute returns busy error when NLB is already updating", func(t *testing.T) {
 		port := gatewayv1.PortNumber(5684)
 		listener := gatewayv1.Listener{Name: "coap", Protocol: gatewayv1.UDPProtocolType, Port: port}
-		route := gatewayv1alpha2.UDPRoute{
+		route := gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "iot",
 				Name:      "coap",
@@ -1411,7 +1410,7 @@ func TestUDPRouteModel(t *testing.T) {
 		port := gatewayv1.PortNumber(5684)
 		healthCheckPort := 9000
 		listener := gatewayv1.Listener{Name: "coap", Protocol: gatewayv1.UDPProtocolType, Port: port}
-		route := &gatewayv1alpha2.UDPRoute{
+		route := &gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "iot",
 				Name:      "coap",
@@ -1419,11 +1418,11 @@ func TestUDPRouteModel(t *testing.T) {
 					NetworkLoadBalancerUDPRouteHealthCheckPortAnnotation: "9000",
 				},
 			},
-			Spec: gatewayv1alpha2.UDPRouteSpec{
+			Spec: gatewayv1.UDPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
 				},
-				Rules: []gatewayv1alpha2.UDPRouteRule{{
+				Rules: []gatewayv1.UDPRouteRule{{
 					BackendRefs: []gatewayv1.BackendRef{{
 						BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
 					}},
@@ -1475,7 +1474,7 @@ func TestUDPRouteModel(t *testing.T) {
 			},
 		} {
 			t.Run(name, func(t *testing.T) {
-				route := gatewayv1alpha2.UDPRoute{
+				route := gatewayv1.UDPRoute{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace:   "iot",
 						Name:        "coap",
@@ -1522,7 +1521,7 @@ func TestUDPRouteModel(t *testing.T) {
 				},
 			},
 		}
-		route := gatewayv1alpha2.UDPRoute{
+		route := gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "other",
 				Name:       "coap",
@@ -1562,7 +1561,7 @@ func TestUDPRouteModel(t *testing.T) {
 	t.Run("programRoute skips update when backend set is current", func(t *testing.T) {
 		port := gatewayv1.PortNumber(5684)
 		listener := gatewayv1.Listener{Name: "coap", Protocol: gatewayv1.UDPProtocolType, Port: port}
-		route := &gatewayv1alpha2.UDPRoute{
+		route := &gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "iot",
 				Name:      "coap",
@@ -1570,11 +1569,11 @@ func TestUDPRouteModel(t *testing.T) {
 					NetworkLoadBalancerUDPRouteHealthCheckPortAnnotation: "5684",
 				},
 			},
-			Spec: gatewayv1alpha2.UDPRouteSpec{
+			Spec: gatewayv1.UDPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
 				},
-				Rules: []gatewayv1alpha2.UDPRouteRule{{
+				Rules: []gatewayv1.UDPRouteRule{{
 					BackendRefs: []gatewayv1.BackendRef{{
 						BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
 					}},
@@ -1706,7 +1705,7 @@ func TestUDPRouteModel(t *testing.T) {
 	})
 
 	t.Run("clearStaleBackendSets keeps desired backend set", func(t *testing.T) {
-		route := gatewayv1alpha2.UDPRoute{
+		route := gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "iot",
 				Name:      "coap",
@@ -1735,7 +1734,7 @@ func TestUDPRouteModel(t *testing.T) {
 	})
 
 	t.Run("deprovisionDetachedRoute skips unresolved gateway references", func(t *testing.T) {
-		route := gatewayv1alpha2.UDPRoute{
+		route := gatewayv1.UDPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "coap",
@@ -1744,7 +1743,7 @@ func TestUDPRouteModel(t *testing.T) {
 					NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation: "bs_coap",
 				},
 			},
-			Status: gatewayv1alpha2.UDPRouteStatus{
+			Status: gatewayv1.UDPRouteStatus{
 				RouteStatus: gatewayv1.RouteStatus{
 					Parents: []gatewayv1.RouteParentStatus{{
 						ParentRef:      gatewayv1.ParentReference{Name: "edge"},

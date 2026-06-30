@@ -17,7 +17,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	"github.com/gemyago/oke-gateway-api/internal/types"
@@ -79,10 +78,6 @@ func newManager(config *rest.Config) (*controllerManager, error) {
 
 	if err := gatewayv1.Install(scheme); err != nil {
 		return nil, fmt.Errorf("failed to add gateway api scheme: %w", err)
-	}
-
-	if err := gatewayv1alpha2.Install(scheme); err != nil {
-		return nil, fmt.Errorf("failed to add gateway api v1alpha2 scheme: %w", err)
 	}
 
 	if err := gatewayv1beta1.Install(scheme); err != nil {

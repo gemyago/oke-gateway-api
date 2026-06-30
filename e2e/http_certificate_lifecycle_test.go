@@ -149,7 +149,7 @@ func testHTTPCertificateLifecycle(t *testing.T, fixture *httpRoutingFixture) {
 				Name:     e2ek8s.DefaultHTTPSListenerName,
 				Port:     e2ek8s.DefaultHTTPSPort,
 				Protocol: gatewayv1.HTTPSProtocolType,
-				TLS: &gatewayv1.GatewayTLSConfig{
+				TLS: &gatewayv1.ListenerTLSConfig{
 					CertificateRefs: []gatewayv1.SecretObjectReference{
 						{Name: gatewayv1.ObjectName(secretName)},
 					},

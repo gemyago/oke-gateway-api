@@ -12,7 +12,6 @@ import (
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 )
@@ -126,7 +125,7 @@ func TestTCPRouteController(t *testing.T) {
 	req := reconcile.Request{NamespacedName: apitypes.NamespacedName{Namespace: "iot", Name: "rtmp"}}
 
 	t.Run("programs resolved route", func(t *testing.T) {
-		model := &stubTCPRouteModel{resolved: []resolvedTCPRouteDetails{{tcpRoute: gatewayv1alpha2.TCPRoute{}}}}
+		model := &stubTCPRouteModel{resolved: []resolvedTCPRouteDetails{{tcpRoute: gatewayv1.TCPRoute{}}}}
 		controller := NewTCPRouteController(TCPRouteControllerDeps{
 			RootLogger:    diag.RootTestLogger(),
 			TCPRouteModel: model,
@@ -141,7 +140,7 @@ func TestTCPRouteController(t *testing.T) {
 
 	t.Run("returns busy requeue for network load balancer busy errors", func(t *testing.T) {
 		model := &stubTCPRouteModel{
-			resolved:   []resolvedTCPRouteDetails{{tcpRoute: gatewayv1alpha2.TCPRoute{}}},
+			resolved:   []resolvedTCPRouteDetails{{tcpRoute: gatewayv1.TCPRoute{}}},
 			programErr: &networkLoadBalancerBusyError{id: "nlb-id"},
 		}
 		controller := NewTCPRouteController(TCPRouteControllerDeps{
@@ -159,7 +158,7 @@ func TestTCPRouteController(t *testing.T) {
 
 	t.Run("returns drift requeue for resolved route when interval is configured", func(t *testing.T) {
 		driftInterval := 17 * time.Minute
-		model := &stubTCPRouteModel{resolved: []resolvedTCPRouteDetails{{tcpRoute: gatewayv1alpha2.TCPRoute{}}}}
+		model := &stubTCPRouteModel{resolved: []resolvedTCPRouteDetails{{tcpRoute: gatewayv1.TCPRoute{}}}}
 		controller := NewTCPRouteController(TCPRouteControllerDeps{
 			RootLogger:    diag.RootTestLogger(),
 			TCPRouteModel: model,
@@ -175,7 +174,7 @@ func TestTCPRouteController(t *testing.T) {
 
 	t.Run("returns busy requeue for network load balancer busy errors", func(t *testing.T) {
 		model := &stubTCPRouteModel{
-			resolved:   []resolvedTCPRouteDetails{{tcpRoute: gatewayv1alpha2.TCPRoute{}}},
+			resolved:   []resolvedTCPRouteDetails{{tcpRoute: gatewayv1.TCPRoute{}}},
 			programErr: &networkLoadBalancerBusyError{id: "nlb-id"},
 		}
 		controller := NewTCPRouteController(TCPRouteControllerDeps{
@@ -193,7 +192,7 @@ func TestTCPRouteController(t *testing.T) {
 
 	t.Run("sets rejected status for route status errors", func(t *testing.T) {
 		model := &stubTCPRouteModel{
-			resolved: []resolvedTCPRouteDetails{{tcpRoute: gatewayv1alpha2.TCPRoute{}}},
+			resolved: []resolvedTCPRouteDetails{{tcpRoute: gatewayv1.TCPRoute{}}},
 			programErr: newTCPRouteAcceptedStatusError(
 				gatewayv1.RouteReasonNotAllowedByListeners,
 				"rejected",
@@ -213,7 +212,7 @@ func TestTCPRouteController(t *testing.T) {
 
 	t.Run("deprovisions deleted route with finalizer", func(t *testing.T) {
 		model := &stubTCPRouteModel{resolved: []resolvedTCPRouteDetails{{
-			tcpRoute: gatewayv1alpha2.TCPRoute{ObjectMeta: metav1.ObjectMeta{
+			tcpRoute: gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{
 				DeletionTimestamp: &metav1.Time{},
 				Finalizers:        []string{NetworkLoadBalancerTCPRouteProgrammedFinalizer},
 			}},
@@ -256,7 +255,7 @@ func TestTCPRouteController(t *testing.T) {
 
 	t.Run("skips deleted route without finalizer", func(t *testing.T) {
 		model := &stubTCPRouteModel{resolved: []resolvedTCPRouteDetails{{
-			tcpRoute: gatewayv1alpha2.TCPRoute{ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: &metav1.Time{}}},
+			tcpRoute: gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: &metav1.Time{}}},
 		}}}
 		controller := NewTCPRouteController(TCPRouteControllerDeps{
 			RootLogger:    diag.RootTestLogger(),
@@ -272,15 +271,15 @@ func TestTCPRouteController(t *testing.T) {
 	t.Run("wraps program and status errors", func(t *testing.T) {
 		for name, model := range map[string]*stubTCPRouteModel{
 			"program": {
-				resolved:   []resolvedTCPRouteDetails{{tcpRoute: gatewayv1alpha2.TCPRoute{}}},
+				resolved:   []resolvedTCPRouteDetails{{tcpRoute: gatewayv1.TCPRoute{}}},
 				programErr: errors.New("boom"),
 			},
 			"set programmed": {
-				resolved:         []resolvedTCPRouteDetails{{tcpRoute: gatewayv1alpha2.TCPRoute{}}},
+				resolved:         []resolvedTCPRouteDetails{{tcpRoute: gatewayv1.TCPRoute{}}},
 				setProgrammedErr: errors.New("boom"),
 			},
 			"set rejected": {
-				resolved: []resolvedTCPRouteDetails{{tcpRoute: gatewayv1alpha2.TCPRoute{}}},
+				resolved: []resolvedTCPRouteDetails{{tcpRoute: gatewayv1.TCPRoute{}}},
 				programErr: newTCPRouteAcceptedStatusError(
 					gatewayv1.RouteReasonNotAllowedByListeners,
 					"rejected",
@@ -288,7 +287,7 @@ func TestTCPRouteController(t *testing.T) {
 				setRejectedErr: errors.New("boom"),
 			},
 			"deprovision": {
-				resolved: []resolvedTCPRouteDetails{{tcpRoute: gatewayv1alpha2.TCPRoute{ObjectMeta: metav1.ObjectMeta{
+				resolved: []resolvedTCPRouteDetails{{tcpRoute: gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{
 					DeletionTimestamp: &metav1.Time{},
 					Finalizers:        []string{NetworkLoadBalancerTCPRouteProgrammedFinalizer},
 				}}}},
@@ -516,7 +515,7 @@ func TestUDPRouteController(t *testing.T) {
 	req := reconcile.Request{NamespacedName: apitypes.NamespacedName{Namespace: "iot", Name: "coap"}}
 
 	t.Run("programs resolved route", func(t *testing.T) {
-		model := &stubUDPRouteModel{resolved: []resolvedUDPRouteDetails{{udpRoute: gatewayv1alpha2.UDPRoute{}}}}
+		model := &stubUDPRouteModel{resolved: []resolvedUDPRouteDetails{{udpRoute: gatewayv1.UDPRoute{}}}}
 		controller := NewUDPRouteController(UDPRouteControllerDeps{
 			RootLogger:    diag.RootTestLogger(),
 			UDPRouteModel: model,
@@ -531,7 +530,7 @@ func TestUDPRouteController(t *testing.T) {
 
 	t.Run("returns busy requeue for network load balancer busy errors", func(t *testing.T) {
 		model := &stubUDPRouteModel{
-			resolved:   []resolvedUDPRouteDetails{{udpRoute: gatewayv1alpha2.UDPRoute{}}},
+			resolved:   []resolvedUDPRouteDetails{{udpRoute: gatewayv1.UDPRoute{}}},
 			programErr: &networkLoadBalancerBusyError{id: "nlb-id"},
 		}
 		controller := NewUDPRouteController(UDPRouteControllerDeps{
@@ -549,7 +548,7 @@ func TestUDPRouteController(t *testing.T) {
 
 	t.Run("returns drift requeue for resolved route when interval is configured", func(t *testing.T) {
 		driftInterval := 19 * time.Minute
-		model := &stubUDPRouteModel{resolved: []resolvedUDPRouteDetails{{udpRoute: gatewayv1alpha2.UDPRoute{}}}}
+		model := &stubUDPRouteModel{resolved: []resolvedUDPRouteDetails{{udpRoute: gatewayv1.UDPRoute{}}}}
 		controller := NewUDPRouteController(UDPRouteControllerDeps{
 			RootLogger:    diag.RootTestLogger(),
 			UDPRouteModel: model,
@@ -565,7 +564,7 @@ func TestUDPRouteController(t *testing.T) {
 
 	t.Run("returns busy requeue for network load balancer busy errors", func(t *testing.T) {
 		model := &stubUDPRouteModel{
-			resolved:   []resolvedUDPRouteDetails{{udpRoute: gatewayv1alpha2.UDPRoute{}}},
+			resolved:   []resolvedUDPRouteDetails{{udpRoute: gatewayv1.UDPRoute{}}},
 			programErr: &networkLoadBalancerBusyError{id: "nlb-id"},
 		}
 		controller := NewUDPRouteController(UDPRouteControllerDeps{
@@ -583,7 +582,7 @@ func TestUDPRouteController(t *testing.T) {
 
 	t.Run("sets rejected status for route status errors", func(t *testing.T) {
 		model := &stubUDPRouteModel{
-			resolved: []resolvedUDPRouteDetails{{udpRoute: gatewayv1alpha2.UDPRoute{}}},
+			resolved: []resolvedUDPRouteDetails{{udpRoute: gatewayv1.UDPRoute{}}},
 			programErr: newUDPRouteAcceptedStatusError(
 				gatewayv1.RouteReasonNotAllowedByListeners,
 				"rejected",
@@ -603,7 +602,7 @@ func TestUDPRouteController(t *testing.T) {
 
 	t.Run("deprovisions deleted route with finalizer", func(t *testing.T) {
 		model := &stubUDPRouteModel{resolved: []resolvedUDPRouteDetails{{
-			udpRoute: gatewayv1alpha2.UDPRoute{ObjectMeta: metav1.ObjectMeta{
+			udpRoute: gatewayv1.UDPRoute{ObjectMeta: metav1.ObjectMeta{
 				DeletionTimestamp: &metav1.Time{},
 				Finalizers:        []string{NetworkLoadBalancerUDPRouteProgrammedFinalizer},
 			}},
@@ -646,7 +645,7 @@ func TestUDPRouteController(t *testing.T) {
 
 	t.Run("skips deleted route without finalizer", func(t *testing.T) {
 		model := &stubUDPRouteModel{resolved: []resolvedUDPRouteDetails{{
-			udpRoute: gatewayv1alpha2.UDPRoute{ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: &metav1.Time{}}},
+			udpRoute: gatewayv1.UDPRoute{ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: &metav1.Time{}}},
 		}}}
 		controller := NewUDPRouteController(UDPRouteControllerDeps{
 			RootLogger:    diag.RootTestLogger(),
@@ -662,15 +661,15 @@ func TestUDPRouteController(t *testing.T) {
 	t.Run("wraps program and status errors", func(t *testing.T) {
 		for name, model := range map[string]*stubUDPRouteModel{
 			"program": {
-				resolved:   []resolvedUDPRouteDetails{{udpRoute: gatewayv1alpha2.UDPRoute{}}},
+				resolved:   []resolvedUDPRouteDetails{{udpRoute: gatewayv1.UDPRoute{}}},
 				programErr: errors.New("boom"),
 			},
 			"set programmed": {
-				resolved:         []resolvedUDPRouteDetails{{udpRoute: gatewayv1alpha2.UDPRoute{}}},
+				resolved:         []resolvedUDPRouteDetails{{udpRoute: gatewayv1.UDPRoute{}}},
 				setProgrammedErr: errors.New("boom"),
 			},
 			"set rejected": {
-				resolved: []resolvedUDPRouteDetails{{udpRoute: gatewayv1alpha2.UDPRoute{}}},
+				resolved: []resolvedUDPRouteDetails{{udpRoute: gatewayv1.UDPRoute{}}},
 				programErr: newUDPRouteAcceptedStatusError(
 					gatewayv1.RouteReasonNotAllowedByListeners,
 					"rejected",
@@ -678,7 +677,7 @@ func TestUDPRouteController(t *testing.T) {
 				setRejectedErr: errors.New("boom"),
 			},
 			"deprovision": {
-				resolved: []resolvedUDPRouteDetails{{udpRoute: gatewayv1alpha2.UDPRoute{ObjectMeta: metav1.ObjectMeta{
+				resolved: []resolvedUDPRouteDetails{{udpRoute: gatewayv1.UDPRoute{ObjectMeta: metav1.ObjectMeta{
 					DeletionTimestamp: &metav1.Time{},
 					Finalizers:        []string{NetworkLoadBalancerUDPRouteProgrammedFinalizer},
 				}}}},

@@ -7,20 +7,35 @@
 
 Project status: **Beta**
 
+## Supported Gateway API Resources
+
+Installing Gateway API v1.6.0 may install CRDs that this controller does not implement.
+Unsupported resource kinds are ignored: the controller does not watch them, reconcile them,
+update their status, or provision OCI resources for them.
+
+| Resource | Support |
+| --- | --- |
+| `GatewayClass` | Supported |
+| `Gateway` | Supported |
+| `HTTPRoute` | Supported on OCI Load Balancer |
+| `GRPCRoute` | Supported on OCI Load Balancer |
+| `TLSRoute` | Supported on OCI Load Balancer and OCI Network Load Balancer where OCI capabilities allow |
+| `TCPRoute` | Supported on OCI Network Load Balancer |
+| `UDPRoute` | Supported on OCI Network Load Balancer |
+| `ReferenceGrant` | Supported for cross-namespace references used by supported routes and policies |
+| `BackendTLSPolicy` | Supported for OCI Load Balancer backend TLS; OCI Network Load Balancer uses passthrough routing instead |
+| `ListenerSet` | Not supported; ignored if installed |
+| `XBackend`, `XBackendTrafficPolicy`, `XMesh` | Not supported; ignored if installed |
+
 ## Getting Started
 
-Install Gateway API CRDs. Choose one path:
+Install Gateway API CRDs:
 ```sh
-# Standard CRDs are enough for HTTPRoute / ALB usage.
 kubectl apply --server-side=true \
-  -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/standard-install.yaml
-
-# Or use experimental CRDs when enabling TCPRoute / UDPRoute / NLB usage.
-kubectl apply --server-side=true \
-  -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/experimental-install.yaml
+  -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.0/standard-install.yaml
 ```
-The controller can run with only the standard CRDs. The experimental channel is required only for `TCPRoute` and `UDPRoute` support.
-`TLSRoute` is available from the standard Gateway API CRDs.
+The controller can run with only the standard CRDs. `HTTPRoute`, `GRPCRoute`, `TLSRoute`,
+`TCPRoute`, `UDPRoute`, and `BackendTLSPolicy` are standard in Gateway API v1.6.0.
 
 Prepare API key and config file (use actual values):
 ```ini
@@ -187,6 +202,8 @@ kubectl -n oke-gw delete httproute oke-gateway-example-server
 
 ## HTTPRoute matching
 
+See [deploy/manifests/examples/serverroutes.yaml](./deploy/manifests/examples/serverroutes.yaml) for a complete HTTPRoute example.
+
 Following match types are supported:
 - path: `PathPrefix` and `Exact`
 - header: `Exact` and `RegularExpression`
@@ -216,23 +233,23 @@ See [deploy/manifests/examples/grpcroute.yaml](./deploy/manifests/examples/grpcr
 
 ## Backend TLS
 
-`BackendTLSPolicy` configures TLS from OCI Load Balancer backend sets to backend Pods for ALB-backed `HTTPRoute`, `GRPCRoute`, and `TLSRoute` with `tls.mode: Terminate`. It is not supported for OCI Network Load Balancer routes.
+`BackendTLSPolicy` configures TLS from OCI Load Balancer backend sets to backend Pods for OCI Load Balancer-backed `HTTPRoute`, `GRPCRoute`, and `TLSRoute` with `tls.mode: Terminate`. It is not supported for OCI Network Load Balancer routes.
 
-OCI backend SSL validates the backend certificate chain but does not enforce hostname/SAN identity. Policies must explicitly set `oci.oraclecloud.com/backend-hostname-validation: Disabled`, and unsupported standard fields such as `subjectAltNames` are rejected. CA trust can come from `validation.caCertificateRefs`, from pre-managed OCI CA bundle OCIDs in `oci.oraclecloud.com/trusted-ca-bundle-ocids`, or both.
+OCI backend SSL validates the backend certificate chain but does not enforce hostname/SAN identity. Policies must explicitly set `oci.oraclecloud.com/backend-hostname-validation: Disabled`, and unsupported standard fields such as `subjectAltNames` are rejected. CA trust can come from `validation.caCertificateRefs`, from pre-managed OCI CA bundle OCIDs in `oci.oraclecloud.com/trusted-ca-bundle-ocids`, or both. A policy may use pre-managed OCI CA bundle OCIDs without a ConfigMap CA reference.
 
 See [deploy/manifests/examples/backendtlspolicy.yaml](./deploy/manifests/examples/backendtlspolicy.yaml) for a complete example with a Gateway, HTTPRoute, Service, CA ConfigMap, and BackendTLSPolicy.
 
 ## TCPRoute And UDPRoute With OCI Network Load Balancer
 
-Layer 4 support uses an existing OCI Network Load Balancer. The controller reconciles listeners, backend sets, and backends on the referenced NLB, but does not create or delete the NLB resource itself.
+Layer 4 support uses an existing OCI Network Load Balancer. The controller reconciles listeners, backend sets, and backends on the referenced OCI Network Load Balancer, but does not create or delete the OCI Network Load Balancer resource itself.
 
-Apply the NLB GatewayClass:
+Apply the OCI Network Load Balancer GatewayClass:
 
 ```sh
 kubectl apply -f deploy/manifests/examples/gatewayclass-nlb.yaml
 ```
 
-Create a GatewayConfig that points to the existing NLB:
+Create a GatewayConfig that points to the existing OCI Network Load Balancer:
 
 ```yaml
 apiVersion: oke-gateway-api.gemyago.github.io/v1
@@ -253,31 +270,35 @@ kubectl apply -n <namespace> -f deploy/manifests/examples/tcproute-nlb.yaml
 kubectl apply -n <namespace> -f deploy/manifests/examples/udproute-nlb.yaml
 ```
 
+See [deploy/manifests/examples/tcproute-nlb.yaml](./deploy/manifests/examples/tcproute-nlb.yaml) and [deploy/manifests/examples/udproute-nlb.yaml](./deploy/manifests/examples/udproute-nlb.yaml) for route examples.
+
 OCI Network Load Balancer backend sets require health checks. For `UDPRoute`,
 set `oke-gateway-api.gemyago.github.io/nlb-udp-health-check-port` on each route
 to the TCP port the backend Pods expose for health checking. UDP health checks
 are not configured by this controller.
 
-`GatewayConfig.spec.loadBalancerId` is shared with ALB usage. The GatewayClass determines whether the OCID is resolved through the OCI Load Balancer API or the OCI Network Load Balancer API.
+`GatewayConfig.spec.loadBalancerId` is shared with OCI Load Balancer usage. The GatewayClass determines whether the OCID is resolved through the OCI Load Balancer API or the OCI Network Load Balancer API.
 
 ## TLSRoute
 
 `TLSRoute` supports two OCI-backed modes:
 
-- OCI Load Balancer with `tls.mode: Terminate`: terminates TLS at the ALB and forwards to the backend Service port. Use `BackendTLSPolicy` when the backend connection should also use TLS.
+- OCI Load Balancer with `tls.mode: Terminate`: terminates TLS at the OCI Load Balancer and forwards to the backend Service port. Use `BackendTLSPolicy` when the backend connection should also use TLS.
 - OCI Network Load Balancer with `tls.mode: Passthrough`: forwards encrypted TCP bytes to a backend that terminates TLS itself.
 
-Unsupported combinations are rejected: ALB passthrough and NLB termination. OCI does not support SNI fanout for ALB TCP+SSL listeners or NLB TCP passthrough listeners, so only one effective `TLSRoute` can own a TLS listener. TLSRoute health checks use TCP on the resolved backend Service port.
+Unsupported combinations are rejected: OCI Load Balancer passthrough and OCI Network Load Balancer termination. OCI does not support SNI fanout for OCI Load Balancer TCP+SSL listeners or OCI Network Load Balancer TCP passthrough listeners, so only one effective `TLSRoute` can own a TLS listener. TLSRoute health checks use TCP on the resolved backend Service port.
 
-Apply the ALB terminate example:
+See [deploy/manifests/examples/tlsroute-alb.yaml](./deploy/manifests/examples/tlsroute-alb.yaml) for OCI Load Balancer termination and [deploy/manifests/examples/tlsroute-nlb.yaml](./deploy/manifests/examples/tlsroute-nlb.yaml) for OCI Network Load Balancer passthrough.
+
+Apply the OCI Load Balancer terminate example:
 
 ```sh
 kubectl apply -n <namespace> -f deploy/manifests/examples/gatewayconfig.yaml
-kubectl apply -n <namespace> -f deploy/manifests/examples/gatewayclass.yaml
+kubectl apply -f deploy/manifests/examples/gatewayclass.yaml
 kubectl apply -n <namespace> -f deploy/manifests/examples/tlsroute-alb.yaml
 ```
 
-Apply the NLB passthrough example:
+Apply the OCI Network Load Balancer passthrough example:
 
 ```sh
 kubectl apply -n <namespace> -f deploy/manifests/examples/gatewayconfig-nlb.yaml
