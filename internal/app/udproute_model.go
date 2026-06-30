@@ -18,12 +18,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 )
 
 type resolvedUDPRouteDetails struct {
 	gatewayDetails  resolvedGatewayDetails
-	udpRoute        gatewayv1alpha2.UDPRoute
+	udpRoute        gatewayv1.UDPRoute
 	matchedRef      gatewayv1.ParentReference
 	matchedListener gatewayv1.Listener
 }
@@ -105,7 +104,7 @@ func udpRouteMatchesListener(parentRef gatewayv1.ParentReference, listener gatew
 	return true
 }
 
-func udpRouteKey(route gatewayv1alpha2.UDPRoute) string {
+func udpRouteKey(route gatewayv1.UDPRoute) string {
 	return fmt.Sprintf("%s/%s", route.Namespace, route.Name)
 }
 
@@ -133,7 +132,7 @@ func (m *udpRouteModelImpl) resolveRequest(
 	ctx context.Context,
 	req reconcile.Request,
 ) ([]resolvedUDPRouteDetails, error) {
-	route := &gatewayv1alpha2.UDPRoute{}
+	route := &gatewayv1.UDPRoute{}
 	return resolveL4RouteRequest(ctx, resolveL4RouteRequestParams[resolvedUDPRouteDetails]{
 		k8sClient: m.client,
 		logger:    m.logger,
@@ -158,7 +157,7 @@ func (m *udpRouteModelImpl) resolveRequest(
 
 func (m *udpRouteModelImpl) resolveParentRef(
 	ctx context.Context,
-	route gatewayv1alpha2.UDPRoute,
+	route gatewayv1.UDPRoute,
 	parentRef gatewayv1.ParentReference,
 ) ([]resolvedUDPRouteDetails, bool, error) {
 	gatewayDetails, resolved, err := m.resolveParentGateway(ctx, route.Namespace, parentRef)
@@ -191,7 +190,7 @@ func (m *udpRouteModelImpl) resolveParentGateway(
 
 func (m *udpRouteModelImpl) rejectNoMatchingListener(
 	ctx context.Context,
-	route gatewayv1alpha2.UDPRoute,
+	route gatewayv1.UDPRoute,
 	parentRef gatewayv1.ParentReference,
 ) error {
 	gatewayDetails, resolved, err := m.resolveParentGateway(ctx, route.Namespace, parentRef)
@@ -214,7 +213,7 @@ func (m *udpRouteModelImpl) rejectNoMatchingListener(
 
 func (m *udpRouteModelImpl) handleUnresolvedFinalizedRoute(
 	ctx context.Context,
-	route gatewayv1alpha2.UDPRoute,
+	route gatewayv1.UDPRoute,
 ) error {
 	if route.DeletionTimestamp != nil {
 		return m.removeDeletingRouteFinalizer(ctx, route)
@@ -224,7 +223,7 @@ func (m *udpRouteModelImpl) handleUnresolvedFinalizedRoute(
 
 func (m *udpRouteModelImpl) removeDeletingRouteFinalizer(
 	ctx context.Context,
-	route gatewayv1alpha2.UDPRoute,
+	route gatewayv1.UDPRoute,
 ) error {
 	routeToUpdate := route.DeepCopy()
 	controllerutil.RemoveFinalizer(routeToUpdate, NetworkLoadBalancerUDPRouteProgrammedFinalizer)
@@ -241,7 +240,7 @@ func (m *udpRouteModelImpl) removeDeletingRouteFinalizer(
 
 func (m *udpRouteModelImpl) endpointBackendsForRoute(
 	ctx context.Context,
-	route gatewayv1alpha2.UDPRoute,
+	route gatewayv1.UDPRoute,
 ) ([]networkloadbalancer.BackendDetails, error) {
 	desired := make(map[string]networkloadbalancer.BackendDetails)
 
@@ -262,7 +261,7 @@ func (m *udpRouteModelImpl) endpointBackendsForRoute(
 
 func (m *udpRouteModelImpl) endpointBackendsForBackendRef(
 	ctx context.Context,
-	route gatewayv1alpha2.UDPRoute,
+	route gatewayv1.UDPRoute,
 	backendRef gatewayv1.BackendRef,
 ) ([]networkloadbalancer.BackendDetails, error) {
 	weight := l4BackendRefWeight(backendRef)
@@ -288,7 +287,7 @@ func (m *udpRouteModelImpl) endpointBackendsForBackendRef(
 
 func (m *udpRouteModelImpl) resolveBackendRefServicePort(
 	ctx context.Context,
-	route gatewayv1alpha2.UDPRoute,
+	route gatewayv1.UDPRoute,
 	backendRef gatewayv1.BackendRef,
 ) (apitypes.NamespacedName, *corev1.ServicePort, error) {
 	return resolveL4BackendRefServicePort(
@@ -378,23 +377,23 @@ func (m *udpRouteModelImpl) matchingRoutesForListener(
 	details resolvedUDPRouteDetails,
 	excludeRouteKey string,
 	listError string,
-) ([]l4RouteListenerMatch[gatewayv1alpha2.UDPRoute], error) {
-	var routeList gatewayv1alpha2.UDPRouteList
-	params := listMatchingL4RoutesForListenerParams[gatewayv1alpha2.UDPRoute]{
+) ([]l4RouteListenerMatch[gatewayv1.UDPRoute], error) {
+	var routeList gatewayv1.UDPRouteList
+	params := listMatchingL4RoutesForListenerParams[gatewayv1.UDPRoute]{
 		k8sClient:    m.client,
 		routeList:    &routeList,
 		listError:    listError,
-		items:        func() []gatewayv1alpha2.UDPRoute { return routeList.Items },
+		items:        func() []gatewayv1.UDPRoute { return routeList.Items },
 		routeKey:     udpRouteKey,
 		parentTarget: udpParentRefTarget,
 	}
 	params.gatewayName = client.ObjectKeyFromObject(&details.gatewayDetails.gateway)
 	params.listener = details.matchedListener
 	params.excludeRouteKey = excludeRouteKey
-	params.routeNamespace = func(route gatewayv1alpha2.UDPRoute) string { return route.Namespace }
-	params.routeCreatedAt = func(route gatewayv1alpha2.UDPRoute) metav1.Time { return route.CreationTimestamp }
-	params.parentRefs = func(route gatewayv1alpha2.UDPRoute) []gatewayv1.ParentReference { return route.Spec.ParentRefs }
-	params.routeDeleted = func(route gatewayv1alpha2.UDPRoute) bool { return route.DeletionTimestamp != nil }
+	params.routeNamespace = func(route gatewayv1.UDPRoute) string { return route.Namespace }
+	params.routeCreatedAt = func(route gatewayv1.UDPRoute) metav1.Time { return route.CreationTimestamp }
+	params.parentRefs = func(route gatewayv1.UDPRoute) []gatewayv1.ParentReference { return route.Spec.ParentRefs }
+	params.routeDeleted = func(route gatewayv1.UDPRoute) bool { return route.DeletionTimestamp != nil }
 	params.matchesListener = udpRouteMatchesListener
 	return listMatchingL4RoutesForListener(ctx, params)
 }
@@ -685,7 +684,7 @@ func (m *udpRouteModelImpl) deprovisionRoute(
 
 func (m *udpRouteModelImpl) deprovisionDetachedRoute(
 	ctx context.Context,
-	route gatewayv1alpha2.UDPRoute,
+	route gatewayv1.UDPRoute,
 ) error {
 	programmedBackendSets := annotatedBackendSetNames(
 		&route,
@@ -710,7 +709,7 @@ func (m *udpRouteModelImpl) deprovisionDetachedRoute(
 
 func (m *udpRouteModelImpl) cleanupDetachedRouteParent(
 	ctx context.Context,
-	route gatewayv1alpha2.UDPRoute,
+	route gatewayv1.UDPRoute,
 	parentStatus gatewayv1.RouteParentStatus,
 	programmedBackendSets map[string]struct{},
 ) (bool, error) {
@@ -740,7 +739,7 @@ func (m *udpRouteModelImpl) cleanupDetachedRouteParent(
 
 func (m *udpRouteModelImpl) resolveDetachedRouteGateway(
 	ctx context.Context,
-	route gatewayv1alpha2.UDPRoute,
+	route gatewayv1.UDPRoute,
 	parentStatus gatewayv1.RouteParentStatus,
 ) (resolvedGatewayDetails, bool, error) {
 	return resolveDetachedL4RouteGateway(
@@ -753,7 +752,7 @@ func (m *udpRouteModelImpl) resolveDetachedRouteGateway(
 
 func (m *udpRouteModelImpl) removeDetachedRouteFinalizer(
 	ctx context.Context,
-	route gatewayv1alpha2.UDPRoute,
+	route gatewayv1.UDPRoute,
 ) error {
 	routeToUpdate := route.DeepCopy()
 	controllerutil.RemoveFinalizer(routeToUpdate, NetworkLoadBalancerUDPRouteProgrammedFinalizer)

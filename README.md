@@ -7,20 +7,39 @@
 
 Project status: **Beta**
 
+## Supported Gateway API Resources
+
+Installing Gateway API v1.6.0 may install CRDs that this controller does not implement.
+Unsupported resource kinds are ignored: the controller does not watch them, reconcile them,
+update their status, or provision OCI resources for them.
+
+| Resource | Support |
+| --- | --- |
+| `GatewayClass` | Supported |
+| `Gateway` | Supported |
+| `HTTPRoute` | Supported on OCI Load Balancer |
+| `GRPCRoute` | Supported on OCI Load Balancer |
+| `TLSRoute` | Supported on OCI Load Balancer and OCI Network Load Balancer where OCI capabilities allow |
+| `TCPRoute` | Supported on OCI Network Load Balancer |
+| `UDPRoute` | Supported on OCI Network Load Balancer |
+| `ReferenceGrant` | Supported for cross-namespace references used by supported routes and policies |
+| `BackendTLSPolicy` | Supported for OCI Load Balancer backend TLS; OCI Network Load Balancer uses passthrough routing instead |
+| `ListenerSet` | Not supported; ignored if installed |
+| `XBackend`, `XBackendTrafficPolicy`, `XMesh` | Not supported; ignored if installed |
+
 ## Getting Started
 
-Install Gateway API CRDs. Choose one path:
+Install Gateway API CRDs:
 ```sh
-# Standard CRDs are enough for HTTPRoute / ALB usage.
 kubectl apply --server-side=true \
-  -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/standard-install.yaml
+  -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.0/standard-install.yaml
 
-# Or use experimental CRDs when enabling TCPRoute / UDPRoute / NLB usage.
+# Optional: use experimental CRDs only when you need experimental Gateway API resources.
 kubectl apply --server-side=true \
-  -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/experimental-install.yaml
+  -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.0/experimental-install.yaml
 ```
-The controller can run with only the standard CRDs. The experimental channel is required only for `TCPRoute` and `UDPRoute` support.
-`TLSRoute` is available from the standard Gateway API CRDs.
+The controller can run with only the standard CRDs. `HTTPRoute`, `GRPCRoute`, `TLSRoute`,
+`TCPRoute`, `UDPRoute`, and `BackendTLSPolicy` are standard in Gateway API v1.6.0.
 
 Prepare API key and config file (use actual values):
 ```ini
