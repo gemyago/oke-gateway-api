@@ -120,16 +120,16 @@ func TestL4RouteObjectPredicate(t *testing.T) {
 func TestDetectExperimentalRouteCapabilities(t *testing.T) {
 	t.Run("detects TCPRoute and UDPRoute", func(t *testing.T) {
 		mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{
-			{Group: gatewayv1.GroupName, Version: "v1alpha2"},
+			{Group: gatewayv1.GroupName, Version: "v1"},
 		})
 		mapper.Add(schema.GroupVersionKind{
 			Group:   gatewayv1.GroupName,
-			Version: "v1alpha2",
+			Version: "v1",
 			Kind:    "TCPRoute",
 		}, meta.RESTScopeNamespace)
 		mapper.Add(schema.GroupVersionKind{
 			Group:   gatewayv1.GroupName,
-			Version: "v1alpha2",
+			Version: "v1",
 			Kind:    "UDPRoute",
 		}, meta.RESTScopeNamespace)
 
@@ -142,7 +142,7 @@ func TestDetectExperimentalRouteCapabilities(t *testing.T) {
 
 	t.Run("treats missing routes as unavailable", func(t *testing.T) {
 		mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{
-			{Group: gatewayv1.GroupName, Version: "v1alpha2"},
+			{Group: gatewayv1.GroupName, Version: "v1"},
 		})
 
 		got, err := detectExperimentalRouteCapabilities(mapper)
@@ -195,6 +195,30 @@ func TestResolveExperimentalRouteCapabilities(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, got.reconcileTCPRoute)
 		assert.False(t, got.reconcileUDPRoute)
+	})
+
+	t.Run("keeps BackendTLSPolicy controller available for cleanup when feature is disabled", func(t *testing.T) {
+		mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{
+			{Group: gatewayv1.GroupName, Version: "v1"},
+		})
+		mapper.Add(schema.GroupVersionKind{
+			Group:   gatewayv1.GroupName,
+			Version: "v1",
+			Kind:    "BackendTLSPolicy",
+		}, meta.RESTScopeNamespace)
+
+		got, err := resolveExperimentalRouteCapabilities(
+			t.Context(),
+			diag.RootTestLogger(),
+			mapper,
+			StartManagerDeps{
+				ReconcileBackendTLSPolicy: false,
+			},
+		)
+
+		require.NoError(t, err)
+		assert.False(t, got.reconcileBackendTLSPolicy)
+		assert.True(t, got.backendTLSPolicyAvailable)
 	})
 }
 

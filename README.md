@@ -7,20 +7,39 @@
 
 Project status: **Beta**
 
+## Supported Gateway API Resources
+
+Installing Gateway API v1.6.0 may install CRDs that this controller does not implement.
+Unsupported resource kinds are ignored: the controller does not watch them, reconcile them,
+update their status, or provision OCI resources for them.
+
+| Resource | Support |
+| --- | --- |
+| `GatewayClass` | Supported |
+| `Gateway` | Supported |
+| `HTTPRoute` | Supported on OCI Load Balancer |
+| `GRPCRoute` | Supported on OCI Load Balancer |
+| `TLSRoute` | Supported on OCI Load Balancer and OCI Network Load Balancer where OCI capabilities allow |
+| `TCPRoute` | Supported on OCI Network Load Balancer |
+| `UDPRoute` | Supported on OCI Network Load Balancer |
+| `ReferenceGrant` | Supported for cross-namespace references used by supported routes and policies |
+| `BackendTLSPolicy` | Supported for OCI Load Balancer backend TLS; OCI Network Load Balancer uses passthrough routing instead |
+| `ListenerSet` | Not supported; ignored if installed |
+| `XBackend`, `XBackendTrafficPolicy`, `XMesh` | Not supported; ignored if installed |
+
 ## Getting Started
 
-Install Gateway API CRDs. Choose one path:
+Install Gateway API CRDs:
 ```sh
-# Standard CRDs are enough for HTTPRoute / ALB usage.
 kubectl apply --server-side=true \
-  -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/standard-install.yaml
+  -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.0/standard-install.yaml
 
-# Or use experimental CRDs when enabling TCPRoute / UDPRoute / NLB usage.
+# Optional: use experimental CRDs only when you need experimental Gateway API resources.
 kubectl apply --server-side=true \
-  -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/experimental-install.yaml
+  -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.0/experimental-install.yaml
 ```
-The controller can run with only the standard CRDs. The experimental channel is required only for `TCPRoute` and `UDPRoute` support.
-`TLSRoute` is available from the standard Gateway API CRDs.
+The controller can run with only the standard CRDs. `HTTPRoute`, `GRPCRoute`, `TLSRoute`,
+`TCPRoute`, `UDPRoute`, and `BackendTLSPolicy` are standard in Gateway API v1.6.0.
 
 Prepare API key and config file (use actual values):
 ```ini
@@ -214,6 +233,14 @@ The controller supports gRPC host, service, method, and exact header matching. `
 
 See [deploy/manifests/examples/grpcroute.yaml](./deploy/manifests/examples/grpcroute.yaml) for a minimal route example.
 
+## Backend TLS
+
+`BackendTLSPolicy` configures TLS from OCI Load Balancer backend sets to backend Pods for ALB-backed `HTTPRoute`, `GRPCRoute`, and `TLSRoute` with `tls.mode: Terminate`. It is not supported for OCI Network Load Balancer routes.
+
+OCI backend SSL validates the backend certificate chain but does not enforce hostname/SAN identity. Policies must explicitly set `oci.oraclecloud.com/backend-hostname-validation: Disabled`, and unsupported standard fields such as `subjectAltNames` are rejected.
+
+See [deploy/manifests/examples/backendtlspolicy.yaml](./deploy/manifests/examples/backendtlspolicy.yaml) for a complete example with a Gateway, HTTPRoute, Service, CA ConfigMap, and BackendTLSPolicy.
+
 ## TCPRoute And UDPRoute With OCI Network Load Balancer
 
 Layer 4 support uses an existing OCI Network Load Balancer. The controller reconciles listeners, backend sets, and backends on the referenced NLB, but does not create or delete the NLB resource itself.
@@ -256,7 +283,7 @@ are not configured by this controller.
 
 `TLSRoute` supports two OCI-backed modes:
 
-- OCI Load Balancer with `tls.mode: Terminate`: terminates TLS at the ALB and forwards plain TCP to the backend Service port.
+- OCI Load Balancer with `tls.mode: Terminate`: terminates TLS at the ALB and forwards to the backend Service port. Use `BackendTLSPolicy` when the backend connection should also use TLS.
 - OCI Network Load Balancer with `tls.mode: Passthrough`: forwards encrypted TCP bytes to a backend that terminates TLS itself.
 
 Unsupported combinations are rejected: ALB passthrough and NLB termination. OCI does not support SNI fanout for ALB TCP+SSL listeners or NLB TCP passthrough listeners, so only one effective `TLSRoute` can own a TLS listener. TLSRoute health checks use TCP on the resolved backend Service port.

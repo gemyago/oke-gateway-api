@@ -16,9 +16,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -78,14 +78,14 @@ func TestWatchesModel(t *testing.T) {
 
 			mockIndexer.EXPECT().IndexField(
 				t.Context(),
-				&gatewayv1alpha2.TCPRoute{},
+				&gatewayv1.TCPRoute{},
 				tcpRouteBackendServiceIndexKey,
 				mock.AnythingOfType("client.IndexerFunc"),
 			).Return(nil)
 
 			mockIndexer.EXPECT().IndexField(
 				t.Context(),
-				&gatewayv1alpha2.UDPRoute{},
+				&gatewayv1.UDPRoute{},
 				udpRouteBackendServiceIndexKey,
 				mock.AnythingOfType("client.IndexerFunc"),
 			).Return(nil)
@@ -344,14 +344,14 @@ func TestWatchesModel(t *testing.T) {
 
 			mockIndexer.EXPECT().IndexField(
 				t.Context(),
-				&gatewayv1alpha2.TCPRoute{},
+				&gatewayv1.TCPRoute{},
 				tcpRouteBackendServiceIndexKey,
 				mock.AnythingOfType("client.IndexerFunc"),
 			).Return(nil)
 
 			mockIndexer.EXPECT().IndexField(
 				t.Context(),
-				&gatewayv1alpha2.UDPRoute{},
+				&gatewayv1.UDPRoute{},
 				udpRouteBackendServiceIndexKey,
 				mock.AnythingOfType("client.IndexerFunc"),
 			).Return(nil)
@@ -409,20 +409,20 @@ func TestWatchesModel(t *testing.T) {
 					if tc.failTCP {
 						mockIndexer.EXPECT().IndexField(
 							t.Context(),
-							&gatewayv1alpha2.TCPRoute{},
+							&gatewayv1.TCPRoute{},
 							tcpRouteBackendServiceIndexKey,
 							mock.AnythingOfType("client.IndexerFunc"),
 						).Return(wantErr)
 					} else {
 						mockIndexer.EXPECT().IndexField(
 							t.Context(),
-							&gatewayv1alpha2.TCPRoute{},
+							&gatewayv1.TCPRoute{},
 							tcpRouteBackendServiceIndexKey,
 							mock.AnythingOfType("client.IndexerFunc"),
 						).Return(nil)
 						mockIndexer.EXPECT().IndexField(
 							t.Context(),
-							&gatewayv1alpha2.UDPRoute{},
+							&gatewayv1.UDPRoute{},
 							udpRouteBackendServiceIndexKey,
 							mock.AnythingOfType("client.IndexerFunc"),
 						).Return(wantErr)
@@ -1634,10 +1634,10 @@ func TestWatchesModel(t *testing.T) {
 		t.Run("indexes TCPRoute and UDPRoute backend services", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
-			tcpRoute := &gatewayv1alpha2.TCPRoute{
+			tcpRoute := &gatewayv1.TCPRoute{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
-				Spec: gatewayv1alpha2.TCPRouteSpec{
-					Rules: []gatewayv1alpha2.TCPRouteRule{
+				Spec: gatewayv1.TCPRouteSpec{
+					Rules: []gatewayv1.TCPRouteRule{
 						{
 							BackendRefs: []gatewayv1.BackendRef{
 								{
@@ -1658,10 +1658,10 @@ func TestWatchesModel(t *testing.T) {
 					},
 				},
 			}
-			udpRoute := &gatewayv1alpha2.UDPRoute{
+			udpRoute := &gatewayv1.UDPRoute{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "coap"},
-				Spec: gatewayv1alpha2.UDPRouteSpec{
-					Rules: []gatewayv1alpha2.UDPRouteRule{
+				Spec: gatewayv1.UDPRouteSpec{
+					Rules: []gatewayv1.UDPRouteRule{
 						{
 							BackendRefs: []gatewayv1.BackendRef{
 								{
@@ -1708,23 +1708,23 @@ func TestWatchesModel(t *testing.T) {
 				randomEndpointSliceWithNamespaceOpt("iot"),
 				randomEndpointSliceWithServiceNameOpt("backend"),
 			)
-			tcpRoutes := []gatewayv1alpha2.TCPRoute{
+			tcpRoutes := []gatewayv1.TCPRoute{
 				{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"}},
 				{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "srt"}},
 			}
-			udpRoutes := []gatewayv1alpha2.UDPRoute{
+			udpRoutes := []gatewayv1.UDPRoute{
 				{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "coap"}},
 			}
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
 			mockK8sClient.EXPECT().
-				List(t.Context(), &gatewayv1alpha2.TCPRouteList{},
+				List(t.Context(), &gatewayv1.TCPRouteList{},
 					client.MatchingFields{tcpRouteBackendServiceIndexKey: "iot/backend"}).
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(tcpRoutes))
 					return nil
 				})
 			mockK8sClient.EXPECT().
-				List(t.Context(), &gatewayv1alpha2.UDPRouteList{},
+				List(t.Context(), &gatewayv1.UDPRouteList{},
 					client.MatchingFields{udpRouteBackendServiceIndexKey: "iot/backend"}).
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(udpRoutes))
@@ -1752,24 +1752,24 @@ func TestWatchesModel(t *testing.T) {
 				randomEndpointSliceWithServiceNameOpt("backend"),
 			)
 			now := metav1.Now()
-			tcpRoutes := []gatewayv1alpha2.TCPRoute{
+			tcpRoutes := []gatewayv1.TCPRoute{
 				{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "active"}},
 				{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "deleting", DeletionTimestamp: &now}},
 			}
-			udpRoutes := []gatewayv1alpha2.UDPRoute{
+			udpRoutes := []gatewayv1.UDPRoute{
 				{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "active"}},
 				{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "deleting", DeletionTimestamp: &now}},
 			}
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
 			mockK8sClient.EXPECT().
-				List(t.Context(), &gatewayv1alpha2.TCPRouteList{},
+				List(t.Context(), &gatewayv1.TCPRouteList{},
 					client.MatchingFields{tcpRouteBackendServiceIndexKey: "iot/backend"}).
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(tcpRoutes))
 					return nil
 				})
 			mockK8sClient.EXPECT().
-				List(t.Context(), &gatewayv1alpha2.UDPRouteList{},
+				List(t.Context(), &gatewayv1.UDPRouteList{},
 					client.MatchingFields{udpRouteBackendServiceIndexKey: "iot/backend"}).
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(udpRoutes))
@@ -1790,11 +1790,11 @@ func TestWatchesModel(t *testing.T) {
 			model = NewWatchesModel(deps)
 			mockK8sClient, _ = deps.K8sClient.(*Mockk8sClient)
 			mockK8sClient.EXPECT().
-				List(t.Context(), &gatewayv1alpha2.TCPRouteList{},
+				List(t.Context(), &gatewayv1.TCPRouteList{},
 					client.MatchingFields{tcpRouteBackendServiceIndexKey: "iot/backend"}).
 				Return(errors.New("tcp list failed"))
 			mockK8sClient.EXPECT().
-				List(t.Context(), &gatewayv1alpha2.UDPRouteList{},
+				List(t.Context(), &gatewayv1.UDPRouteList{},
 					client.MatchingFields{udpRouteBackendServiceIndexKey: "iot/backend"}).
 				Return(errors.New("udp list failed"))
 			require.Nil(t, model.MapEndpointSliceToTCPRoute(t.Context(), &endpointSlice))
@@ -1805,10 +1805,10 @@ func TestWatchesModel(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 			grant := &gatewayv1beta1.ReferenceGrant{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "allow"}}
-			tcpRoutes := []gatewayv1alpha2.TCPRoute{
+			tcpRoutes := []gatewayv1.TCPRoute{
 				{
 					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
-					Spec: gatewayv1alpha2.TCPRouteSpec{Rules: []gatewayv1alpha2.TCPRouteRule{{
+					Spec: gatewayv1.TCPRouteSpec{Rules: []gatewayv1.TCPRouteRule{{
 						BackendRefs: []gatewayv1.BackendRef{{BackendObjectReference: gatewayv1.BackendObjectReference{
 							Namespace: &crossNamespace,
 							Name:      "rtmp",
@@ -1818,7 +1818,7 @@ func TestWatchesModel(t *testing.T) {
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "local"},
-					Spec: gatewayv1alpha2.TCPRouteSpec{Rules: []gatewayv1alpha2.TCPRouteRule{{
+					Spec: gatewayv1.TCPRouteSpec{Rules: []gatewayv1.TCPRouteRule{{
 						BackendRefs: []gatewayv1.BackendRef{{BackendObjectReference: gatewayv1.BackendObjectReference{
 							Name: "local",
 							Port: &backendPort,
@@ -1826,10 +1826,10 @@ func TestWatchesModel(t *testing.T) {
 					}}},
 				},
 			}
-			udpRoutes := []gatewayv1alpha2.UDPRoute{
+			udpRoutes := []gatewayv1.UDPRoute{
 				{
 					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "coap"},
-					Spec: gatewayv1alpha2.UDPRouteSpec{Rules: []gatewayv1alpha2.UDPRouteRule{{
+					Spec: gatewayv1.UDPRouteSpec{Rules: []gatewayv1.UDPRouteRule{{
 						BackendRefs: []gatewayv1.BackendRef{{BackendObjectReference: gatewayv1.BackendObjectReference{
 							Namespace: &crossNamespace,
 							Name:      "coap",
@@ -1839,12 +1839,12 @@ func TestWatchesModel(t *testing.T) {
 				},
 			}
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1alpha2.TCPRouteList{}).
+			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.TCPRouteList{}).
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(tcpRoutes))
 					return nil
 				})
-			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1alpha2.UDPRouteList{}).
+			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.UDPRouteList{}).
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(udpRoutes))
 					return nil
@@ -1865,14 +1865,14 @@ func TestWatchesModel(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1alpha2.TCPRouteList{}).
+			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.TCPRouteList{}).
 				Return(errors.New("tcp list failed"))
 			require.Nil(t, model.MapReferenceGrantToTCPRoute(t.Context(), grant))
 
 			deps = makeMockDeps(t)
 			model = NewWatchesModel(deps)
 			mockK8sClient, _ = deps.K8sClient.(*Mockk8sClient)
-			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1alpha2.UDPRouteList{}).
+			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.UDPRouteList{}).
 				Return(errors.New("udp list failed"))
 			require.Nil(t, model.MapReferenceGrantToUDPRoute(t.Context(), grant))
 		})
@@ -1881,35 +1881,35 @@ func TestWatchesModel(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 			gateway := &gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "edge"}}
-			tcpRoutes := []gatewayv1alpha2.TCPRoute{
+			tcpRoutes := []gatewayv1.TCPRoute{
 				{
 					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
-					Spec: gatewayv1alpha2.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					Spec: gatewayv1.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
 						ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
 					}},
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "other"},
-					Spec: gatewayv1alpha2.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					Spec: gatewayv1.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
 						ParentRefs: []gatewayv1.ParentReference{{Name: "other"}},
 					}},
 				},
 			}
-			udpRoutes := []gatewayv1alpha2.UDPRoute{
+			udpRoutes := []gatewayv1.UDPRoute{
 				{
 					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "coap"},
-					Spec: gatewayv1alpha2.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					Spec: gatewayv1.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
 						ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
 					}},
 				},
 			}
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1alpha2.TCPRouteList{}).
+			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.TCPRouteList{}).
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(tcpRoutes))
 					return nil
 				})
-			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1alpha2.UDPRouteList{}).
+			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.UDPRouteList{}).
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(udpRoutes))
 					return nil
@@ -1930,14 +1930,14 @@ func TestWatchesModel(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1alpha2.TCPRouteList{}).
+			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.TCPRouteList{}).
 				Return(errors.New("tcp list failed"))
 			require.Nil(t, model.MapGatewayToTCPRoute(t.Context(), gateway))
 
 			deps = makeMockDeps(t)
 			model = NewWatchesModel(deps)
 			mockK8sClient, _ = deps.K8sClient.(*Mockk8sClient)
-			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1alpha2.UDPRouteList{}).
+			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.UDPRouteList{}).
 				Return(errors.New("udp list failed"))
 			require.Nil(t, model.MapGatewayToUDPRoute(t.Context(), gateway))
 		})
@@ -2257,5 +2257,150 @@ func TestWatchesModel(t *testing.T) {
 
 			require.Nil(t, model.MapGatewayConfigToGateway(t.Context(), config))
 		})
+	})
+
+	t.Run("BackendTLSPolicy watches", func(t *testing.T) {
+		namespace := "iot"
+		serviceName := "backend"
+		serviceKey := "iot/backend"
+		httpRoute := &gatewayv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "http"}}
+		deletionTime := metav1.Now()
+		deletingHTTPRoute := &gatewayv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{
+			Namespace:         namespace,
+			Name:              "http-deleting",
+			DeletionTimestamp: &deletionTime,
+			Finalizers:        []string{"test-finalizer"},
+		}}
+		grpcRoute := &gatewayv1.GRPCRoute{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "grpc"}}
+		tlsRoute := &gatewayv1.TLSRoute{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "tls"}}
+		policy := &gatewayv1.BackendTLSPolicy{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "backend-tls"},
+			Spec: gatewayv1.BackendTLSPolicySpec{
+				TargetRefs: []gatewayv1.LocalPolicyTargetReferenceWithSectionName{{
+					LocalPolicyTargetReference: gatewayv1.LocalPolicyTargetReference{
+						Group: "",
+						Kind:  "Service",
+						Name:  gatewayv1.ObjectName(serviceName),
+					},
+				}},
+				Validation: gatewayv1.BackendTLSPolicyValidation{
+					CACertificateRefs: []gatewayv1.LocalObjectReference{{
+						Group: "",
+						Kind:  "ConfigMap",
+						Name:  "ca",
+					}},
+				},
+			},
+		}
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithObjects(httpRoute, deletingHTTPRoute, grpcRoute, tlsRoute, policy).
+			WithIndex(&gatewayv1.HTTPRoute{}, httpRouteBackendServiceIndexKey, func(_ client.Object) []string {
+				return []string{serviceKey}
+			}).
+			WithIndex(&gatewayv1.GRPCRoute{}, grpcRouteBackendServiceIndexKey, func(_ client.Object) []string {
+				return []string{serviceKey}
+			}).
+			WithIndex(&gatewayv1.TLSRoute{}, tlsRouteBackendServiceIndexKey, func(_ client.Object) []string {
+				return []string{serviceKey}
+			}).
+			Build()
+		model := NewWatchesModel(WatchesModelDeps{
+			K8sClient: k8sClient,
+			Logger:    diag.RootTestLogger(),
+		})
+
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: "http"},
+		}}, model.MapBackendTLSPolicyToHTTPRoute(t.Context(), policy))
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: "grpc"},
+		}}, model.MapBackendTLSPolicyToGRPCRoute(t.Context(), policy))
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: "tls"},
+		}}, model.MapBackendTLSPolicyToTLSRoute(t.Context(), policy))
+
+		configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "ca"}}
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: "http"},
+		}}, model.MapConfigMapToHTTPRoute(t.Context(), configMap))
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: "grpc"},
+		}}, model.MapConfigMapToGRPCRoute(t.Context(), configMap))
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: "tls"},
+		}}, model.MapConfigMapToTLSRoute(t.Context(), configMap))
+
+		service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: serviceName}}
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: "http"},
+		}}, model.MapServiceToHTTPRoute(t.Context(), service))
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: "grpc"},
+		}}, model.MapServiceToGRPCRoute(t.Context(), service))
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: "tls"},
+		}}, model.MapServiceToTLSRoute(t.Context(), service))
+
+		require.Nil(t, model.MapBackendTLSPolicyToHTTPRoute(t.Context(), &corev1.Service{}))
+		require.Nil(t, model.MapConfigMapToHTTPRoute(t.Context(), &corev1.Service{}))
+		require.Nil(t, model.MapServiceToHTTPRoute(t.Context(), &corev1.ConfigMap{}))
+		require.False(t, backendTLSPolicyReferencesConfigMap(*policy, "other"))
+		require.Nil(t, objectListItems(&corev1.ServiceList{}))
+	})
+
+	t.Run("BackendTLSPolicy watch error and skip paths", func(t *testing.T) {
+		deps := makeMockDeps(t)
+		model := NewWatchesModel(deps)
+		mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+		policy := &gatewayv1.BackendTLSPolicy{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "backend-tls"},
+			Spec: gatewayv1.BackendTLSPolicySpec{
+				TargetRefs: []gatewayv1.LocalPolicyTargetReferenceWithSectionName{
+					{LocalPolicyTargetReference: gatewayv1.LocalPolicyTargetReference{
+						Group: "apps",
+						Kind:  "Deployment",
+						Name:  "ignored",
+					}},
+					{LocalPolicyTargetReference: gatewayv1.LocalPolicyTargetReference{
+						Group: "",
+						Kind:  "Service",
+						Name:  "backend",
+					}},
+				},
+				Validation: gatewayv1.BackendTLSPolicyValidation{
+					CACertificateRefs: []gatewayv1.LocalObjectReference{{
+						Group: "",
+						Kind:  "ConfigMap",
+						Name:  "ca",
+					}},
+				},
+			},
+		}
+		mockK8sClient.EXPECT().
+			List(t.Context(), &gatewayv1.HTTPRouteList{}, client.MatchingFields{
+				httpRouteBackendServiceIndexKey: "iot/backend",
+			}).
+			Return(errors.New("route list failed"))
+
+		require.Nil(t, model.MapBackendTLSPolicyToHTTPRoute(t.Context(), policy))
+
+		mockK8sClient.EXPECT().
+			List(t.Context(), &gatewayv1.BackendTLSPolicyList{}, client.InNamespace("iot")).
+			Return(errors.New("policy list failed"))
+
+		require.Nil(t, model.MapConfigMapToHTTPRoute(
+			t.Context(),
+			&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "ca"}},
+		))
+
+		mockK8sClient.EXPECT().
+			List(t.Context(), &gatewayv1.HTTPRouteList{},
+				client.MatchingFields{httpRouteBackendServiceIndexKey: "iot/backend"}).
+			Return(errors.New("route list failed"))
+		require.Nil(t, model.MapServiceToHTTPRoute(
+			t.Context(),
+			&corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "backend"}},
+		))
 	})
 }

@@ -13,6 +13,7 @@ func Register(container *dig.Container) error {
 		newConfigProvider,
 		newLoadBalancerClient,
 		newNetworkLoadBalancerClient,
+		newCertificatesManagementClient,
 		NewWorkRequestsWatcher,
 		NewNetworkLoadBalancerWorkRequestsWatcher,
 		func(c loadbalancer.LoadBalancerClient) workRequestsClient { return c },

@@ -20,14 +20,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
 	"github.com/gemyago/oke-gateway-api/internal/types"
 )
 
 type resolvedTCPRouteDetails struct {
 	gatewayDetails  resolvedGatewayDetails
-	tcpRoute        gatewayv1alpha2.TCPRoute
+	tcpRoute        gatewayv1.TCPRoute
 	matchedRef      gatewayv1.ParentReference
 	matchedListener gatewayv1.Listener
 }
@@ -109,7 +108,7 @@ func tcpRouteMatchesListener(parentRef gatewayv1.ParentReference, listener gatew
 	return true
 }
 
-func tcpRouteKey(route gatewayv1alpha2.TCPRoute) string {
+func tcpRouteKey(route gatewayv1.TCPRoute) string {
 	return fmt.Sprintf("%s/%s", route.Namespace, route.Name)
 }
 
@@ -137,7 +136,7 @@ func (m *tcpRouteModelImpl) resolveRequest(
 	ctx context.Context,
 	req reconcile.Request,
 ) ([]resolvedTCPRouteDetails, error) {
-	route := &gatewayv1alpha2.TCPRoute{}
+	route := &gatewayv1.TCPRoute{}
 	return resolveL4RouteRequest(ctx, resolveL4RouteRequestParams[resolvedTCPRouteDetails]{
 		k8sClient: m.client,
 		logger:    m.logger,
@@ -215,7 +214,7 @@ func resolveL4RouteRequest[D any](
 
 func (m *tcpRouteModelImpl) resolveParentRef(
 	ctx context.Context,
-	route gatewayv1alpha2.TCPRoute,
+	route gatewayv1.TCPRoute,
 	parentRef gatewayv1.ParentReference,
 ) ([]resolvedTCPRouteDetails, bool, error) {
 	gatewayDetails, resolved, err := m.resolveParentGateway(ctx, route.Namespace, parentRef)
@@ -301,7 +300,7 @@ func resolveL4ParentGateway(
 
 func (m *tcpRouteModelImpl) rejectNoMatchingListener(
 	ctx context.Context,
-	route gatewayv1alpha2.TCPRoute,
+	route gatewayv1.TCPRoute,
 	parentRef gatewayv1.ParentReference,
 ) error {
 	gatewayDetails, resolved, err := m.resolveParentGateway(ctx, route.Namespace, parentRef)
@@ -324,7 +323,7 @@ func (m *tcpRouteModelImpl) rejectNoMatchingListener(
 
 func (m *tcpRouteModelImpl) handleUnresolvedFinalizedRoute(
 	ctx context.Context,
-	route gatewayv1alpha2.TCPRoute,
+	route gatewayv1.TCPRoute,
 ) error {
 	if route.DeletionTimestamp != nil {
 		return m.removeDeletingRouteFinalizer(ctx, route)
@@ -334,7 +333,7 @@ func (m *tcpRouteModelImpl) handleUnresolvedFinalizedRoute(
 
 func (m *tcpRouteModelImpl) removeDeletingRouteFinalizer(
 	ctx context.Context,
-	route gatewayv1alpha2.TCPRoute,
+	route gatewayv1.TCPRoute,
 ) error {
 	routeToUpdate := route.DeepCopy()
 	controllerutil.RemoveFinalizer(routeToUpdate, NetworkLoadBalancerTCPRouteProgrammedFinalizer)
@@ -351,7 +350,7 @@ func (m *tcpRouteModelImpl) removeDeletingRouteFinalizer(
 
 func (m *tcpRouteModelImpl) endpointBackendsForRoute(
 	ctx context.Context,
-	route gatewayv1alpha2.TCPRoute,
+	route gatewayv1.TCPRoute,
 ) ([]networkloadbalancer.BackendDetails, error) {
 	desired := make(map[string]networkloadbalancer.BackendDetails)
 
@@ -372,7 +371,7 @@ func (m *tcpRouteModelImpl) endpointBackendsForRoute(
 
 func (m *tcpRouteModelImpl) endpointBackendsForBackendRef(
 	ctx context.Context,
-	route gatewayv1alpha2.TCPRoute,
+	route gatewayv1.TCPRoute,
 	backendRef gatewayv1.BackendRef,
 ) ([]networkloadbalancer.BackendDetails, error) {
 	weight := l4BackendRefWeight(backendRef)
@@ -398,7 +397,7 @@ func (m *tcpRouteModelImpl) endpointBackendsForBackendRef(
 
 func (m *tcpRouteModelImpl) resolveBackendRefServicePort(
 	ctx context.Context,
-	route gatewayv1alpha2.TCPRoute,
+	route gatewayv1.TCPRoute,
 	backendRef gatewayv1.BackendRef,
 ) (apitypes.NamespacedName, *corev1.ServicePort, error) {
 	return resolveL4BackendRefServicePort(
@@ -581,21 +580,21 @@ func (m *tcpRouteModelImpl) matchingRoutesForListener(
 	details resolvedTCPRouteDetails,
 	excludeRouteKey string,
 	listError string,
-) ([]l4RouteListenerMatch[gatewayv1alpha2.TCPRoute], error) {
-	var routeList gatewayv1alpha2.TCPRouteList
-	return listMatchingL4RoutesForListener(ctx, listMatchingL4RoutesForListenerParams[gatewayv1alpha2.TCPRoute]{
+) ([]l4RouteListenerMatch[gatewayv1.TCPRoute], error) {
+	var routeList gatewayv1.TCPRouteList
+	return listMatchingL4RoutesForListener(ctx, listMatchingL4RoutesForListenerParams[gatewayv1.TCPRoute]{
 		k8sClient:       m.client,
 		routeList:       &routeList,
 		listError:       listError,
-		items:           func() []gatewayv1alpha2.TCPRoute { return routeList.Items },
+		items:           func() []gatewayv1.TCPRoute { return routeList.Items },
 		gatewayName:     client.ObjectKeyFromObject(&details.gatewayDetails.gateway),
 		listener:        details.matchedListener,
 		excludeRouteKey: excludeRouteKey,
 		routeKey:        tcpRouteKey,
-		routeNamespace:  func(route gatewayv1alpha2.TCPRoute) string { return route.Namespace },
-		routeCreatedAt:  func(route gatewayv1alpha2.TCPRoute) metav1.Time { return route.CreationTimestamp },
-		parentRefs:      func(route gatewayv1alpha2.TCPRoute) []gatewayv1.ParentReference { return route.Spec.ParentRefs },
-		routeDeleted:    func(route gatewayv1alpha2.TCPRoute) bool { return route.DeletionTimestamp != nil },
+		routeNamespace:  func(route gatewayv1.TCPRoute) string { return route.Namespace },
+		routeCreatedAt:  func(route gatewayv1.TCPRoute) metav1.Time { return route.CreationTimestamp },
+		parentRefs:      func(route gatewayv1.TCPRoute) []gatewayv1.ParentReference { return route.Spec.ParentRefs },
+		routeDeleted:    func(route gatewayv1.TCPRoute) bool { return route.DeletionTimestamp != nil },
 		parentTarget:    tcpParentRefTarget,
 		matchesListener: tcpRouteMatchesListener,
 	})
@@ -1106,7 +1105,7 @@ func deprovisionL4Route[D any](ctx context.Context, params deprovisionL4RoutePar
 
 func (m *tcpRouteModelImpl) deprovisionDetachedRoute(
 	ctx context.Context,
-	route gatewayv1alpha2.TCPRoute,
+	route gatewayv1.TCPRoute,
 ) error {
 	programmedBackendSets := annotatedBackendSetNames(
 		&route,
@@ -1131,7 +1130,7 @@ func (m *tcpRouteModelImpl) deprovisionDetachedRoute(
 
 func (m *tcpRouteModelImpl) cleanupDetachedRouteParent(
 	ctx context.Context,
-	route gatewayv1alpha2.TCPRoute,
+	route gatewayv1.TCPRoute,
 	parentStatus gatewayv1.RouteParentStatus,
 	programmedBackendSets map[string]struct{},
 ) (bool, error) {
@@ -1161,7 +1160,7 @@ func (m *tcpRouteModelImpl) cleanupDetachedRouteParent(
 
 func (m *tcpRouteModelImpl) resolveDetachedRouteGateway(
 	ctx context.Context,
-	route gatewayv1alpha2.TCPRoute,
+	route gatewayv1.TCPRoute,
 	parentStatus gatewayv1.RouteParentStatus,
 ) (resolvedGatewayDetails, bool, error) {
 	return resolveDetachedL4RouteGateway(
@@ -1230,7 +1229,7 @@ func resolveDetachedL4RouteGateway(
 
 func (m *tcpRouteModelImpl) removeDetachedRouteFinalizer(
 	ctx context.Context,
-	route gatewayv1alpha2.TCPRoute,
+	route gatewayv1.TCPRoute,
 ) error {
 	routeToUpdate := route.DeepCopy()
 	controllerutil.RemoveFinalizer(routeToUpdate, NetworkLoadBalancerTCPRouteProgrammedFinalizer)

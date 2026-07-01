@@ -15,7 +15,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -100,7 +99,7 @@ func (m *WatchesModel) RegisterFieldIndexers(
 
 	if opts.EnableTCPRoute {
 		if err := indexer.IndexField(ctx,
-			&gatewayv1alpha2.TCPRoute{},
+			&gatewayv1.TCPRoute{},
 			tcpRouteBackendServiceIndexKey,
 			func(o client.Object) []string {
 				return m.indexTCPRouteByBackendService(ctx, o)
@@ -112,7 +111,7 @@ func (m *WatchesModel) RegisterFieldIndexers(
 
 	if opts.EnableUDPRoute {
 		if err := indexer.IndexField(ctx,
-			&gatewayv1alpha2.UDPRoute{},
+			&gatewayv1.UDPRoute{},
 			udpRouteBackendServiceIndexKey,
 			func(o client.Object) []string {
 				return m.indexUDPRouteByBackendService(ctx, o)
@@ -392,7 +391,7 @@ func (m *WatchesModel) indexHTTPRouteByBackendService(ctx context.Context, obj c
 }
 
 func (m *WatchesModel) indexTCPRouteByBackendService(ctx context.Context, obj client.Object) []string {
-	tcpRoute, isRoute := obj.(*gatewayv1alpha2.TCPRoute)
+	tcpRoute, isRoute := obj.(*gatewayv1.TCPRoute)
 	logger := m.logger.WithGroup("tcp-route-backend-service-index")
 	if !isRoute {
 		logger.WarnContext(ctx, "Received non-TCPRoute object", slog.Any("object", obj))
@@ -421,7 +420,7 @@ func (m *WatchesModel) indexTCPRouteByBackendService(ctx context.Context, obj cl
 }
 
 func (m *WatchesModel) indexUDPRouteByBackendService(ctx context.Context, obj client.Object) []string {
-	udpRoute, isRoute := obj.(*gatewayv1alpha2.UDPRoute)
+	udpRoute, isRoute := obj.(*gatewayv1.UDPRoute)
 	logger := m.logger.WithGroup("udp-route-backend-service-index")
 	if !isRoute {
 		logger.WarnContext(ctx, "Received non-UDPRoute object", slog.Any("object", obj))
@@ -735,7 +734,7 @@ func (m *WatchesModel) MapGRPCRouteToHTTPRoute(ctx context.Context, obj client.O
 }
 
 func (m *WatchesModel) MapEndpointSliceToTCPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
-	var routeList gatewayv1alpha2.TCPRouteList
+	var routeList gatewayv1.TCPRouteList
 	return mapEndpointSliceToL4Route(
 		ctx,
 		m.logger,
@@ -744,7 +743,7 @@ func (m *WatchesModel) MapEndpointSliceToTCPRoute(ctx context.Context, obj clien
 		&routeList,
 		tcpRouteBackendServiceIndexKey,
 		"TCPRoutes",
-		func(routeList *gatewayv1alpha2.TCPRouteList) []reconcile.Request {
+		func(routeList *gatewayv1.TCPRouteList) []reconcile.Request {
 			requests := make([]reconcile.Request, 0, len(routeList.Items))
 			for _, route := range routeList.Items {
 				if route.DeletionTimestamp != nil {
@@ -760,7 +759,7 @@ func (m *WatchesModel) MapEndpointSliceToTCPRoute(ctx context.Context, obj clien
 }
 
 func (m *WatchesModel) MapEndpointSliceToUDPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
-	var routeList gatewayv1alpha2.UDPRouteList
+	var routeList gatewayv1.UDPRouteList
 	return mapEndpointSliceToL4Route(
 		ctx,
 		m.logger,
@@ -769,7 +768,7 @@ func (m *WatchesModel) MapEndpointSliceToUDPRoute(ctx context.Context, obj clien
 		&routeList,
 		udpRouteBackendServiceIndexKey,
 		"UDPRoutes",
-		func(routeList *gatewayv1alpha2.UDPRouteList) []reconcile.Request {
+		func(routeList *gatewayv1.UDPRouteList) []reconcile.Request {
 			requests := make([]reconcile.Request, 0, len(routeList.Items))
 			for _, route := range routeList.Items {
 				if route.DeletionTimestamp != nil {
@@ -807,6 +806,192 @@ func (m *WatchesModel) MapEndpointSliceToTLSRoute(ctx context.Context, obj clien
 			return requests
 		},
 	)
+}
+
+func (m *WatchesModel) MapBackendTLSPolicyToHTTPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	return m.mapBackendTLSPolicyToIndexedRoutes(ctx, obj, &gatewayv1.HTTPRouteList{},
+		httpRouteBackendServiceIndexKey, "HTTPRoutes")
+}
+
+func (m *WatchesModel) MapBackendTLSPolicyToGRPCRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	return m.mapBackendTLSPolicyToIndexedRoutes(ctx, obj, &gatewayv1.GRPCRouteList{},
+		grpcRouteBackendServiceIndexKey, "GRPCRoutes")
+}
+
+func (m *WatchesModel) MapBackendTLSPolicyToTLSRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	return m.mapBackendTLSPolicyToIndexedRoutes(ctx, obj, &gatewayv1.TLSRouteList{},
+		tlsRouteBackendServiceIndexKey, "TLSRoutes")
+}
+
+func (m *WatchesModel) MapConfigMapToHTTPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	return m.mapConfigMapToBackendTLSPolicyRoutes(
+		ctx,
+		obj,
+		func(policy gatewayv1.BackendTLSPolicy) []reconcile.Request {
+			return m.MapBackendTLSPolicyToHTTPRoute(ctx, &policy)
+		},
+	)
+}
+
+func (m *WatchesModel) MapConfigMapToGRPCRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	return m.mapConfigMapToBackendTLSPolicyRoutes(
+		ctx,
+		obj,
+		func(policy gatewayv1.BackendTLSPolicy) []reconcile.Request {
+			return m.MapBackendTLSPolicyToGRPCRoute(ctx, &policy)
+		},
+	)
+}
+
+func (m *WatchesModel) MapConfigMapToTLSRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	return m.mapConfigMapToBackendTLSPolicyRoutes(
+		ctx,
+		obj,
+		func(policy gatewayv1.BackendTLSPolicy) []reconcile.Request {
+			return m.MapBackendTLSPolicyToTLSRoute(ctx, &policy)
+		},
+	)
+}
+
+func (m *WatchesModel) MapServiceToHTTPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	return m.mapServiceToIndexedRoutes(ctx, obj, &gatewayv1.HTTPRouteList{},
+		httpRouteBackendServiceIndexKey, "HTTPRoutes")
+}
+
+func (m *WatchesModel) MapServiceToGRPCRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	return m.mapServiceToIndexedRoutes(ctx, obj, &gatewayv1.GRPCRouteList{},
+		grpcRouteBackendServiceIndexKey, "GRPCRoutes")
+}
+
+func (m *WatchesModel) MapServiceToTLSRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	return m.mapServiceToIndexedRoutes(ctx, obj, &gatewayv1.TLSRouteList{},
+		tlsRouteBackendServiceIndexKey, "TLSRoutes")
+}
+
+func (m *WatchesModel) mapBackendTLSPolicyToIndexedRoutes(
+	ctx context.Context,
+	obj client.Object,
+	routeList client.ObjectList,
+	indexKey string,
+	routeKind string,
+) []reconcile.Request {
+	policy, ok := obj.(*gatewayv1.BackendTLSPolicy)
+	if !ok {
+		m.logger.WarnContext(ctx, "Received non-BackendTLSPolicy object", slog.Any("object", obj))
+		return nil
+	}
+	requestsByKey := make(map[client.ObjectKey]reconcile.Request)
+	for _, targetRef := range policy.Spec.TargetRefs {
+		if targetRef.Group != "" || targetRef.Kind != "Service" {
+			continue
+		}
+		serviceKey := path.Join(policy.Namespace, string(targetRef.Name))
+		if err := m.k8sClient.List(ctx, routeList, client.MatchingFields{indexKey: serviceKey}); err != nil {
+			m.logger.ErrorContext(ctx, fmt.Sprintf("Failed to list %s for BackendTLSPolicy change", routeKind),
+				slog.String("service", serviceKey),
+				diag.ErrAttr(err))
+			return nil
+		}
+		for _, route := range objectListItems(routeList) {
+			if route.GetDeletionTimestamp() != nil {
+				continue
+			}
+			key := client.ObjectKeyFromObject(route)
+			requestsByKey[key] = reconcile.Request{NamespacedName: key}
+		}
+	}
+	return lo.Values(requestsByKey)
+}
+
+func (m *WatchesModel) mapServiceToIndexedRoutes(
+	ctx context.Context,
+	obj client.Object,
+	routeList client.ObjectList,
+	indexKey string,
+	routeKind string,
+) []reconcile.Request {
+	service, ok := obj.(*corev1.Service)
+	if !ok {
+		m.logger.WarnContext(ctx, "Received non-Service object", slog.Any("object", obj))
+		return nil
+	}
+	serviceKey := path.Join(service.Namespace, service.Name)
+	return m.mapServiceKeyToIndexedRoutes(ctx, serviceKey, routeList, indexKey, routeKind)
+}
+
+func (m *WatchesModel) mapServiceKeyToIndexedRoutes(
+	ctx context.Context,
+	serviceKey string,
+	routeList client.ObjectList,
+	indexKey string,
+	routeKind string,
+) []reconcile.Request {
+	if err := m.k8sClient.List(ctx, routeList, client.MatchingFields{indexKey: serviceKey}); err != nil {
+		m.logger.ErrorContext(ctx, fmt.Sprintf("Failed to list %s for Service change", routeKind),
+			slog.String("service", serviceKey),
+			diag.ErrAttr(err))
+		return nil
+	}
+	requestsByKey := make(map[client.ObjectKey]reconcile.Request)
+	for _, route := range objectListItems(routeList) {
+		if route.GetDeletionTimestamp() != nil {
+			continue
+		}
+		key := client.ObjectKeyFromObject(route)
+		requestsByKey[key] = reconcile.Request{NamespacedName: key}
+	}
+	return lo.Values(requestsByKey)
+}
+
+func (m *WatchesModel) mapConfigMapToBackendTLSPolicyRoutes(
+	ctx context.Context,
+	obj client.Object,
+	mapPolicy func(gatewayv1.BackendTLSPolicy) []reconcile.Request,
+) []reconcile.Request {
+	configMap, ok := obj.(*corev1.ConfigMap)
+	if !ok {
+		m.logger.WarnContext(ctx, "Received non-ConfigMap object", slog.Any("object", obj))
+		return nil
+	}
+	var policyList gatewayv1.BackendTLSPolicyList
+	if err := m.k8sClient.List(ctx, &policyList, client.InNamespace(configMap.Namespace)); err != nil {
+		m.logger.ErrorContext(ctx, "Failed to list BackendTLSPolicies for ConfigMap change",
+			slog.String("configMap", client.ObjectKeyFromObject(configMap).String()),
+			diag.ErrAttr(err))
+		return nil
+	}
+	requestsByKey := make(map[client.ObjectKey]reconcile.Request)
+	for _, policy := range policyList.Items {
+		if !backendTLSPolicyReferencesConfigMap(policy, configMap.Name) {
+			continue
+		}
+		for _, request := range mapPolicy(policy) {
+			requestsByKey[request.NamespacedName] = request
+		}
+	}
+	return lo.Values(requestsByKey)
+}
+
+func objectListItems(list client.ObjectList) []client.Object {
+	switch typed := list.(type) {
+	case *gatewayv1.HTTPRouteList:
+		return lo.Map(typed.Items, func(item gatewayv1.HTTPRoute, _ int) client.Object { return &item })
+	case *gatewayv1.GRPCRouteList:
+		return lo.Map(typed.Items, func(item gatewayv1.GRPCRoute, _ int) client.Object { return &item })
+	case *gatewayv1.TLSRouteList:
+		return lo.Map(typed.Items, func(item gatewayv1.TLSRoute, _ int) client.Object { return &item })
+	default:
+		return nil
+	}
+}
+
+func backendTLSPolicyReferencesConfigMap(policy gatewayv1.BackendTLSPolicy, name string) bool {
+	for _, caRef := range policy.Spec.Validation.CACertificateRefs {
+		if caRef.Group == "" && caRef.Kind == "ConfigMap" && string(caRef.Name) == name {
+			return true
+		}
+	}
+	return false
 }
 
 func mapEndpointSliceToL4Route[T client.ObjectList](
@@ -862,9 +1047,9 @@ func routeReferencesBackendNamespace(routeNamespace string, refs []gatewayv1.Bac
 }
 
 func (m *WatchesModel) MapReferenceGrantToTCPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
-	var routeList gatewayv1alpha2.TCPRouteList
+	var routeList gatewayv1.TCPRouteList
 	return mapReferenceGrantToL4Route(ctx, m.logger, m.k8sClient, obj, &routeList, "TCPRoutes",
-		func(routeList *gatewayv1alpha2.TCPRouteList, grant *gatewayv1beta1.ReferenceGrant) []reconcile.Request {
+		func(routeList *gatewayv1.TCPRouteList, grant *gatewayv1beta1.ReferenceGrant) []reconcile.Request {
 			requests := make([]reconcile.Request, 0)
 			for _, route := range routeList.Items {
 				shouldQueue := false
@@ -884,9 +1069,9 @@ func (m *WatchesModel) MapReferenceGrantToTCPRoute(ctx context.Context, obj clie
 }
 
 func (m *WatchesModel) MapReferenceGrantToUDPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
-	var routeList gatewayv1alpha2.UDPRouteList
+	var routeList gatewayv1.UDPRouteList
 	return mapReferenceGrantToL4Route(ctx, m.logger, m.k8sClient, obj, &routeList, "UDPRoutes",
-		func(routeList *gatewayv1alpha2.UDPRouteList, grant *gatewayv1beta1.ReferenceGrant) []reconcile.Request {
+		func(routeList *gatewayv1.UDPRouteList, grant *gatewayv1beta1.ReferenceGrant) []reconcile.Request {
 			requests := make([]reconcile.Request, 0)
 			for _, route := range routeList.Items {
 				shouldQueue := false
@@ -953,7 +1138,7 @@ func mapReferenceGrantToL4Route[T client.ObjectList](
 	return requestsFromList(routeList, grant)
 }
 
-func tcpRouteReferencesGateway(route gatewayv1alpha2.TCPRoute, gateway gatewayv1.Gateway) bool {
+func tcpRouteReferencesGateway(route gatewayv1.TCPRoute, gateway gatewayv1.Gateway) bool {
 	gatewayName := client.ObjectKeyFromObject(&gateway)
 	for _, parentRef := range route.Spec.ParentRefs {
 		if !parentRefTargetsGateway(parentRef) {
@@ -966,7 +1151,7 @@ func tcpRouteReferencesGateway(route gatewayv1alpha2.TCPRoute, gateway gatewayv1
 	return false
 }
 
-func udpRouteReferencesGateway(route gatewayv1alpha2.UDPRoute, gateway gatewayv1.Gateway) bool {
+func udpRouteReferencesGateway(route gatewayv1.UDPRoute, gateway gatewayv1.Gateway) bool {
 	gatewayName := client.ObjectKeyFromObject(&gateway)
 	for _, parentRef := range route.Spec.ParentRefs {
 		if !parentRefTargetsGateway(parentRef) {
@@ -980,9 +1165,9 @@ func udpRouteReferencesGateway(route gatewayv1alpha2.UDPRoute, gateway gatewayv1
 }
 
 func (m *WatchesModel) MapGatewayToTCPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
-	var routeList gatewayv1alpha2.TCPRouteList
+	var routeList gatewayv1.TCPRouteList
 	return mapGatewayToL4Route(ctx, m.logger, m.k8sClient, obj, &routeList, "TCPRoutes",
-		func(routeList *gatewayv1alpha2.TCPRouteList, gateway *gatewayv1.Gateway) []reconcile.Request {
+		func(routeList *gatewayv1.TCPRouteList, gateway *gatewayv1.Gateway) []reconcile.Request {
 			requests := make([]reconcile.Request, 0)
 			for _, route := range routeList.Items {
 				if tcpRouteReferencesGateway(route, *gateway) {
@@ -995,9 +1180,9 @@ func (m *WatchesModel) MapGatewayToTCPRoute(ctx context.Context, obj client.Obje
 }
 
 func (m *WatchesModel) MapGatewayToUDPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
-	var routeList gatewayv1alpha2.UDPRouteList
+	var routeList gatewayv1.UDPRouteList
 	return mapGatewayToL4Route(ctx, m.logger, m.k8sClient, obj, &routeList, "UDPRoutes",
-		func(routeList *gatewayv1alpha2.UDPRouteList, gateway *gatewayv1.Gateway) []reconcile.Request {
+		func(routeList *gatewayv1.UDPRouteList, gateway *gatewayv1.Gateway) []reconcile.Request {
 			requests := make([]reconcile.Request, 0)
 			for _, route := range routeList.Items {
 				if udpRouteReferencesGateway(route, *gateway) {

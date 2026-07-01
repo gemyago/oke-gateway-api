@@ -1956,6 +1956,56 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("keeps backend health check when adding backend TLS SSL config", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+
+			service := makeRandomService()
+			params := makeParams(service, fake.UUID().V4())
+			params.manageSSLConfig = true
+			verifyDepth := 2
+			params.sslConfig = &loadbalancer.SslConfigurationDetails{
+				VerifyDepth: &verifyDepth,
+			}
+			wantBsName := backendSetNameFromParams(params)
+			existingBs := makeRandomOCIBackendSet(func(bs *loadbalancer.BackendSet) {
+				bs.Name = new(wantBsName)
+				bs.Policy = new("ROUND_ROBIN")
+				bs.HealthChecker = &loadbalancer.HealthChecker{
+					Protocol: new("TCP"),
+					Port:     new(int(lo.FromPtr(params.backendRef.Port))),
+				}
+				bs.SslConfiguration = nil
+			})
+
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+			workRequestID := fake.UUID().V4()
+
+			ociLoadBalancerClient.EXPECT().GetBackendSet(t.Context(), loadbalancer.GetBackendSetRequest{
+				BackendSetName: &wantBsName,
+				LoadBalancerId: &params.loadBalancerID,
+			}).Return(loadbalancer.GetBackendSetResponse{
+				BackendSet: existingBs,
+			}, nil).Once()
+			ociLoadBalancerClient.EXPECT().UpdateBackendSet(
+				t.Context(),
+				mock.MatchedBy(func(req loadbalancer.UpdateBackendSetRequest) bool {
+					return assert.Equal(t, "TCP", lo.FromPtr(req.HealthChecker.Protocol)) &&
+						assert.Equal(t, int(lo.FromPtr(params.backendRef.Port)), lo.FromPtr(req.HealthChecker.Port)) &&
+						assert.Equal(t, verifyDepth, lo.FromPtr(req.SslConfiguration.VerifyDepth))
+				}),
+			).Return(loadbalancer.UpdateBackendSetResponse{
+				OpcWorkRequestId: &workRequestID,
+			}, nil).Once()
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil).Once()
+
+			err := model.reconcileBackendSet(t.Context(), params)
+
+			require.NoError(t, err)
+		})
+
 		t.Run("fails when get backend set fails", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
@@ -4864,7 +4914,7 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 func Test_listenerPolicyName(t *testing.T) {
 	t.Run("preserves existing valid listener policy names", func(t *testing.T) {
 		fake := faker.New()
-		listenerName := "listener_" + fake.Lorem().Word()
+		listenerName := fake.Numerify("listener_########")
 
 		got := listenerPolicyName(listenerName)
 
