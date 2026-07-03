@@ -151,6 +151,21 @@ func TestGRPCRouteController(t *testing.T) {
 		}
 	}
 
+	t.Run("sets BackendTLSPolicy availability on concrete model", func(t *testing.T) {
+		model := &grpcRouteModelImpl{}
+		controller := NewGRPCRouteController(GRPCRouteControllerDeps{
+			RootLogger:       diag.RootTestLogger(),
+			GRPCRouteModel:   model,
+			HTTPBackendModel: NewMockhttpBackendModel(t),
+		})
+
+		controller.SetBackendTLSPolicyEnabled(false)
+		require.True(t, model.backendTLSDisabled)
+
+		controller.SetBackendTLSPolicyEnabled(true)
+		require.False(t, model.backendTLSDisabled)
+	})
+
 	t.Run("programs route and syncs endpoints", func(t *testing.T) {
 		route := makeRoute()
 		resolved := makeResolved(route)

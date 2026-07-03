@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/oracle/oci-go-sdk/v65/certificatesmanagement"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
@@ -48,6 +49,24 @@ func newNetworkLoadBalancerClient(
 	if err != nil {
 		return networkloadbalancer.NetworkLoadBalancerClient{}, fmt.Errorf(
 			"failed to create network load balancer client: %w",
+			err,
+		)
+	}
+	return client, nil
+}
+
+func newCertificatesManagementClient(
+	deps LoadBalancerConfigDeps,
+) (certificatesmanagement.CertificatesManagementClient, error) {
+	if deps.Noop {
+		deps.RootLogger.Warn("OCI API client is in noop mode")
+		return certificatesmanagement.CertificatesManagementClient{}, nil
+	}
+
+	client, err := certificatesmanagement.NewCertificatesManagementClientWithConfigurationProvider(deps.ConfigProvider)
+	if err != nil {
+		return certificatesmanagement.CertificatesManagementClient{}, fmt.Errorf(
+			"failed to create certificates management client: %w",
 			err,
 		)
 	}

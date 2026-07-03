@@ -38,6 +38,12 @@ func NewHTTPRouteController(deps HTTPRouteControllerDeps) *HTTPRouteController {
 	}
 }
 
+func (r *HTTPRouteController) SetBackendTLSPolicyEnabled(enabled bool) {
+	if model, ok := r.httpRouteModel.(interface{ setBackendTLSPolicyEnabled(bool) }); ok {
+		model.setBackendTLSPolicyEnabled(enabled)
+	}
+}
+
 // Returns true if backends sync is required.
 func (r *HTTPRouteController) reconcileResolvedRoute(
 	ctx context.Context,

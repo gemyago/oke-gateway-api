@@ -35,6 +35,12 @@ func NewTLSRouteController(deps TLSRouteControllerDeps) *TLSRouteController {
 	}
 }
 
+func (r *TLSRouteController) SetBackendTLSPolicyEnabled(enabled bool) {
+	if model, ok := r.tlsRouteModel.(interface{ setBackendTLSPolicyEnabled(bool) }); ok {
+		model.setBackendTLSPolicyEnabled(enabled)
+	}
+}
+
 func (r *TLSRouteController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	r.logger.InfoContext(ctx, fmt.Sprintf("Processing reconciliation for TLSRoute %s", req.NamespacedName))
 

@@ -45,10 +45,12 @@ type reconcileDefaultBackendParams struct {
 }
 
 type reconcileBackendSetParams struct {
-	loadBalancerID string
-	service        corev1.Service
-	routeNS        string
-	backendRef     gatewayv1.BackendRef
+	loadBalancerID  string
+	service         corev1.Service
+	routeNS         string
+	backendRef      gatewayv1.BackendRef
+	sslConfig       *loadbalancer.SslConfigurationDetails
+	manageSSLConfig bool
 }
 
 type deprovisionBackendSetParams struct {
@@ -214,9 +216,48 @@ func loadBalancerBackendSetMatches(
 	current loadbalancer.BackendSet,
 	policy string,
 	healthChecker loadbalancer.HealthCheckerDetails,
+	sslConfig ...*loadbalancer.SslConfigurationDetails,
 ) bool {
+	desiredSSLConfig := firstSSLConfig(sslConfig)
 	return lo.FromPtr(current.Policy) == policy &&
-		loadBalancerHealthCheckerMatches(current.HealthChecker, healthChecker)
+		loadBalancerHealthCheckerMatches(current.HealthChecker, healthChecker) &&
+		loadBalancerSSLConfigurationsEqual(
+			sslConfigurationDetailsFromBackendSet(current.SslConfiguration),
+			desiredSSLConfig,
+		)
+}
+
+func firstSSLConfig(configs []*loadbalancer.SslConfigurationDetails) *loadbalancer.SslConfigurationDetails {
+	if len(configs) == 0 {
+		return nil
+	}
+	return configs[0]
+}
+
+func loadBalancerSSLConfigurationsEqual(
+	current *loadbalancer.SslConfigurationDetails,
+	desired *loadbalancer.SslConfigurationDetails,
+) bool {
+	if current == nil || desired == nil {
+		return current == nil && desired == nil
+	}
+	return lo.FromPtr(current.VerifyDepth) == lo.FromPtr(desired.VerifyDepth) &&
+		lo.FromPtr(current.VerifyPeerCertificate) == lo.FromPtr(desired.VerifyPeerCertificate) &&
+		lo.FromPtr(current.HasSessionResumption) == lo.FromPtr(desired.HasSessionResumption) &&
+		lo.FromPtr(current.CertificateName) == lo.FromPtr(desired.CertificateName) &&
+		lo.FromPtr(current.CipherSuiteName) == lo.FromPtr(desired.CipherSuiteName) &&
+		current.ServerOrderPreference == desired.ServerOrderPreference &&
+		stringSlicesEqual(current.Protocols, desired.Protocols) &&
+		stringSlicesEqual(current.CertificateIds, desired.CertificateIds) &&
+		stringSlicesEqual(current.TrustedCertificateAuthorityIds, desired.TrustedCertificateAuthorityIds)
+}
+
+func stringSlicesEqual(left []string, right []string) bool {
+	left = append([]string(nil), left...)
+	right = append([]string(nil), right...)
+	sort.Strings(left)
+	sort.Strings(right)
+	return strings.Join(left, "\x00") == strings.Join(right, "\x00")
 }
 
 func loadBalancerBackendSetHealthChecker(port int) loadbalancer.HealthCheckerDetails {
@@ -233,7 +274,9 @@ func (m *ociLoadBalancerModelImpl) updateBackendSetConfig(
 	backendSet loadbalancer.BackendSet,
 	policy string,
 	healthChecker loadbalancer.HealthCheckerDetails,
+	sslConfig ...*loadbalancer.SslConfigurationDetails,
 ) error {
+	desiredSSLConfig := firstSSLConfig(sslConfig)
 	m.logger.InfoContext(ctx, "Updating backend set configuration",
 		slog.String("loadBalancerId", loadBalancerID),
 		slog.String("backendSetName", backendSetName),
@@ -251,7 +294,7 @@ func (m *ociLoadBalancerModelImpl) updateBackendSetConfig(
 			HealthChecker:                           &healthChecker,
 			SessionPersistenceConfiguration:         backendSet.SessionPersistenceConfiguration,
 			LbCookieSessionPersistenceConfiguration: backendSet.LbCookieSessionPersistenceConfiguration,
-			SslConfiguration:                        sslConfigurationDetailsFromBackendSet(backendSet.SslConfiguration),
+			SslConfiguration:                        desiredSSLConfig,
 		},
 	})
 	if err != nil {
@@ -321,7 +364,8 @@ func (m *ociLoadBalancerModelImpl) reconcileDefaultBackendSet(
 	desiredPolicy := "ROUND_ROBIN"
 	desiredHealthChecker := loadBalancerBackendSetHealthChecker(defaultBackendSetPort)
 	if existingBackendSet, ok := params.knownBackendSets[defaultBackendSetName]; ok {
-		if !loadBalancerBackendSetMatches(existingBackendSet, desiredPolicy, desiredHealthChecker) {
+		existingSSLConfig := sslConfigurationDetailsFromBackendSet(existingBackendSet.SslConfiguration)
+		if !loadBalancerBackendSetMatches(existingBackendSet, desiredPolicy, desiredHealthChecker, existingSSLConfig) {
 			if err := m.updateBackendSetConfig(
 				ctx,
 				params.loadBalancerID,
@@ -329,6 +373,7 @@ func (m *ociLoadBalancerModelImpl) reconcileDefaultBackendSet(
 				existingBackendSet,
 				desiredPolicy,
 				desiredHealthChecker,
+				existingSSLConfig,
 			); err != nil {
 				return loadbalancer.BackendSet{}, err
 			}
@@ -725,7 +770,11 @@ func (m *ociLoadBalancerModelImpl) reconcileExistingBackendSet(
 	desiredPolicy string,
 	desiredHealthChecker loadbalancer.HealthCheckerDetails,
 ) error {
-	if !loadBalancerBackendSetMatches(existingBackendSet, desiredPolicy, desiredHealthChecker) {
+	desiredSSLConfig := params.sslConfig
+	if !params.manageSSLConfig {
+		desiredSSLConfig = sslConfigurationDetailsFromBackendSet(existingBackendSet.SslConfiguration)
+	}
+	if !loadBalancerBackendSetMatches(existingBackendSet, desiredPolicy, desiredHealthChecker, desiredSSLConfig) {
 		if err := m.updateBackendSetConfig(
 			ctx,
 			params.loadBalancerID,
@@ -733,6 +782,7 @@ func (m *ociLoadBalancerModelImpl) reconcileExistingBackendSet(
 			existingBackendSet,
 			desiredPolicy,
 			desiredHealthChecker,
+			desiredSSLConfig,
 		); err != nil {
 			return err
 		}
@@ -982,9 +1032,10 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 	createRes, err := m.ociClient.CreateBackendSet(ctx, loadbalancer.CreateBackendSetRequest{
 		LoadBalancerId: &params.loadBalancerID,
 		CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
-			Name:          &backendSetName,
-			Policy:        new(desiredPolicy),
-			HealthChecker: &desiredHealthChecker,
+			Name:             &backendSetName,
+			Policy:           new(desiredPolicy),
+			HealthChecker:    &desiredHealthChecker,
+			SslConfiguration: lo.Ternary(params.manageSSLConfig, params.sslConfig, nil),
 		},
 	})
 

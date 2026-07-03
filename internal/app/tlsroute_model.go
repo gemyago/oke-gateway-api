@@ -72,6 +72,8 @@ type tlsRouteModelImpl struct {
 	ociNetworkLoadBalancerAPI ociNetworkLoadBalancerClient
 	ociLoadBalancerModel      ociLoadBalancerModel
 	ociLoadBalancerAPI        ociLoadBalancerClient
+	backendTLSPolicy          backendTLSPolicyModel
+	backendTLSDisabled        bool
 	workRequestsWatcher       workRequestsWatcher
 	nlbWorkRequestsWatcher    workRequestsWatcher
 	operationLocks            *networkLoadBalancerOperationLocks
@@ -629,14 +631,31 @@ func (m *tlsRouteModelImpl) programLoadBalancerTerminateRoute(
 	if err != nil {
 		return err
 	}
-	if err = m.reconcileLoadBalancerBackendSet(
-		ctx,
-		loadBalancerID,
-		backendSetName,
-		lb.BackendSets[backendSetName],
-		backends,
-		healthCheckPort,
-	); err != nil {
+	backendSSLConfig, manageBackendSSLConfig, err := m.loadBalancerBackendTLSConfigForRoute(ctx, details)
+	if err != nil {
+		return err
+	}
+	if manageBackendSSLConfig {
+		err = m.reconcileLoadBalancerBackendSet(
+			ctx,
+			loadBalancerID,
+			backendSetName,
+			lb.BackendSets[backendSetName],
+			backends,
+			healthCheckPort,
+			backendSSLConfig,
+		)
+	} else {
+		err = m.reconcileLoadBalancerBackendSet(
+			ctx,
+			loadBalancerID,
+			backendSetName,
+			lb.BackendSets[backendSetName],
+			backends,
+			healthCheckPort,
+		)
+	}
+	if err != nil {
 		return err
 	}
 
@@ -682,6 +701,73 @@ func (m *tlsRouteModelImpl) loadBalancerBackendsForRoute(
 			Drain:     backend.IsDrain,
 		}
 	}), nil
+}
+
+func (m *tlsRouteModelImpl) loadBalancerBackendTLSConfigForRoute(
+	ctx context.Context,
+	details resolvedTLSRouteDetails,
+) (*loadbalancer.SslConfigurationDetails, bool, error) {
+	if m.backendTLSDisabled || m.backendTLSPolicy == nil {
+		return nil, false, nil
+	}
+	var resolved *loadbalancer.SslConfigurationDetails
+	resolvedSet := false
+	for _, rule := range details.tlsRoute.Spec.Rules {
+		for _, backendRef := range rule.BackendRefs {
+			if l4BackendRefWeight(backendRef) == 0 {
+				continue
+			}
+			sslConfig, err := m.loadBalancerBackendTLSConfigForRef(ctx, details, backendRef)
+			if errors.Is(err, errBackendTLSPolicyNotFound) {
+				sslConfig = nil
+				err = nil
+			}
+			if err != nil {
+				return nil, true, fmt.Errorf("failed to resolve BackendTLSPolicy for TLSRoute backend %s: %w",
+					tcpRouteBackendRefName(backendRef, details.tlsRoute.Namespace).String(),
+					err,
+				)
+			}
+			if !resolvedSet {
+				resolved = sslConfig
+				resolvedSet = true
+				continue
+			}
+			if !loadBalancerSSLConfigurationsEqual(resolved, sslConfig) {
+				return nil, true, newTLSRouteResolvedRefsStatusError(
+					gatewayv1.RouteReasonUnsupportedValue,
+					"ALB TLSRoute uses one backend set; all backendRefs must resolve to the same BackendTLSPolicy SSL configuration",
+				)
+			}
+		}
+	}
+	return resolved, true, nil
+}
+
+func (m *tlsRouteModelImpl) loadBalancerBackendTLSConfigForRef(
+	ctx context.Context,
+	details resolvedTLSRouteDetails,
+	backendRef gatewayv1.BackendRef,
+) (*loadbalancer.SslConfigurationDetails, error) {
+	fullName := tcpRouteBackendRefName(backendRef, details.tlsRoute.Namespace)
+	var service corev1.Service
+	if err := m.client.Get(ctx, fullName, &service); err != nil {
+		return nil, fmt.Errorf("failed to get TLSRoute backend Service %s: %w", fullName.String(), err)
+	}
+	sslConfig, err := m.backendTLSPolicy.resolveForBackendRef(ctx, resolveBackendTLSPolicyParams{
+		gateway:    details.gatewayDetails.gateway,
+		config:     details.gatewayDetails.config,
+		service:    service,
+		backendRef: backendRef,
+	})
+	if errors.Is(err, errBackendTLSPolicyNotFound) {
+		return nil, errBackendTLSPolicyNotFound
+	}
+	return sslConfig, err
+}
+
+func (m *tlsRouteModelImpl) setBackendTLSPolicyEnabled(enabled bool) {
+	m.backendTLSDisabled = !enabled
 }
 
 func (m *tlsRouteModelImpl) routeHealthCheckPort(
@@ -766,13 +852,18 @@ func (m *tlsRouteModelImpl) reconcileLoadBalancerBackendSet(
 	existingBackendSet loadbalancer.BackendSet,
 	backends []loadbalancer.BackendDetails,
 	healthCheckPort int,
+	sslConfig ...*loadbalancer.SslConfigurationDetails,
 ) error {
+	desiredSSLConfig := firstSSLConfig(sslConfig)
 	healthChecker := loadBalancerBackendSetHealthChecker(healthCheckPort)
 	desiredPolicy := tlsRouteBackendSetPolicy
 	if existingBackendSet.Name != nil {
-		if loadBalancerBackendSetMatches(existingBackendSet, desiredPolicy, healthChecker) &&
+		if loadBalancerBackendSetMatches(existingBackendSet, desiredPolicy, healthChecker, desiredSSLConfig) &&
 			loadBalancerBackendsEqual(existingBackendSet.Backends, backends) &&
-			existingBackendSet.SslConfiguration == nil {
+			loadBalancerSSLConfigurationsEqual(
+				sslConfigurationDetailsFromBackendSet(existingBackendSet.SslConfiguration),
+				desiredSSLConfig,
+			) {
 			return nil
 		}
 		m.logger.InfoContext(ctx, "Updating TLSRoute backend set",
@@ -786,9 +877,10 @@ func (m *tlsRouteModelImpl) reconcileLoadBalancerBackendSet(
 			LoadBalancerId: new(loadBalancerID),
 			BackendSetName: new(backendSetName),
 			UpdateBackendSetDetails: loadbalancer.UpdateBackendSetDetails{
-				Policy:        new(desiredPolicy),
-				Backends:      backends,
-				HealthChecker: &healthChecker,
+				Policy:           new(desiredPolicy),
+				Backends:         backends,
+				HealthChecker:    &healthChecker,
+				SslConfiguration: desiredSSLConfig,
 			},
 		})
 		if err != nil {
@@ -806,10 +898,11 @@ func (m *tlsRouteModelImpl) reconcileLoadBalancerBackendSet(
 	createRes, err := m.ociLoadBalancerAPI.CreateBackendSet(ctx, loadbalancer.CreateBackendSetRequest{
 		LoadBalancerId: new(loadBalancerID),
 		CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
-			Name:          new(backendSetName),
-			Policy:        new(desiredPolicy),
-			HealthChecker: &healthChecker,
-			Backends:      backends,
+			Name:             new(backendSetName),
+			Policy:           new(desiredPolicy),
+			HealthChecker:    &healthChecker,
+			Backends:         backends,
+			SslConfiguration: desiredSSLConfig,
 		},
 	})
 	if err != nil {
@@ -1538,6 +1631,7 @@ type tlsRouteModelDeps struct {
 	WorkRequestsWatcher       workRequestsWatcher
 	NLBWorkRequestsWatcher    workRequestsWatcher `name:"networkLoadBalancerWorkRequestsWatcher"`
 	OperationLocks            *networkLoadBalancerOperationLocks
+	BackendTLS                backendTLSPolicyModel
 }
 
 func newTLSRouteModel(deps tlsRouteModelDeps) *tlsRouteModelImpl {
@@ -1560,6 +1654,7 @@ func newTLSRouteModel(deps tlsRouteModelDeps) *tlsRouteModelImpl {
 		ociNetworkLoadBalancerAPI: deps.OciNetworkLoadBalancerAPI,
 		ociLoadBalancerModel:      deps.OciLoadBalancerModel,
 		ociLoadBalancerAPI:        deps.OciLoadBalancerAPI,
+		backendTLSPolicy:          deps.BackendTLS,
 		workRequestsWatcher:       watcher,
 		nlbWorkRequestsWatcher:    nlbWatcher,
 		operationLocks:            operationLocks,

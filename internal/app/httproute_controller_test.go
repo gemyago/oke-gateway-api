@@ -27,6 +27,21 @@ func TestHTTPRouteController(t *testing.T) {
 		}
 	}
 
+	t.Run("sets BackendTLSPolicy availability on concrete model", func(t *testing.T) {
+		model := &httpRouteModelImpl{}
+		controller := NewHTTPRouteController(HTTPRouteControllerDeps{
+			RootLogger:       diag.RootTestLogger(),
+			HTTPRouteModel:   model,
+			HTTPBackendModel: NewMockhttpBackendModel(t),
+		})
+
+		controller.SetBackendTLSPolicyEnabled(false)
+		require.True(t, model.backendTLSDisabled)
+
+		controller.SetBackendTLSPolicyEnabled(true)
+		require.False(t, model.backendTLSDisabled)
+	})
+
 	t.Run("Reconcile", func(t *testing.T) {
 		t.Run("RelevantRoute", func(t *testing.T) {
 			fake := faker.New()
