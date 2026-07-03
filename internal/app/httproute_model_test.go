@@ -2432,6 +2432,27 @@ func TestResolveL7BackendSSLConfig(t *testing.T) {
 		require.False(t, managed)
 	})
 
+	t.Run("does not resolve SSL config when BackendTLSPolicy support is disabled", func(t *testing.T) {
+		sslConfig, managed, err := resolveL7BackendSSLConfig(
+			t.Context(),
+			programL7RoutePolicyParams{
+				backendTLSDisabled: true,
+				backendTLSPolicy: &stubBackendTLSPolicyModel{
+					resolveFunc: func(resolveBackendTLSPolicyParams) (*loadbalancer.SslConfigurationDetails, error) {
+						require.Fail(t, "disabled BackendTLSPolicy support should not resolve policies")
+						return nil, errors.New("unexpected policy resolution")
+					},
+				},
+			},
+			service,
+			backendRef,
+		)
+
+		require.NoError(t, err)
+		require.Nil(t, sslConfig)
+		require.False(t, managed)
+	})
+
 	t.Run("manages nil SSL config when no policy matches", func(t *testing.T) {
 		sslConfig, managed, err := resolveL7BackendSSLConfig(
 			t.Context(),

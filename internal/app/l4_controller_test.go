@@ -312,6 +312,20 @@ func TestTCPRouteController(t *testing.T) {
 func TestTLSRouteController(t *testing.T) {
 	req := reconcile.Request{NamespacedName: apitypes.NamespacedName{Namespace: "media", Name: "rtmps"}}
 
+	t.Run("sets BackendTLSPolicy availability on concrete model", func(t *testing.T) {
+		model := &tlsRouteModelImpl{}
+		controller := NewTLSRouteController(TLSRouteControllerDeps{
+			RootLogger:    diag.RootTestLogger(),
+			TLSRouteModel: model,
+		})
+
+		controller.SetBackendTLSPolicyEnabled(false)
+		require.True(t, model.backendTLSDisabled)
+
+		controller.SetBackendTLSPolicyEnabled(true)
+		require.False(t, model.backendTLSDisabled)
+	})
+
 	t.Run("programs resolved route", func(t *testing.T) {
 		model := &stubTLSRouteModel{resolved: []resolvedTLSRouteDetails{{tlsRoute: gatewayv1.TLSRoute{}}}}
 		controller := NewTLSRouteController(TLSRouteControllerDeps{

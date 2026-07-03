@@ -39,6 +39,12 @@ func NewGRPCRouteController(deps GRPCRouteControllerDeps) *GRPCRouteController {
 	}
 }
 
+func (r *GRPCRouteController) SetBackendTLSPolicyEnabled(enabled bool) {
+	if model, ok := r.grpcRouteModel.(interface{ setBackendTLSPolicyEnabled(bool) }); ok {
+		model.setBackendTLSPolicyEnabled(enabled)
+	}
+}
+
 func (r *GRPCRouteController) reconcileResolvedRoute(
 	ctx context.Context,
 	resolvedData resolvedGRPCRouteDetails,

@@ -129,6 +129,7 @@ type programL7RoutePolicyParams struct {
 	ruleCount           int
 	makeRoutingRule     func(ruleIndex int) (loadbalancer.RoutingRule, error)
 	backendTLSPolicy    backendTLSPolicyModel
+	backendTLSDisabled  bool
 }
 
 type setL7RouteProgrammedParams struct {
@@ -566,6 +567,7 @@ type httpRouteModelImpl struct {
 	resourcesModel       resourcesModel
 	ociLoadBalancerModel ociLoadBalancerModel
 	backendTLSPolicy     backendTLSPolicyModel
+	backendTLSDisabled   bool
 }
 
 // resolveRouteParentRefData attempts to resolve a single parent reference for an HTTPRoute.
@@ -1005,7 +1007,7 @@ func resolveL7BackendSSLConfig(
 	service v1.Service,
 	backendRef gatewayv1.BackendRef,
 ) (*loadbalancer.SslConfigurationDetails, bool, error) {
-	if params.backendTLSPolicy == nil {
+	if params.backendTLSDisabled || params.backendTLSPolicy == nil {
 		return nil, false, nil
 	}
 	sslConfig, err := params.backendTLSPolicy.resolveForBackendRef(ctx, resolveBackendTLSPolicyParams{
@@ -1044,6 +1046,7 @@ func (m *httpRouteModelImpl) programRoute(
 		matchedListeners:    params.matchedListeners,
 		previousPolicyRules: previousRules,
 		backendTLSPolicy:    m.backendTLSPolicy,
+		backendTLSDisabled:  m.backendTLSDisabled,
 		ruleCount:           len(params.httpRoute.Spec.Rules),
 		makeRoutingRule: func(ruleIndex int) (loadbalancer.RoutingRule, error) {
 			return m.ociLoadBalancerModel.makeRoutingRule(ctx, makeRoutingRuleParams{
@@ -1140,7 +1143,6 @@ func (m *httpRouteModelImpl) deprovisionRoute(
 	return nil
 }
 
-//nolint:unparam // The error return is part of the interface contract used by controller tests.
 func (m *httpRouteModelImpl) isProgrammingRequired(
 	details resolvedRouteDetails,
 ) (bool, error) {
@@ -1251,4 +1253,8 @@ func newHTTPRouteModel(deps httpRouteModelDeps) *httpRouteModelImpl {
 		resourcesModel:       deps.ResourcesModel,
 		backendTLSPolicy:     deps.BackendTLS,
 	}
+}
+
+func (m *httpRouteModelImpl) setBackendTLSPolicyEnabled(enabled bool) {
+	m.backendTLSDisabled = !enabled
 }

@@ -335,6 +335,7 @@ func l7AndTLSControllerSetupTasks(
 			disabledLog: "HTTPRoute controller is disabled",
 			setupErr:    "failed to setup HTTPRoute controller: %w",
 			setup: func() error {
+				deps.HTTPRouteCtrl.SetBackendTLSPolicyEnabled(experimentalRoutes.reconcileBackendTLSPolicy)
 				return setupHTTPRouteController(mgr, deps, experimentalRoutes.reconcileBackendTLSPolicy, middlewares)
 			},
 		},
@@ -343,6 +344,7 @@ func l7AndTLSControllerSetupTasks(
 			disabledLog: "GRPCRoute controller is disabled",
 			setupErr:    "failed to setup GRPCRoute controller: %w",
 			setup: func() error {
+				deps.GRPCRouteCtrl.SetBackendTLSPolicyEnabled(experimentalRoutes.reconcileBackendTLSPolicy)
 				return setupGRPCRouteController(mgr, deps, experimentalRoutes.reconcileBackendTLSPolicy, middlewares)
 			},
 		},
@@ -351,6 +353,7 @@ func l7AndTLSControllerSetupTasks(
 			disabledLog: "TLSRoute controller is disabled",
 			setupErr:    "failed to setup TLSRoute controller: %w",
 			setup: func() error {
+				deps.TLSRouteCtrl.SetBackendTLSPolicyEnabled(experimentalRoutes.reconcileBackendTLSPolicy)
 				return setupL4RouteController(mgr, setupL4RouteControllerParams{
 					name:                "tlsroute",
 					route:               &gatewayv1.TLSRoute{},

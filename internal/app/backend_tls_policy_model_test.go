@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -404,6 +405,33 @@ func TestBackendTLSPolicyModelValidationAndLifecycle(t *testing.T) {
 				reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.BackendTLSPolicy{}))
 				return nil
 			})
+
+		_, err := model.resolveForBackendRef(t.Context(), resolveParams)
+
+		require.ErrorIs(t, err, errBackendTLSPolicyNotFound)
+	})
+
+	t.Run("treats missing BackendTLSPolicy CRD as no matching policy", func(t *testing.T) {
+		model := newBackendTLSPolicyModel(backendTLSPolicyModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient: &failingListClient{err: &meta.NoKindMatchError{
+				GroupKind: schema.GroupKind{Group: gatewayv1.GroupName, Kind: "BackendTLSPolicy"},
+			}},
+			OciLoadBalancerClient:     NewMockociLoadBalancerClient(t),
+			OciCertificatesMgmtClient: newStubCertificatesManagementClient(),
+		})
+
+		_, err := model.resolveForBackendRef(t.Context(), resolveParams)
+
+		require.ErrorIs(t, err, errBackendTLSPolicyNotFound)
+	})
+
+	t.Run("ignores deleting policies", func(t *testing.T) {
+		deletingPolicy := backendTLSPolicy(namespace, "deleting", serviceName, "tls", baseOptions, "ca")
+		deletionTime := metav1.Now()
+		deletingPolicy.DeletionTimestamp = &deletionTime
+		deletingPolicy.Finalizers = []string{BackendTLSPolicyProgrammedFinalizer}
+		model, _ := makeModel(t, newStubCertificatesManagementClient(), &service, &deletingPolicy)
 
 		_, err := model.resolveForBackendRef(t.Context(), resolveParams)
 
@@ -1240,6 +1268,41 @@ func TestBackendTLSPolicyModelValidationAndLifecycle(t *testing.T) {
 		_, err = model.resolveForBackendRef(t.Context(), resolveParams)
 
 		require.ErrorContains(t, err, "cannot be resolved")
+		assert.Empty(t, certsClient.createCalls)
+	})
+
+	t.Run("accepts pre-managed OCI CA bundle option without ConfigMap CA refs", func(t *testing.T) {
+		existingCAID := "ocid1.cabundle.oc1.." + fakeData.UUID().V4()
+		options := lo.Assign(
+			map[gatewayv1.AnnotationKey]gatewayv1.AnnotationValue{},
+			baseOptions,
+			map[gatewayv1.AnnotationKey]gatewayv1.AnnotationValue{
+				BackendTLSOptionTrustedCABundleOCIDs: gatewayv1.AnnotationValue(existingCAID),
+			},
+		)
+		policy := backendTLSPolicy(namespace, "oci-ca-only", serviceName, "tls", options)
+		certsClient := newStubCertificatesManagementClient()
+		lbClient := NewMockociLoadBalancerClient(t)
+		model := newBackendTLSPolicyModel(backendTLSPolicyModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient: fake.NewClientBuilder().
+				WithScheme(newL4TestScheme(t)).
+				WithObjects(&service, &policy).
+				WithStatusSubresource(&gatewayv1.BackendTLSPolicy{}).
+				Build(),
+			OciLoadBalancerClient:     lbClient,
+			OciCertificatesMgmtClient: certsClient,
+		})
+		lbClient.EXPECT().GetLoadBalancer(t.Context(), mock.Anything).
+			Return(loadbalancer.GetLoadBalancerResponse{
+				LoadBalancer: loadbalancer.LoadBalancer{CompartmentId: &compartmentID},
+			}, nil)
+
+		sslConfig, err := model.resolveForBackendRef(t.Context(), resolveParams)
+
+		require.NoError(t, err)
+		require.NotNil(t, sslConfig)
+		require.Equal(t, []string{existingCAID}, sslConfig.TrustedCertificateAuthorityIds)
 		assert.Empty(t, certsClient.createCalls)
 	})
 

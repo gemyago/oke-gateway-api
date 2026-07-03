@@ -170,6 +170,9 @@ func (m *backendTLSPolicyModelImpl) matchingPolicies(
 ) ([]backendTLSPolicyCandidate, error) {
 	var policyList gatewayv1.BackendTLSPolicyList
 	if err := m.k8sClient.List(ctx, &policyList, client.InNamespace(service.Namespace)); err != nil {
+		if meta.IsNoMatchError(err) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("failed to list BackendTLSPolicies: %w", err)
 	}
 	matches := make([]backendTLSPolicyCandidate, 0)
@@ -396,11 +399,12 @@ func validateBackendTLSPolicyShape(policy gatewayv1.BackendTLSPolicy) error {
 			}
 		}
 	}
-	if len(policy.Spec.Validation.CACertificateRefs) == 0 {
+	if len(policy.Spec.Validation.CACertificateRefs) == 0 &&
+		len(splitCSVOption(policy.Spec.Options[BackendTLSOptionTrustedCABundleOCIDs])) == 0 {
 		return backendTLSPolicyStatusError{
 			policy:  policy,
 			reason:  gatewayv1.BackendTLSPolicyReasonNoValidCACertificate,
-			message: "at least one caCertificateRef is required for OCI backend TLS",
+			message: "at least one caCertificateRef or trusted OCI CA bundle OCID is required for OCI backend TLS",
 		}
 	}
 	return nil

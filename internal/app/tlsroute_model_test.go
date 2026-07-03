@@ -806,11 +806,31 @@ func TestTLSRouteBackendTLSPolicyConfig(t *testing.T) {
 		return fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).WithObjects(objects...).Build()
 	}
 
-	t.Run("does not manage backend SSL when BackendTLSPolicy support is disabled", func(t *testing.T) {
+	t.Run("does not manage backend SSL without BackendTLSPolicy model", func(t *testing.T) {
 		model := newTLSRouteModel(tlsRouteModelDeps{
 			RootLogger: diag.RootTestLogger(),
 			K8sClient:  makeClient("rtmp"),
 		})
+
+		sslConfig, managed, err := model.loadBalancerBackendTLSConfigForRoute(t.Context(), makeDetails("rtmp"))
+
+		require.NoError(t, err)
+		require.Nil(t, sslConfig)
+		require.False(t, managed)
+	})
+
+	t.Run("does not resolve backend SSL when BackendTLSPolicy support is disabled", func(t *testing.T) {
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  makeClient("rtmp"),
+			BackendTLS: &stubBackendTLSPolicyModel{
+				resolveFunc: func(resolveBackendTLSPolicyParams) (*loadbalancer.SslConfigurationDetails, error) {
+					require.Fail(t, "disabled BackendTLSPolicy support should not resolve policies")
+					return nil, errors.New("unexpected policy resolution")
+				},
+			},
+		})
+		model.setBackendTLSPolicyEnabled(false)
 
 		sslConfig, managed, err := model.loadBalancerBackendTLSConfigForRoute(t.Context(), makeDetails("rtmp"))
 

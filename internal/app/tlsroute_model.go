@@ -73,6 +73,7 @@ type tlsRouteModelImpl struct {
 	ociLoadBalancerModel      ociLoadBalancerModel
 	ociLoadBalancerAPI        ociLoadBalancerClient
 	backendTLSPolicy          backendTLSPolicyModel
+	backendTLSDisabled        bool
 	workRequestsWatcher       workRequestsWatcher
 	nlbWorkRequestsWatcher    workRequestsWatcher
 	operationLocks            *networkLoadBalancerOperationLocks
@@ -706,7 +707,7 @@ func (m *tlsRouteModelImpl) loadBalancerBackendTLSConfigForRoute(
 	ctx context.Context,
 	details resolvedTLSRouteDetails,
 ) (*loadbalancer.SslConfigurationDetails, bool, error) {
-	if m.backendTLSPolicy == nil {
+	if m.backendTLSDisabled || m.backendTLSPolicy == nil {
 		return nil, false, nil
 	}
 	var resolved *loadbalancer.SslConfigurationDetails
@@ -763,6 +764,10 @@ func (m *tlsRouteModelImpl) loadBalancerBackendTLSConfigForRef(
 		return nil, errBackendTLSPolicyNotFound
 	}
 	return sslConfig, err
+}
+
+func (m *tlsRouteModelImpl) setBackendTLSPolicyEnabled(enabled bool) {
+	m.backendTLSDisabled = !enabled
 }
 
 func (m *tlsRouteModelImpl) routeHealthCheckPort(

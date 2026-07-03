@@ -218,7 +218,7 @@ See [deploy/manifests/examples/grpcroute.yaml](./deploy/manifests/examples/grpcr
 
 `BackendTLSPolicy` configures TLS from OCI Load Balancer backend sets to backend Pods for ALB-backed `HTTPRoute`, `GRPCRoute`, and `TLSRoute` with `tls.mode: Terminate`. It is not supported for OCI Network Load Balancer routes.
 
-OCI backend SSL validates the backend certificate chain but does not enforce hostname/SAN identity. Policies must explicitly set `oci.oraclecloud.com/backend-hostname-validation: Disabled`, and unsupported standard fields such as `subjectAltNames` are rejected.
+OCI backend SSL validates the backend certificate chain but does not enforce hostname/SAN identity. Policies must explicitly set `oci.oraclecloud.com/backend-hostname-validation: Disabled`, and unsupported standard fields such as `subjectAltNames` are rejected. CA trust can come from `validation.caCertificateRefs`, from pre-managed OCI CA bundle OCIDs in `oci.oraclecloud.com/trusted-ca-bundle-ocids`, or both.
 
 See [deploy/manifests/examples/backendtlspolicy.yaml](./deploy/manifests/examples/backendtlspolicy.yaml) for a complete example with a Gateway, HTTPRoute, Service, CA ConfigMap, and BackendTLSPolicy.
 
