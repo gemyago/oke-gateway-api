@@ -19,7 +19,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
@@ -110,9 +109,9 @@ func TestTCPRouteModel(t *testing.T) {
 	t.Run("desired backend sets ignore non gateway parent refs", func(t *testing.T) {
 		otherGroup := gatewayv1.Group("example.com")
 		details := resolvedTCPRouteDetails{
-			tcpRoute: gatewayv1alpha2.TCPRoute{
+			tcpRoute: gatewayv1.TCPRoute{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
-				Spec: gatewayv1alpha2.TCPRouteSpec{
+				Spec: gatewayv1.TCPRouteSpec{
 					CommonRouteSpec: gatewayv1.CommonRouteSpec{
 						ParentRefs: []gatewayv1.ParentReference{
 							{Group: &otherGroup, Name: "edge"},
@@ -137,9 +136,9 @@ func TestTCPRouteModel(t *testing.T) {
 	})
 
 	t.Run("resolveRequest wraps Kubernetes read errors", func(t *testing.T) {
-		route := gatewayv1alpha2.TCPRoute{
+		route := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
-			Spec: gatewayv1alpha2.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+			Spec: gatewayv1.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
 				ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
 			}},
 		}
@@ -153,7 +152,7 @@ func TestTCPRouteModel(t *testing.T) {
 						Get(
 							t.Context(),
 							apitypes.NamespacedName{Namespace: "iot", Name: "rtmp"},
-							mock.AnythingOfType("*v1alpha2.TCPRoute"),
+							mock.AnythingOfType("*v1.TCPRoute"),
 						).
 						Return(errors.New("route failed"))
 				},
@@ -165,7 +164,7 @@ func TestTCPRouteModel(t *testing.T) {
 						Get(
 							t.Context(),
 							apitypes.NamespacedName{Namespace: "iot", Name: "rtmp"},
-							mock.AnythingOfType("*v1alpha2.TCPRoute"),
+							mock.AnythingOfType("*v1.TCPRoute"),
 						).
 						RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
 							*(mustTCPRoute(t, obj)) = route
@@ -183,7 +182,7 @@ func TestTCPRouteModel(t *testing.T) {
 						Get(
 							t.Context(),
 							apitypes.NamespacedName{Namespace: "iot", Name: "rtmp"},
-							mock.AnythingOfType("*v1alpha2.TCPRoute"),
+							mock.AnythingOfType("*v1.TCPRoute"),
 						).
 						RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
 							*(mustTCPRoute(t, obj)) = route
@@ -210,7 +209,7 @@ func TestTCPRouteModel(t *testing.T) {
 						Get(
 							t.Context(),
 							apitypes.NamespacedName{Namespace: "iot", Name: "rtmp"},
-							mock.AnythingOfType("*v1alpha2.TCPRoute"),
+							mock.AnythingOfType("*v1.TCPRoute"),
 						).
 						RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
 							*(mustTCPRoute(t, obj)) = route
@@ -262,15 +261,15 @@ func TestTCPRouteModel(t *testing.T) {
 	})
 
 	t.Run("resolveRequest returns status update errors for unmatched listener", func(t *testing.T) {
-		route := gatewayv1alpha2.TCPRoute{
+		route := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
-			Spec: gatewayv1alpha2.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+			Spec: gatewayv1.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
 				ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
 			}},
 		}
 		mockClient := NewMockk8sClient(t)
 		mockClient.EXPECT().
-			Get(t.Context(), apitypes.NamespacedName{Namespace: "iot", Name: "rtmp"}, mock.AnythingOfType("*v1alpha2.TCPRoute")).
+			Get(t.Context(), apitypes.NamespacedName{Namespace: "iot", Name: "rtmp"}, mock.AnythingOfType("*v1.TCPRoute")).
 			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
 				*(mustTCPRoute(t, obj)) = route
 				return nil
@@ -308,7 +307,7 @@ func TestTCPRouteModel(t *testing.T) {
 		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
 		mockClient.EXPECT().Status().Return(mockStatusWriter)
 		mockStatusWriter.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.TCPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
 			Return(errors.New("status failed"))
 		model := newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
 
@@ -322,7 +321,7 @@ func TestTCPRouteModel(t *testing.T) {
 	t.Run("resolveRequest removes finalizer from deleting route with no resolved parent", func(t *testing.T) {
 		now := metav1.Now()
 		otherGroup := gatewayv1.Group("example.com")
-		route := gatewayv1alpha2.TCPRoute{
+		route := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:         "iot",
 				Name:              "rtmp",
@@ -332,19 +331,19 @@ func TestTCPRouteModel(t *testing.T) {
 					NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation: "bs_rtmp",
 				},
 			},
-			Spec: gatewayv1alpha2.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+			Spec: gatewayv1.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
 				ParentRefs: []gatewayv1.ParentReference{{Group: &otherGroup, Name: "edge"}},
 			}},
 		}
 		mockClient := NewMockk8sClient(t)
 		mockClient.EXPECT().
-			Get(t.Context(), apitypes.NamespacedName{Namespace: "iot", Name: "rtmp"}, mock.AnythingOfType("*v1alpha2.TCPRoute")).
+			Get(t.Context(), apitypes.NamespacedName{Namespace: "iot", Name: "rtmp"}, mock.AnythingOfType("*v1.TCPRoute")).
 			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
 				*(mustTCPRoute(t, obj)) = route
 				return nil
 			})
 		mockClient.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.TCPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
 			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.UpdateOption) error {
 				updated := mustTCPRoute(t, obj)
 				assert.NotContains(t, updated.Finalizers, NetworkLoadBalancerTCPRouteProgrammedFinalizer)
@@ -362,13 +361,13 @@ func TestTCPRouteModel(t *testing.T) {
 	})
 
 	t.Run("programRoute rejects route when listener is already owned", func(t *testing.T) {
-		currentRoute := gatewayv1alpha2.TCPRoute{
+		currentRoute := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "z-route",
 				Generation: 1,
 			},
-			Spec: gatewayv1alpha2.TCPRouteSpec{
+			Spec: gatewayv1.TCPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{
 						{
@@ -384,10 +383,10 @@ func TestTCPRouteModel(t *testing.T) {
 
 		mockClient := NewMockk8sClient(t)
 		mockClient.EXPECT().
-			List(t.Context(), mock.AnythingOfType("*v1alpha2.TCPRouteList")).
+			List(t.Context(), mock.AnythingOfType("*v1.TCPRouteList")).
 			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1alpha2.TCPRouteList{
-					Items: []gatewayv1alpha2.TCPRoute{currentRoute, otherRoute},
+				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1.TCPRouteList{
+					Items: []gatewayv1.TCPRoute{currentRoute, otherRoute},
 				}))
 				return nil
 			})
@@ -423,7 +422,7 @@ func TestTCPRouteModel(t *testing.T) {
 	t.Run("listener ownership helpers return list errors", func(t *testing.T) {
 		mockClient := NewMockk8sClient(t)
 		mockClient.EXPECT().
-			List(t.Context(), mock.AnythingOfType("*v1alpha2.TCPRouteList")).
+			List(t.Context(), mock.AnythingOfType("*v1.TCPRouteList")).
 			Return(errors.New("list failed")).
 			Twice()
 		model := newTCPRouteModel(tcpRouteModelDeps{
@@ -440,23 +439,23 @@ func TestTCPRouteModel(t *testing.T) {
 
 	t.Run("listener ownership ignores non matching parent refs", func(t *testing.T) {
 		serviceKind := gatewayv1.Kind("Service")
-		routes := gatewayv1alpha2.TCPRouteList{Items: []gatewayv1alpha2.TCPRoute{
+		routes := gatewayv1.TCPRouteList{Items: []gatewayv1.TCPRoute{
 			{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "service-parent"},
-				Spec: gatewayv1alpha2.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+				Spec: gatewayv1.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{{Kind: &serviceKind, Name: "backend"}},
 				}},
 			},
 			{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "other-gateway"},
-				Spec: gatewayv1alpha2.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+				Spec: gatewayv1.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{{Name: "other"}},
 				}},
 			},
 		}}
 		mockClient := NewMockk8sClient(t)
 		mockClient.EXPECT().
-			List(t.Context(), mock.AnythingOfType("*v1alpha2.TCPRouteList")).
+			List(t.Context(), mock.AnythingOfType("*v1.TCPRouteList")).
 			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(routes))
 				return nil
@@ -467,20 +466,20 @@ func TestTCPRouteModel(t *testing.T) {
 			gatewayDetails: resolvedGatewayDetails{
 				gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "edge"}},
 			},
-			tcpRoute:        gatewayv1alpha2.TCPRoute{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"}},
+			tcpRoute:        gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"}},
 			matchedListener: gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: 1935},
 		})
 		require.NoError(t, err)
 	})
 
 	t.Run("deprovisionRoute clears backend set and removes finalizer when no successor exists", func(t *testing.T) {
-		currentRoute := gatewayv1alpha2.TCPRoute{
+		currentRoute := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "rtmp",
 				Finalizers: []string{NetworkLoadBalancerTCPRouteProgrammedFinalizer},
 			},
-			Spec: gatewayv1alpha2.TCPRouteSpec{
+			Spec: gatewayv1.TCPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
 				},
@@ -489,15 +488,15 @@ func TestTCPRouteModel(t *testing.T) {
 
 		mockClient := NewMockk8sClient(t)
 		mockClient.EXPECT().
-			List(t.Context(), mock.AnythingOfType("*v1alpha2.TCPRouteList")).
+			List(t.Context(), mock.AnythingOfType("*v1.TCPRouteList")).
 			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1alpha2.TCPRouteList{
-					Items: []gatewayv1alpha2.TCPRoute{currentRoute},
+				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1.TCPRouteList{
+					Items: []gatewayv1.TCPRoute{currentRoute},
 				}))
 				return nil
 			})
 		mockClient.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.TCPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
 			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.UpdateOption) error {
 				assert.NotContains(t, obj.GetFinalizers(), NetworkLoadBalancerTCPRouteProgrammedFinalizer)
 				assert.NotContains(t, obj.GetAnnotations(), NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation)
@@ -549,10 +548,10 @@ func TestTCPRouteModel(t *testing.T) {
 			K8sClient:  fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).Build(),
 		})
 		modelImpl := mustTCPRouteModelImpl(t, model)
-		_, err := modelImpl.endpointBackendsForRoute(t.Context(), gatewayv1alpha2.TCPRoute{
+		_, err := modelImpl.endpointBackendsForRoute(t.Context(), gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
-			Spec: gatewayv1alpha2.TCPRouteSpec{
-				Rules: []gatewayv1alpha2.TCPRouteRule{
+			Spec: gatewayv1.TCPRouteSpec{
+				Rules: []gatewayv1.TCPRouteRule{
 					{
 						BackendRefs: []gatewayv1.BackendRef{
 							{BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend"}},
@@ -566,10 +565,10 @@ func TestTCPRouteModel(t *testing.T) {
 		assert.Equal(t, gatewayv1.RouteReasonInvalidKind, statusErr.reason)
 
 		backendNamespace := gatewayv1.Namespace("other")
-		_, err = modelImpl.endpointBackendsForRoute(t.Context(), gatewayv1alpha2.TCPRoute{
+		_, err = modelImpl.endpointBackendsForRoute(t.Context(), gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
-			Spec: gatewayv1alpha2.TCPRouteSpec{
-				Rules: []gatewayv1alpha2.TCPRouteRule{{
+			Spec: gatewayv1.TCPRouteSpec{
+				Rules: []gatewayv1.TCPRouteRule{{
 					BackendRefs: []gatewayv1.BackendRef{{
 						BackendObjectReference: gatewayv1.BackendObjectReference{
 							Namespace: &backendNamespace,
@@ -598,10 +597,10 @@ func TestTCPRouteModel(t *testing.T) {
 			Return(errors.New("list failed"))
 		model = newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
 		modelImpl = mustTCPRouteModelImpl(t, model)
-		_, err = modelImpl.endpointBackendsForRoute(t.Context(), gatewayv1alpha2.TCPRoute{
+		_, err = modelImpl.endpointBackendsForRoute(t.Context(), gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
-			Spec: gatewayv1alpha2.TCPRouteSpec{
-				Rules: []gatewayv1alpha2.TCPRouteRule{{
+			Spec: gatewayv1.TCPRouteSpec{
+				Rules: []gatewayv1.TCPRouteRule{{
 					BackendRefs: []gatewayv1.BackendRef{{
 						BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
 					}},
@@ -616,10 +615,10 @@ func TestTCPRouteModel(t *testing.T) {
 			Return(errors.New("get failed"))
 		model = newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
 		modelImpl = mustTCPRouteModelImpl(t, model)
-		_, err = modelImpl.endpointBackendsForRoute(t.Context(), gatewayv1alpha2.TCPRoute{
+		_, err = modelImpl.endpointBackendsForRoute(t.Context(), gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
-			Spec: gatewayv1alpha2.TCPRouteSpec{
-				Rules: []gatewayv1alpha2.TCPRouteRule{{
+			Spec: gatewayv1.TCPRouteSpec{
+				Rules: []gatewayv1.TCPRouteRule{{
 					BackendRefs: []gatewayv1.BackendRef{{
 						BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
 					}},
@@ -630,13 +629,13 @@ func TestTCPRouteModel(t *testing.T) {
 	})
 
 	t.Run("setProgrammed adds finalizer and backend set annotation", func(t *testing.T) {
-		route := gatewayv1alpha2.TCPRoute{
+		route := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "rtmp",
 				Generation: 1,
 			},
-			Spec: gatewayv1alpha2.TCPRouteSpec{
+			Spec: gatewayv1.TCPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{
 						{Name: "edge", SectionName: lo.ToPtr(gatewayv1.SectionName("rtmp"))},
@@ -649,10 +648,10 @@ func TestTCPRouteModel(t *testing.T) {
 		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
 		mockClient.EXPECT().Status().Return(mockStatusWriter)
 		mockStatusWriter.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.TCPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
 			Return(nil)
 		mockClient.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.TCPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
 			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.UpdateOption) error {
 				assert.Contains(t, obj.GetFinalizers(), NetworkLoadBalancerTCPRouteProgrammedFinalizer)
 				assert.Equal(
@@ -694,7 +693,7 @@ func TestTCPRouteModel(t *testing.T) {
 	})
 
 	t.Run("setProgrammed updates existing parent status and wraps errors", func(t *testing.T) {
-		route := gatewayv1alpha2.TCPRoute{
+		route := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "rtmp",
@@ -704,7 +703,7 @@ func TestTCPRouteModel(t *testing.T) {
 					NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation: "bs_rtmp",
 				},
 			},
-			Status: gatewayv1alpha2.TCPRouteStatus{
+			Status: gatewayv1.TCPRouteStatus{
 				RouteStatus: gatewayv1.RouteStatus{
 					Parents: []gatewayv1.RouteParentStatus{{
 						ParentRef:      gatewayv1.ParentReference{Name: "edge"},
@@ -731,7 +730,7 @@ func TestTCPRouteModel(t *testing.T) {
 		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
 		mockClient.EXPECT().Status().Return(mockStatusWriter)
 		mockStatusWriter.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.TCPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
 			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.SubResourceUpdateOption) error {
 				updated := mustTCPRoute(t, obj)
 				require.Len(t, updated.Status.Parents, 1)
@@ -743,7 +742,7 @@ func TestTCPRouteModel(t *testing.T) {
 
 		mockClient = NewMockk8sClient(t)
 		mockClient.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.TCPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
 			Return(errors.New("update failed"))
 		model = newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
 		details.tcpRoute.Finalizers = nil
@@ -755,7 +754,7 @@ func TestTCPRouteModel(t *testing.T) {
 		mockStatusWriter = k8sapi.NewMockSubResourceWriter(t)
 		mockClient.EXPECT().Status().Return(mockStatusWriter)
 		mockStatusWriter.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.TCPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
 			Return(errors.New("status failed"))
 		model = newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
 		details.tcpRoute = route
@@ -764,7 +763,7 @@ func TestTCPRouteModel(t *testing.T) {
 	})
 
 	t.Run("deprovisionDetachedRoute clears annotated backend set and removes finalizer", func(t *testing.T) {
-		route := gatewayv1alpha2.TCPRoute{
+		route := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "rtmp",
@@ -773,7 +772,7 @@ func TestTCPRouteModel(t *testing.T) {
 					NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation: "bs_old",
 				},
 			},
-			Status: gatewayv1alpha2.TCPRouteStatus{
+			Status: gatewayv1.TCPRouteStatus{
 				RouteStatus: gatewayv1.RouteStatus{
 					Parents: []gatewayv1.RouteParentStatus{
 						{
@@ -816,7 +815,7 @@ func TestTCPRouteModel(t *testing.T) {
 				return nil
 			})
 		mockClient.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.TCPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
 			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.UpdateOption) error {
 				assert.NotContains(t, obj.GetFinalizers(), NetworkLoadBalancerTCPRouteProgrammedFinalizer)
 				assert.NotContains(t, obj.GetAnnotations(), NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation)
@@ -863,7 +862,7 @@ func TestTCPRouteModel(t *testing.T) {
 	})
 
 	t.Run("deprovisionDetachedRoute removes finalizer when no backend sets are annotated", func(t *testing.T) {
-		route := gatewayv1alpha2.TCPRoute{
+		route := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "rtmp",
@@ -872,7 +871,7 @@ func TestTCPRouteModel(t *testing.T) {
 		}
 		mockClient := NewMockk8sClient(t)
 		mockClient.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.TCPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
 			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.UpdateOption) error {
 				assert.NotContains(t, obj.GetFinalizers(), NetworkLoadBalancerTCPRouteProgrammedFinalizer)
 				return nil
@@ -890,7 +889,7 @@ func TestTCPRouteModel(t *testing.T) {
 
 	t.Run("deprovisionDetachedRoute returns finalizer update error "+
 		"when no backend sets are annotated", func(t *testing.T) {
-		route := gatewayv1alpha2.TCPRoute{
+		route := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "rtmp",
@@ -898,7 +897,7 @@ func TestTCPRouteModel(t *testing.T) {
 			},
 		}
 		mockClient := NewMockk8sClient(t)
-		mockClient.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1alpha2.TCPRoute")).
+		mockClient.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
 			Return(errors.New("update failed"))
 		model := newTCPRouteModel(tcpRouteModelDeps{
 			RootLogger: diag.RootTestLogger(),
@@ -912,7 +911,7 @@ func TestTCPRouteModel(t *testing.T) {
 	})
 
 	t.Run("deprovisionDetachedRoute returns cleanup and update errors", func(t *testing.T) {
-		route := gatewayv1alpha2.TCPRoute{
+		route := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "rtmp",
@@ -921,7 +920,7 @@ func TestTCPRouteModel(t *testing.T) {
 					NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation: "bs_old",
 				},
 			},
-			Status: gatewayv1alpha2.TCPRouteStatus{
+			Status: gatewayv1.TCPRouteStatus{
 				RouteStatus: gatewayv1.RouteStatus{
 					Parents: []gatewayv1.RouteParentStatus{{
 						ParentRef:      gatewayv1.ParentReference{Name: "edge"},
@@ -986,7 +985,7 @@ func TestTCPRouteModel(t *testing.T) {
 				return nil
 			})
 		mockClient.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.TCPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
 			Return(errors.New("update failed"))
 		model = newTCPRouteModel(tcpRouteModelDeps{
 			RootLogger: diag.RootTestLogger(),
@@ -1005,7 +1004,7 @@ func TestTCPRouteModel(t *testing.T) {
 	})
 
 	t.Run("deprovisionDetachedRoute returns gateway read errors", func(t *testing.T) {
-		route := gatewayv1alpha2.TCPRoute{
+		route := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "rtmp",
@@ -1014,7 +1013,7 @@ func TestTCPRouteModel(t *testing.T) {
 					NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation: "bs_old",
 				},
 			},
-			Status: gatewayv1alpha2.TCPRouteStatus{
+			Status: gatewayv1.TCPRouteStatus{
 				RouteStatus: gatewayv1.RouteStatus{
 					Parents: []gatewayv1.RouteParentStatus{{
 						ParentRef:      gatewayv1.ParentReference{Name: "edge"},
@@ -1107,14 +1106,14 @@ func TestTCPRouteModel(t *testing.T) {
 		port := gatewayv1.PortNumber(1935)
 		listener := gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: port}
 		now := metav1.Now()
-		currentRoute := &gatewayv1alpha2.TCPRoute{
+		currentRoute := &gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:         "iot",
 				Name:              "rtmp-old",
 				Finalizers:        []string{NetworkLoadBalancerTCPRouteProgrammedFinalizer},
 				DeletionTimestamp: &now,
 			},
-			Spec: gatewayv1alpha2.TCPRouteSpec{
+			Spec: gatewayv1.TCPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{
 						{Name: "edge", SectionName: lo.ToPtr(gatewayv1.SectionName("rtmp"))},
@@ -1122,15 +1121,15 @@ func TestTCPRouteModel(t *testing.T) {
 				},
 			},
 		}
-		nextRoute := &gatewayv1alpha2.TCPRoute{
+		nextRoute := &gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp-new", Generation: 2},
-			Spec: gatewayv1alpha2.TCPRouteSpec{
+			Spec: gatewayv1.TCPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{
 						{Name: "edge", SectionName: lo.ToPtr(gatewayv1.SectionName("rtmp"))},
 					},
 				},
-				Rules: []gatewayv1alpha2.TCPRouteRule{{
+				Rules: []gatewayv1.TCPRouteRule{{
 					BackendRefs: []gatewayv1.BackendRef{{
 						BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
 					}},
@@ -1142,7 +1141,7 @@ func TestTCPRouteModel(t *testing.T) {
 		k8sClient := fake.NewClientBuilder().
 			WithScheme(newL4TestScheme(t)).
 			WithRuntimeObjects(objects...).
-			WithStatusSubresource(&gatewayv1alpha2.TCPRoute{}).
+			WithStatusSubresource(&gatewayv1.TCPRoute{}).
 			Build()
 		nlbClient := &stubNetworkLoadBalancerClient{}
 		model := newTCPRouteModel(tcpRouteModelDeps{
@@ -1172,7 +1171,7 @@ func TestTCPRouteModel(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, nlbClient.updateBackendSetRequests, 1)
-		var updatedNext gatewayv1alpha2.TCPRoute
+		var updatedNext gatewayv1.TCPRoute
 		require.NoError(t, k8sClient.Get(
 			t.Context(),
 			apitypes.NamespacedName{Namespace: "iot", Name: "rtmp-new"},
@@ -1184,7 +1183,7 @@ func TestTCPRouteModel(t *testing.T) {
 
 	t.Run("deprovisionRoute wraps list update and next route errors", func(t *testing.T) {
 		listener := gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: 1935}
-		currentRoute := gatewayv1alpha2.TCPRoute{
+		currentRoute := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "rtmp-old",
@@ -1201,7 +1200,7 @@ func TestTCPRouteModel(t *testing.T) {
 
 		mockClient := NewMockk8sClient(t)
 		mockClient.EXPECT().
-			List(t.Context(), mock.AnythingOfType("*v1alpha2.TCPRouteList")).
+			List(t.Context(), mock.AnythingOfType("*v1.TCPRouteList")).
 			Return(errors.New("list failed"))
 		model := newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
 		err := model.deprovisionRoute(t.Context(), details)
@@ -1209,15 +1208,15 @@ func TestTCPRouteModel(t *testing.T) {
 
 		mockClient = NewMockk8sClient(t)
 		mockClient.EXPECT().
-			List(t.Context(), mock.AnythingOfType("*v1alpha2.TCPRouteList")).
+			List(t.Context(), mock.AnythingOfType("*v1.TCPRouteList")).
 			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1alpha2.TCPRouteList{
-					Items: []gatewayv1alpha2.TCPRoute{currentRoute},
+				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1.TCPRouteList{
+					Items: []gatewayv1.TCPRoute{currentRoute},
 				}))
 				return nil
 			})
 		mockClient.EXPECT().
-			Update(t.Context(), mock.AnythingOfType("*v1alpha2.TCPRoute")).
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
 			Return(errors.New("update failed"))
 		model = newTCPRouteModel(tcpRouteModelDeps{
 			RootLogger: diag.RootTestLogger(),
@@ -1234,13 +1233,13 @@ func TestTCPRouteModel(t *testing.T) {
 		now := metav1.Now()
 		deletingRoute := currentRoute
 		deletingRoute.DeletionTimestamp = &now
-		nextRoute := &gatewayv1alpha2.TCPRoute{
+		nextRoute := &gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp-new"},
-			Spec: gatewayv1alpha2.TCPRouteSpec{
+			Spec: gatewayv1.TCPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
 				},
-				Rules: []gatewayv1alpha2.TCPRouteRule{
+				Rules: []gatewayv1.TCPRouteRule{
 					{
 						BackendRefs: []gatewayv1.BackendRef{
 							{BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend"}},
@@ -1274,13 +1273,13 @@ func TestTCPRouteModel(t *testing.T) {
 
 	t.Run("programRoute returns update and wait errors", func(t *testing.T) {
 		port := gatewayv1.PortNumber(1935)
-		route := gatewayv1alpha2.TCPRoute{
+		route := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
-			Spec: gatewayv1alpha2.TCPRouteSpec{
+			Spec: gatewayv1.TCPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
 				},
-				Rules: []gatewayv1alpha2.TCPRouteRule{{
+				Rules: []gatewayv1.TCPRouteRule{{
 					BackendRefs: []gatewayv1.BackendRef{{
 						BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
 					}},
@@ -1352,13 +1351,13 @@ func TestTCPRouteModel(t *testing.T) {
 
 	t.Run("programRoute returns busy error for backend set update conflict", func(t *testing.T) {
 		port := gatewayv1.PortNumber(1935)
-		route := gatewayv1alpha2.TCPRoute{
+		route := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
-			Spec: gatewayv1alpha2.TCPRouteSpec{
+			Spec: gatewayv1.TCPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
 				},
-				Rules: []gatewayv1alpha2.TCPRouteRule{{
+				Rules: []gatewayv1.TCPRouteRule{{
 					BackendRefs: []gatewayv1.BackendRef{{
 						BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
 					}},
@@ -1409,7 +1408,7 @@ func TestTCPRouteModel(t *testing.T) {
 	t.Run("programRoute returns busy error when NLB is already updating", func(t *testing.T) {
 		port := gatewayv1.PortNumber(1935)
 		listener := gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: port}
-		route := gatewayv1alpha2.TCPRoute{
+		route := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
 		}
 		nlbClient := &stubNetworkLoadBalancerClient{}
@@ -1451,7 +1450,7 @@ func TestTCPRouteModel(t *testing.T) {
 				},
 			},
 		}
-		route := gatewayv1alpha2.TCPRoute{
+		route := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "other",
 				Name:       "rtmp",
@@ -1491,13 +1490,13 @@ func TestTCPRouteModel(t *testing.T) {
 	t.Run("programRoute skips update when backend set is current", func(t *testing.T) {
 		port := gatewayv1.PortNumber(1935)
 		listener := gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: port}
-		route := &gatewayv1alpha2.TCPRoute{
+		route := &gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
-			Spec: gatewayv1alpha2.TCPRouteSpec{
+			Spec: gatewayv1.TCPRouteSpec{
 				CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
 				},
-				Rules: []gatewayv1alpha2.TCPRouteRule{{
+				Rules: []gatewayv1.TCPRouteRule{{
 					BackendRefs: []gatewayv1.BackendRef{{
 						BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
 					}},
@@ -1625,7 +1624,7 @@ func TestTCPRouteModel(t *testing.T) {
 	})
 
 	t.Run("clearStaleBackendSets keeps desired backend set", func(t *testing.T) {
-		route := gatewayv1alpha2.TCPRoute{
+		route := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "iot",
 				Name:      "rtmp",
@@ -1654,7 +1653,7 @@ func TestTCPRouteModel(t *testing.T) {
 	})
 
 	t.Run("deprovisionDetachedRoute skips unresolved gateway references", func(t *testing.T) {
-		route := gatewayv1alpha2.TCPRoute{
+		route := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:  "iot",
 				Name:       "rtmp",
@@ -1663,7 +1662,7 @@ func TestTCPRouteModel(t *testing.T) {
 					NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation: "bs_rtmp",
 				},
 			},
-			Status: gatewayv1alpha2.TCPRouteStatus{
+			Status: gatewayv1.TCPRouteStatus{
 				RouteStatus: gatewayv1.RouteStatus{
 					Parents: []gatewayv1.RouteParentStatus{{
 						ParentRef:      gatewayv1.ParentReference{Name: "edge"},

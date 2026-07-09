@@ -120,16 +120,16 @@ func TestL4RouteObjectPredicate(t *testing.T) {
 func TestDetectExperimentalRouteCapabilities(t *testing.T) {
 	t.Run("detects TCPRoute and UDPRoute", func(t *testing.T) {
 		mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{
-			{Group: gatewayv1.GroupName, Version: "v1alpha2"},
+			{Group: gatewayv1.GroupName, Version: "v1"},
 		})
 		mapper.Add(schema.GroupVersionKind{
 			Group:   gatewayv1.GroupName,
-			Version: "v1alpha2",
+			Version: "v1",
 			Kind:    "TCPRoute",
 		}, meta.RESTScopeNamespace)
 		mapper.Add(schema.GroupVersionKind{
 			Group:   gatewayv1.GroupName,
-			Version: "v1alpha2",
+			Version: "v1",
 			Kind:    "UDPRoute",
 		}, meta.RESTScopeNamespace)
 
@@ -142,7 +142,7 @@ func TestDetectExperimentalRouteCapabilities(t *testing.T) {
 
 	t.Run("treats missing routes as unavailable", func(t *testing.T) {
 		mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{
-			{Group: gatewayv1.GroupName, Version: "v1alpha2"},
+			{Group: gatewayv1.GroupName, Version: "v1"},
 		})
 
 		got, err := detectExperimentalRouteCapabilities(mapper)

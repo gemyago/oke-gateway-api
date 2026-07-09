@@ -16,7 +16,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -30,7 +29,6 @@ func newL4TestScheme(t *testing.T) *runtime.Scheme {
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, discoveryv1.AddToScheme(scheme))
 	require.NoError(t, gatewayv1.Install(scheme))
-	require.NoError(t, gatewayv1alpha2.Install(scheme))
 	require.NoError(t, gatewayv1beta1.Install(scheme))
 	require.NoError(t, types.AddKnownTypes(scheme))
 	return scheme
@@ -98,15 +96,15 @@ func TestTCPRouteModelResolveAndProgram(t *testing.T) {
 		Protocol: gatewayv1.TCPProtocolType,
 		Port:     port,
 	}
-	route := &gatewayv1alpha2.TCPRoute{
+	route := &gatewayv1.TCPRoute{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp", Generation: 7},
-		Spec: gatewayv1alpha2.TCPRouteSpec{
+		Spec: gatewayv1.TCPRouteSpec{
 			CommonRouteSpec: gatewayv1.CommonRouteSpec{
 				ParentRefs: []gatewayv1.ParentReference{
 					{Name: "edge", SectionName: lo.ToPtr(gatewayv1.SectionName("rtmp"))},
 				},
 			},
-			Rules: []gatewayv1alpha2.TCPRouteRule{
+			Rules: []gatewayv1.TCPRouteRule{
 				{
 					BackendRefs: []gatewayv1.BackendRef{
 						{
@@ -125,7 +123,7 @@ func TestTCPRouteModelResolveAndProgram(t *testing.T) {
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(newL4TestScheme(t)).
 		WithRuntimeObjects(objects...).
-		WithStatusSubresource(&gatewayv1alpha2.TCPRoute{}).
+		WithStatusSubresource(&gatewayv1.TCPRoute{}).
 		Build()
 	nlbClient := &stubNetworkLoadBalancerClient{}
 	model := newTCPRouteModel(tcpRouteModelDeps{
@@ -164,7 +162,7 @@ func TestTCPRouteModelResolveAndProgram(t *testing.T) {
 
 	err = model.setProgrammed(t.Context(), resolved[0])
 	require.NoError(t, err)
-	var updated gatewayv1alpha2.TCPRoute
+	var updated gatewayv1.TCPRoute
 	require.NoError(t, k8sClient.Get(t.Context(), apitypes.NamespacedName{Namespace: "iot", Name: "rtmp"}, &updated))
 	assert.Contains(t, updated.Finalizers, NetworkLoadBalancerTCPRouteProgrammedFinalizer)
 	assert.Len(t, updated.Status.Parents, 1)
@@ -177,7 +175,7 @@ func TestUDPRouteModelResolveAndProgram(t *testing.T) {
 		Protocol: gatewayv1.UDPProtocolType,
 		Port:     port,
 	}
-	route := &gatewayv1alpha2.UDPRoute{
+	route := &gatewayv1.UDPRoute{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:  "iot",
 			Name:       "coap",
@@ -186,13 +184,13 @@ func TestUDPRouteModelResolveAndProgram(t *testing.T) {
 				NetworkLoadBalancerUDPRouteHealthCheckPortAnnotation: "9000",
 			},
 		},
-		Spec: gatewayv1alpha2.UDPRouteSpec{
+		Spec: gatewayv1.UDPRouteSpec{
 			CommonRouteSpec: gatewayv1.CommonRouteSpec{
 				ParentRefs: []gatewayv1.ParentReference{
 					{Name: "edge", SectionName: lo.ToPtr(gatewayv1.SectionName("coap"))},
 				},
 			},
-			Rules: []gatewayv1alpha2.UDPRouteRule{
+			Rules: []gatewayv1.UDPRouteRule{
 				{
 					BackendRefs: []gatewayv1.BackendRef{
 						{
@@ -211,7 +209,7 @@ func TestUDPRouteModelResolveAndProgram(t *testing.T) {
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(newL4TestScheme(t)).
 		WithRuntimeObjects(objects...).
-		WithStatusSubresource(&gatewayv1alpha2.UDPRoute{}).
+		WithStatusSubresource(&gatewayv1.UDPRoute{}).
 		Build()
 	nlbClient := &stubNetworkLoadBalancerClient{}
 	model := newUDPRouteModel(udpRouteModelDeps{
@@ -250,7 +248,7 @@ func TestUDPRouteModelResolveAndProgram(t *testing.T) {
 
 	err = model.setProgrammed(t.Context(), resolved[0])
 	require.NoError(t, err)
-	var updated gatewayv1alpha2.UDPRoute
+	var updated gatewayv1.UDPRoute
 	require.NoError(t, k8sClient.Get(t.Context(), apitypes.NamespacedName{Namespace: "iot", Name: "coap"}, &updated))
 	assert.Contains(t, updated.Finalizers, NetworkLoadBalancerUDPRouteProgrammedFinalizer)
 	assert.Len(t, updated.Status.Parents, 1)
@@ -386,9 +384,9 @@ func TestL4RouteEndpointBackendResolution(t *testing.T) {
 		RootLogger: diag.RootTestLogger(),
 		K8sClient:  k8sClient,
 	}))
-	tcpRoute := gatewayv1alpha2.TCPRoute{
+	tcpRoute := gatewayv1.TCPRoute{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
-		Spec: gatewayv1alpha2.TCPRouteSpec{Rules: []gatewayv1alpha2.TCPRouteRule{
+		Spec: gatewayv1.TCPRouteSpec{Rules: []gatewayv1.TCPRouteRule{
 			{BackendRefs: []gatewayv1.BackendRef{
 				{
 					BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
@@ -405,9 +403,9 @@ func TestL4RouteEndpointBackendResolution(t *testing.T) {
 			}},
 		}},
 	}
-	udpRoute := gatewayv1alpha2.UDPRoute{
+	udpRoute := gatewayv1.UDPRoute{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "coap"},
-		Spec: gatewayv1alpha2.UDPRouteSpec{Rules: []gatewayv1alpha2.UDPRouteRule{
+		Spec: gatewayv1.UDPRouteSpec{Rules: []gatewayv1.UDPRouteRule{
 			{BackendRefs: []gatewayv1.BackendRef{
 				{
 					BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
@@ -458,9 +456,9 @@ func TestL4RouteResolveRequestBranches(t *testing.T) {
 	tcpPort := gatewayv1.PortNumber(1935)
 	udpPort := gatewayv1.PortNumber(5684)
 	serviceKindRef := gatewayv1.Kind(serviceKind)
-	tcpRoute := &gatewayv1alpha2.TCPRoute{
+	tcpRoute := &gatewayv1.TCPRoute{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
-		Spec: gatewayv1alpha2.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+		Spec: gatewayv1.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
 			ParentRefs: []gatewayv1.ParentReference{
 				{Kind: &serviceKindRef, Name: "ignored"},
 				{Name: "missing"},
@@ -471,9 +469,9 @@ func TestL4RouteResolveRequestBranches(t *testing.T) {
 			},
 		}},
 	}
-	udpRoute := &gatewayv1alpha2.UDPRoute{
+	udpRoute := &gatewayv1.UDPRoute{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "coap"},
-		Spec: gatewayv1alpha2.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+		Spec: gatewayv1.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
 			ParentRefs: []gatewayv1.ParentReference{
 				{Kind: &serviceKindRef, Name: "ignored"},
 				{Name: "missing"},
@@ -548,7 +546,7 @@ func TestL4RouteResolveRequestBranches(t *testing.T) {
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(newL4TestScheme(t)).
 		WithRuntimeObjects(objects...).
-		WithStatusSubresource(&gatewayv1alpha2.TCPRoute{}, &gatewayv1alpha2.UDPRoute{}).
+		WithStatusSubresource(&gatewayv1.TCPRoute{}, &gatewayv1.UDPRoute{}).
 		Build()
 	tcpModel := newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: k8sClient})
 	udpModel := newUDPRouteModel(udpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: k8sClient})
@@ -585,7 +583,7 @@ func TestL4RouteProgramRouteStaleAndUpToDate(t *testing.T) {
 			routeKey := apitypes.NamespacedName{Namespace: "iot", Name: "rtmp"}
 			objects := l4GatewayObjects(listener)
 			if protocol == gatewayv1.TCPProtocolType {
-				objects = append(objects, &gatewayv1alpha2.TCPRoute{
+				objects = append(objects, &gatewayv1.TCPRoute{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace:  routeKey.Namespace,
 						Name:       routeKey.Name,
@@ -594,17 +592,17 @@ func TestL4RouteProgramRouteStaleAndUpToDate(t *testing.T) {
 							NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation: "bs_old",
 						},
 					},
-					Spec: gatewayv1alpha2.TCPRouteSpec{
+					Spec: gatewayv1.TCPRouteSpec{
 						CommonRouteSpec: gatewayv1.CommonRouteSpec{
 							ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
 						},
-						Rules: []gatewayv1alpha2.TCPRouteRule{{BackendRefs: []gatewayv1.BackendRef{{
+						Rules: []gatewayv1.TCPRouteRule{{BackendRefs: []gatewayv1.BackendRef{{
 							BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
 						}}}},
 					},
 				})
 			} else {
-				objects = append(objects, &gatewayv1alpha2.UDPRoute{
+				objects = append(objects, &gatewayv1.UDPRoute{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace:  routeKey.Namespace,
 						Name:       routeKey.Name,
@@ -614,11 +612,11 @@ func TestL4RouteProgramRouteStaleAndUpToDate(t *testing.T) {
 							NetworkLoadBalancerUDPRouteHealthCheckPortAnnotation:       "1935",
 						},
 					},
-					Spec: gatewayv1alpha2.UDPRouteSpec{
+					Spec: gatewayv1.UDPRouteSpec{
 						CommonRouteSpec: gatewayv1.CommonRouteSpec{
 							ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
 						},
-						Rules: []gatewayv1alpha2.UDPRouteRule{{BackendRefs: []gatewayv1.BackendRef{{
+						Rules: []gatewayv1.UDPRouteRule{{BackendRefs: []gatewayv1.BackendRef{{
 							BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
 						}}}},
 					},
@@ -648,7 +646,7 @@ func TestL4RouteProgramRouteStaleAndUpToDate(t *testing.T) {
 					OciNetworkLoadBalancerAPI: nlbClient,
 					WorkRequestsWatcher:       &stubWorkRequestsWatcher{},
 				})
-				var route gatewayv1alpha2.TCPRoute
+				var route gatewayv1.TCPRoute
 				require.NoError(t, k8sClient.Get(t.Context(), routeKey, &route))
 				err := model.programRoute(t.Context(), resolvedTCPRouteDetails{
 					gatewayDetails:  details,
@@ -664,7 +662,7 @@ func TestL4RouteProgramRouteStaleAndUpToDate(t *testing.T) {
 					OciNetworkLoadBalancerAPI: nlbClient,
 					WorkRequestsWatcher:       &stubWorkRequestsWatcher{},
 				})
-				var route gatewayv1alpha2.UDPRoute
+				var route gatewayv1.UDPRoute
 				require.NoError(t, k8sClient.Get(t.Context(), routeKey, &route))
 				err := model.programRoute(t.Context(), resolvedUDPRouteDetails{
 					gatewayDetails:  details,

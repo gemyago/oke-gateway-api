@@ -15,22 +15,21 @@ import (
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	"github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
 )
 
-func mustTCPRoute(t *testing.T, obj client.Object) *gatewayv1alpha2.TCPRoute {
+func mustTCPRoute(t *testing.T, obj client.Object) *gatewayv1.TCPRoute {
 	t.Helper()
-	route, ok := obj.(*gatewayv1alpha2.TCPRoute)
+	route, ok := obj.(*gatewayv1.TCPRoute)
 	require.True(t, ok)
 	return route
 }
 
-func mustUDPRoute(t *testing.T, obj client.Object) *gatewayv1alpha2.UDPRoute {
+func mustUDPRoute(t *testing.T, obj client.Object) *gatewayv1.UDPRoute {
 	t.Helper()
-	route, ok := obj.(*gatewayv1alpha2.UDPRoute)
+	route, ok := obj.(*gatewayv1.UDPRoute)
 	require.True(t, ok)
 	return route
 }
@@ -312,9 +311,9 @@ func TestL4RouteModelSetRejected(t *testing.T) {
 				Update(t.Context(), mock.Anything).
 				RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.SubResourceUpdateOption) error {
 					switch route := obj.(type) {
-					case *gatewayv1alpha2.TCPRoute:
+					case *gatewayv1.TCPRoute:
 						require.Len(t, route.Status.Parents, 1)
-					case *gatewayv1alpha2.UDPRoute:
+					case *gatewayv1.UDPRoute:
 						require.Len(t, route.Status.Parents, 1)
 					case *gatewayv1.TLSRoute:
 						require.Len(t, route.Status.Parents, 1)
@@ -327,7 +326,7 @@ func TestL4RouteModelSetRejected(t *testing.T) {
 			if tc.routeKind == "tcp" {
 				model := newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
 				err := model.setRejected(t.Context(), resolvedTCPRouteDetails{
-					tcpRoute:   gatewayv1alpha2.TCPRoute{ObjectMeta: metav1.ObjectMeta{Name: "rtmp", Generation: 1}},
+					tcpRoute:   gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{Name: "rtmp", Generation: 1}},
 					matchedRef: gatewayv1.ParentReference{Name: "edge"},
 				}, newTCPRouteAcceptedStatusError(gatewayv1.RouteReasonNotAllowedByListeners, "blocked"))
 				require.NoError(t, err)
@@ -351,7 +350,7 @@ func TestL4RouteModelSetRejected(t *testing.T) {
 
 			model := newUDPRouteModel(udpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
 			err := model.setRejected(t.Context(), resolvedUDPRouteDetails{
-				udpRoute:   gatewayv1alpha2.UDPRoute{ObjectMeta: metav1.ObjectMeta{Name: "coap", Generation: 1}},
+				udpRoute:   gatewayv1.UDPRoute{ObjectMeta: metav1.ObjectMeta{Name: "coap", Generation: 1}},
 				matchedRef: gatewayv1.ParentReference{Name: "edge"},
 			}, newUDPRouteAcceptedStatusError(gatewayv1.RouteReasonNotAllowedByListeners, "blocked"))
 			require.NoError(t, err)

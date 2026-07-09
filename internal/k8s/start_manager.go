@@ -21,7 +21,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	"github.com/gemyago/oke-gateway-api/internal/app"
@@ -120,7 +119,7 @@ func detectExperimentalRouteCapabilities(mapper meta.RESTMapper) (experimentalRo
 	tcpRouteAvailable, err := resourceKindAvailable(
 		mapper,
 		schema.GroupKind{Group: gatewayv1.GroupName, Kind: "TCPRoute"},
-		"v1alpha2",
+		"v1",
 	)
 	if err != nil {
 		return experimentalRouteCapabilities{}, fmt.Errorf("failed to detect TCPRoute availability: %w", err)
@@ -129,7 +128,7 @@ func detectExperimentalRouteCapabilities(mapper meta.RESTMapper) (experimentalRo
 	udpRouteAvailable, err := resourceKindAvailable(
 		mapper,
 		schema.GroupKind{Group: gatewayv1.GroupName, Kind: "UDPRoute"},
-		"v1alpha2",
+		"v1",
 	)
 	if err != nil {
 		return experimentalRouteCapabilities{}, fmt.Errorf("failed to detect UDPRoute availability: %w", err)
@@ -474,7 +473,7 @@ func l4RouteControllerSetupTasks(
 			setup: func() error {
 				return setupL4RouteController(mgr, setupL4RouteControllerParams{
 					name:        "tcproute",
-					route:       &gatewayv1alpha2.TCPRoute{},
+					route:       &gatewayv1.TCPRoute{},
 					mapEndpoint: deps.WatchesModel.MapEndpointSliceToTCPRoute,
 					mapGrant:    deps.WatchesModel.MapReferenceGrantToTCPRoute,
 					mapGateway:  deps.WatchesModel.MapGatewayToTCPRoute,
@@ -489,7 +488,7 @@ func l4RouteControllerSetupTasks(
 			setup: func() error {
 				return setupL4RouteController(mgr, setupL4RouteControllerParams{
 					name:        "udproute",
-					route:       &gatewayv1alpha2.UDPRoute{},
+					route:       &gatewayv1.UDPRoute{},
 					mapEndpoint: deps.WatchesModel.MapEndpointSliceToUDPRoute,
 					mapGrant:    deps.WatchesModel.MapReferenceGrantToUDPRoute,
 					mapGateway:  deps.WatchesModel.MapGatewayToUDPRoute,
