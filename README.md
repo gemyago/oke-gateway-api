@@ -223,6 +223,10 @@ Other patterns will result in an error.
 
 Please refer to [https](./docs/https.md) for more details.
 
+Gateway listener TLS options can configure OCI Load Balancer frontend cipher suites and TLS protocol versions. Set `oci.oraclecloud.com/cipher-suite-name` and `oci.oraclecloud.com/tls-protocols` under `Gateway.spec.listeners[].tls.options`; when omitted, OCI uses its listener defaults. See [deploy/manifests/examples/gateway-https-tls-options.yaml](./deploy/manifests/examples/gateway-https-tls-options.yaml) for an example.
+
+OCI documents supported predefined cipher suite names in [Predefined Load Balancer Cipher Suites](https://docs.oracle.com/en-us/iaas/Content/Balance/Tasks/managingciphersuites_topic-Predefined_Cipher_Suites.htm). OCI SSL configuration accepts `TLSv1`, `TLSv1.1`, `TLSv1.2`, and `TLSv1.3`; see the OCI Load Balancer [`SSLConfiguration`](https://docs.oracle.com/en-us/iaas/tools/python/latest/api/load_balancer/models/oci.load_balancer.models.SSLConfiguration.html) documentation for protocol values and defaults.
+
 ## GRPCRoute With OCI Load Balancer
 
 `GRPCRoute` uses the standard Gateway API CRDs and is reconciled on OCI Load Balancer with the other layer 7 routes. It is not implemented on OCI Network Load Balancer. Use `TCPRoute` if you only need gRPC passthrough to pods.

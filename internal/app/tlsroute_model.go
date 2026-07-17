@@ -923,7 +923,9 @@ func (m *tlsRouteModelImpl) tlsListenerSSLConfig(
 ) (*loadbalancer.SslConfigurationDetails, error) {
 	listenerName := string(details.matchedListener.Name)
 	if certificateID := certificates.certificateIDsByListener[listenerName]; certificateID != "" {
-		return &loadbalancer.SslConfigurationDetails{CertificateIds: []string{certificateID}}, nil
+		sslConfig := &loadbalancer.SslConfigurationDetails{CertificateIds: []string{certificateID}}
+		applyListenerTLSOptions(sslConfig, details.matchedListener.TLS)
+		return sslConfig, nil
 	}
 	listenerCertificates := certificates.certificatesByListener[listenerName]
 	if len(listenerCertificates) == 0 {
@@ -935,7 +937,9 @@ func (m *tlsRouteModelImpl) tlsListenerSSLConfig(
 			),
 		)
 	}
-	return &loadbalancer.SslConfigurationDetails{CertificateName: listenerCertificates[0].CertificateName}, nil
+	sslConfig := &loadbalancer.SslConfigurationDetails{CertificateName: listenerCertificates[0].CertificateName}
+	applyListenerTLSOptions(sslConfig, details.matchedListener.TLS)
+	return sslConfig, nil
 }
 
 func (m *tlsRouteModelImpl) reconcileLoadBalancerTLSListener(
@@ -1012,21 +1016,10 @@ func makeOciTLSListenerUpdateDetails(
 	if lo.FromPtr(existingListener.RoutingPolicyName) != "" {
 		hasChanges = true
 	}
-	existingCertName := ""
-	existingCertIDs := normalizeCertificateIDs(nil)
-	if existingListener.SslConfiguration != nil {
-		existingCertName = lo.FromPtr(existingListener.SslConfiguration.CertificateName)
-		existingCertIDs = normalizeCertificateIDs(existingListener.SslConfiguration.CertificateIds)
-	}
-	newCertName := ""
-	newCertIDs := normalizeCertificateIDs(nil)
-	if sslConfig != nil {
-		newCertName = lo.FromPtr(sslConfig.CertificateName)
-		newCertIDs = normalizeCertificateIDs(sslConfig.CertificateIds)
-	}
-	if existingCertName != newCertName || !lo.EveryBy(newCertIDs, func(certID string) bool {
-		return lo.Contains(existingCertIDs, certID)
-	}) || len(existingCertIDs) != len(newCertIDs) {
+	if !loadBalancerListenerSSLConfigurationsEqual(
+		sslConfigurationDetailsFromBackendSet(existingListener.SslConfiguration),
+		sslConfig,
+	) {
 		hasChanges = true
 	}
 	if !hasChanges {

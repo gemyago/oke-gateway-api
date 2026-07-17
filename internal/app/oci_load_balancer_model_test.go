@@ -1049,8 +1049,15 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			fake := faker.New()
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
+			cipherSuiteName := "oci-tls-12-13-ssl-cipher-suite-v3"
 			gwListener := makeRandomListener(
 				randomListenerWithHTTPSParamsOpt(),
+				func(listener *gatewayv1.Listener) {
+					listener.TLS.Options = map[gatewayv1.AnnotationKey]gatewayv1.AnnotationValue{
+						ListenerTLSOptionCipherSuiteName: gatewayv1.AnnotationValue(cipherSuiteName),
+						ListenerTLSOptionProtocols:       "TLSv1.2,TLSv1.3",
+					}
+				},
 			)
 			lbListener := makeRandomOCIListener(
 				func(l *loadbalancer.Listener) {
@@ -1097,6 +1104,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					RoutingPolicyName:     new(routingPolicyName),
 					SslConfiguration: &loadbalancer.SslConfigurationDetails{
 						CertificateName: ociListenerCert.CertificateName,
+						CipherSuiteName: &cipherSuiteName,
+						Protocols:       []string{"TLSv1.2", "TLSv1.3"},
 					},
 				},
 			}).Return(loadbalancer.UpdateListenerResponse{
@@ -1215,8 +1224,15 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			fake := faker.New()
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
+			cipherSuiteName := "oci-tls-13-ssl-cipher-suite-v3"
 			gwListener := makeRandomListener(
 				randomListenerWithHTTPSParamsOpt(),
+				func(listener *gatewayv1.Listener) {
+					listener.TLS.Options = map[gatewayv1.AnnotationKey]gatewayv1.AnnotationValue{
+						ListenerTLSOptionCipherSuiteName: gatewayv1.AnnotationValue(cipherSuiteName),
+						ListenerTLSOptionProtocols:       "TLSv1.3",
+					}
+				},
 			)
 
 			ociListenerCert := makeRandomOCICertificate()
@@ -1280,6 +1296,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					RoutingPolicyName:     new(routingPolicyName),
 					SslConfiguration: &loadbalancer.SslConfigurationDetails{
 						CertificateName: ociListenerCert.CertificateName,
+						CipherSuiteName: &cipherSuiteName,
+						Protocols:       []string{"TLSv1.3"},
 					},
 				},
 			}).Return(loadbalancer.CreateListenerResponse{
@@ -5150,8 +5168,11 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 
 	makeSslConfigFromDetails := func(details *loadbalancer.SslConfigurationDetails) *loadbalancer.SslConfiguration {
 		return &loadbalancer.SslConfiguration{
-			CertificateName: details.CertificateName,
-			CertificateIds:  details.CertificateIds,
+			CertificateName:      details.CertificateName,
+			CertificateIds:       details.CertificateIds,
+			CipherSuiteName:      details.CipherSuiteName,
+			Protocols:            details.Protocols,
+			HasSessionResumption: details.HasSessionResumption,
 		}
 	}
 
@@ -5235,6 +5256,126 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 					RoutingPolicyName:     new(listenerPolicyName(listenerName)),
 				},
 				wantOk: true,
+			}
+		},
+		func() testCase {
+			fake := faker.New()
+			listenerName := fake.UUID().V4()
+			listenerSpec := makeRandomListener(
+				randomListenerWithHTTPSParamsOpt(),
+			)
+			defaultBackendSetName := fake.UUID().V4()
+			certName := fake.UUID().V4()
+			oldCipherSuite := "oci-default-ssl-cipher-suite-v1"
+			newCipherSuite := "oci-tls-12-13-ssl-cipher-suite-v3"
+			oldSslConfig := &loadbalancer.SslConfigurationDetails{
+				CertificateName: &certName,
+				CipherSuiteName: &oldCipherSuite,
+				Protocols:       []string{"TLSv1.2"},
+			}
+			newSslConfig := &loadbalancer.SslConfigurationDetails{
+				CertificateName: &certName,
+				CipherSuiteName: &newCipherSuite,
+				Protocols:       []string{"TLSv1.2", "TLSv1.3"},
+			}
+
+			return testCase{
+				name: "ssl config cipher suite and protocols change",
+				params: makeOciListenerUpdateDetailsParams{
+					existingListenerData: loadbalancer.Listener{
+						Protocol:              new("HTTP"),
+						Port:                  new(int(listenerSpec.Port)),
+						DefaultBackendSetName: new(defaultBackendSetName),
+						RoutingPolicyName:     new(listenerPolicyName(listenerName)),
+						SslConfiguration:      makeSslConfigFromDetails(oldSslConfig),
+					},
+					listenerName:          listenerName,
+					listenerSpec:          &listenerSpec,
+					defaultBackendSetName: defaultBackendSetName,
+					sslConfig:             newSslConfig,
+				},
+				want: loadbalancer.UpdateListenerDetails{
+					Protocol:              new("HTTP"),
+					Port:                  new(int(listenerSpec.Port)),
+					DefaultBackendSetName: new(defaultBackendSetName),
+					RoutingPolicyName:     new(listenerPolicyName(listenerName)),
+					SslConfiguration:      newSslConfig,
+				},
+				wantOk: true,
+			}
+		},
+		func() testCase {
+			fake := faker.New()
+			listenerName := fake.UUID().V4()
+			listenerSpec := makeRandomListener(
+				randomListenerWithHTTPSParamsOpt(),
+			)
+			defaultBackendSetName := fake.UUID().V4()
+			certName := fake.UUID().V4()
+			cipherSuite := "oci-tls-12-13-ssl-cipher-suite-v3"
+			sslConfig := &loadbalancer.SslConfigurationDetails{
+				CertificateName: &certName,
+				CipherSuiteName: &cipherSuite,
+				Protocols:       []string{"TLSv1.3", "TLSv1.2"},
+			}
+
+			return testCase{
+				name: "ssl config protocols match regardless of order",
+				params: makeOciListenerUpdateDetailsParams{
+					existingListenerData: loadbalancer.Listener{
+						Protocol:              new("HTTP"),
+						Port:                  new(int(listenerSpec.Port)),
+						DefaultBackendSetName: new(defaultBackendSetName),
+						RoutingPolicyName:     new(listenerPolicyName(listenerName)),
+						SslConfiguration: &loadbalancer.SslConfiguration{
+							CertificateName: &certName,
+							CipherSuiteName: &cipherSuite,
+							Protocols:       []string{"TLSv1.2", "TLSv1.3"},
+						},
+					},
+					listenerName:          listenerName,
+					listenerSpec:          &listenerSpec,
+					defaultBackendSetName: defaultBackendSetName,
+					sslConfig:             sslConfig,
+				},
+				want:   loadbalancer.UpdateListenerDetails{},
+				wantOk: false,
+			}
+		},
+		func() testCase {
+			fake := faker.New()
+			listenerName := fake.UUID().V4()
+			listenerSpec := makeRandomListener(
+				randomListenerWithHTTPSParamsOpt(),
+			)
+			defaultBackendSetName := fake.UUID().V4()
+			certName := fake.UUID().V4()
+			cipherSuite := "oci-default-ssl-cipher-suite-v1"
+			sslConfig := &loadbalancer.SslConfigurationDetails{
+				CertificateName: &certName,
+			}
+
+			return testCase{
+				name: "ssl config ignores OCI default cipher suite and protocols when desired options are absent",
+				params: makeOciListenerUpdateDetailsParams{
+					existingListenerData: loadbalancer.Listener{
+						Protocol:              new("HTTP"),
+						Port:                  new(int(listenerSpec.Port)),
+						DefaultBackendSetName: new(defaultBackendSetName),
+						RoutingPolicyName:     new(listenerPolicyName(listenerName)),
+						SslConfiguration: &loadbalancer.SslConfiguration{
+							CertificateName: &certName,
+							CipherSuiteName: &cipherSuite,
+							Protocols:       []string{"TLSv1.2"},
+						},
+					},
+					listenerName:          listenerName,
+					listenerSpec:          &listenerSpec,
+					defaultBackendSetName: defaultBackendSetName,
+					sslConfig:             sslConfig,
+				},
+				want:   loadbalancer.UpdateListenerDetails{},
+				wantOk: false,
 			}
 		},
 		func() testCase {
@@ -5505,6 +5646,49 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 				wantOk: false,
 			}
 		},
+		func() testCase {
+			fake := faker.New()
+			listenerName := fake.UUID().V4()
+			listenerSpec := makeRandomListener(
+				randomListenerWithHTTPSParamsOpt(),
+			)
+			defaultBackendSetName := fake.UUID().V4()
+			certName := fake.UUID().V4()
+			cipherSuite := "oci-tls-12-13-ssl-cipher-suite-v3"
+			verifyDepth := 1
+			verifyPeerCertificate := false
+			sslConfig := &loadbalancer.SslConfigurationDetails{
+				CertificateName: &certName,
+				CipherSuiteName: &cipherSuite,
+				Protocols:       []string{"TLSv1.2", "TLSv1.3"},
+			}
+
+			return testCase{
+				name: "ssl config ignores OCI listener default fields",
+				params: makeOciListenerUpdateDetailsParams{
+					existingListenerData: loadbalancer.Listener{
+						Protocol:              new("HTTP"),
+						Port:                  new(int(listenerSpec.Port)),
+						DefaultBackendSetName: new(defaultBackendSetName),
+						RoutingPolicyName:     new(listenerPolicyName(listenerName)),
+						SslConfiguration: &loadbalancer.SslConfiguration{
+							CertificateName:       &certName,
+							CipherSuiteName:       &cipherSuite,
+							Protocols:             []string{"TLSv1.2", "TLSv1.3"},
+							ServerOrderPreference: loadbalancer.SslConfigurationServerOrderPreferenceEnabled,
+							VerifyDepth:           &verifyDepth,
+							VerifyPeerCertificate: &verifyPeerCertificate,
+						},
+					},
+					listenerName:          listenerName,
+					listenerSpec:          &listenerSpec,
+					defaultBackendSetName: defaultBackendSetName,
+					sslConfig:             sslConfig,
+				},
+				want:   loadbalancer.UpdateListenerDetails{},
+				wantOk: false,
+			}
+		},
 	}
 
 	for _, tc := range tests {
@@ -5515,4 +5699,44 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 			assert.Equal(t, tc.wantOk, gotOk)
 		})
 	}
+}
+
+func Test_applyListenerTLSOptions(t *testing.T) {
+	t.Run("does nothing without ssl config", func(_ *testing.T) {
+		applyListenerTLSOptions(nil, &gatewayv1.ListenerTLSConfig{
+			Options: map[gatewayv1.AnnotationKey]gatewayv1.AnnotationValue{
+				ListenerTLSOptionProtocols: "TLSv1.3",
+			},
+		})
+	})
+
+	t.Run("keeps OCI defaults when options are absent", func(t *testing.T) {
+		certName := faker.New().UUID().V4()
+		sslConfig := &loadbalancer.SslConfigurationDetails{CertificateName: &certName}
+
+		applyListenerTLSOptions(sslConfig, nil)
+		applyListenerTLSOptions(sslConfig, &gatewayv1.ListenerTLSConfig{})
+
+		assert.Equal(t, certName, lo.FromPtr(sslConfig.CertificateName))
+		assert.Empty(t, sslConfig.Protocols)
+		assert.Nil(t, sslConfig.CipherSuiteName)
+	})
+
+	t.Run("applies cipher suite and TLS protocols", func(t *testing.T) {
+		fake := faker.New()
+		certName := fake.UUID().V4()
+		cipherSuiteName := "oci-tls-12-13-ssl-cipher-suite-v3"
+		sslConfig := &loadbalancer.SslConfigurationDetails{CertificateName: &certName}
+
+		applyListenerTLSOptions(sslConfig, &gatewayv1.ListenerTLSConfig{
+			Options: map[gatewayv1.AnnotationKey]gatewayv1.AnnotationValue{
+				ListenerTLSOptionCipherSuiteName: gatewayv1.AnnotationValue(" " + cipherSuiteName + " "),
+				ListenerTLSOptionProtocols:       " TLSv1.2, TLSv1.3 ",
+			},
+		})
+
+		assert.Equal(t, certName, lo.FromPtr(sslConfig.CertificateName))
+		assert.Equal(t, cipherSuiteName, lo.FromPtr(sslConfig.CipherSuiteName))
+		assert.Equal(t, []string{"TLSv1.2", "TLSv1.3"}, sslConfig.Protocols)
+	})
 }
