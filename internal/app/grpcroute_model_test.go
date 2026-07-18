@@ -335,6 +335,91 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 	})
 
 	t.Run("resolveRequest", func(t *testing.T) {
+		t.Run("cleans deleting programmed route with no resolved parent", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newGRPCRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			loadBalancerID := "lb-" + fake.UUID().V4()
+			listenerName := "listener-" + fake.Lorem().Word()
+			ruleName := "rule-" + fake.Lorem().Word()
+			deleteTime := metav1.Now()
+			backendRef := makeGRPCBackendRef()
+			route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.Spec.Rules = []gatewayv1.GRPCRouteRule{{BackendRefs: []gatewayv1.GRPCBackendRef{backendRef}}}
+				route.DeletionTimestamp = &deleteTime
+				route.Finalizers = []string{GRPCRouteProgrammedFinalizer}
+				route.Annotations = map[string]string{
+					GRPCRouteProgrammedPolicyRulesAnnotation:  listenerName + "/" + ruleName,
+					L7RouteProgrammedLoadBalancerIDAnnotation: loadBalancerID,
+				}
+			})
+			req := reconcile.Request{
+				NamespacedName: apitypes.NamespacedName{Namespace: route.Namespace, Name: route.Name},
+			}
+
+			k8sClient.EXPECT().Get(t.Context(), req.NamespacedName, mock.AnythingOfType("*v1.GRPCRoute")).
+				Run(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) {
+					*obj.(*gatewayv1.GRPCRoute) = route
+				}).
+				Return(nil).
+				Once()
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  loadBalancerID,
+				listenerName:    listenerName,
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{ruleName},
+			}).Return(nil).Once()
+			ociLBModel.EXPECT().deprovisionBackendSet(t.Context(), deprovisionBackendSetParams{
+				loadBalancerID: loadBalancerID,
+				routeNamespace: route.Namespace,
+				backendRef:     backendRef.BackendRef,
+			}).Return(nil).Once()
+			k8sClient.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				updated, ok := obj.(*gatewayv1.GRPCRoute)
+				return ok &&
+					!controllerutil.ContainsFinalizer(updated, GRPCRouteProgrammedFinalizer) &&
+					updated.Annotations[GRPCRouteProgrammedPolicyRulesAnnotation] == "" &&
+					updated.Annotations[L7RouteProgrammedLoadBalancerIDAnnotation] == ""
+			})).Return(nil).Once()
+
+			got, err := model.resolveRequest(t.Context(), req)
+
+			require.NoError(t, err)
+			assert.Empty(t, got)
+		})
+
+		t.Run("wraps detached finalizer update errors", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGRPCRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			deleteTime := metav1.Now()
+			route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.DeletionTimestamp = &deleteTime
+				route.Finalizers = []string{GRPCRouteProgrammedFinalizer}
+			})
+			req := reconcile.Request{
+				NamespacedName: apitypes.NamespacedName{Namespace: route.Namespace, Name: route.Name},
+			}
+			wantErr := errors.New("update failed")
+
+			k8sClient.EXPECT().Get(t.Context(), req.NamespacedName, mock.AnythingOfType("*v1.GRPCRoute")).
+				Run(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) {
+					*obj.(*gatewayv1.GRPCRoute) = route
+				}).
+				Return(nil).
+				Once()
+			k8sClient.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.GRPCRoute")).
+				Return(wantErr).
+				Once()
+
+			_, err := model.resolveRequest(t.Context(), req)
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to deprovision detached GRPCRoute")
+		})
+
 		t.Run("returns empty result when route is not found", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newGRPCRouteModel(deps)
@@ -1106,7 +1191,8 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			})
 			resourcesModel.EXPECT().isConditionSet(mock.MatchedBy(func(params isConditionSetParams) bool {
 				return params.conditionType == string(gatewayv1.RouteConditionResolvedRefs) &&
-					params.annotations[GRPCRouteProgrammingRevisionAnnotation] == GRPCRouteProgrammingRevisionValue
+					params.annotations[GRPCRouteProgrammingRevisionAnnotation] == GRPCRouteProgrammingRevisionValue &&
+					params.annotations[L7RouteProgrammedLoadBalancerIDAnnotation] == gatewayData.config.Spec.LoadBalancerID
 			})).Return(true).Once()
 
 			got := model.isProgrammingRequired(resolvedGRPCRouteDetails{
@@ -1316,6 +1402,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			Spec: gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName},
 		}
 		gateway := gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "gw-" + fake.Lorem().Word()}}
+		config := makeRandomGatewayConfig()
 		parentRef := gatewayv1.ParentReference{Name: gatewayv1.ObjectName(gateway.Name)}
 		route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
 			route.Status.Parents = []gatewayv1.RouteParentStatus{{
@@ -1329,13 +1416,15 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			return params.conditionType == string(gatewayv1.RouteConditionResolvedRefs) &&
 				params.finalizer == GRPCRouteProgrammedFinalizer &&
 				params.annotations[GRPCRouteProgrammingRevisionAnnotation] == GRPCRouteProgrammingRevisionValue &&
-				params.annotations[GRPCRouteProgrammedPolicyRulesAnnotation] == strings.Join(programmedRules, ",")
+				params.annotations[GRPCRouteProgrammedPolicyRulesAnnotation] == strings.Join(programmedRules, ",") &&
+				params.annotations[L7RouteProgrammedLoadBalancerIDAnnotation] == config.Spec.LoadBalancerID
 		})).Return(nil).Once()
 
 		err := model.setProgrammed(t.Context(), setGRPCRouteProgrammedParams{
 			grpcRoute:             route,
 			gatewayClass:          gatewayClass,
 			gateway:               gateway,
+			config:                config,
 			matchedRef:            parentRef,
 			programmedPolicyRules: programmedRules,
 		})

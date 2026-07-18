@@ -120,6 +120,10 @@ func l4RouteObjectPredicate() predicate.Funcs {
 	}
 }
 
+func listenerSetRouteObjectPredicate() predicate.ResourceVersionChangedPredicate {
+	return predicate.ResourceVersionChangedPredicate{}
+}
+
 func detectExperimentalRouteCapabilities(mapper meta.RESTMapper) (experimentalRouteCapabilities, error) {
 	tcpRouteAvailable, err := resourceKindAvailable(
 		mapper,
@@ -607,7 +611,7 @@ func setupL7RouteController(
 		controllerBuilder = controllerBuilder.Watches(
 			&gatewayv1.ListenerSet{},
 			handler.EnqueueRequestsFromMapFunc(params.mapListenerSetToRoute),
-			builder.WithPredicates(l4RouteObjectPredicate()),
+			builder.WithPredicates(listenerSetRouteObjectPredicate()),
 		)
 	}
 	return controllerBuilder.Complete(wireupReconciler(params.reconciler, middlewares...))

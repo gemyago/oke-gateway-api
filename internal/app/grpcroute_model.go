@@ -59,6 +59,7 @@ type setGRPCRouteProgrammedParams struct {
 	grpcRoute    gatewayv1.GRPCRoute
 	gatewayClass gatewayv1.GatewayClass
 	gateway      gatewayv1.Gateway
+	config       types.GatewayConfig
 	matchedRef   gatewayv1.ParentReference
 
 	programmedPolicyRules []string
@@ -269,6 +270,13 @@ func (m *grpcRouteModelImpl) resolveRequest(
 				makeTargetOnlyParentRef(parentRef),
 				matchedListeners,
 			)
+		}
+	}
+
+	if len(results) == 0 && grpcRoute.DeletionTimestamp != nil &&
+		controllerutil.ContainsFinalizer(&grpcRoute, GRPCRouteProgrammedFinalizer) {
+		if err := m.deprovisionDetachedRoute(ctx, grpcRoute); err != nil {
+			return nil, fmt.Errorf("failed to deprovision detached GRPCRoute %s: %w", req.NamespacedName, err)
 		}
 	}
 
@@ -562,6 +570,39 @@ func (m *grpcRouteModelImpl) deprovisionRoute(
 	return nil
 }
 
+func (m *grpcRouteModelImpl) deprovisionDetachedRoute(
+	ctx context.Context,
+	grpcRoute gatewayv1.GRPCRoute,
+) error {
+	return deprovisionDetachedL7Route(ctx, m.ociLoadBalancerModel, deprovisionDetachedL7RouteParams{
+		route:                 &grpcRoute,
+		routeKind:             "GRPCRoute",
+		policyRulesAnnotation: GRPCRouteProgrammedPolicyRulesAnnotation,
+		loadBalancerID:        grpcRoute.Annotations[L7RouteProgrammedLoadBalancerIDAnnotation],
+		backendRefs:           grpcRouteBackendRefs(grpcRoute),
+		removeFinalizer: func(ctx context.Context) error {
+			return m.removeDetachedGRPCRouteFinalizer(ctx, grpcRoute)
+		},
+	})
+}
+
+func (m *grpcRouteModelImpl) removeDetachedGRPCRouteFinalizer(
+	ctx context.Context,
+	grpcRoute gatewayv1.GRPCRoute,
+) error {
+	routeToUpdate := grpcRoute.DeepCopy()
+	controllerutil.RemoveFinalizer(routeToUpdate, GRPCRouteProgrammedFinalizer)
+	if routeToUpdate.Annotations != nil {
+		delete(routeToUpdate.Annotations, GRPCRouteProgrammedPolicyRulesAnnotation)
+		delete(routeToUpdate.Annotations, L7RouteProgrammedLoadBalancerIDAnnotation)
+	}
+	if err := m.client.Update(ctx, routeToUpdate); err != nil {
+		return fmt.Errorf("failed to update detached GRPCRoute %s/%s after cleanup: %w",
+			routeToUpdate.Namespace, routeToUpdate.Name, err)
+	}
+	return nil
+}
+
 func (m *grpcRouteModelImpl) setRejected(
 	ctx context.Context,
 	routeDetails resolvedGRPCRouteDetails,
@@ -606,7 +647,8 @@ func (m *grpcRouteModelImpl) isProgrammingRequired(details resolvedGRPCRouteDeta
 		conditions:    parentStatus.Conditions,
 		conditionType: string(gatewayv1.RouteConditionResolvedRefs),
 		annotations: map[string]string{
-			GRPCRouteProgrammingRevisionAnnotation: GRPCRouteProgrammingRevisionValue,
+			GRPCRouteProgrammingRevisionAnnotation:    GRPCRouteProgrammingRevisionValue,
+			L7RouteProgrammedLoadBalancerIDAnnotation: details.gatewayDetails.config.Spec.LoadBalancerID,
 		},
 	})
 }
@@ -622,6 +664,7 @@ func (m *grpcRouteModelImpl) setProgrammed(
 		parentStatuses:        grpcRoute.Status.Parents,
 		gatewayClass:          params.gatewayClass,
 		gateway:               params.gateway,
+		loadBalancerID:        params.config.Spec.LoadBalancerID,
 		matchedRef:            params.matchedRef,
 		programmedPolicyRules: params.programmedPolicyRules,
 		programmingAnnotation: GRPCRouteProgrammingRevisionAnnotation,

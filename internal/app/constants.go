@@ -69,6 +69,9 @@ const (
 	// The value is set by the controller when the http route is programmed.
 	HTTPRouteProgrammedPolicyRulesAnnotation = "oke-gateway-api.gemyago.github.io/http-route-programmed-lb-policy-rules"
 
+	// L7RouteProgrammedLoadBalancerIDAnnotation tracks the OCI Load Balancer used by HTTPRoute and GRPCRoute.
+	L7RouteProgrammedLoadBalancerIDAnnotation = "oke-gateway-api.gemyago.github.io/l7-route-programmed-load-balancer-id"
+
 	// HTTPRouteProgrammedFinalizer is the finalizer that indicates that the http route has been programmed.
 	// It is used to clean up the resources when the http route is deleted.
 	HTTPRouteProgrammedFinalizer = "oke-gateway-api.gemyago.github.io/http-route-programmed"
