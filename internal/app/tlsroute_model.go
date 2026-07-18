@@ -209,10 +209,7 @@ func (m *tlsRouteModelImpl) resolveParentRef(
 	}
 
 	results := make([]resolvedTLSRouteDetails, 0)
-	for _, listener := range gatewayDetails.gateway.Spec.Listeners {
-		if !tlsRouteMatchesListener(parentRef, listener) {
-			continue
-		}
+	for _, listener := range effectiveListenersForParentRef(gatewayDetails, parentRef, route.Namespace, tlsRouteMatchesListener) {
 		results = append(results, resolvedTLSRouteDetails{
 			tlsRoute:        route,
 			gatewayDetails:  gatewayDetails,
@@ -229,6 +226,16 @@ func (m *tlsRouteModelImpl) resolveParentGateway(
 	parentRef gatewayv1.ParentReference,
 ) (resolvedGatewayDetails, bool, error) {
 	gatewayName := tlsRouteParentRefTarget(parentRef, routeNamespace)
+	if parentRefTargetsListenerSet(parentRef) {
+		resolvedName, resolved, err := listenerSetParentGatewayTarget(ctx, m.client, routeNamespace, parentRef)
+		if err != nil || !resolved {
+			return resolvedGatewayDetails{}, resolved, err
+		}
+		gatewayName = resolvedName
+	} else if !parentRefTargetsGateway(parentRef) {
+		return resolvedGatewayDetails{}, false, nil
+	}
+
 	var gateway gatewayv1.Gateway
 	if err := m.client.Get(ctx, gatewayName, &gateway); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -274,7 +281,14 @@ func (m *tlsRouteModelImpl) resolveParentGateway(
 		)
 	}
 
-	return resolvedGatewayDetails{gateway: gateway, gatewayClass: gatewayClass, config: config}, true, nil
+	details := resolvedGatewayDetails{gateway: gateway, gatewayClass: gatewayClass, config: config}
+	if parentRefTargetsListenerSet(parentRef) {
+		if err := populateAttachedListenerSetsUnindexed(ctx, m.client, &details); err != nil {
+			return resolvedGatewayDetails{}, false, err
+		}
+	}
+
+	return details, true, nil
 }
 
 func (m *tlsRouteModelImpl) rejectNoMatchingListener(

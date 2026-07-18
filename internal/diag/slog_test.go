@@ -110,6 +110,11 @@ func TestDiagSlogHandler(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, string(output), message)
 		})
+		t.Run("should panic when optional output file cannot be opened", func(t *testing.T) {
+			require.Panics(t, func() {
+				NewRootLoggerOpts().WithOptionalOutputFile(t.TempDir())
+			})
+		})
 	})
 }
 

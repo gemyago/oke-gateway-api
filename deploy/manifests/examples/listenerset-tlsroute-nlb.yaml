@@ -1,0 +1,50 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: shared-nlb
+spec:
+  gatewayClassName: oke-nlb
+  infrastructure:
+    parametersRef:
+      group: oke-gateway-api.gemyago.github.io
+      kind: GatewayConfig
+      name: oke-nlb-gateway-config
+  allowedListeners:
+    namespaces:
+      from: Same
+  listeners:
+    - name: rtmp
+      protocol: TCP
+      port: 1935
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: ListenerSet
+metadata:
+  name: tls-passthrough-listener
+spec:
+  parentRef:
+    name: shared-nlb
+  listeners:
+    - name: tls
+      protocol: TLS
+      port: 443
+      hostname: passthrough.example.com
+      tls:
+        mode: Passthrough
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: TLSRoute
+metadata:
+  name: tls-passthrough
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: ListenerSet
+      name: tls-passthrough-listener
+      sectionName: tls
+  hostnames:
+    - passthrough.example.com
+  rules:
+    - backendRefs:
+        - name: tls-service
+          port: 443

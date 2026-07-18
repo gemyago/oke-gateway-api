@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -77,6 +78,58 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				fmt.Sprintf(" %s/%s , %s ,,", listenerName, scopedRule, legacyRule),
 			))
 			assert.Empty(t, parseProgrammedHTTPRoutePolicyRules(" ,, "))
+		})
+	})
+
+	t.Run("removeL7RoutePolicyRules", func(t *testing.T) {
+		t.Run("removes previous policy rules per listener", func(t *testing.T) {
+			fake := faker.New()
+			loadBalancerID := "ocid1.loadbalancer.oc1.." + fake.UUID().V4()
+			listeners := []gatewayv1.Listener{
+				{Name: "b-listener"},
+				{Name: "a-listener"},
+			}
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  loadBalancerID,
+				listenerName:    "a-listener",
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{"legacy-rule", "a-rule"},
+			}).Return(nil).Once()
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  loadBalancerID,
+				listenerName:    "b-listener",
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{"legacy-rule", "b-rule"},
+			}).Return(nil).Once()
+
+			err := removeL7RoutePolicyRules(
+				t.Context(),
+				ociLBModel,
+				loadBalancerID,
+				listeners,
+				"legacy-rule,b-listener/b-rule,a-listener/a-rule",
+			)
+
+			require.NoError(t, err)
+		})
+
+		t.Run("wraps routing policy removal errors", func(t *testing.T) {
+			loadBalancerID := "ocid1.loadbalancer.oc1.." + faker.New().UUID().V4()
+			listeners := []gatewayv1.Listener{{Name: "https"}}
+			wantErr := errors.New("commit failed")
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  loadBalancerID,
+				listenerName:    "https",
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{"old-rule"},
+			}).Return(wantErr).Once()
+
+			err := removeL7RoutePolicyRules(t.Context(), ociLBModel, loadBalancerID, listeners, "https/old-rule")
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to remove route policy rules for listener https")
 		})
 	})
 
@@ -153,6 +206,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		assert.True(t, l7HostnamePatternsIntersect("*.foo.example.com", "*.example.com"))
 		assert.ElementsMatch(t, []gatewayv1.SectionName{grpcListener.Name}, l7RouteAttachedListenerNames(
 			gateway,
+			nil,
 			[]gatewayv1.ParentReference{parentRef, {Name: "other"}},
 			"routes",
 		))
@@ -161,6 +215,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			[]gatewayv1.SectionName{grpcListener.Name, webListener.Name},
 			l7RouteAttachedListenerNames(
 				gateway,
+				nil,
 				[]gatewayv1.ParentReference{{Namespace: &parentNamespace, Name: gatewayv1.ObjectName(gateway.Name)}},
 				"routes",
 			),
@@ -181,16 +236,71 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		))
 		assert.False(t, l7RoutesShareListenerHostname(
 			gateway,
+			nil,
 			[]gatewayv1.Listener{webListener},
 			current,
 			olderOpposite,
 		))
 		assert.False(t, l7RoutesShareListenerHostname(
 			gateway,
+			nil,
 			[]gatewayv1.Listener{{Name: "missing"}},
 			current,
 			olderOpposite,
 		))
+		listenerSetKind := gatewayv1.Kind("ListenerSet")
+		listenerSet := gatewayv1.ListenerSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:         "routes",
+				Name:              "team-a",
+				CreationTimestamp: metav1.NewTime(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)),
+			},
+			Spec: gatewayv1.ListenerSetSpec{
+				ParentRef: gatewayv1.ParentGatewayReference{
+					Namespace: &parentNamespace,
+					Name:      gatewayv1.ObjectName(gateway.Name),
+				},
+				Listeners: []gatewayv1.ListenerEntry{{
+					Name:     "api",
+					Protocol: gatewayv1.HTTPSProtocolType,
+					Port:     8443,
+					Hostname: lo.ToPtr(gatewayv1.Hostname("api.example.com")),
+				}},
+			},
+		}
+		listenerSetParentRef := gatewayv1.ParentReference{
+			Kind:        &listenerSetKind,
+			Name:        gatewayv1.ObjectName(listenerSet.Name),
+			SectionName: lo.ToPtr(gatewayv1.SectionName("api")),
+		}
+		effectiveListeners := effectiveListenersForGateway(gateway, []gatewayv1.ListenerSet{listenerSet})
+		matchedListenerSetListeners := effectiveListenersForParentRef(
+			resolvedGatewayDetails{gateway: gateway, effectiveListeners: effectiveListeners},
+			listenerSetParentRef,
+			current.identity.namespace,
+			func(ref gatewayv1.ParentReference, listener gatewayv1.Listener) bool {
+				return ref.SectionName != nil && listener.Name == *ref.SectionName
+			},
+		)
+		listenerSetCurrent := current
+		listenerSetCurrent.parentRefs = []gatewayv1.ParentReference{listenerSetParentRef}
+		listenerSetCurrent.hostnames = []gatewayv1.Hostname{"api.example.com"}
+		olderListenerSetRoute := listenerSetCurrent
+		olderListenerSetRoute.identity.name = "aaa"
+		olderListenerSetRoute.identity.creationTimestamp = metav1.NewTime(
+			time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		)
+
+		winner, conflicted = l7RouteConflictingWinner(l7RouteConflictParams{
+			gateway:            gateway,
+			effectiveListeners: effectiveListeners,
+			matchedListeners:   matchedListenerSetListeners,
+			current:            listenerSetCurrent,
+			oppositeRoutes:     []l7RouteCandidate{olderListenerSetRoute},
+		})
+		assert.True(t, conflicted)
+		assert.Equal(t, olderListenerSetRoute.identity, winner.identity)
+
 		newerOpposite := olderOpposite
 		newerOpposite.identity.kind = current.identity.kind
 		newerOpposite.identity.creationTimestamp = metav1.NewTime(time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC))
@@ -448,6 +558,98 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				Kind:      workingRef.Kind,
 			}, receiver.matchedRef)
 			assert.Equal(t, wantListeners, receiver.matchedListeners)
+		})
+
+		t.Run("relevant ListenerSet parent with section name", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			listenerSetKind := gatewayv1.Kind("ListenerSet")
+			sectionName := gatewayv1.SectionName("https")
+			parentNamespace := gatewayv1.Namespace("infra")
+			fromAll := gatewayv1.NamespacesFromAll
+			parentRef := gatewayv1.ParentReference{
+				Kind:        &listenerSetKind,
+				Name:        "extra",
+				SectionName: &sectionName,
+			}
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithRandomParentRefOpt(parentRef),
+			)
+			route.Namespace = "apps"
+			route.Name = "api"
+			req := reconcile.Request{NamespacedName: types.NamespacedName{
+				Namespace: route.Namespace,
+				Name:      route.Name,
+			}}
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: route.Namespace, Name: string(parentRef.Name)},
+				Spec: gatewayv1.ListenerSetSpec{
+					ParentRef: gatewayv1.ParentGatewayReference{
+						Namespace: &parentNamespace,
+						Name:      "edge",
+					},
+					Listeners: []gatewayv1.ListenerEntry{
+						{Name: sectionName, Port: 443, Protocol: gatewayv1.HTTPSProtocolType},
+					},
+				},
+			}
+			gatewayData := makeRandomAcceptedGatewayDetails()
+			gatewayData.gateway.Namespace = string(parentNamespace)
+			gatewayData.gateway.Name = "edge"
+			gatewayData.gateway.Spec.AllowedListeners = &gatewayv1.AllowedListeners{
+				Namespaces: &gatewayv1.ListenerNamespaces{From: &fromAll},
+			}
+			gatewayData.gateway.Spec.Listeners = nil
+			gatewayData.effectiveListeners = nil
+
+			setupClientGet(t, deps.K8sClient, req.NamespacedName, route)
+			setupClientGet(t, deps.K8sClient, types.NamespacedName{
+				Namespace: listenerSet.Namespace,
+				Name:      listenerSet.Name,
+			}, listenerSet)
+
+			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+			gatewayModel.EXPECT().resolveReconcileRequest(
+				t.Context(),
+				reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "infra", Name: "edge"}},
+				mock.Anything,
+			).RunAndReturn(func(
+				_ context.Context,
+				_ reconcile.Request,
+				receiver *resolvedGatewayDetails,
+			) (bool, error) {
+				*receiver = *gatewayData
+				return true, nil
+			})
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockClient.EXPECT().
+				List(t.Context(), &gatewayv1.ListenerSetList{}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).
+						Elem().
+						FieldByName("Items").
+						Set(reflect.ValueOf([]gatewayv1.ListenerSet{listenerSet}))
+					return nil
+				})
+			setupClientGet(t, mockClient, types.NamespacedName{Name: listenerSet.Namespace}, corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: listenerSet.Namespace},
+			})
+
+			results, err := model.resolveRequest(t.Context(), req)
+
+			require.NoError(t, err)
+			require.Len(t, results, 1)
+			receiver := results[types.NamespacedName{Namespace: "infra", Name: "edge"}]
+			assert.Equal(t, route, receiver.httpRoute)
+			assert.Equal(t, gatewayv1.ParentReference{
+				Kind: &listenerSetKind,
+				Name: parentRef.Name,
+			}, receiver.matchedRef)
+			require.Len(t, receiver.gatewayDetails.listenerSets, 1)
+			require.Len(t, receiver.matchedListeners, 1)
+			assert.NotEqual(t, sectionName, receiver.matchedListeners[0].Name)
+			assert.Equal(t, gatewayv1.HTTPSProtocolType, receiver.matchedListeners[0].Protocol)
 		})
 
 		t.Run("relevant parent with multiple sections", func(t *testing.T) {

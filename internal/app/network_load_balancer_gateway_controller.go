@@ -42,6 +42,12 @@ func NewNetworkLoadBalancerGatewayController(
 	}
 }
 
+func (r *NetworkLoadBalancerGatewayController) SetListenerSetEnabled(enabled bool) {
+	if model, ok := r.gatewayModel.(interface{ setListenerSetEnabled(bool) }); ok {
+		model.setListenerSetEnabled(enabled)
+	}
+}
+
 func (r *NetworkLoadBalancerGatewayController) processResourceError(
 	ctx context.Context,
 	err error,

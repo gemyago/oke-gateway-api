@@ -143,15 +143,7 @@ func (m *grpcRouteModelImpl) resolveRouteParentRefData(
 	parentRef gatewayv1.ParentReference,
 	defaultNamespace string,
 ) (*resolvedGatewayDetails, []gatewayv1.Listener, error) {
-	var resolvedGatewayData resolvedGatewayDetails
-	gatewayNamespace := defaultNamespace
-	if parentRef.Namespace != nil {
-		gatewayNamespace = string(lo.FromPtr(parentRef.Namespace))
-	}
-	parentName := apitypes.NamespacedName{
-		Namespace: gatewayNamespace,
-		Name:      string(parentRef.Name),
-	}
+	parentName := parentRefTargetName(parentRef, defaultNamespace)
 	m.logger.DebugContext(ctx, "Resolving parent for GRPCRoute",
 		slog.String("parentName", parentName.String()),
 		slog.Any("parentRef", parentRef),
@@ -161,9 +153,13 @@ func (m *grpcRouteModelImpl) resolveRouteParentRefData(
 		}.String()),
 	)
 
-	gatewayResolved, err := m.gatewayModel.resolveReconcileRequest(ctx, reconcile.Request{
-		NamespacedName: parentName,
-	}, &resolvedGatewayData)
+	resolvedGatewayData, gatewayResolved, err := resolveL7ParentGateway(
+		ctx,
+		m.client,
+		m.gatewayModel,
+		parentRef,
+		defaultNamespace,
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to resolve gateway %s for route %s/%s: %w",
 			parentName.String(), grpcRoute.Namespace, grpcRoute.Name, err)
@@ -174,10 +170,14 @@ func (m *grpcRouteModelImpl) resolveRouteParentRefData(
 
 	if parentRef.SectionName != nil {
 		sectionName := *parentRef.SectionName
-		matchingListeners := lo.Filter(
-			resolvedGatewayData.gateway.Spec.Listeners,
-			func(listener gatewayv1.Listener, _ int) bool {
-				return listener.Name == sectionName && grpcRouteListenerProtocolSupported(listener.Protocol)
+		matchingListeners := effectiveListenersForParentRef(
+			resolvedGatewayData,
+			parentRef,
+			defaultNamespace,
+			func(ref gatewayv1.ParentReference, listener gatewayv1.Listener) bool {
+				return ref.SectionName != nil &&
+					listener.Name == sectionName &&
+					grpcRouteListenerProtocolSupported(listener.Protocol)
 			},
 		)
 		if len(matchingListeners) == 0 {
@@ -186,9 +186,11 @@ func (m *grpcRouteModelImpl) resolveRouteParentRefData(
 		return &resolvedGatewayData, matchingListeners, nil
 	}
 
-	matchingListeners := lo.Filter(
-		resolvedGatewayData.gateway.Spec.Listeners,
-		func(listener gatewayv1.Listener, _ int) bool {
+	matchingListeners := effectiveListenersForParentRef(
+		resolvedGatewayData,
+		parentRef,
+		defaultNamespace,
+		func(_ gatewayv1.ParentReference, listener gatewayv1.Listener) bool {
 			return grpcRouteListenerProtocolSupported(listener.Protocol)
 		},
 	)
@@ -278,8 +280,9 @@ func (m *grpcRouteModelImpl) acceptRoute(
 	routeDetails resolvedGRPCRouteDetails,
 ) (*gatewayv1.GRPCRoute, error) {
 	winner, conflicted, err := checkL7RouteConflict(ctx, checkL7RouteConflictParams{
-		gateway:          routeDetails.gatewayDetails.gateway,
-		matchedListeners: routeDetails.matchedListeners,
+		gateway:            routeDetails.gatewayDetails.gateway,
+		effectiveListeners: routeDetails.gatewayDetails.effectiveListeners,
+		matchedListeners:   routeDetails.matchedListeners,
 		current: l7RouteCandidate{
 			identity: l7RouteIdentity{
 				kind:              l7GRPCRouteKind,

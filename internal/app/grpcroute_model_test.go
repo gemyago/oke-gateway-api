@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -105,6 +106,8 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			route := makeGRPCRoute()
 			parentRef := gatewayv1.ParentReference{Name: "gw"}
 			gatewayData := makeResolvedGateway()
+			gatewayData.gateway.Namespace = route.Namespace
+			gatewayData.gateway.Name = string(parentRef.Name)
 
 			gatewayModel.EXPECT().
 				resolveReconcileRequest(t.Context(), mock.Anything, mock.Anything).
@@ -135,6 +138,8 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			parentRef := gatewayv1.ParentReference{Name: "gw", SectionName: &sectionName}
 			grpcListener := gatewayv1.Listener{Name: sectionName, Port: 50051, Protocol: gatewayv1.HTTPSProtocolType}
 			gatewayData := makeResolvedGateway(grpcListener, gatewayv1.Listener{Name: "web", Port: 443})
+			gatewayData.gateway.Namespace = route.Namespace
+			gatewayData.gateway.Name = string(parentRef.Name)
 
 			gatewayModel.EXPECT().
 				resolveReconcileRequest(t.Context(), mock.Anything, mock.Anything).
@@ -149,6 +154,83 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			assert.Equal(t, []gatewayv1.Listener{grpcListener}, gotListeners)
 		})
 
+		t.Run("resolves ListenerSet parent refs by logical section name", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGRPCRouteModel(deps)
+			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+			route := makeGRPCRoute()
+			route.Namespace = "apps"
+			sectionName := gatewayv1.SectionName("grpc")
+			listenerSetKind := gatewayv1.Kind("ListenerSet")
+			parentNamespace := gatewayv1.Namespace("infra")
+			parentRef := gatewayv1.ParentReference{
+				Kind:        &listenerSetKind,
+				Name:        "extra",
+				SectionName: &sectionName,
+			}
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: route.Namespace, Name: string(parentRef.Name)},
+				Spec: gatewayv1.ListenerSetSpec{
+					ParentRef: gatewayv1.ParentGatewayReference{
+						Namespace: &parentNamespace,
+						Name:      "edge",
+					},
+					Listeners: []gatewayv1.ListenerEntry{{
+						Name:     sectionName,
+						Port:     443,
+						Protocol: gatewayv1.HTTPSProtocolType,
+					}},
+				},
+			}
+			fromAll := gatewayv1.NamespacesFromAll
+			gatewayData := makeResolvedGateway()
+			gatewayData.gateway.Namespace = string(parentNamespace)
+			gatewayData.gateway.Name = "edge"
+			gatewayData.gateway.Spec.Listeners = nil
+			gatewayData.gateway.Spec.AllowedListeners = &gatewayv1.AllowedListeners{
+				Namespaces: &gatewayv1.ListenerNamespaces{From: &fromAll},
+			}
+
+			setupClientGet(t, deps.K8sClient, apitypes.NamespacedName{
+				Namespace: listenerSet.Namespace,
+				Name:      listenerSet.Name,
+			}, listenerSet)
+			gatewayModel.EXPECT().
+				resolveReconcileRequest(t.Context(), reconcile.Request{
+					NamespacedName: apitypes.NamespacedName{Namespace: "infra", Name: "edge"},
+				}, mock.Anything).
+				RunAndReturn(func(_ context.Context, _ reconcile.Request, receiver *resolvedGatewayDetails) (bool, error) {
+					*receiver = gatewayData
+					return true, nil
+				})
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockClient.EXPECT().
+				List(t.Context(), &gatewayv1.ListenerSetList{}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).
+						Elem().
+						FieldByName("Items").
+						Set(reflect.ValueOf([]gatewayv1.ListenerSet{listenerSet}))
+					return nil
+				})
+			setupClientGet(t, mockClient, apitypes.NamespacedName{Name: listenerSet.Namespace}, corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: listenerSet.Namespace},
+			})
+
+			gotGatewayData, gotListeners, err := model.resolveRouteParentRefData(
+				t.Context(),
+				route,
+				parentRef,
+				route.Namespace,
+			)
+
+			require.NoError(t, err)
+			require.NotNil(t, gotGatewayData)
+			require.Len(t, gotListeners, 1)
+			assert.NotEqual(t, sectionName, gotListeners[0].Name)
+			assert.Equal(t, gatewayv1.HTTPSProtocolType, gotListeners[0].Protocol)
+		})
+
 		t.Run("returns nil when section listener protocol is unsupported", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newGRPCRouteModel(deps)
@@ -161,6 +243,8 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 				Port:     50051,
 				Protocol: gatewayv1.TCPProtocolType,
 			})
+			gatewayData.gateway.Namespace = route.Namespace
+			gatewayData.gateway.Name = string(parentRef.Name)
 
 			gatewayModel.EXPECT().
 				resolveReconcileRequest(t.Context(), mock.Anything, mock.Anything).
@@ -300,6 +384,8 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 				gatewayv1.Listener{Name: grpcSection, Port: 50051},
 				gatewayv1.Listener{Name: httpsSection, Port: 443},
 			)
+			gatewayData.gateway.Namespace = route.Namespace
+			gatewayData.gateway.Name = "gw"
 
 			k8sClient.EXPECT().Get(t.Context(), req.NamespacedName, mock.Anything).
 				RunAndReturn(func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {

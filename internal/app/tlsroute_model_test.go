@@ -3928,6 +3928,66 @@ func TestTLSRouteModelResolveParentRefMatchesTLSListeners(t *testing.T) {
 	assert.True(t, matchedParent)
 	require.Len(t, resolved, 1)
 	assert.Equal(t, gatewayv1.SectionName("mqtts"), resolved[0].matchedListener.Name)
+
+	t.Run("matches ListenerSet TLS listeners", func(t *testing.T) {
+		listenerSetKind := gatewayv1.Kind("ListenerSet")
+		parentNamespace := gatewayv1.Namespace("media")
+		fromAll := gatewayv1.NamespacesFromAll
+		listenerSet := &gatewayv1.ListenerSet{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "streaming", Name: "extra"},
+			Spec: gatewayv1.ListenerSetSpec{
+				ParentRef: gatewayv1.ParentGatewayReference{
+					Namespace: &parentNamespace,
+					Name:      "edge",
+				},
+				Listeners: []gatewayv1.ListenerEntry{{
+					Name:     "rtmps",
+					Port:     8443,
+					Protocol: gatewayv1.TLSProtocolType,
+					TLS:      &gatewayv1.ListenerTLSConfig{Mode: &mode},
+				}},
+			},
+		}
+		gatewayWithAllowedListeners := gateway.DeepCopy()
+		gatewayWithAllowedListeners.Spec.AllowedListeners = &gatewayv1.AllowedListeners{
+			Namespaces: &gatewayv1.ListenerNamespaces{From: &fromAll},
+		}
+		gatewayWithAllowedListeners.Spec.Listeners = nil
+		listenerSetModel := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient: fake.NewClientBuilder().
+				WithScheme(newL4TestScheme(t)).
+				WithRuntimeObjects(
+					gatewayWithAllowedListeners,
+					gatewayClass,
+					gatewayConfig,
+					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: listenerSet.Namespace}},
+					listenerSet,
+				).
+				Build(),
+		})
+		listenerSetRoute := gatewayv1.TLSRoute{
+			ObjectMeta: metav1.ObjectMeta{Namespace: listenerSet.Namespace, Name: "rtmps"},
+		}
+		listenerSetSectionName := gatewayv1.SectionName("rtmps")
+
+		listenerSetResolved, listenerSetMatchedParent, listenerSetErr := listenerSetModel.resolveParentRef(
+			t.Context(),
+			listenerSetRoute,
+			gatewayv1.ParentReference{
+				Kind:        &listenerSetKind,
+				Name:        gatewayv1.ObjectName(listenerSet.Name),
+				SectionName: &listenerSetSectionName,
+			},
+		)
+
+		require.NoError(t, listenerSetErr)
+		assert.True(t, listenerSetMatchedParent)
+		require.Len(t, listenerSetResolved, 1)
+		assert.Equal(t, gatewayv1.ObjectName(listenerSet.Name), listenerSetResolved[0].matchedRef.Name)
+		assert.NotEqual(t, listenerSetSectionName, listenerSetResolved[0].matchedListener.Name)
+		assert.Equal(t, gatewayv1.TLSProtocolType, listenerSetResolved[0].matchedListener.Protocol)
+	})
 }
 
 func TestTLSRouteModelProgramRouteOwnershipConflict(t *testing.T) {

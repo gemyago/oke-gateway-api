@@ -1,0 +1,65 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: oke-nlb-gateway
+spec:
+  gatewayClassName: oke-nlb
+  infrastructure:
+    parametersRef:
+      group: oke-gateway-api.gemyago.github.io
+      kind: GatewayConfig
+      name: oke-nlb-gateway-config
+  allowedListeners:
+    namespaces:
+      from: Same
+  listeners:
+    - name: health
+      protocol: TCP
+      port: 10256
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: ListenerSet
+metadata:
+  name: oke-nlb-extra-listeners
+spec:
+  parentRef:
+    name: oke-nlb-gateway
+  listeners:
+    - name: coap-dtls
+      protocol: UDP
+      port: 5684
+    - name: rtmp
+      protocol: TCP
+      port: 1935
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: UDPRoute
+metadata:
+  name: listener-set-coap-dtls
+  annotations:
+    oke-gateway-api.gemyago.github.io/nlb-udp-health-check-port: "10256"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: ListenerSet
+      name: oke-nlb-extra-listeners
+      sectionName: coap-dtls
+  rules:
+    - backendRefs:
+        - name: coap-service
+          port: 5684
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: TCPRoute
+metadata:
+  name: listener-set-rtmp
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: ListenerSet
+      name: oke-nlb-extra-listeners
+      sectionName: rtmp
+  rules:
+    - backendRefs:
+        - name: rtmp-service
+          port: 1935

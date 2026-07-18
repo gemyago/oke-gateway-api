@@ -93,14 +93,16 @@ type l7RouteCandidate struct {
 }
 
 type l7RouteConflictParams struct {
-	gateway          gatewayv1.Gateway
-	matchedListeners []gatewayv1.Listener
-	current          l7RouteCandidate
-	oppositeRoutes   []l7RouteCandidate
+	gateway            gatewayv1.Gateway
+	effectiveListeners []effectiveListener
+	matchedListeners   []gatewayv1.Listener
+	current            l7RouteCandidate
+	oppositeRoutes     []l7RouteCandidate
 }
 
 type checkL7RouteConflictParams struct {
 	gateway               gatewayv1.Gateway
+	effectiveListeners    []effectiveListener
 	matchedListeners      []gatewayv1.Listener
 	current               l7RouteCandidate
 	oppositeRouteListName string
@@ -219,7 +221,13 @@ func l7RouteConflictingWinner(params l7RouteConflictParams) (l7RouteCandidate, b
 		if params.current.identity.kind != oppositeRoute.identity.kind {
 			continue
 		}
-		if !l7RoutesShareListenerHostname(params.gateway, params.matchedListeners, params.current, oppositeRoute) {
+		if !l7RoutesShareListenerHostname(
+			params.gateway,
+			params.effectiveListeners,
+			params.matchedListeners,
+			params.current,
+			oppositeRoute,
+		) {
 			continue
 		}
 		if l7RouteWins(oppositeRoute.identity, params.current.identity) {
@@ -242,10 +250,11 @@ func checkL7RouteConflict(ctx context.Context, params checkL7RouteConflictParams
 		)
 	}
 	winner, conflicted := l7RouteConflictingWinner(l7RouteConflictParams{
-		gateway:          params.gateway,
-		matchedListeners: params.matchedListeners,
-		current:          params.current,
-		oppositeRoutes:   oppositeRoutes,
+		gateway:            params.gateway,
+		effectiveListeners: params.effectiveListeners,
+		matchedListeners:   params.matchedListeners,
+		current:            params.current,
+		oppositeRoutes:     oppositeRoutes,
 	})
 	return winner, conflicted, nil
 }
@@ -320,12 +329,13 @@ func removeL7RoutePolicyRules(
 
 func l7RoutesShareListenerHostname(
 	gateway gatewayv1.Gateway,
+	effectiveListeners []effectiveListener,
 	matchedListeners []gatewayv1.Listener,
 	a l7RouteCandidate,
 	b l7RouteCandidate,
 ) bool {
 	listenerByName := lo.SliceToMap(
-		gateway.Spec.Listeners,
+		effectiveOCIListeners(gateway, effectiveListeners),
 		func(listener gatewayv1.Listener) (gatewayv1.SectionName, gatewayv1.Listener) {
 			return listener.Name, listener
 		},
@@ -336,7 +346,7 @@ func l7RoutesShareListenerHostname(
 			return listener.Name, struct{}{}
 		},
 	)
-	for _, listenerName := range l7RouteAttachedListenerNames(gateway, b.parentRefs, b.identity.namespace) {
+	for _, listenerName := range l7RouteAttachedListenerNames(gateway, effectiveListeners, b.parentRefs, b.identity.namespace) {
 		if _, matched := matchedListenerNames[listenerName]; !matched {
 			continue
 		}
@@ -356,35 +366,39 @@ func l7RoutesShareListenerHostname(
 
 func l7RouteAttachedListenerNames(
 	gateway gatewayv1.Gateway,
+	effectiveListeners []effectiveListener,
 	parentRefs []gatewayv1.ParentReference,
 	routeNamespace string,
 ) []gatewayv1.SectionName {
 	listenerNames := lo.SliceToMap(
-		gateway.Spec.Listeners,
+		effectiveOCIListeners(gateway, effectiveListeners),
 		func(listener gatewayv1.Listener) (gatewayv1.SectionName, struct{}) {
 			return listener.Name, struct{}{}
 		},
 	)
-	result := make([]gatewayv1.SectionName, 0, len(gateway.Spec.Listeners))
+	result := make([]gatewayv1.SectionName, 0, len(listenerNames))
 	for _, parentRef := range parentRefs {
-		parentNamespace := routeNamespace
-		if parentRef.Namespace != nil {
-			parentNamespace = string(*parentRef.Namespace)
-		}
-		if parentNamespace != gateway.Namespace || string(parentRef.Name) != gateway.Name {
-			continue
-		}
-		if parentRef.SectionName != nil {
-			if _, found := listenerNames[*parentRef.SectionName]; found {
-				result = append(result, *parentRef.SectionName)
+		for _, listener := range effectiveListenersForParentRef(
+			resolvedGatewayDetails{gateway: gateway, effectiveListeners: effectiveListeners},
+			parentRef,
+			routeNamespace,
+			func(ref gatewayv1.ParentReference, listener gatewayv1.Listener) bool {
+				return ref.SectionName == nil || listener.Name == *ref.SectionName
+			},
+		) {
+			if _, found := listenerNames[listener.Name]; found {
+				result = append(result, listener.Name)
 			}
-			continue
-		}
-		for _, listener := range gateway.Spec.Listeners {
-			result = append(result, listener.Name)
 		}
 	}
 	return lo.Uniq(result)
+}
+
+func effectiveOCIListeners(gateway gatewayv1.Gateway, listeners []effectiveListener) []gatewayv1.Listener {
+	return effectiveOCIListenersForGateway(&resolvedGatewayDetails{
+		gateway:            gateway,
+		effectiveListeners: listeners,
+	})
 }
 
 func l7RouteHostnamesForListener(
@@ -580,15 +594,7 @@ func (m *httpRouteModelImpl) resolveRouteParentRefData(
 	parentRef gatewayv1.ParentReference,
 	defaultNamespace string,
 ) (*resolvedGatewayDetails, []gatewayv1.Listener, error) {
-	var resolvedGatewayData resolvedGatewayDetails
-	gatewayNamespace := defaultNamespace
-	if parentRef.Namespace != nil {
-		gatewayNamespace = string(lo.FromPtr(parentRef.Namespace))
-	}
-	parentName := apitypes.NamespacedName{
-		Namespace: gatewayNamespace,
-		Name:      string(parentRef.Name),
-	}
+	parentName := parentRefTargetName(parentRef, defaultNamespace)
 	m.logger.DebugContext(ctx, "Resolving parent for HTTProute",
 		slog.String("parentName", parentName.String()),
 		slog.Any("parentRef", parentRef),
@@ -598,9 +604,13 @@ func (m *httpRouteModelImpl) resolveRouteParentRefData(
 		}.String()),
 	)
 
-	gatewayResolved, err := m.gatewayModel.resolveReconcileRequest(ctx, reconcile.Request{
-		NamespacedName: parentName,
-	}, &resolvedGatewayData)
+	resolvedGatewayData, gatewayResolved, err := resolveL7ParentGateway(
+		ctx,
+		m.client,
+		m.gatewayModel,
+		parentRef,
+		defaultNamespace,
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to resolve gateway %s for route %s/%s: %w",
 			parentName.String(), httpRoute.Namespace, httpRoute.Name, err)
@@ -614,10 +624,12 @@ func (m *httpRouteModelImpl) resolveRouteParentRefData(
 
 	if parentRef.SectionName != nil {
 		sectionName := *parentRef.SectionName
-		matchingListeners := lo.Filter(
-			resolvedGatewayData.gateway.Spec.Listeners,
-			func(l gatewayv1.Listener, _ int) bool {
-				return l.Name == sectionName
+		matchingListeners := effectiveListenersForParentRef(
+			resolvedGatewayData,
+			parentRef,
+			defaultNamespace,
+			func(ref gatewayv1.ParentReference, listener gatewayv1.Listener) bool {
+				return ref.SectionName != nil && listener.Name == sectionName
 			},
 		)
 
@@ -641,7 +653,45 @@ func (m *httpRouteModelImpl) resolveRouteParentRefData(
 	m.logger.DebugContext(ctx, "Gateway resolved without section name, all listeners match",
 		slog.String("parentName", parentName.String()),
 	)
-	return &resolvedGatewayData, resolvedGatewayData.gateway.Spec.Listeners, nil
+	return &resolvedGatewayData, effectiveListenersForParentRef(
+		resolvedGatewayData,
+		parentRef,
+		defaultNamespace,
+		func(gatewayv1.ParentReference, gatewayv1.Listener) bool { return true },
+	), nil
+}
+
+func resolveL7ParentGateway(
+	ctx context.Context,
+	k8sClient k8sClient,
+	gatewayModel gatewayModel,
+	parentRef gatewayv1.ParentReference,
+	routeNamespace string,
+) (resolvedGatewayDetails, bool, error) {
+	parentName := parentRefTargetName(parentRef, routeNamespace)
+	if parentRefTargetsListenerSet(parentRef) {
+		resolvedName, resolved, err := listenerSetParentGatewayTarget(ctx, k8sClient, routeNamespace, parentRef)
+		if err != nil || !resolved {
+			return resolvedGatewayDetails{}, resolved, err
+		}
+		parentName = resolvedName
+	} else if !parentRefTargetsGateway(parentRef) {
+		return resolvedGatewayDetails{}, false, nil
+	}
+
+	var resolvedGatewayData resolvedGatewayDetails
+	gatewayResolved, err := gatewayModel.resolveReconcileRequest(ctx, reconcile.Request{
+		NamespacedName: parentName,
+	}, &resolvedGatewayData)
+	if err != nil || !gatewayResolved {
+		return resolvedGatewayData, gatewayResolved, err
+	}
+	if parentRefTargetsListenerSet(parentRef) && len(resolvedGatewayData.effectiveListeners) == 0 {
+		if err = populateAttachedListenerSetsUnindexed(ctx, k8sClient, &resolvedGatewayData); err != nil {
+			return resolvedGatewayDetails{}, false, err
+		}
+	}
+	return resolvedGatewayData, true, nil
 }
 
 // aggregateRouteParentRefData adds or updates the results map with the resolved parent details.
@@ -743,8 +793,9 @@ func (m *httpRouteModelImpl) acceptRoute(
 	routeDetails resolvedRouteDetails,
 ) (*gatewayv1.HTTPRoute, error) {
 	winner, conflicted, err := checkL7RouteConflict(ctx, checkL7RouteConflictParams{
-		gateway:          routeDetails.gatewayDetails.gateway,
-		matchedListeners: routeDetails.matchedListeners,
+		gateway:            routeDetails.gatewayDetails.gateway,
+		effectiveListeners: routeDetails.gatewayDetails.effectiveListeners,
+		matchedListeners:   routeDetails.matchedListeners,
 		current: l7RouteCandidate{
 			identity: l7RouteIdentity{
 				kind:              l7HTTPRouteKind,

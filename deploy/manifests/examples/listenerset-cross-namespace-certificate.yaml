@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-team
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-team
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: api-tls
+  namespace: cert-team
+type: kubernetes.io/tls
+stringData:
+  tls.crt: |
+    -----BEGIN CERTIFICATE-----
+    REPLACE_WITH_FRONTEND_CERTIFICATE_PEM
+    -----END CERTIFICATE-----
+  tls.key: |
+    -----BEGIN PRIVATE KEY-----
+    REPLACE_WITH_FRONTEND_PRIVATE_KEY_PEM
+    -----END PRIVATE KEY-----
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-listenerset-api-tls
+  namespace: cert-team
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: ListenerSet
+      namespace: app-team
+  to:
+    - group: ""
+      kind: Secret
+      name: api-tls
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: ListenerSet
+metadata:
+  name: app-https
+  namespace: app-team
+spec:
+  parentRef:
+    namespace: infra
+    name: shared-alb
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: app.example.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: api-tls
+            namespace: cert-team

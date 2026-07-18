@@ -72,6 +72,7 @@ type reconcileHTTPListenerParams struct {
 type reconcileListenersCertificatesParams struct {
 	loadBalancerID    string
 	gateway           *gatewayv1.Gateway
+	gatewayListeners  []gatewayv1.Listener
 	knownCertificates map[string]loadbalancer.Certificate
 }
 
@@ -462,9 +463,13 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 
 	resultingCertificates := maps.Clone(params.knownCertificates)
 	listenerCertificates := make(map[string][]loadbalancer.Certificate)
-	certificateIDsByListener := gatewayCertificateIDsByListener(*params.gateway)
+	gatewayListeners := params.gatewayListeners
+	if len(gatewayListeners) == 0 {
+		gatewayListeners = params.gateway.Spec.Listeners
+	}
+	certificateIDsByListener := certificateIDsByListener(gatewayListeners)
 
-	for _, listenerSpec := range params.gateway.Spec.Listeners {
+	for _, listenerSpec := range gatewayListeners {
 		if _, usesOCICertificate := certificateIDsByListener[string(listenerSpec.Name)]; usesOCICertificate {
 			continue
 		}

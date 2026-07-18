@@ -85,14 +85,7 @@ func tcpRouteBackendRefName(backendRef gatewayv1.BackendRef, defaultNamespace st
 }
 
 func tcpParentRefTarget(parentRef gatewayv1.ParentReference, routeNamespace string) apitypes.NamespacedName {
-	namespace := routeNamespace
-	if parentRef.Namespace != nil {
-		namespace = string(*parentRef.Namespace)
-	}
-	return apitypes.NamespacedName{
-		Namespace: namespace,
-		Name:      string(parentRef.Name),
-	}
+	return parentRefTargetName(parentRef, routeNamespace)
 }
 
 func tcpRouteMatchesListener(parentRef gatewayv1.ParentReference, listener gatewayv1.Listener) bool {
@@ -119,14 +112,20 @@ func desiredTCPRouteBackendSetNames(details resolvedTCPRouteDetails) map[string]
 		Name:      details.gatewayDetails.gateway.Name,
 	}
 	for _, parentRef := range details.tcpRoute.Spec.ParentRefs {
-		if !parentRefTargetsGateway(parentRef) ||
+		if !parentRefTargetsGateway(parentRef) && !parentRefTargetsListenerSet(parentRef) {
+			continue
+		}
+		if parentRefTargetsGateway(parentRef) &&
 			tcpParentRefTarget(parentRef, details.tcpRoute.Namespace) != gatewayName {
 			continue
 		}
-		for _, listener := range details.gatewayDetails.gateway.Spec.Listeners {
-			if tcpRouteMatchesListener(parentRef, listener) {
-				desired[networkLoadBalancerBackendSetName(listener)] = struct{}{}
-			}
+		for _, listener := range effectiveListenersForParentRef(
+			details.gatewayDetails,
+			parentRef,
+			details.tcpRoute.Namespace,
+			tcpRouteMatchesListener,
+		) {
+			desired[networkLoadBalancerBackendSetName(listener)] = struct{}{}
 		}
 	}
 	return desired
@@ -186,20 +185,9 @@ func resolveL4RouteRequest[D any](
 
 	var results []D
 	for _, parentRef := range params.parentRefs() {
-		if !parentRefTargetsGateway(parentRef) {
-			continue
-		}
-		parentResults, resolved, err := params.resolveParentRef(parentRef)
+		parentResults, err := resolveL4RouteParentRef(params, parentRef)
 		if err != nil {
 			return nil, err
-		}
-		if !resolved {
-			continue
-		}
-		if len(parentResults) == 0 && params.route.GetDeletionTimestamp() == nil {
-			if err = params.rejectNoMatchingListener(parentRef); err != nil {
-				return nil, err
-			}
 		}
 		results = append(results, parentResults...)
 	}
@@ -210,6 +198,25 @@ func resolveL4RouteRequest[D any](
 		}
 	}
 	return results, nil
+}
+
+func resolveL4RouteParentRef[D any](
+	params resolveL4RouteRequestParams[D],
+	parentRef gatewayv1.ParentReference,
+) ([]D, error) {
+	if !parentRefTargetsGateway(parentRef) && !parentRefTargetsListenerSet(parentRef) {
+		return nil, nil
+	}
+	parentResults, resolved, err := params.resolveParentRef(parentRef)
+	if err != nil || !resolved {
+		return nil, err
+	}
+	if len(parentResults) == 0 && params.route.GetDeletionTimestamp() == nil {
+		if err = params.rejectNoMatchingListener(parentRef); err != nil {
+			return nil, err
+		}
+	}
+	return parentResults, nil
 }
 
 func (m *tcpRouteModelImpl) resolveParentRef(
@@ -223,10 +230,7 @@ func (m *tcpRouteModelImpl) resolveParentRef(
 	}
 
 	results := make([]resolvedTCPRouteDetails, 0)
-	for _, listener := range gatewayDetails.gateway.Spec.Listeners {
-		if !tcpRouteMatchesListener(parentRef, listener) {
-			continue
-		}
+	for _, listener := range effectiveListenersForParentRef(gatewayDetails, parentRef, route.Namespace, tcpRouteMatchesListener) {
 		results = append(results, resolvedTCPRouteDetails{
 			tcpRoute:        route,
 			gatewayDetails:  gatewayDetails,
@@ -242,7 +246,34 @@ func (m *tcpRouteModelImpl) resolveParentGateway(
 	routeNamespace string,
 	parentRef gatewayv1.ParentReference,
 ) (resolvedGatewayDetails, bool, error) {
-	return resolveL4ParentGateway(ctx, m.client, tcpParentRefTarget(parentRef, routeNamespace))
+	return resolveL4ParentGatewayForRouteParentRef(ctx, m.client, routeNamespace, parentRef)
+}
+
+func resolveL4ParentGatewayForRouteParentRef(
+	ctx context.Context,
+	k8sClient k8sClient,
+	routeNamespace string,
+	parentRef gatewayv1.ParentReference,
+) (resolvedGatewayDetails, bool, error) {
+	if parentRefTargetsGateway(parentRef) {
+		return resolveL4ParentGateway(ctx, k8sClient, parentRefTargetName(parentRef, routeNamespace))
+	}
+	if !parentRefTargetsListenerSet(parentRef) {
+		return resolvedGatewayDetails{}, false, nil
+	}
+
+	gatewayName, resolved, err := listenerSetParentGatewayTarget(ctx, k8sClient, routeNamespace, parentRef)
+	if err != nil || !resolved {
+		return resolvedGatewayDetails{}, resolved, err
+	}
+	details, resolved, err := resolveL4ParentGateway(ctx, k8sClient, gatewayName)
+	if err != nil || !resolved {
+		return details, resolved, err
+	}
+	if err = populateAttachedListenerSetsUnindexed(ctx, k8sClient, &details); err != nil {
+		return resolvedGatewayDetails{}, false, err
+	}
+	return details, true, nil
 }
 
 func resolveL4ParentGateway(

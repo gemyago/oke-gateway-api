@@ -81,14 +81,7 @@ func udpRouteBackendRefName(backendRef gatewayv1.BackendRef, defaultNamespace st
 }
 
 func udpParentRefTarget(parentRef gatewayv1.ParentReference, routeNamespace string) apitypes.NamespacedName {
-	namespace := routeNamespace
-	if parentRef.Namespace != nil {
-		namespace = string(*parentRef.Namespace)
-	}
-	return apitypes.NamespacedName{
-		Namespace: namespace,
-		Name:      string(parentRef.Name),
-	}
+	return parentRefTargetName(parentRef, routeNamespace)
 }
 
 func udpRouteMatchesListener(parentRef gatewayv1.ParentReference, listener gatewayv1.Listener) bool {
@@ -115,14 +108,20 @@ func desiredUDPRouteBackendSetNames(details resolvedUDPRouteDetails) map[string]
 		Name:      details.gatewayDetails.gateway.Name,
 	}
 	for _, parentRef := range details.udpRoute.Spec.ParentRefs {
-		if !parentRefTargetsGateway(parentRef) ||
+		if !parentRefTargetsGateway(parentRef) && !parentRefTargetsListenerSet(parentRef) {
+			continue
+		}
+		if parentRefTargetsGateway(parentRef) &&
 			udpParentRefTarget(parentRef, details.udpRoute.Namespace) != gatewayName {
 			continue
 		}
-		for _, listener := range details.gatewayDetails.gateway.Spec.Listeners {
-			if udpRouteMatchesListener(parentRef, listener) {
-				desired[networkLoadBalancerBackendSetName(listener)] = struct{}{}
-			}
+		for _, listener := range effectiveListenersForParentRef(
+			details.gatewayDetails,
+			parentRef,
+			details.udpRoute.Namespace,
+			udpRouteMatchesListener,
+		) {
+			desired[networkLoadBalancerBackendSetName(listener)] = struct{}{}
 		}
 	}
 	return desired
@@ -166,10 +165,7 @@ func (m *udpRouteModelImpl) resolveParentRef(
 	}
 
 	results := make([]resolvedUDPRouteDetails, 0)
-	for _, listener := range gatewayDetails.gateway.Spec.Listeners {
-		if !udpRouteMatchesListener(parentRef, listener) {
-			continue
-		}
+	for _, listener := range effectiveListenersForParentRef(gatewayDetails, parentRef, route.Namespace, udpRouteMatchesListener) {
 		results = append(results, resolvedUDPRouteDetails{
 			udpRoute:        route,
 			gatewayDetails:  gatewayDetails,
@@ -185,7 +181,7 @@ func (m *udpRouteModelImpl) resolveParentGateway(
 	routeNamespace string,
 	parentRef gatewayv1.ParentReference,
 ) (resolvedGatewayDetails, bool, error) {
-	return resolveL4ParentGateway(ctx, m.client, udpParentRefTarget(parentRef, routeNamespace))
+	return resolveL4ParentGatewayForRouteParentRef(ctx, m.client, routeNamespace, parentRef)
 }
 
 func (m *udpRouteModelImpl) rejectNoMatchingListener(

@@ -135,6 +135,178 @@ func TestTCPRouteModel(t *testing.T) {
 		assert.Empty(t, desiredTCPRouteBackendSetNames(details))
 	})
 
+	t.Run("resolveL4ParentGatewayForRouteParentRef", func(t *testing.T) {
+		t.Run("resolves ListenerSet parent refs through their parent Gateway", func(t *testing.T) {
+			listenerSetKind := gatewayv1.Kind("ListenerSet")
+			parentNamespace := gatewayv1.Namespace("infra")
+			fromAll := gatewayv1.NamespacesFromAll
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(newL4TestScheme(t)).
+				WithObjects(
+					&gatewayv1.GatewayClass{
+						ObjectMeta: metav1.ObjectMeta{Name: "oke-nlb"},
+						Spec: gatewayv1.GatewayClassSpec{
+							ControllerName: gatewayv1.GatewayController(NetworkLoadBalancerControllerClassName),
+						},
+					},
+					&gatewayv1.Gateway{
+						ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "edge"},
+						Spec: gatewayv1.GatewaySpec{
+							GatewayClassName: "oke-nlb",
+							Infrastructure: &gatewayv1.GatewayInfrastructure{
+								ParametersRef: &gatewayv1.LocalParametersReference{Name: "nlb-config"},
+							},
+							AllowedListeners: &gatewayv1.AllowedListeners{
+								Namespaces: &gatewayv1.ListenerNamespaces{From: &fromAll},
+							},
+						},
+					},
+					&types.GatewayConfig{
+						ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "nlb-config"},
+						Spec:       types.GatewayConfigSpec{LoadBalancerID: "ocid1.networkloadbalancer.oc1..existing"},
+					},
+					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "apps"}},
+					&gatewayv1.ListenerSet{
+						ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"},
+						Spec: gatewayv1.ListenerSetSpec{
+							ParentRef: gatewayv1.ParentGatewayReference{
+								Namespace: &parentNamespace,
+								Name:      "edge",
+							},
+							Listeners: []gatewayv1.ListenerEntry{
+								{Name: "rtmp", Port: 1935, Protocol: gatewayv1.TCPProtocolType},
+							},
+						},
+					},
+				).
+				Build()
+
+			details, resolved, err := resolveL4ParentGatewayForRouteParentRef(
+				t.Context(),
+				k8sClient,
+				"apps",
+				gatewayv1.ParentReference{Kind: &listenerSetKind, Name: "extra"},
+			)
+
+			require.NoError(t, err)
+			assert.True(t, resolved)
+			assert.Equal(t, "edge", details.gateway.Name)
+			require.Len(t, details.listenerSets, 1)
+			require.Len(t, details.effectiveListeners, 1)
+		})
+
+		t.Run("ignores missing and invalid ListenerSet parent refs", func(t *testing.T) {
+			listenerSetKind := gatewayv1.Kind("ListenerSet")
+			otherKind := gatewayv1.Kind("Service")
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(newL4TestScheme(t)).
+				WithObjects(&gatewayv1.ListenerSet{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "invalid"},
+					Spec: gatewayv1.ListenerSetSpec{
+						ParentRef: gatewayv1.ParentGatewayReference{Kind: &otherKind, Name: "edge"},
+					},
+				}).
+				Build()
+
+			_, resolved, err := resolveL4ParentGatewayForRouteParentRef(
+				t.Context(),
+				k8sClient,
+				"apps",
+				gatewayv1.ParentReference{Kind: &listenerSetKind, Name: "missing"},
+			)
+			require.NoError(t, err)
+			assert.False(t, resolved)
+
+			_, resolved, err = resolveL4ParentGatewayForRouteParentRef(
+				t.Context(),
+				k8sClient,
+				"apps",
+				gatewayv1.ParentReference{Kind: &listenerSetKind, Name: "invalid"},
+			)
+			require.NoError(t, err)
+			assert.False(t, resolved)
+		})
+
+		t.Run("ignores unsupported parent refs", func(t *testing.T) {
+			serviceKind := gatewayv1.Kind("Service")
+			k8sClient := NewMockk8sClient(t)
+
+			_, resolved, err := resolveL4ParentGatewayForRouteParentRef(
+				t.Context(),
+				k8sClient,
+				"apps",
+				gatewayv1.ParentReference{Kind: &serviceKind, Name: "backend"},
+			)
+
+			require.NoError(t, err)
+			assert.False(t, resolved)
+		})
+
+		t.Run("wraps ListenerSet lookup errors", func(t *testing.T) {
+			listenerSetKind := gatewayv1.Kind("ListenerSet")
+			k8sClient := NewMockk8sClient(t)
+			wantErr := errors.New("listenerset get failed")
+			k8sClient.EXPECT().
+				Get(t.Context(), apitypes.NamespacedName{Namespace: "apps", Name: "extra"}, mock.AnythingOfType("*v1.ListenerSet")).
+				Return(wantErr)
+
+			_, _, err := resolveL4ParentGatewayForRouteParentRef(
+				t.Context(),
+				k8sClient,
+				"apps",
+				gatewayv1.ParentReference{Kind: &listenerSetKind, Name: "extra"},
+			)
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to get ListenerSet apps/extra")
+		})
+
+		t.Run("wraps attached ListenerSet list errors", func(t *testing.T) {
+			listenerSetKind := gatewayv1.Kind("ListenerSet")
+			parentNamespace := gatewayv1.Namespace("infra")
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"},
+				Spec: gatewayv1.ListenerSetSpec{ParentRef: gatewayv1.ParentGatewayReference{
+					Namespace: &parentNamespace,
+					Name:      "edge",
+				}},
+			}
+			gateway := gatewayv1.Gateway{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "edge"},
+				Spec: gatewayv1.GatewaySpec{
+					GatewayClassName: "oke-nlb",
+					Infrastructure: &gatewayv1.GatewayInfrastructure{
+						ParametersRef: &gatewayv1.LocalParametersReference{Name: "nlb-config"},
+					},
+				},
+			}
+			gatewayClass := gatewayv1.GatewayClass{
+				ObjectMeta: metav1.ObjectMeta{Name: "oke-nlb"},
+				Spec: gatewayv1.GatewayClassSpec{
+					ControllerName: gatewayv1.GatewayController(NetworkLoadBalancerControllerClassName),
+				},
+			}
+			config := types.GatewayConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "nlb-config"}}
+			wantErr := errors.New("list failed")
+			k8sClient := NewMockk8sClient(t)
+			setupClientGet(t, k8sClient, apitypes.NamespacedName{Namespace: "apps", Name: "extra"}, listenerSet)
+			setupClientGet(t, k8sClient, apitypes.NamespacedName{Namespace: "infra", Name: "edge"}, gateway)
+			setupClientGet(t, k8sClient, apitypes.NamespacedName{Name: "oke-nlb"}, gatewayClass)
+			setupClientGet(t, k8sClient, apitypes.NamespacedName{Namespace: "infra", Name: "nlb-config"}, config)
+			k8sClient.EXPECT().List(t.Context(), &gatewayv1.ListenerSetList{}).Return(wantErr)
+
+			_, _, err := resolveL4ParentGatewayForRouteParentRef(
+				t.Context(),
+				k8sClient,
+				"apps",
+				gatewayv1.ParentReference{Kind: &listenerSetKind, Name: "extra"},
+			)
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to list ListenerSets")
+		})
+	})
+
 	t.Run("resolveRequest wraps Kubernetes read errors", func(t *testing.T) {
 		route := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
