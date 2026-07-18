@@ -145,6 +145,109 @@ func TestWatchesModel(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("registers frontend mTLS Gateway indexer when enabled", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			mockIndexer := k8sapi.NewMockFieldIndexer(t)
+
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteParentGatewayIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteParentGatewayIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.Gateway{},
+				gatewayCertificateIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.Gateway{},
+				gatewayFrontendMTLSCAConfigMapIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+
+			err := model.RegisterFieldIndexers(t.Context(), mockIndexer, RegisterFieldIndexersOptions{
+				EnableFrontendMTLS: true,
+			})
+
+			require.NoError(t, err)
+		})
+
+		t.Run("wraps frontend mTLS Gateway indexer registration errors", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			mockIndexer := k8sapi.NewMockFieldIndexer(t)
+
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteBackendServiceIndexKey,
+				mock.Anything,
+			).
+				Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteBackendServiceIndexKey,
+				mock.Anything,
+			).
+				Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteParentGatewayIndexKey,
+				mock.Anything,
+			).
+				Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteParentGatewayIndexKey,
+				mock.Anything,
+			).
+				Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.Gateway{},
+				gatewayCertificateIndexKey,
+				mock.Anything,
+			).
+				Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.Gateway{},
+				gatewayFrontendMTLSCAConfigMapIndexKey,
+				mock.Anything,
+			).Return(errors.New("frontend index failed"))
+
+			err := model.RegisterFieldIndexers(t.Context(), mockIndexer, RegisterFieldIndexersOptions{
+				EnableFrontendMTLS: true,
+			})
+
+			require.ErrorContains(t, err, "failed to index Gateway by frontend mTLS ConfigMap")
+		})
+
 		t.Run("registers TLSRoute indexer when enabled", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
@@ -2452,6 +2555,36 @@ func TestWatchesModel(t *testing.T) {
 	})
 
 	t.Run("MapNamespaceToGateway", func(t *testing.T) {
+		t.Run("detects Gateways using namespace selectors", func(t *testing.T) {
+			selectedFrom := gatewayv1.NamespacesFromSelector
+			require.False(t, gatewayAllowedListenersUsesNamespaceSelector(gatewayv1.Gateway{}))
+			require.True(t, gatewayAllowedListenersUsesNamespaceSelector(gatewayv1.Gateway{
+				Spec: gatewayv1.GatewaySpec{
+					AllowedListeners: &gatewayv1.AllowedListeners{
+						Namespaces: &gatewayv1.ListenerNamespaces{From: &selectedFrom},
+					},
+				},
+			}))
+		})
+
+		t.Run("returns nil for non Namespace objects", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			require.Nil(t, model.MapNamespaceToGateway(t.Context(), &corev1.Service{}))
+		})
+
+		t.Run("returns nil when Gateway list fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.GatewayList{}).
+				Return(errors.New("gateway list failed"))
+
+			require.Nil(t, model.MapNamespaceToGateway(t.Context(), &corev1.Namespace{}))
+		})
+
 		t.Run("queues Gateways using allowedListeners namespace selectors", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
@@ -3335,5 +3468,194 @@ func TestWatchesModel(t *testing.T) {
 			t.Context(),
 			&corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "backend"}},
 		))
+	})
+
+	t.Run("Gateway frontend mTLS ConfigMap watches", func(t *testing.T) {
+		fakeData := faker.New()
+		namespace := "ns-" + fakeData.Lorem().Word()
+		configMapName := "ca-" + fakeData.Lorem().Word()
+		otherConfigMapName := "ca-other-" + fakeData.Lorem().Word()
+		crossNamespace := "cross-" + fakeData.Lorem().Word()
+		crossNamespaceRef := gatewayv1.Namespace(crossNamespace)
+		mode := gatewayv1.TLSModeTerminate
+		gateway := &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: namespace,
+				Name:      "gw-" + fakeData.Lorem().Word(),
+				Annotations: map[string]string{
+					ControllerClassName: "true",
+				},
+			},
+			Spec: gatewayv1.GatewaySpec{
+				Listeners: []gatewayv1.Listener{{
+					Name:     "https",
+					Protocol: gatewayv1.HTTPSProtocolType,
+					Port:     443,
+					TLS:      &gatewayv1.ListenerTLSConfig{Mode: &mode},
+				}},
+				TLS: &gatewayv1.GatewayTLSConfig{
+					Frontend: &gatewayv1.FrontendTLSConfig{
+						Default: gatewayv1.TLSConfig{Validation: &gatewayv1.FrontendTLSValidation{
+							CACertificateRefs: []gatewayv1.ObjectReference{{
+								Group: "",
+								Kind:  "ConfigMap",
+								Name:  gatewayv1.ObjectName(configMapName),
+							}},
+						}},
+						PerPort: []gatewayv1.TLSPortConfig{{
+							Port: 8443,
+							TLS: gatewayv1.TLSConfig{Validation: &gatewayv1.FrontendTLSValidation{
+								CACertificateRefs: []gatewayv1.ObjectReference{{
+									Group:     "",
+									Kind:      "ConfigMap",
+									Name:      gatewayv1.ObjectName(otherConfigMapName),
+									Namespace: &crossNamespaceRef,
+								}},
+							}},
+						}},
+					},
+				},
+			},
+		}
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithObjects(gateway).
+			WithIndex(&gatewayv1.Gateway{}, gatewayFrontendMTLSCAConfigMapIndexKey, func(obj client.Object) []string {
+				return NewWatchesModel(WatchesModelDeps{
+					K8sClient: fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).Build(),
+					Logger:    diag.RootTestLogger(),
+				}).indexGatewayByFrontendMTLSConfigMaps(t.Context(), obj)
+			}).
+			Build()
+		model := NewWatchesModel(WatchesModelDeps{
+			K8sClient: k8sClient,
+			Logger:    diag.RootTestLogger(),
+		})
+
+		require.ElementsMatch(t, []string{
+			namespace + "/" + configMapName,
+			crossNamespace + "/" + otherConfigMapName,
+		}, model.indexGatewayByFrontendMTLSConfigMaps(t.Context(), gateway))
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: gateway.Name},
+		}}, model.MapConfigMapToGateway(t.Context(), &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: configMapName},
+		}))
+		require.Nil(t, model.MapConfigMapToGateway(t.Context(), &corev1.Service{}))
+
+		deletingGateway := gateway.DeepCopy()
+		deleteTime := metav1.Now()
+		deletingGateway.DeletionTimestamp = &deleteTime
+		require.Nil(t, model.indexGatewayByFrontendMTLSConfigMaps(t.Context(), deletingGateway))
+
+		noTLSGateway := gateway.DeepCopy()
+		noTLSGateway.Spec.TLS = nil
+		require.Nil(t, model.indexGatewayByFrontendMTLSConfigMaps(t.Context(), noTLSGateway))
+
+		unownedGateway := gateway.DeepCopy()
+		unownedGateway.Annotations = nil
+		require.Nil(t, model.indexGatewayByFrontendMTLSConfigMaps(t.Context(), unownedGateway))
+
+		invalidRefGateway := gateway.DeepCopy()
+		invalidRefGateway.Spec.TLS.Frontend.Default.Validation.CACertificateRefs = []gatewayv1.ObjectReference{{
+			Group: "example.com",
+			Kind:  "Secret",
+			Name:  gatewayv1.ObjectName("ignored-" + fakeData.Lorem().Word()),
+		}}
+		invalidRefGateway.Spec.TLS.Frontend.PerPort = nil
+		require.Empty(t, model.indexGatewayByFrontendMTLSConfigMaps(t.Context(), invalidRefGateway))
+		require.Nil(t, model.indexGatewayByFrontendMTLSConfigMaps(t.Context(), &corev1.ConfigMap{}))
+	})
+
+	t.Run("Gateway frontend mTLS ConfigMap watch list errors", func(t *testing.T) {
+		deps := makeMockDeps(t)
+		model := NewWatchesModel(deps)
+		mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+		namespace := "ns-" + faker.New().Lorem().Word()
+		name := "ca-" + faker.New().Lorem().Word()
+		mockK8sClient.EXPECT().
+			List(t.Context(), &gatewayv1.GatewayList{}, client.MatchingFields{
+				gatewayFrontendMTLSCAConfigMapIndexKey: namespace + "/" + name,
+			}).
+			Return(errors.New("gateway list failed"))
+
+		require.Nil(t, model.MapConfigMapToGateway(t.Context(), &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+		}))
+	})
+
+	t.Run("Gateway frontend mTLS ReferenceGrant watches", func(t *testing.T) {
+		fakeData := faker.New()
+		namespace := "ns-" + fakeData.Lorem().Word()
+		crossNamespace := "cross-" + fakeData.Lorem().Word()
+		crossNamespaceRef := gatewayv1.Namespace(crossNamespace)
+		configMapName := "ca-" + fakeData.Lorem().Word()
+		gateway := &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "gw-" + fakeData.Lorem().Word()},
+			Spec: gatewayv1.GatewaySpec{TLS: &gatewayv1.GatewayTLSConfig{
+				Frontend: &gatewayv1.FrontendTLSConfig{
+					Default: gatewayv1.TLSConfig{Validation: &gatewayv1.FrontendTLSValidation{
+						CACertificateRefs: []gatewayv1.ObjectReference{{
+							Group:     "",
+							Kind:      "ConfigMap",
+							Name:      gatewayv1.ObjectName(configMapName),
+							Namespace: &crossNamespaceRef,
+						}},
+					}},
+				},
+			}},
+		}
+		grant := &gatewayv1beta1.ReferenceGrant{
+			ObjectMeta: metav1.ObjectMeta{Namespace: crossNamespace, Name: "grant-" + fakeData.Lorem().Word()},
+			Spec: gatewayv1beta1.ReferenceGrantSpec{
+				From: []gatewayv1beta1.ReferenceGrantFrom{{
+					Group:     gatewayv1.Group(gatewayAPIGroup),
+					Kind:      gatewayv1.Kind("Gateway"),
+					Namespace: gatewayv1.Namespace(namespace),
+				}},
+				To: []gatewayv1beta1.ReferenceGrantTo{{
+					Group: "",
+					Kind:  gatewayv1.Kind("ConfigMap"),
+				}},
+			},
+		}
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithObjects(gateway).
+			Build()
+		model := NewWatchesModel(WatchesModelDeps{
+			K8sClient: k8sClient,
+			Logger:    diag.RootTestLogger(),
+		})
+
+		require.True(t, gatewayFrontendMTLSReferencesGrantedConfigMap(*gateway, *grant))
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: gateway.Name},
+		}}, model.MapReferenceGrantToGatewayFrontendMTLS(t.Context(), grant))
+		require.Nil(t, model.MapReferenceGrantToGatewayFrontendMTLS(t.Context(), &corev1.Service{}))
+		require.False(t, gatewayFrontendMTLSReferencesGrantedConfigMap(gatewayv1.Gateway{}, *grant))
+
+		wrongFromGrant := grant.DeepCopy()
+		wrongFromGrant.Spec.From[0].Namespace = gatewayv1.Namespace("other-" + fakeData.Lorem().Word())
+		require.False(t, gatewayFrontendMTLSReferencesGrantedConfigMap(*gateway, *wrongFromGrant))
+
+		wrongToGrant := grant.DeepCopy()
+		wrongToGrant.Spec.To[0].Kind = gatewayv1.Kind("Secret")
+		require.False(t, gatewayFrontendMTLSReferencesGrantedConfigMap(*gateway, *wrongToGrant))
+
+		perPortGateway := gateway.DeepCopy()
+		perPortGateway.Spec.TLS.Frontend.Default.Validation = nil
+		perPortGateway.Spec.TLS.Frontend.PerPort = []gatewayv1.TLSPortConfig{{
+			Port: 8443,
+			TLS: gatewayv1.TLSConfig{Validation: &gatewayv1.FrontendTLSValidation{
+				CACertificateRefs: []gatewayv1.ObjectReference{{
+					Group:     "",
+					Kind:      "ConfigMap",
+					Name:      gatewayv1.ObjectName(configMapName),
+					Namespace: &crossNamespaceRef,
+				}},
+			}},
+		}}
+		require.True(t, gatewayFrontendMTLSReferencesGrantedConfigMap(*perPortGateway, *grant))
 	})
 }

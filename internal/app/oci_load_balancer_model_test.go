@@ -5212,11 +5212,14 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 
 	makeSslConfigFromDetails := func(details *loadbalancer.SslConfigurationDetails) *loadbalancer.SslConfiguration {
 		return &loadbalancer.SslConfiguration{
-			CertificateName:      details.CertificateName,
-			CertificateIds:       details.CertificateIds,
-			CipherSuiteName:      details.CipherSuiteName,
-			Protocols:            details.Protocols,
-			HasSessionResumption: details.HasSessionResumption,
+			CertificateName:                details.CertificateName,
+			CertificateIds:                 details.CertificateIds,
+			CipherSuiteName:                details.CipherSuiteName,
+			Protocols:                      details.Protocols,
+			HasSessionResumption:           details.HasSessionResumption,
+			VerifyPeerCertificate:          details.VerifyPeerCertificate,
+			VerifyDepth:                    details.VerifyDepth,
+			TrustedCertificateAuthorityIds: details.TrustedCertificateAuthorityIds,
 		}
 	}
 
@@ -5244,6 +5247,95 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 				},
 				want:   loadbalancer.UpdateListenerDetails{},
 				wantOk: false,
+			}
+		},
+		func() testCase {
+			fake := faker.New()
+			listenerName := fake.UUID().V4()
+			listenerSpec := makeRandomListener(
+				randomListenerWithHTTPSParamsOpt(),
+			)
+			defaultBackendSetName := fake.UUID().V4()
+			certName := fake.UUID().V4()
+			verifyPeer := true
+			verifyDepth := 3
+			sslConfig := &loadbalancer.SslConfigurationDetails{
+				CertificateName:                &certName,
+				VerifyPeerCertificate:          &verifyPeer,
+				VerifyDepth:                    &verifyDepth,
+				TrustedCertificateAuthorityIds: []string{"ca-b", "ca-a"},
+			}
+
+			return testCase{
+				name: "ssl config frontend mTLS CA ids match regardless of order",
+				params: makeOciListenerUpdateDetailsParams{
+					existingListenerData: loadbalancer.Listener{
+						Protocol:              new("HTTP"),
+						Port:                  new(int(listenerSpec.Port)),
+						DefaultBackendSetName: new(defaultBackendSetName),
+						RoutingPolicyName:     new(listenerPolicyName(listenerName)),
+						SslConfiguration: &loadbalancer.SslConfiguration{
+							CertificateName:                &certName,
+							VerifyPeerCertificate:          &verifyPeer,
+							VerifyDepth:                    &verifyDepth,
+							TrustedCertificateAuthorityIds: []string{"ca-a", "ca-b"},
+						},
+					},
+					listenerName:          listenerName,
+					listenerSpec:          &listenerSpec,
+					defaultBackendSetName: defaultBackendSetName,
+					sslConfig:             sslConfig,
+				},
+				want:   loadbalancer.UpdateListenerDetails{},
+				wantOk: false,
+			}
+		},
+		func() testCase {
+			fake := faker.New()
+			listenerName := fake.UUID().V4()
+			listenerSpec := makeRandomListener(
+				randomListenerWithHTTPSParamsOpt(),
+			)
+			defaultBackendSetName := fake.UUID().V4()
+			certName := fake.UUID().V4()
+			verifyPeer := true
+			oldVerifyDepth := 3
+			newVerifyDepth := 4
+			sslConfig := &loadbalancer.SslConfigurationDetails{
+				CertificateName:                &certName,
+				VerifyPeerCertificate:          &verifyPeer,
+				VerifyDepth:                    &newVerifyDepth,
+				TrustedCertificateAuthorityIds: []string{"ca-a"},
+			}
+
+			return testCase{
+				name: "ssl config frontend mTLS verify depth change",
+				params: makeOciListenerUpdateDetailsParams{
+					existingListenerData: loadbalancer.Listener{
+						Protocol:              new("HTTP"),
+						Port:                  new(int(listenerSpec.Port)),
+						DefaultBackendSetName: new(defaultBackendSetName),
+						RoutingPolicyName:     new(listenerPolicyName(listenerName)),
+						SslConfiguration: &loadbalancer.SslConfiguration{
+							CertificateName:                &certName,
+							VerifyPeerCertificate:          &verifyPeer,
+							VerifyDepth:                    &oldVerifyDepth,
+							TrustedCertificateAuthorityIds: []string{"ca-a"},
+						},
+					},
+					listenerName:          listenerName,
+					listenerSpec:          &listenerSpec,
+					defaultBackendSetName: defaultBackendSetName,
+					sslConfig:             sslConfig,
+				},
+				want: loadbalancer.UpdateListenerDetails{
+					Protocol:              new("HTTP"),
+					Port:                  new(int(listenerSpec.Port)),
+					DefaultBackendSetName: new(defaultBackendSetName),
+					RoutingPolicyName:     new(listenerPolicyName(listenerName)),
+					SslConfiguration:      sslConfig,
+				},
+				wantOk: true,
 			}
 		},
 		func() testCase {

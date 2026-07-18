@@ -1123,6 +1123,138 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			require.NoError(t, err)
 		})
+		t.Run("programs frontend mTLS listener params and cleanup", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			fakeData := faker.New()
+
+			config := makeRandomGatewayConfig()
+			httpsListener := makeRandomListener(randomListenerWithHTTPSParamsOpt())
+			gateway := newRandomGateway()
+			gateway.Spec.Listeners = []gatewayv1.Listener{httpsListener}
+			ref := gatewayv1.ObjectReference{
+				Group: "",
+				Kind:  "ConfigMap",
+				Name:  gatewayv1.ObjectName("ca-" + fakeData.Lorem().Word()),
+			}
+			gateway.Spec.TLS = &gatewayv1.GatewayTLSConfig{
+				Frontend: &gatewayv1.FrontendTLSConfig{
+					Default: gatewayv1.TLSConfig{Validation: &gatewayv1.FrontendTLSValidation{
+						CACertificateRefs: []gatewayv1.ObjectReference{ref},
+					}},
+				},
+			}
+			compartmentID := "ocid1.compartment.oc1.." + fakeData.UUID().V4()
+			loadBalancer := makeRandomOCILoadBalancer(
+				randomOCILoadBalancerWithRandomBackendSetsOpt(),
+				randomOCILoadBalancerWithRandomPoliciesOpt(),
+				randomOCILoadBalancerWithRandomCertificatesOpt(),
+			)
+			loadBalancer.CompartmentId = &compartmentID
+			defaultBackendSet := makeRandomOCIBackendSet()
+			certificatesByListener := map[string][]loadbalancer.Certificate{
+				string(httpsListener.Name): {makeRandomOCICertificate()},
+			}
+			desiredBundleName := frontendMTLSCABundleName(*gateway, httpsListener.Port, ref)
+
+			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+				}).
+				Return(loadbalancer.GetLoadBalancerResponse{LoadBalancer: loadBalancer}, nil)
+			loadBalancerModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			loadBalancerModel.EXPECT().
+				reconcileDefaultBackendSet(t.Context(), mock.Anything).
+				Return(defaultBackendSet, nil)
+			reconcileCertificatesCall := loadBalancerModel.EXPECT().
+				reconcileListenersCertificates(t.Context(), mock.Anything).
+				Return(reconcileListenersCertificatesResult{certificatesByListener: certificatesByListener}, nil)
+			loadBalancerModel.EXPECT().
+				reconcileHTTPListener(t.Context(), mock.MatchedBy(func(params reconcileHTTPListenerParams) bool {
+					return params.gateway != nil &&
+						params.gateway.Name == gateway.Name &&
+						params.loadBalancerCompartmentID == compartmentID &&
+						params.listenerSpec != nil &&
+						params.listenerSpec.Name == httpsListener.Name
+				})).
+				Return(nil).
+				Once().
+				NotBefore(reconcileCertificatesCall.Call)
+			cleanupCall := loadBalancerModel.EXPECT().
+				cleanupFrontendMTLSCABundles(t.Context(), cleanupFrontendMTLSCABundlesParams{
+					gateway:       gateway,
+					compartmentID: compartmentID,
+					desiredBundleNames: map[string]struct{}{
+						desiredBundleName: {},
+					},
+				}).
+				Return(nil)
+			removeCall := loadBalancerModel.EXPECT().
+				removeMissingListeners(t.Context(), mock.Anything).
+				Return(nil).
+				NotBefore(cleanupCall.Call)
+			loadBalancerModel.EXPECT().
+				removeUnusedCertificates(t.Context(), mock.Anything).
+				Return(nil).
+				NotBefore(removeCall)
+
+			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
+				gateway: *gateway,
+				config:  config,
+			})
+
+			require.NoError(t, err)
+		})
+		t.Run("wraps frontend mTLS cleanup errors", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			fakeData := faker.New()
+
+			config := makeRandomGatewayConfig()
+			httpsListener := makeRandomListener(randomListenerWithHTTPSParamsOpt())
+			gateway := newRandomGateway()
+			gateway.Spec.Listeners = []gatewayv1.Listener{httpsListener}
+			gateway.Annotations = map[string]string{}
+			gateway.Annotations[GatewayFrontendMTLSCABundleCompartmentsAnnotation] =
+				"ocid1.compartment.oc1.." + fakeData.UUID().V4()
+			compartmentID := "ocid1.compartment.oc1.." + fakeData.UUID().V4()
+			loadBalancer := makeRandomOCILoadBalancer(
+				randomOCILoadBalancerWithRandomBackendSetsOpt(),
+				randomOCILoadBalancerWithRandomPoliciesOpt(),
+				randomOCILoadBalancerWithRandomCertificatesOpt(),
+			)
+			loadBalancer.CompartmentId = &compartmentID
+			defaultBackendSet := makeRandomOCIBackendSet()
+
+			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+				}).
+				Return(loadbalancer.GetLoadBalancerResponse{LoadBalancer: loadBalancer}, nil)
+			loadBalancerModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			loadBalancerModel.EXPECT().
+				reconcileDefaultBackendSet(t.Context(), mock.Anything).
+				Return(defaultBackendSet, nil)
+			reconcileCertificatesCall := loadBalancerModel.EXPECT().
+				reconcileListenersCertificates(t.Context(), mock.Anything).
+				Return(reconcileListenersCertificatesResult{}, nil)
+			loadBalancerModel.EXPECT().
+				reconcileHTTPListener(t.Context(), mock.Anything).
+				Return(nil).
+				NotBefore(reconcileCertificatesCall.Call)
+			loadBalancerModel.EXPECT().
+				cleanupFrontendMTLSCABundles(t.Context(), mock.Anything).
+				Return(errors.New("cleanup failed"))
+
+			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
+				gateway: *gateway,
+				config:  config,
+			})
+
+			require.ErrorContains(t, err, "failed to clean up frontend mTLS CA bundles")
+		})
 		t.Run("programs ListenerSet listeners with derived OCI listener names", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)

@@ -581,6 +581,53 @@ func (_c *MockociLoadBalancerModel_removeUnusedCertificates_Call) RunAndReturn(r
 	return _c
 }
 
+// cleanupFrontendMTLSCABundles provides a mock function with given fields: ctx, params
+func (_m *MockociLoadBalancerModel) cleanupFrontendMTLSCABundles(ctx context.Context, params cleanupFrontendMTLSCABundlesParams) error {
+	ret := _m.Called(ctx, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for cleanupFrontendMTLSCABundles")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, cleanupFrontendMTLSCABundlesParams) error); ok {
+		r0 = rf(ctx, params)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'cleanupFrontendMTLSCABundles'
+type MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call struct {
+	*mock.Call
+}
+
+// cleanupFrontendMTLSCABundles is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params cleanupFrontendMTLSCABundlesParams
+func (_e *MockociLoadBalancerModel_Expecter) cleanupFrontendMTLSCABundles(ctx interface{}, params interface{}) *MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call {
+	return &MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call{Call: _e.mock.On("cleanupFrontendMTLSCABundles", ctx, params)}
+}
+
+func (_c *MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call) Run(run func(ctx context.Context, params cleanupFrontendMTLSCABundlesParams)) *MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(cleanupFrontendMTLSCABundlesParams))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call) Return(_a0 error) *MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call) RunAndReturn(run func(context.Context, cleanupFrontendMTLSCABundlesParams) error) *MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockociLoadBalancerModel creates a new instance of MockociLoadBalancerModel. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockociLoadBalancerModel(t interface {

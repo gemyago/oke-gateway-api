@@ -60,13 +60,15 @@ type deprovisionBackendSetParams struct {
 }
 
 type reconcileHTTPListenerParams struct {
-	loadBalancerID        string
-	knownListeners        map[string]loadbalancer.Listener
-	knownRoutingPolicies  map[string]loadbalancer.RoutingPolicy
-	listenerCertificates  []loadbalancer.Certificate
-	listenerCertificateID string
-	defaultBackendSetName string
-	listenerSpec          *gatewayv1.Listener
+	loadBalancerID            string
+	loadBalancerCompartmentID string
+	knownListeners            map[string]loadbalancer.Listener
+	knownRoutingPolicies      map[string]loadbalancer.RoutingPolicy
+	listenerCertificates      []loadbalancer.Certificate
+	listenerCertificateID     string
+	defaultBackendSetName     string
+	listenerSpec              *gatewayv1.Listener
+	gateway                   *gatewayv1.Gateway
 }
 
 type reconcileListenersCertificatesParams struct {
@@ -186,11 +188,17 @@ type ociLoadBalancerModel interface {
 		ctx context.Context,
 		params removeUnusedCertificatesParams,
 	) error
+
+	cleanupFrontendMTLSCABundles(
+		ctx context.Context,
+		params cleanupFrontendMTLSCABundlesParams,
+	) error
 }
 
 type ociLoadBalancerModelImpl struct {
 	k8sClient           k8sClient
 	ociClient           ociLoadBalancerClient
+	certsClient         ociCertificatesManagementClient
 	logger              *slog.Logger
 	workRequestsWatcher workRequestsWatcher
 	routingRulesMapper  ociLoadBalancerRoutingRulesMapper
@@ -268,6 +276,15 @@ func loadBalancerListenerSSLConfigurationsEqual(
 		return false
 	}
 	if len(desired.Protocols) > 0 && !stringSlicesEqual(current.Protocols, desired.Protocols) {
+		return false
+	}
+	if lo.FromPtr(current.VerifyPeerCertificate) != lo.FromPtr(desired.VerifyPeerCertificate) {
+		return false
+	}
+	if desired.VerifyDepth != nil && lo.FromPtr(current.VerifyDepth) != lo.FromPtr(desired.VerifyDepth) {
+		return false
+	}
+	if !stringSlicesEqual(current.TrustedCertificateAuthorityIds, desired.TrustedCertificateAuthorityIds) {
 		return false
 	}
 	return true
@@ -867,6 +884,10 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 			CertificateName: cert.CertificateName,
 		}
 		applyListenerTLSOptions(sslConfig, params.listenerSpec.TLS)
+	}
+	sslConfig, err := m.applyFrontendMTLS(ctx, params, sslConfig)
+	if err != nil {
+		return err
 	}
 
 	if existingListener, ok := params.knownListeners[listenerName]; ok {
@@ -1817,17 +1838,19 @@ func applyListenerTLSOptions(
 type ociLoadBalancerModelDeps struct {
 	dig.In
 
-	RootLogger          *slog.Logger
-	K8sClient           k8sClient
-	OciClient           ociLoadBalancerClient
-	WorkRequestsWatcher workRequestsWatcher
-	RoutingRulesMapper  ociLoadBalancerRoutingRulesMapper
+	RootLogger                *slog.Logger
+	K8sClient                 k8sClient
+	OciClient                 ociLoadBalancerClient
+	OciCertificatesMgmtClient ociCertificatesManagementClient
+	WorkRequestsWatcher       workRequestsWatcher
+	RoutingRulesMapper        ociLoadBalancerRoutingRulesMapper
 }
 
 func newOciLoadBalancerModel(deps ociLoadBalancerModelDeps) *ociLoadBalancerModelImpl {
 	return &ociLoadBalancerModelImpl{
 		logger:              deps.RootLogger.WithGroup("oci-load-balancer-model"),
 		ociClient:           deps.OciClient,
+		certsClient:         deps.OciCertificatesMgmtClient,
 		k8sClient:           deps.K8sClient,
 		workRequestsWatcher: deps.WorkRequestsWatcher,
 		routingRulesMapper:  deps.RoutingRulesMapper,

@@ -11,6 +11,7 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
+	"github.com/samber/lo"
 	"go.uber.org/dig"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -489,18 +490,26 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 		listenerName := string(listener.Name)
 
 		params := reconcileHTTPListenerParams{
-			loadBalancerID:        loadBalancerID,
-			knownListeners:        response.LoadBalancer.Listeners,
-			knownRoutingPolicies:  response.LoadBalancer.RoutingPolicies,
-			listenerCertificates:  reconcileListenersCertificatesResult.certificatesByListener[listenerName],
-			listenerCertificateID: reconcileListenersCertificatesResult.certificateIDsByListener[listenerName],
-			defaultBackendSetName: *defaultBackendSet.Name,
-			listenerSpec:          &listener,
+			loadBalancerID:            loadBalancerID,
+			loadBalancerCompartmentID: lo.FromPtr(response.LoadBalancer.CompartmentId),
+			knownListeners:            response.LoadBalancer.Listeners,
+			knownRoutingPolicies:      response.LoadBalancer.RoutingPolicies,
+			listenerCertificates:      reconcileListenersCertificatesResult.certificatesByListener[listenerName],
+			listenerCertificateID:     reconcileListenersCertificatesResult.certificateIDsByListener[listenerName],
+			defaultBackendSetName:     *defaultBackendSet.Name,
+			listenerSpec:              &listener,
+		}
+		if gatewayFrontendMTLSConfigured(data.gateway) {
+			params.gateway = &data.gateway
 		}
 
 		if err = m.ociLoadBalancerModel.reconcileHTTPListener(ctx, params); err != nil {
 			return fmt.Errorf("failed to reconcile listener %s: %w", listener.Name, err)
 		}
+	}
+
+	if err = m.cleanupFrontendMTLSCABundles(ctx, data, gatewayManagedListeners, response.LoadBalancer); err != nil {
+		return err
 	}
 
 	if err = m.ociLoadBalancerModel.removeMissingListeners(ctx, removeMissingListenersParams{
@@ -525,6 +534,67 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 	}
 
 	return nil
+}
+
+func (m *gatewayModelImpl) cleanupFrontendMTLSCABundles(
+	ctx context.Context,
+	data *resolvedGatewayDetails,
+	gatewayManagedListeners []gatewayv1.Listener,
+	loadBalancer loadbalancer.LoadBalancer,
+) error {
+	desiredBundleNames := desiredFrontendMTLSCABundleNames(data.gateway, gatewayManagedListeners)
+	if len(desiredBundleNames) == 0 &&
+		data.gateway.Annotations[GatewayFrontendMTLSCABundleCompartmentsAnnotation] == "" {
+		return nil
+	}
+	if err := m.ociLoadBalancerModel.cleanupFrontendMTLSCABundles(ctx, cleanupFrontendMTLSCABundlesParams{
+		gateway:            &data.gateway,
+		compartmentID:      lo.FromPtr(loadBalancer.CompartmentId),
+		desiredBundleNames: desiredBundleNames,
+	}); err != nil {
+		return fmt.Errorf("failed to clean up frontend mTLS CA bundles: %w", err)
+	}
+	return nil
+}
+
+func desiredFrontendMTLSCABundleNames(
+	gateway gatewayv1.Gateway,
+	gatewayManagedListeners []gatewayv1.Listener,
+) map[string]struct{} {
+	desiredBundleNames := make(map[string]struct{})
+	for _, listener := range gatewayManagedListeners {
+		if !gatewayFrontendMTLSConfigured(gateway) || listener.TLS == nil {
+			continue
+		}
+		validation := effectiveFrontendTLSValidation(gateway, listener.Port)
+		if validation == nil || len(validation.CACertificateRefs) == 0 {
+			continue
+		}
+		for _, ref := range validation.CACertificateRefs {
+			desiredBundleNames[frontendMTLSCABundleName(gateway, listener.Port, ref)] = struct{}{}
+		}
+	}
+	return desiredBundleNames
+}
+
+func gatewayFrontendMTLSConfigured(gateway gatewayv1.Gateway) bool {
+	if gateway.Spec.TLS != nil && gateway.Spec.TLS.Frontend != nil {
+		return true
+	}
+	if gateway.Annotations == nil {
+		return false
+	}
+	for key, value := range gateway.Annotations {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		if key == FrontendMTLSTrustedCABundleOCIDsAnnotation ||
+			key == FrontendMTLSVerifyDepthAnnotation ||
+			strings.HasPrefix(key, "oci.oraclecloud.com/frontend-mtls-") {
+			return true
+		}
+	}
+	return false
 }
 
 func gatewayStatusAddressesFromLoadBalancer(lb *loadbalancer.LoadBalancer) []gatewayv1.GatewayStatusAddress {
