@@ -257,7 +257,15 @@ func pendingListenerSetStatus(
 			listenerSet.Name,
 		),
 	)
-	status.Listeners = listenerSetPendingListenerStatuses(listenerSet)
+	status.Listeners = listenerSetListenerStatuses(
+		listenerSet,
+		metav1.ConditionTrue,
+		gatewayv1.ListenerReasonAccepted,
+		fmt.Sprintf("listener accepted by Gateway %s/%s", gateway.Namespace, gateway.Name),
+		metav1.ConditionUnknown,
+		gatewayv1.ListenerReasonPending,
+		"listener is waiting for parent Gateway programming",
+	)
 	return status
 }
 
@@ -275,7 +283,15 @@ func rejectedListenerSetStatus(
 		reason,
 		message,
 	)
-	status.Listeners = listenerSetPendingListenerStatuses(listenerSet)
+	status.Listeners = listenerSetListenerStatuses(
+		listenerSet,
+		metav1.ConditionFalse,
+		gatewayv1.ListenerConditionReason(reason),
+		message,
+		metav1.ConditionFalse,
+		gatewayv1.ListenerConditionReason(reason),
+		message,
+	)
 	return status
 }
 
@@ -308,13 +324,38 @@ func listenerSetStatusWithConditions(
 	return status
 }
 
-func listenerSetPendingListenerStatuses(listenerSet gatewayv1.ListenerSet) []gatewayv1.ListenerEntryStatus {
+func listenerSetListenerStatuses(
+	listenerSet gatewayv1.ListenerSet,
+	acceptedStatus metav1.ConditionStatus,
+	acceptedReason gatewayv1.ListenerConditionReason,
+	acceptedMessage string,
+	programmedStatus metav1.ConditionStatus,
+	programmedReason gatewayv1.ListenerConditionReason,
+	programmedMessage string,
+) []gatewayv1.ListenerEntryStatus {
 	statuses := make([]gatewayv1.ListenerEntryStatus, 0, len(listenerSet.Spec.Listeners))
 	for _, listener := range listenerSet.Spec.Listeners {
-		statuses = append(statuses, gatewayv1.ListenerEntryStatus{
+		entryStatus := gatewayv1.ListenerEntryStatus{
 			Name:           listener.Name,
 			SupportedKinds: supportedRouteKindsForListener(listenerFromListenerSetEntry(listener)),
-		})
+		}
+		setListenerEntryCondition(
+			&entryStatus,
+			gatewayv1.ListenerConditionAccepted,
+			acceptedStatus,
+			acceptedReason,
+			listenerSet.Generation,
+			acceptedMessage,
+		)
+		setListenerEntryCondition(
+			&entryStatus,
+			gatewayv1.ListenerConditionProgrammed,
+			programmedStatus,
+			programmedReason,
+			listenerSet.Generation,
+			programmedMessage,
+		)
+		statuses = append(statuses, entryStatus)
 	}
 	return statuses
 }

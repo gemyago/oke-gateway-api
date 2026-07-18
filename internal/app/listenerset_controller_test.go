@@ -413,6 +413,20 @@ func TestListenerSetController(t *testing.T) {
 		assert.Equal(t, string(gatewayv1.ListenerSetReasonPending), programmed.Reason)
 		require.Len(t, status.Listeners, 1)
 		assert.Equal(t, gatewayv1.SectionName("web"), status.Listeners[0].Name)
+		listenerAccepted := meta.FindStatusCondition(
+			status.Listeners[0].Conditions,
+			string(gatewayv1.ListenerConditionAccepted),
+		)
+		require.NotNil(t, listenerAccepted)
+		assert.Equal(t, metav1.ConditionTrue, listenerAccepted.Status)
+		assert.Equal(t, string(gatewayv1.ListenerReasonAccepted), listenerAccepted.Reason)
+		listenerProgrammed := meta.FindStatusCondition(
+			status.Listeners[0].Conditions,
+			string(gatewayv1.ListenerConditionProgrammed),
+		)
+		require.NotNil(t, listenerProgrammed)
+		assert.Equal(t, metav1.ConditionUnknown, listenerProgrammed.Status)
+		assert.Equal(t, string(gatewayv1.ListenerReasonPending), listenerProgrammed.Reason)
 		assert.ElementsMatch(t, []gatewayv1.RouteGroupKind{{
 			Group: lo.ToPtr(gatewayv1.Group(gatewayv1.GroupName)),
 			Kind:  "HTTPRoute",
