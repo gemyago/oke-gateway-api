@@ -45,6 +45,19 @@ func TestGatewayController(t *testing.T) {
 		})
 	}
 
+	t.Run("SetListenerSetEnabled", func(t *testing.T) {
+		model := &gatewayModelImpl{}
+		controller := NewGatewayController(GatewayControllerDeps{
+			RootLogger:     diag.RootTestLogger(),
+			ResourcesModel: NewMockresourcesModel(t),
+			GatewayModel:   model,
+		})
+
+		controller.SetListenerSetEnabled(true)
+
+		assert.True(t, model.listenerSetEnabled)
+	})
+
 	t.Run("Reconcile", func(t *testing.T) {
 		t.Run("acceptAndProgram", func(t *testing.T) {
 			gateway := newRandomGateway()
@@ -183,6 +196,47 @@ func TestGatewayController(t *testing.T) {
 			result, err := controller.Reconcile(t.Context(), req)
 
 			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("returns error when accepted condition update fails", func(t *testing.T) {
+			gateway := newRandomGateway()
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: gateway.Namespace,
+					Name:      gateway.Name,
+				},
+			}
+
+			deps := newMockDeps(t)
+			controller := NewGatewayController(deps)
+			wantErr := errors.New("accepted status failed")
+
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+			mockGatewayModel.EXPECT().
+				resolveReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *resolvedGatewayDetails) bool {
+					receiver.gateway = *gateway
+					return true
+				})).
+				Return(true, nil).
+				Once()
+			mockResourcesModel.EXPECT().
+				setCondition(t.Context(), mock.MatchedBy(func(params setConditionParams) bool {
+					gotGateway, ok := params.resource.(*gatewayv1.Gateway)
+					return ok &&
+						gotGateway.Namespace == gateway.Namespace &&
+						gotGateway.Name == gateway.Name &&
+						params.conditionType == string(gatewayv1.GatewayConditionAccepted)
+				})).
+				Return(wantErr).
+				Once()
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to set accepted condition")
 			assert.Equal(t, reconcile.Result{}, result)
 		})
 

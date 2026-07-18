@@ -1,0 +1,52 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: shared-alb
+spec:
+  gatewayClassName: oke-gateway-api
+  infrastructure:
+    parametersRef:
+      group: oke-gateway-api.gemyago.github.io
+      kind: GatewayConfig
+      name: oke-gateway-config
+  allowedListeners:
+    namespaces:
+      from: Same
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: ListenerSet
+metadata:
+  name: rtmps-listener
+spec:
+  parentRef:
+    name: shared-alb
+  listeners:
+    - name: rtmps
+      protocol: TLS
+      port: 8443
+      hostname: rtmps.example.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: rtmps-cert
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: TLSRoute
+metadata:
+  name: rtmps
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: ListenerSet
+      name: rtmps-listener
+      sectionName: rtmps
+  hostnames:
+    - rtmps.example.com
+  rules:
+    - backendRefs:
+        - name: rtmp-service
+          port: 1935

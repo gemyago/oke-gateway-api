@@ -118,29 +118,28 @@ func TestL4RouteObjectPredicate(t *testing.T) {
 }
 
 func TestDetectExperimentalRouteCapabilities(t *testing.T) {
-	t.Run("detects TCPRoute and UDPRoute", func(t *testing.T) {
+	t.Run("detects TCPRoute UDPRoute BackendTLSPolicy and ListenerSet", func(t *testing.T) {
 		mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{
 			{Group: gatewayv1.GroupName, Version: "v1"},
 		})
-		mapper.Add(schema.GroupVersionKind{
-			Group:   gatewayv1.GroupName,
-			Version: "v1",
-			Kind:    "TCPRoute",
-		}, meta.RESTScopeNamespace)
-		mapper.Add(schema.GroupVersionKind{
-			Group:   gatewayv1.GroupName,
-			Version: "v1",
-			Kind:    "UDPRoute",
-		}, meta.RESTScopeNamespace)
+		for _, kind := range []string{"TCPRoute", "UDPRoute", "BackendTLSPolicy", "ListenerSet"} {
+			mapper.Add(schema.GroupVersionKind{
+				Group:   gatewayv1.GroupName,
+				Version: "v1",
+				Kind:    kind,
+			}, meta.RESTScopeNamespace)
+		}
 
 		got, err := detectExperimentalRouteCapabilities(mapper)
 
 		require.NoError(t, err)
 		assert.True(t, got.TCPRoute)
 		assert.True(t, got.UDPRoute)
+		assert.True(t, got.BackendTLSPolicy)
+		assert.True(t, got.ListenerSet)
 	})
 
-	t.Run("treats missing routes as unavailable", func(t *testing.T) {
+	t.Run("treats missing optional Gateway API resources as unavailable", func(t *testing.T) {
 		mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{
 			{Group: gatewayv1.GroupName, Version: "v1"},
 		})
@@ -150,6 +149,8 @@ func TestDetectExperimentalRouteCapabilities(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, got.TCPRoute)
 		assert.False(t, got.UDPRoute)
+		assert.False(t, got.BackendTLSPolicy)
+		assert.False(t, got.ListenerSet)
 	})
 
 	t.Run("returns non discovery errors", func(t *testing.T) {
@@ -160,6 +161,8 @@ func TestDetectExperimentalRouteCapabilities(t *testing.T) {
 		require.ErrorIs(t, err, wantErr)
 		assert.False(t, got.TCPRoute)
 		assert.False(t, got.UDPRoute)
+		assert.False(t, got.BackendTLSPolicy)
+		assert.False(t, got.ListenerSet)
 	})
 }
 
@@ -195,6 +198,7 @@ func TestResolveExperimentalRouteCapabilities(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, got.reconcileTCPRoute)
 		assert.False(t, got.reconcileUDPRoute)
+		assert.False(t, got.listenerSetAvailable)
 	})
 
 	t.Run("keeps BackendTLSPolicy controller available for cleanup when feature is disabled", func(t *testing.T) {
@@ -219,6 +223,27 @@ func TestResolveExperimentalRouteCapabilities(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, got.reconcileBackendTLSPolicy)
 		assert.True(t, got.backendTLSPolicyAvailable)
+	})
+
+	t.Run("enables ListenerSet support when the CRD is installed", func(t *testing.T) {
+		mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{
+			{Group: gatewayv1.GroupName, Version: "v1"},
+		})
+		mapper.Add(schema.GroupVersionKind{
+			Group:   gatewayv1.GroupName,
+			Version: "v1",
+			Kind:    "ListenerSet",
+		}, meta.RESTScopeNamespace)
+
+		got, err := resolveExperimentalRouteCapabilities(
+			t.Context(),
+			diag.RootTestLogger(),
+			mapper,
+			StartManagerDeps{},
+		)
+
+		require.NoError(t, err)
+		assert.True(t, got.listenerSetAvailable)
 	})
 }
 

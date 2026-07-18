@@ -107,6 +107,28 @@ func parentRefTargetsGateway(parentRef gatewayv1.ParentReference) bool {
 	return group == gatewayAPIGroup && kind == "Gateway"
 }
 
+func parentRefTargetsListenerSet(parentRef gatewayv1.ParentReference) bool {
+	group := gatewayAPIGroup
+	if parentRef.Group != nil {
+		group = string(*parentRef.Group)
+	}
+	if parentRef.Kind == nil {
+		return false
+	}
+	return group == gatewayAPIGroup && string(*parentRef.Kind) == "ListenerSet"
+}
+
+func parentRefTargetName(parentRef gatewayv1.ParentReference, routeNamespace string) apitypes.NamespacedName {
+	namespace := routeNamespace
+	if parentRef.Namespace != nil {
+		namespace = string(*parentRef.Namespace)
+	}
+	return apitypes.NamespacedName{
+		Namespace: namespace,
+		Name:      string(parentRef.Name),
+	}
+}
+
 func l4ValidateServiceBackendRef(backendRef gatewayv1.BackendRef) error {
 	group := ""
 	if backendRef.BackendObjectReference.Group != nil {
