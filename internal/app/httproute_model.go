@@ -59,6 +59,7 @@ type setProgrammedParams struct {
 	httpRoute    gatewayv1.HTTPRoute
 	gatewayClass gatewayv1.GatewayClass
 	gateway      gatewayv1.Gateway
+	config       types.GatewayConfig
 	matchedRef   gatewayv1.ParentReference
 
 	// List of load balancer policy rules that were programmed for this route
@@ -139,6 +140,7 @@ type setL7RouteProgrammedParams struct {
 	parentStatuses        []gatewayv1.RouteParentStatus
 	gatewayClass          gatewayv1.GatewayClass
 	gateway               gatewayv1.Gateway
+	loadBalancerID        string
 	matchedRef            gatewayv1.ParentReference
 	programmedPolicyRules []string
 	programmingAnnotation string
@@ -780,6 +782,13 @@ func (m *httpRouteModelImpl) resolveRequest(
 			slog.String("route", req.NamespacedName.String()),
 			slog.Int("triedParentRefs", len(httpRoute.Spec.ParentRefs)),
 		)
+		deletingProgrammedRoute := httpRoute.DeletionTimestamp != nil &&
+			controllerutil.ContainsFinalizer(&httpRoute, HTTPRouteProgrammedFinalizer)
+		if deletingProgrammedRoute {
+			if err := m.deprovisionDetachedRoute(ctx, httpRoute); err != nil {
+				return nil, fmt.Errorf("failed to deprovision detached HTTPRoute %s: %w", req.NamespacedName, err)
+			}
+		}
 	}
 
 	return results, nil
@@ -1194,6 +1203,85 @@ func (m *httpRouteModelImpl) deprovisionRoute(
 	return nil
 }
 
+type deprovisionDetachedL7RouteParams struct {
+	route                 client.Object
+	routeKind             string
+	policyRulesAnnotation string
+	loadBalancerID        string
+	backendRefs           []gatewayv1.BackendRef
+	removeFinalizer       func(context.Context) error
+}
+
+func deprovisionDetachedL7Route(
+	ctx context.Context,
+	ociLoadBalancerModel ociLoadBalancerModel,
+	params deprovisionDetachedL7RouteParams,
+) error {
+	if params.loadBalancerID == "" {
+		return params.removeFinalizer(ctx)
+	}
+
+	if policyRules := params.route.GetAnnotations()[params.policyRulesAnnotation]; policyRules != "" {
+		err := removeL7RoutePolicyRules(ctx, ociLoadBalancerModel, params.loadBalancerID, nil, policyRules)
+		if err != nil {
+			return fmt.Errorf("failed to remove detached %s policy rules: %w", params.routeKind, err)
+		}
+	}
+
+	processedBackendRefs := make(map[string]struct{})
+	for _, backendRef := range params.backendRefs {
+		key := l7BackendRefKey(backendRef, params.route.GetNamespace())
+		if _, ok := processedBackendRefs[key]; ok {
+			continue
+		}
+		err := ociLoadBalancerModel.deprovisionBackendSet(ctx, deprovisionBackendSetParams{
+			loadBalancerID: params.loadBalancerID,
+			routeNamespace: params.route.GetNamespace(),
+			backendRef:     backendRef,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to deprovision detached %s backend set %s: %w",
+				params.routeKind, key, err)
+		}
+		processedBackendRefs[key] = struct{}{}
+	}
+
+	return params.removeFinalizer(ctx)
+}
+
+func (m *httpRouteModelImpl) deprovisionDetachedRoute(
+	ctx context.Context,
+	httpRoute gatewayv1.HTTPRoute,
+) error {
+	return deprovisionDetachedL7Route(ctx, m.ociLoadBalancerModel, deprovisionDetachedL7RouteParams{
+		route:                 &httpRoute,
+		routeKind:             "HTTPRoute",
+		policyRulesAnnotation: HTTPRouteProgrammedPolicyRulesAnnotation,
+		loadBalancerID:        httpRoute.Annotations[L7RouteProgrammedLoadBalancerIDAnnotation],
+		backendRefs:           httpRouteBackendRefs(httpRoute),
+		removeFinalizer: func(ctx context.Context) error {
+			return m.removeDetachedHTTPRouteFinalizer(ctx, httpRoute)
+		},
+	})
+}
+
+func (m *httpRouteModelImpl) removeDetachedHTTPRouteFinalizer(
+	ctx context.Context,
+	httpRoute gatewayv1.HTTPRoute,
+) error {
+	routeToUpdate := httpRoute.DeepCopy()
+	controllerutil.RemoveFinalizer(routeToUpdate, HTTPRouteProgrammedFinalizer)
+	if routeToUpdate.Annotations != nil {
+		delete(routeToUpdate.Annotations, HTTPRouteProgrammedPolicyRulesAnnotation)
+		delete(routeToUpdate.Annotations, L7RouteProgrammedLoadBalancerIDAnnotation)
+	}
+	if err := m.client.Update(ctx, routeToUpdate); err != nil {
+		return fmt.Errorf("failed to update detached HTTPRoute %s/%s after cleanup: %w",
+			routeToUpdate.Namespace, routeToUpdate.Name, err)
+	}
+	return nil
+}
+
 func (m *httpRouteModelImpl) isProgrammingRequired(
 	details resolvedRouteDetails,
 ) (bool, error) {
@@ -1218,7 +1306,8 @@ func (m *httpRouteModelImpl) isProgrammingRequired(
 		conditionType: string(gatewayv1.RouteConditionResolvedRefs),
 
 		annotations: map[string]string{
-			HTTPRouteProgrammingRevisionAnnotation: HTTPRouteProgrammingRevisionValue,
+			HTTPRouteProgrammingRevisionAnnotation:    HTTPRouteProgrammingRevisionValue,
+			L7RouteProgrammedLoadBalancerIDAnnotation: details.gatewayDetails.config.Spec.LoadBalancerID,
 		},
 	}), nil
 }
@@ -1250,8 +1339,9 @@ func setL7RouteProgrammed(
 		reason:        string(gatewayv1.RouteReasonResolvedRefs),
 		message:       fmt.Sprintf("Route programmed by %s", params.gateway.Name),
 		annotations: map[string]string{
-			params.programmingAnnotation: params.programmingRevision,
-			params.policyRulesAnnotation: strings.Join(params.programmedPolicyRules, ","),
+			params.programmingAnnotation:              params.programmingRevision,
+			params.policyRulesAnnotation:              strings.Join(params.programmedPolicyRules, ","),
+			L7RouteProgrammedLoadBalancerIDAnnotation: params.loadBalancerID,
 		},
 		finalizer: params.finalizer,
 	})
@@ -1268,6 +1358,7 @@ func (m *httpRouteModelImpl) setProgrammed(
 		parentStatuses:        httpRoute.Status.Parents,
 		gatewayClass:          params.gatewayClass,
 		gateway:               params.gateway,
+		loadBalancerID:        params.config.Spec.LoadBalancerID,
 		matchedRef:            params.matchedRef,
 		programmedPolicyRules: params.programmedPolicyRules,
 		programmingAnnotation: HTTPRouteProgrammingRevisionAnnotation,

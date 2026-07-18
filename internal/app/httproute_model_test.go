@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
@@ -130,6 +131,78 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			require.ErrorIs(t, err, wantErr)
 			require.ErrorContains(t, err, "failed to remove route policy rules for listener https")
+		})
+	})
+
+	t.Run("deprovisionDetachedL7Route", func(t *testing.T) {
+		t.Run("removes finalizer when load balancer annotation is missing", func(t *testing.T) {
+			called := false
+			err := deprovisionDetachedL7Route(t.Context(), nil, deprovisionDetachedL7RouteParams{
+				route:     &gatewayv1.HTTPRoute{},
+				routeKind: "HTTPRoute",
+				removeFinalizer: func(context.Context) error {
+					called = true
+					return nil
+				},
+			})
+
+			require.NoError(t, err)
+			assert.True(t, called)
+		})
+
+		t.Run("returns policy rule cleanup errors", func(t *testing.T) {
+			wantErr := errors.New("policy cleanup failed")
+			route := &gatewayv1.HTTPRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "apps",
+					Name:      "api",
+					Annotations: map[string]string{
+						HTTPRouteProgrammedPolicyRulesAnnotation: "http/rule",
+					},
+				},
+			}
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  "lb-id",
+				listenerName:    "http",
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{"rule"},
+			}).Return(wantErr).Once()
+
+			err := deprovisionDetachedL7Route(t.Context(), ociLBModel, deprovisionDetachedL7RouteParams{
+				route:                 route,
+				routeKind:             "HTTPRoute",
+				policyRulesAnnotation: HTTPRouteProgrammedPolicyRulesAnnotation,
+				loadBalancerID:        "lb-id",
+				removeFinalizer:       func(context.Context) error { return nil },
+			})
+
+			require.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("deduplicates backend refs and returns backend set cleanup errors", func(t *testing.T) {
+			wantErr := errors.New("backend cleanup failed")
+			route := &gatewayv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "api"}}
+			backendRef := makeRandomBackendRef().BackendRef
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			ociLBModel.EXPECT().deprovisionBackendSet(t.Context(), deprovisionBackendSetParams{
+				loadBalancerID: "lb-id",
+				routeNamespace: "apps",
+				backendRef:     backendRef,
+			}).Return(wantErr).Once()
+
+			err := deprovisionDetachedL7Route(t.Context(), ociLBModel, deprovisionDetachedL7RouteParams{
+				route:          route,
+				routeKind:      "HTTPRoute",
+				loadBalancerID: "lb-id",
+				backendRefs:    []gatewayv1.BackendRef{backendRef, backendRef},
+				removeFinalizer: func(context.Context) error {
+					t.Fatal("finalizer should not be removed when backend cleanup fails")
+					return nil
+				},
+			})
+
+			require.ErrorIs(t, err, wantErr)
 		})
 	})
 
@@ -386,6 +459,81 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 	})
 
 	t.Run("resolveRequest", func(t *testing.T) {
+		t.Run("cleans deleting programmed route with no resolved parent", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			loadBalancerID := "lb-" + fake.UUID().V4()
+			listenerName := "listener-" + fake.Lorem().Word()
+			ruleName := "rule-" + fake.Lorem().Word()
+			deleteTime := metav1.Now()
+			backendRef := makeRandomBackendRef()
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef)),
+				),
+			)
+			route.DeletionTimestamp = &deleteTime
+			route.Finalizers = []string{HTTPRouteProgrammedFinalizer}
+			route.Annotations = map[string]string{
+				HTTPRouteProgrammedPolicyRulesAnnotation:  listenerName + "/" + ruleName,
+				L7RouteProgrammedLoadBalancerIDAnnotation: loadBalancerID,
+			}
+			req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: route.Namespace, Name: route.Name}}
+
+			setupClientGet(t, deps.K8sClient, req.NamespacedName, route)
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  loadBalancerID,
+				listenerName:    listenerName,
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{ruleName},
+			}).Return(nil).Once()
+			ociLBModel.EXPECT().deprovisionBackendSet(t.Context(), deprovisionBackendSetParams{
+				loadBalancerID: loadBalancerID,
+				routeNamespace: route.Namespace,
+				backendRef:     backendRef.BackendRef,
+			}).Return(nil).Once()
+			k8sClient.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				updated, ok := obj.(*gatewayv1.HTTPRoute)
+				return ok &&
+					!controllerutil.ContainsFinalizer(updated, HTTPRouteProgrammedFinalizer) &&
+					updated.Annotations[HTTPRouteProgrammedPolicyRulesAnnotation] == "" &&
+					updated.Annotations[L7RouteProgrammedLoadBalancerIDAnnotation] == ""
+			})).Return(nil).Once()
+
+			got, err := model.resolveRequest(t.Context(), req)
+
+			require.NoError(t, err)
+			assert.Empty(t, got)
+		})
+
+		t.Run("wraps detached cleanup errors", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			deleteTime := metav1.Now()
+			route := makeRandomHTTPRoute()
+			route.DeletionTimestamp = &deleteTime
+			route.Finalizers = []string{HTTPRouteProgrammedFinalizer}
+			route.Annotations = map[string]string{
+				L7RouteProgrammedLoadBalancerIDAnnotation: "lb-id",
+			}
+			req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: route.Namespace, Name: route.Name}}
+			wantErr := errors.New("update failed")
+
+			setupClientGet(t, deps.K8sClient, req.NamespacedName, route)
+			k8sClient.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.HTTPRoute")).
+				Return(wantErr).
+				Once()
+
+			_, err := model.resolveRequest(t.Context(), req)
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to deprovision detached HTTPRoute")
+		})
+
 		t.Run("relevant parent", func(t *testing.T) {
 			fake := faker.New()
 			deps := newMockDeps(t)
@@ -2217,7 +2365,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				conditions:    details.httpRoute.Status.Parents[0].Conditions,
 				conditionType: string(gatewayv1.RouteConditionResolvedRefs),
 				annotations: map[string]string{
-					HTTPRouteProgrammingRevisionAnnotation: HTTPRouteProgrammingRevisionValue,
+					HTTPRouteProgrammingRevisionAnnotation:    HTTPRouteProgrammingRevisionValue,
+					L7RouteProgrammedLoadBalancerIDAnnotation: details.gatewayDetails.config.Spec.LoadBalancerID,
 				},
 			}).Return(checkResult)
 
@@ -2308,6 +2457,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				httpRoute:    route,
 				gatewayClass: gatewayData.gatewayClass,
 				gateway:      gatewayData.gateway,
+				config:       gatewayData.config,
 				matchedRef:   matchedRef,
 				programmedPolicyRules: []string{
 					"rule1-" + fake.Lorem().Word(),
@@ -2325,8 +2475,9 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				reason:        string(gatewayv1.RouteReasonResolvedRefs),
 				message:       fmt.Sprintf("Route programmed by %s", params.gateway.Name),
 				annotations: map[string]string{
-					HTTPRouteProgrammingRevisionAnnotation:   HTTPRouteProgrammingRevisionValue,
-					HTTPRouteProgrammedPolicyRulesAnnotation: strings.Join(params.programmedPolicyRules, ","),
+					HTTPRouteProgrammingRevisionAnnotation:    HTTPRouteProgrammingRevisionValue,
+					HTTPRouteProgrammedPolicyRulesAnnotation:  strings.Join(params.programmedPolicyRules, ","),
+					L7RouteProgrammedLoadBalancerIDAnnotation: gatewayData.config.Spec.LoadBalancerID,
 				},
 				finalizer: HTTPRouteProgrammedFinalizer,
 			}).Return(nil)

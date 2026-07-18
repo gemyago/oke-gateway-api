@@ -123,6 +123,7 @@ func (r *HTTPRouteController) reconcileResolvedRoute(
 	if err = r.httpRouteModel.setProgrammed(ctx, setProgrammedParams{
 		gatewayClass:          resolvedData.gatewayDetails.gatewayClass,
 		gateway:               resolvedData.gatewayDetails.gateway,
+		config:                resolvedData.gatewayDetails.config,
 		httpRoute:             *acceptedRoute,
 		matchedRef:            resolvedData.matchedRef,
 		programmedPolicyRules: programResult.programmedPolicyRules,

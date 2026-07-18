@@ -41,6 +41,31 @@ func TestL7RouteObjectPredicate(t *testing.T) {
 	})
 }
 
+func TestListenerSetRouteObjectPredicate(t *testing.T) {
+	oldListenerSet := &gatewayv1.ListenerSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:       "demo",
+			Name:            "extra-listeners",
+			ResourceVersion: "1",
+		},
+	}
+	newListenerSet := oldListenerSet.DeepCopy()
+	newListenerSet.ResourceVersion = "2"
+	newListenerSet.Status.Conditions = []metav1.Condition{{
+		Type:               string(gatewayv1.ListenerSetConditionAccepted),
+		Status:             metav1.ConditionTrue,
+		Reason:             string(gatewayv1.ListenerSetReasonAccepted),
+		ObservedGeneration: 1,
+	}}
+
+	result := listenerSetRouteObjectPredicate().Update(event.UpdateEvent{
+		ObjectOld: oldListenerSet,
+		ObjectNew: newListenerSet,
+	})
+
+	assert.True(t, result)
+}
+
 func TestStartManager(t *testing.T) {
 	t.Run("gatewaySecretPredicate", func(t *testing.T) {
 		t.Run("allows TLS Secret create events to reach Gateway mapping", func(t *testing.T) {

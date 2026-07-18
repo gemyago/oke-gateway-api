@@ -120,6 +120,7 @@ func TestHTTPRouteController(t *testing.T) {
 				setProgrammedParams{
 					gatewayClass:          wantResolvedData.gatewayDetails.gatewayClass,
 					gateway:               wantResolvedData.gatewayDetails.gateway,
+					config:                wantResolvedData.gatewayDetails.config,
 					httpRoute:             wantAcceptedRoute,
 					matchedRef:            wantResolvedData.matchedRef,
 					programmedPolicyRules: programmedPolicyRules,
@@ -569,6 +570,7 @@ func TestHTTPRouteController(t *testing.T) {
 				setProgrammedParams{
 					gatewayClass:          wantResolvedData.gatewayDetails.gatewayClass,
 					gateway:               wantResolvedData.gatewayDetails.gateway,
+					config:                wantResolvedData.gatewayDetails.config,
 					httpRoute:             wantAcceptedRoute,
 					matchedRef:            wantResolvedData.matchedRef,
 					programmedPolicyRules: programmedPolicyRules,
@@ -660,6 +662,7 @@ func TestHTTPRouteController(t *testing.T) {
 				setProgrammedParams{
 					gatewayClass: wantResolvedData.gatewayDetails.gatewayClass,
 					gateway:      wantResolvedData.gatewayDetails.gateway,
+					config:       wantResolvedData.gatewayDetails.config,
 					httpRoute:    wantAcceptedRoute,
 					matchedRef:   wantResolvedData.matchedRef,
 				},
