@@ -227,6 +227,8 @@ Gateway listener TLS options can configure OCI Load Balancer frontend cipher sui
 
 OCI documents supported predefined cipher suite names in [Predefined Load Balancer Cipher Suites](https://docs.oracle.com/en-us/iaas/Content/Balance/Tasks/managingciphersuites_topic-Predefined_Cipher_Suites.htm). OCI SSL configuration accepts `TLSv1`, `TLSv1.1`, `TLSv1.2`, and `TLSv1.3`; see the OCI Load Balancer [`SSLConfiguration`](https://docs.oracle.com/en-us/iaas/tools/python/latest/api/load_balancer/models/oci.load_balancer.models.SSLConfiguration.html) documentation for protocol values and defaults.
 
+Gateway frontend mutual TLS is supported on OCI Load Balancer HTTPS and terminate TLS listeners through standard `Gateway.spec.tls.frontend` validation. Use `caCertificateRefs` to reference ConfigMaps containing `ca.crt`; the controller creates OCI CA bundles and programs listener peer certificate verification. Existing OCI CA bundles can be referenced with the `oci.oraclecloud.com/frontend-mtls-trusted-ca-bundle-ocids` Gateway annotation, and verify depth can be set with `oci.oraclecloud.com/frontend-mtls-verify-depth`. See [deploy/manifests/examples/gateway-https-mtls.yaml](./deploy/manifests/examples/gateway-https-mtls.yaml) and [deploy/manifests/examples/listenerset-https-mtls.yaml](./deploy/manifests/examples/listenerset-https-mtls.yaml).
+
 ## GRPCRoute With OCI Load Balancer
 
 `GRPCRoute` uses the standard Gateway API CRDs and is reconciled on OCI Load Balancer with the other layer 7 routes. It is not implemented on OCI Network Load Balancer. Use `TCPRoute` if you only need gRPC passthrough to pods.

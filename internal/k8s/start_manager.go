@@ -405,6 +405,15 @@ func setupGatewayController(
 			&configtypes.GatewayConfig{},
 			handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapGatewayConfigToGateway),
 			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
+		).
+		Watches(
+			&corev1.ConfigMap{},
+			handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapConfigMapToGateway),
+		).
+		Watches(
+			&gatewayv1beta1.ReferenceGrant{},
+			handler.EnqueueRequestsFromMapFunc(deps.WatchesModel.MapReferenceGrantToGatewayFrontendMTLS),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
 		)
 	controllerBuilder = watchListenerSetGatewayObjects(controllerBuilder, deps, listenerSetAvailable)
 	return controllerBuilder.Complete(wireupReconciler(deps.GatewayCtrl, middlewares...))
@@ -714,10 +723,11 @@ func StartManager(ctx context.Context, deps StartManagerDeps) error {
 	}
 
 	if err := deps.WatchesModel.RegisterFieldIndexers(ctx, mgr.GetFieldIndexer(), app.RegisterFieldIndexersOptions{
-		EnableTCPRoute:    experimentalRoutes.reconcileTCPRoute,
-		EnableUDPRoute:    experimentalRoutes.reconcileUDPRoute,
-		EnableTLSRoute:    experimentalRoutes.reconcileTLSRoute,
-		EnableListenerSet: experimentalRoutes.listenerSetAvailable,
+		EnableTCPRoute:     experimentalRoutes.reconcileTCPRoute,
+		EnableUDPRoute:     experimentalRoutes.reconcileUDPRoute,
+		EnableTLSRoute:     experimentalRoutes.reconcileTLSRoute,
+		EnableListenerSet:  experimentalRoutes.listenerSetAvailable,
+		EnableFrontendMTLS: true,
 	}); err != nil {
 		return fmt.Errorf("failed to register field indexers: %w", err)
 	}

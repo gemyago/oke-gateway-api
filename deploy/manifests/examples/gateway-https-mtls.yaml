@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: client-ca-bundle
+data:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIDGTCCAgGgAwIBAgIUf6q19DJQ8J7jyryakoN7w7Wx9d8wDQYJKoZIhvcNAQEL
+    BQAwHDEaMBgGA1UEAwwRZXhhbXBsZS1jbGllbnQtY2EwHhcNMjYwNzE4MjIyNjQw
+    WhcNMjcwNzE4MjIyNjQwWjAcMRowGAYDVQQDDBFleGFtcGxlLWNsaWVudC1jYTCC
+    ASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKR/qFUPsVFAGm/xxU/aC50N
+    o0Yx/A0IZhnxXret+zwTz0bxPKIAZad3XJfwAgZY10SiblPNp/xokxqxzgHVn611
+    8PKPxPjy2k0/07+2RqtxJ9S4nVl2WYpIimOFDtguchsBR2xwSXKro3fsBFse6K+T
+    riyi15Dj3pZ9kIzP6JeU3hp/00AF8IrMdT5wDdW3GMeHr6Hs3gpoWtHIPoKzsZ8n
+    SaP5DmPpBjMFIfaSMic/+uqlZE0JYBzYvaXSPaXGwlM4qib0fFR0JpKBffMI8u1M
+    IysedLOXhmjXKSTe4i4+AgQAelgnEfqGXpSwhWhV399HJxlcSprm+GBV/YUIEk8C
+    AwEAAaNTMFEwHQYDVR0OBBYEFDR5qA5OLCe+BgULdkU67EWdC/kMMB8GA1UdIwQY
+    MBaAFDR5qA5OLCe+BgULdkU67EWdC/kMMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZI
+    hvcNAQELBQADggEBADFLr2vhnAX9s8JgVB3M3i+iLqcBcmnJhZlFSHj9kf/ImS4n
+    SyD80LhG9RQy7ngP4LBMN56Q2+0aioxswNgHaZDSy006plGeWdy/hN1t3zlDGyGm
+    cF03pN37LgS+AX9yhETQaSnUIdgOJo1X6eaCbZK2oeZBfKFbBQEOHjfW7gt1Qa+h
+    DrrLcvhfhRUxQh7Rckz9JyzdzL5u2Bj4j/zQd3aEFW+QAvxfu+WpTWDDat4xKsA0
+    RjINXiKXdWglOotJQ4yEykadt9AqGi1PaWmodXSr8aMabuvjQ6P9UVat8NGRfMpP
+    QQ1Jy15cPzihBCxizB2Eh4pGVukaAs8el+Ps43w=
+    -----END CERTIFICATE-----
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: oke-gateway
+spec:
+  gatewayClassName: oke-gateway-api
+  infrastructure:
+    parametersRef:
+      group: oke-gateway-api.gemyago.github.io
+      kind: GatewayConfig
+      name: oke-gateway-config
+  tls:
+    frontend:
+      default:
+        validation:
+          caCertificateRefs:
+            - group: ""
+              kind: ConfigMap
+              name: client-ca-bundle
+          mode: AllowValidOnly
+  listeners:
+    - name: https
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: oke-gw-example-https-cert
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mtls-api
+spec:
+  parentRefs:
+    - name: oke-gateway
+      sectionName: https
+  hostnames:
+    - api.example.com
+  rules:
+    - backendRefs:
+        - name: oke-gateway-example-server
+          port: 8080

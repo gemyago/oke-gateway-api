@@ -44,20 +44,31 @@ func referenceGrantAllowsSecretRef(
 	fromNamespace string,
 	secretName apitypes.NamespacedName,
 ) (bool, error) {
-	if secretName.Namespace == fromNamespace {
+	return referenceGrantAllowsCoreRef(ctx, k8sClient, fromKind, fromNamespace, "Secret", secretName)
+}
+
+func referenceGrantAllowsCoreRef(
+	ctx context.Context,
+	k8sClient k8sClient,
+	fromKind gatewayv1.Kind,
+	fromNamespace string,
+	toKind gatewayv1.Kind,
+	refName apitypes.NamespacedName,
+) (bool, error) {
+	if refName.Namespace == fromNamespace {
 		return true, nil
 	}
 
 	var grants gatewayv1beta1.ReferenceGrantList
-	if err := k8sClient.List(ctx, &grants, client.InNamespace(secretName.Namespace)); err != nil {
-		return false, fmt.Errorf("failed to list ReferenceGrants in namespace %s: %w", secretName.Namespace, err)
+	if err := k8sClient.List(ctx, &grants, client.InNamespace(refName.Namespace)); err != nil {
+		return false, fmt.Errorf("failed to list ReferenceGrants in namespace %s: %w", refName.Namespace, err)
 	}
 
 	for _, grant := range grants.Items {
 		if !referenceGrantHasMatchingFrom(grant, fromKind, fromNamespace) {
 			continue
 		}
-		if referenceGrantHasMatchingSecretTo(grant, secretName.Name) {
+		if referenceGrantHasMatchingCoreTo(grant, toKind, refName.Name) {
 			return true, nil
 		}
 	}

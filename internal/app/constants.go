@@ -28,6 +28,15 @@ const (
 	// ListenerTLSOptionCipherSuiteName configures OCI listener SSL cipher suite name.
 	ListenerTLSOptionCipherSuiteName = "oci.oraclecloud.com/cipher-suite-name"
 
+	// FrontendMTLSTrustedCABundleOCIDsAnnotation adds existing OCI CA bundle OCIDs to frontend mTLS.
+	FrontendMTLSTrustedCABundleOCIDsAnnotation = "oci.oraclecloud.com/frontend-mtls-trusted-ca-bundle-ocids"
+
+	// FrontendMTLSVerifyDepthAnnotation configures OCI frontend mTLS peer certificate verification depth.
+	FrontendMTLSVerifyDepthAnnotation = "oci.oraclecloud.com/frontend-mtls-verify-depth"
+
+	// GatewayFrontendMTLSCABundleCompartmentsAnnotation stores OCI compartments with controller-managed CA bundles.
+	GatewayFrontendMTLSCABundleCompartmentsAnnotation = "oke-gateway-api.gemyago.github.io/frontend-mtls-compartments"
+
 	// BackendTLSPolicyProgrammedFinalizer is used to clean up controller-managed OCI CA bundles.
 	BackendTLSPolicyProgrammedFinalizer = "oke-gateway-api.gemyago.github.io/backend-tls-policy-programmed"
 
