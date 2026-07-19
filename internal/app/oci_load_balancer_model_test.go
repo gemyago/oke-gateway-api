@@ -2528,9 +2528,14 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				l.Name = new(string(currentListener.Name))
 				l.RoutingPolicyName = new(listenerPolicyName(string(currentListener.Name)))
 			})
+			tlsListener := gatewayv1.Listener{
+				Name:     "rtmps",
+				Protocol: gatewayv1.TLSProtocolType,
+				Port:     1936,
+			}
 			removedListenerName := "removed-" + fake.UUID().V4()
 			orphanPolicyName := listenerPolicyName(removedListenerName)
-			rtmpsPolicyName := listenerPolicyName("rtmps")
+			rtmpsPolicyName := listenerPolicyName(string(tlsListener.Name))
 			userPolicyName := "custom_policy"
 			defaultRule := loadbalancer.RoutingRule{
 				Name:      new(defaultCatchAllRuleName),
@@ -2562,6 +2567,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				},
 				gatewayListeners: []gatewayv1.Listener{
 					currentListener,
+					tlsListener,
 				},
 			}
 
@@ -2587,7 +2593,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 
-			desiredListener := makeRandomListener()
+			desiredListener := makeRandomListener(func(l *gatewayv1.Listener) {
+				l.Protocol = gatewayv1.HTTPSProtocolType
+			})
 			attachedGatewayListener := makeRandomListener()
 			desiredPolicyName := listenerPolicyName(string(desiredListener.Name))
 			attachedPolicyName := listenerPolicyName("attached-" + fake.UUID().V4())
