@@ -107,6 +107,10 @@ const (
 	// NetworkLoadBalancerGatewayIDAnnotation stores the OCI NLB OCID programmed by the controller.
 	NetworkLoadBalancerGatewayIDAnnotation = "oke-gateway-api.gemyago.github.io/nlb-id"
 
+	// L4RouteProgrammedNetworkLoadBalancerIDAnnotation tracks the OCI Network Load Balancer used by L4 routes.
+	L4RouteProgrammedNetworkLoadBalancerIDAnnotation = "oke-gateway-api.gemyago.github.io/" +
+		"l4-route-programmed-network-load-balancer-id"
+
 	// NetworkLoadBalancerTCPRouteProgrammedFinalizer indicates a TCPRoute has programmed OCI NLB resources.
 	NetworkLoadBalancerTCPRouteProgrammedFinalizer = "oke-gateway-api.gemyago.github.io/nlb-tcproute-programmed"
 
