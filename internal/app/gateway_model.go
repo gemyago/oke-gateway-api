@@ -589,6 +589,9 @@ func desiredFrontendMTLSCABundleNames(
 		if !gatewayFrontendMTLSConfigured(gateway) || listener.TLS == nil {
 			continue
 		}
+		if listenerOCICertificateOCID(listener) == "" {
+			continue
+		}
 		validation := effectiveFrontendTLSValidation(gateway, listener.Port)
 		if validation == nil || len(validation.CACertificateRefs) == 0 {
 			continue

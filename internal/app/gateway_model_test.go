@@ -1166,8 +1166,6 @@ func TestGatewayModelImpl(t *testing.T) {
 			certificatesByListener := map[string][]loadbalancer.Certificate{
 				string(httpsListener.Name): {makeRandomOCICertificate()},
 			}
-			desiredBundleName := frontendMTLSCABundleName(*gateway, httpsListener.Port, ref)
-
 			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
 			mockOciClient.EXPECT().
 				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
@@ -1192,23 +1190,13 @@ func TestGatewayModelImpl(t *testing.T) {
 				Return(nil).
 				Once().
 				NotBefore(reconcileCertificatesCall.Call)
-			cleanupCall := loadBalancerModel.EXPECT().
-				cleanupFrontendMTLSCABundles(t.Context(), cleanupFrontendMTLSCABundlesParams{
-					gateway:       gateway,
-					compartmentID: compartmentID,
-					desiredBundleNames: map[string]struct{}{
-						desiredBundleName: {},
-					},
-				}).
-				Return(nil)
 			removeCall := loadBalancerModel.EXPECT().
 				removeMissingListeners(t.Context(), mock.Anything).
-				Return(nil).
-				NotBefore(cleanupCall.Call)
+				Return(nil)
 			loadBalancerModel.EXPECT().
 				removeUnusedCertificates(t.Context(), mock.Anything).
 				Return(nil).
-				NotBefore(removeCall)
+				NotBefore(removeCall.Call)
 
 			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
 				gateway: *gateway,
