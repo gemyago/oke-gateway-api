@@ -1412,7 +1412,10 @@ func (m *ociLoadBalancerModelImpl) removeOrphanedListenerRoutingPolicies(
 	ctx context.Context,
 	params removeMissingListenersParams,
 ) []error {
-	desiredPolicyNames := lo.SliceToMap(params.gatewayListeners, func(l gatewayv1.Listener) (string, struct{}) {
+	httpListeners := lo.Filter(params.gatewayListeners, func(l gatewayv1.Listener, _ int) bool {
+		return l.Protocol == gatewayv1.HTTPProtocolType || l.Protocol == gatewayv1.HTTPSProtocolType
+	})
+	desiredPolicyNames := lo.SliceToMap(httpListeners, func(l gatewayv1.Listener) (string, struct{}) {
 		return listenerPolicyName(string(l.Name)), struct{}{}
 	})
 	attachedPolicyNames := map[string]struct{}{}
