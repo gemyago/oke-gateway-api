@@ -987,12 +987,36 @@ func TestFrontendMTLSModel(t *testing.T) {
 
 	t.Run("Gateway frontend mTLS configured helper handles spec and annotations", func(t *testing.T) {
 		fakeData := faker.New()
-		gateway := makeGateway(t, 443, nil)
+		gateway := makeGateway(t, 443, &gatewayv1.FrontendTLSValidation{
+			CACertificateRefs: []gatewayv1.ObjectReference{{
+				Group: "",
+				Kind:  "ConfigMap",
+				Name:  gatewayv1.ObjectName("ca-" + fakeData.Lorem().Word()),
+			}},
+		})
 		assert.True(t, gatewayFrontendMTLSConfigured(gateway))
 
 		gateway.Spec.TLS = nil
 		gateway.Annotations = nil
 		assert.False(t, gatewayFrontendMTLSConfigured(gateway))
+
+		gateway.Spec.TLS = &gatewayv1.GatewayTLSConfig{
+			Frontend: &gatewayv1.FrontendTLSConfig{Default: gatewayv1.TLSConfig{}},
+		}
+		assert.False(t, gatewayFrontendMTLSConfigured(gateway))
+
+		gateway.Spec.TLS.Frontend.PerPort = []gatewayv1.TLSPortConfig{{
+			Port: 443,
+			TLS: gatewayv1.TLSConfig{Validation: &gatewayv1.FrontendTLSValidation{
+				CACertificateRefs: []gatewayv1.ObjectReference{{
+					Group: "",
+					Kind:  "ConfigMap",
+					Name:  gatewayv1.ObjectName("ca-" + fakeData.Lorem().Word()),
+				}},
+			}},
+		}}
+		assert.True(t, gatewayFrontendMTLSConfigured(gateway))
+		gateway.Spec.TLS = nil
 
 		gateway.Annotations = map[string]string{
 			FrontendMTLSVerifyDepthAnnotation: " ",
