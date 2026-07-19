@@ -4060,6 +4060,44 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("removes stale frontend mTLS certificate aliases", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			usedCert := makeManagedCertificate("default", "gateway-tls", fake.UUID().V4())
+			staleFrontendMTLSCert := makeRandomOCICertificate()
+			staleFrontendMTLSCertName := lo.FromPtr(usedCert.CertificateName) +
+				"-fmtls-19443-" + fake.RandomStringWithLength(8)
+			staleFrontendMTLSCert.CertificateName = &staleFrontendMTLSCertName
+			externalFrontendMTLSLikeCert := makeRandomOCICertificate()
+			externalFrontendMTLSLikeCertName := "external-gateway-tls-rev-" + fake.UUID().V4() +
+				"-fmtls-19443-" + fake.RandomStringWithLength(8)
+			externalFrontendMTLSLikeCert.CertificateName = &externalFrontendMTLSLikeCertName
+
+			params := removeUnusedCertificatesParams{
+				loadBalancerID:      fake.UUID().V4(),
+				desiredCertificates: []string{lo.FromPtr(usedCert.CertificateName)},
+				knownCertificates: map[string]loadbalancer.Certificate{
+					lo.FromPtr(usedCert.CertificateName):                     usedCert,
+					lo.FromPtr(staleFrontendMTLSCert.CertificateName):        staleFrontendMTLSCert,
+					lo.FromPtr(externalFrontendMTLSLikeCert.CertificateName): externalFrontendMTLSLikeCert,
+				},
+			}
+
+			workRequestID := fake.UUID().V4()
+			ociLoadBalancerClient.EXPECT().DeleteCertificate(t.Context(), loadbalancer.DeleteCertificateRequest{
+				LoadBalancerId:  &params.loadBalancerID,
+				CertificateName: staleFrontendMTLSCert.CertificateName,
+			}).Return(loadbalancer.DeleteCertificateResponse{OpcWorkRequestId: &workRequestID}, nil).Once()
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil).Once()
+
+			err := model.removeUnusedCertificates(t.Context(), params)
+			require.NoError(t, err)
+		})
+
 		t.Run("preserves unused certificates not previously programmed by the controller", func(t *testing.T) {
 			fake := faker.New()
 			deps := makeMockDeps(t)
@@ -5626,6 +5664,7 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 					listenerName:          listenerName,
 					listenerSpec:          &listenerSpec,
 					defaultBackendSetName: defaultBackendSetName,
+					preserveHTTP2:         true,
 				},
 				want:   loadbalancer.UpdateListenerDetails{},
 				wantOk: false,
@@ -5652,9 +5691,40 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 					listenerName:          listenerName,
 					listenerSpec:          &listenerSpec,
 					defaultBackendSetName: defaultBackendSetName,
+					preserveHTTP2:         true,
 				},
 				want: loadbalancer.UpdateListenerDetails{
 					Protocol:              new(ociListenerProtocolHTTP2),
+					Port:                  new(int(listenerSpec.Port)),
+					DefaultBackendSetName: new(defaultBackendSetName),
+					RoutingPolicyName:     new(listenerPolicyName(listenerName)),
+				},
+				wantOk: true,
+			}
+		},
+		func() testCase {
+			fake := faker.New()
+			listenerName := fake.UUID().V4()
+			listenerSpec := makeRandomListener(
+				randomListenerWithHTTPProtocolOpt(),
+			)
+			defaultBackendSetName := fake.UUID().V4()
+
+			return testCase{
+				name: "repairs HTTP2 protocol drift when listener has no GRPCRoute rules",
+				params: makeOciListenerUpdateDetailsParams{
+					existingListenerData: loadbalancer.Listener{
+						Protocol:              new(ociListenerProtocolHTTP2),
+						Port:                  new(int(listenerSpec.Port)),
+						DefaultBackendSetName: new(defaultBackendSetName),
+						RoutingPolicyName:     new(listenerPolicyName(listenerName)),
+					},
+					listenerName:          listenerName,
+					listenerSpec:          &listenerSpec,
+					defaultBackendSetName: defaultBackendSetName,
+				},
+				want: loadbalancer.UpdateListenerDetails{
+					Protocol:              new(ociListenerProtocolHTTP),
 					Port:                  new(int(listenerSpec.Port)),
 					DefaultBackendSetName: new(defaultBackendSetName),
 					RoutingPolicyName:     new(listenerPolicyName(listenerName)),
@@ -6103,6 +6173,40 @@ func Test_makeOciListenerUpdateDetails(t *testing.T) {
 			assert.Equal(t, tc.wantOk, gotOk)
 		})
 	}
+}
+
+func TestListenerPolicyContainsGRPCRules(t *testing.T) {
+	fake := faker.New()
+	assert.False(t, listenerPolicyContainsGRPCRules(loadbalancer.RoutingPolicy{}))
+	assert.False(t, listenerPolicyContainsGRPCRules(loadbalancer.RoutingPolicy{
+		Rules: []loadbalancer.RoutingRule{{
+			Condition: new("any(http.request.url.path sw '/')"),
+		}},
+	}))
+	assert.True(t, listenerPolicyContainsGRPCRules(loadbalancer.RoutingPolicy{
+		Name: new("policy-" + fake.Lorem().Word()),
+		Rules: []loadbalancer.RoutingRule{{
+			Condition: new("all(http.request.headers[(i 'content-type')][0] sw (i 'application/grpc+'))"),
+		}},
+	}))
+}
+
+func TestKnownFrontendMTLSCertificateNames(t *testing.T) {
+	fake := faker.New()
+	controllerCert := "default-gateway-tls-rev-" + fake.UUID().V4()
+	frontendCert := controllerCert + "-fmtls-443-" + fake.RandomStringWithLength(8)
+	externalCert := "external-gateway-tls-rev-" + fake.UUID().V4() + "-fmtls-443-" + fake.RandomStringWithLength(8)
+
+	assert.Empty(t, knownFrontendMTLSCertificateNames(map[string]loadbalancer.Certificate{
+		frontendCert: {CertificateName: &frontendCert},
+	}, nil))
+	assert.Equal(t, []string{frontendCert}, knownFrontendMTLSCertificateNames(
+		map[string]loadbalancer.Certificate{
+			frontendCert: {CertificateName: &frontendCert},
+			externalCert: {CertificateName: &externalCert},
+		},
+		[]string{controllerCert},
+	))
 }
 
 func Test_applyListenerTLSOptions(t *testing.T) {

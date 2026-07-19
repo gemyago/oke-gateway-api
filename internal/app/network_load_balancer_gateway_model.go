@@ -670,6 +670,14 @@ func (m *networkLoadBalancerGatewayModelImpl) programGateway(
 }
 
 func validateNetworkLoadBalancerGatewayListeners(data *resolvedGatewayDetails) error {
+	if gatewayFrontendMTLSConfigured(data.gateway) {
+		return &resourceStatusError{
+			conditionType: string(gatewayv1.GatewayConditionAccepted),
+			reason:        string(gatewayv1.GatewayReasonInvalid),
+			message:       "frontend mTLS is not supported by OCI Network Load Balancer gateways",
+		}
+	}
+
 	effectiveListeners := data.effectiveListeners
 	if len(effectiveListeners) == 0 {
 		effectiveListeners = effectiveListenersForGateway(data.gateway, nil)

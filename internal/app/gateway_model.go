@@ -583,7 +583,15 @@ func desiredFrontendMTLSCABundleNames(
 
 func gatewayFrontendMTLSConfigured(gateway gatewayv1.Gateway) bool {
 	if gateway.Spec.TLS != nil && gateway.Spec.TLS.Frontend != nil {
-		return true
+		frontend := gateway.Spec.TLS.Frontend
+		if frontend.Default.Validation != nil {
+			return true
+		}
+		for _, portConfig := range frontend.PerPort {
+			if portConfig.TLS.Validation != nil {
+				return true
+			}
+		}
 	}
 	if gateway.Annotations == nil {
 		return false

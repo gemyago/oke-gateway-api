@@ -981,6 +981,9 @@ func (m *ociLoadBalancerModelImpl) reconcileExistingHTTPListener(
 		listenerSpec:          params.listenerSpec,
 		defaultBackendSetName: params.defaultBackendSetName,
 		sslConfig:             sslConfig,
+		preserveHTTP2: listenerPolicyContainsGRPCRules(
+			params.knownRoutingPolicies[listenerPolicyName(listenerName)],
+		),
 	})
 	if !hasChanges {
 		m.logger.DebugContext(ctx, "Listener already up to date, skipping update",
@@ -1703,8 +1706,16 @@ func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
 	for _, certName := range params.desiredCertificates {
 		desiredCertificates[certName] = struct{}{}
 	}
+	previouslyProgrammedCertificates := append(
+		[]string(nil),
+		params.previouslyProgrammedCertificates...,
+	)
+	previouslyProgrammedCertificates = append(
+		previouslyProgrammedCertificates,
+		knownFrontendMTLSCertificateNames(params.knownCertificates, params.desiredCertificates)...,
+	)
 
-	for _, certName := range params.previouslyProgrammedCertificates {
+	for _, certName := range normalizeProgrammedCertificateNames(previouslyProgrammedCertificates) {
 		if _, isDesired := desiredCertificates[certName]; isDesired {
 			continue
 		}
@@ -1774,6 +1785,30 @@ func certificateNamesFromListenerCertificates(
 		}
 	}
 	return normalizeProgrammedCertificateNames(certNames)
+}
+
+func knownFrontendMTLSCertificateNames(
+	knownCertificates map[string]loadbalancer.Certificate,
+	controllerCertificates []string,
+) []string {
+	prefixes := make([]string, 0, len(controllerCertificates))
+	for _, certName := range normalizeProgrammedCertificateNames(controllerCertificates) {
+		prefixes = append(prefixes, certName+"-fmtls-")
+	}
+	if len(prefixes) == 0 {
+		return nil
+	}
+
+	matched := make([]string, 0)
+	for certName := range knownCertificates {
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(certName, prefix) {
+				matched = append(matched, certName)
+				break
+			}
+		}
+	}
+	return normalizeProgrammedCertificateNames(matched)
 }
 
 func listenerPolicyName(listenerName string) string {
@@ -1911,12 +1946,13 @@ type makeOciListenerUpdateDetailsParams struct {
 	listenerSpec          *gatewayv1.Listener
 	defaultBackendSetName string
 	sslConfig             *loadbalancer.SslConfigurationDetails
+	preserveHTTP2         bool
 }
 
 func makeOciListenerUpdateDetails(
 	params makeOciListenerUpdateDetailsParams,
 ) (loadbalancer.UpdateListenerDetails, bool) {
-	expectedProtocol := expectedHTTPListenerProtocol(params.existingListenerData)
+	expectedProtocol := expectedHTTPListenerProtocol(params.preserveHTTP2)
 	hasChanges := params.existingListenerData.Protocol == nil ||
 		*params.existingListenerData.Protocol != expectedProtocol
 
@@ -1953,11 +1989,20 @@ func makeOciListenerUpdateDetails(
 	}, true
 }
 
-func expectedHTTPListenerProtocol(existingListener loadbalancer.Listener) string {
-	if lo.FromPtr(existingListener.Protocol) == ociListenerProtocolHTTP2 {
+func expectedHTTPListenerProtocol(preserveHTTP2 bool) string {
+	if preserveHTTP2 {
 		return ociListenerProtocolHTTP2
 	}
 	return ociListenerProtocolHTTP
+}
+
+func listenerPolicyContainsGRPCRules(policy loadbalancer.RoutingPolicy) bool {
+	for _, rule := range policy.Rules {
+		if rule.Condition != nil && strings.Contains(strings.ToLower(*rule.Condition), "application/grpc") {
+			return true
+		}
+	}
+	return false
 }
 
 func applyListenerTLSOptions(
