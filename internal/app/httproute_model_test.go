@@ -1864,6 +1864,78 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("removes stale backend set when backend ref port changes", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			gateway := newRandomGateway()
+			config := makeRandomGatewayConfig()
+			newPort := gatewayv1.PortNumber(9092)
+			oldPort := gatewayv1.PortNumber(9091)
+			backendRef := makeRandomBackendRef(func(ref *gatewayv1.HTTPBackendRef) {
+				ref.Port = &newPort
+			})
+			oldBackendRef := backendRef
+			oldBackendRef.Port = &oldPort
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef)),
+				),
+			)
+			oldBackendSetName := ociBackendSetNameFromBackendObjectRef(
+				httpRoute.Namespace,
+				oldBackendRef.BackendObjectReference,
+			)
+			newBackendSetName := ociBackendSetNameFromBackendObjectRef(
+				httpRoute.Namespace,
+				backendRef.BackendObjectReference,
+			)
+			require.NotEqual(t, oldBackendSetName, newBackendSetName)
+			httpRoute.Annotations = map[string]string{
+				HTTPRouteProgrammedBackendSetsAnnotation: oldBackendSetName,
+			}
+
+			service := makeRandomService(randomServiceFromBackendRef(backendRef, &httpRoute))
+			knownServicesByName := map[string]corev1.Service{
+				types.NamespacedName{Namespace: service.Namespace, Name: service.Name}.String(): service,
+			}
+			listener := makeRandomListener()
+			rule := makeRandomOCIRoutingRule()
+			rule.Name = new(ociListerPolicyRuleName(httpRoute, 0))
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+
+			ociLBModel.EXPECT().reconcileBackendSet(t.Context(), reconcileBackendSetParams{
+				loadBalancerID: config.Spec.LoadBalancerID,
+				service:        service,
+				routeNS:        httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
+			}).Return(nil).Once()
+			ociLBModel.EXPECT().makeRoutingRule(t.Context(), makeRoutingRuleParams{
+				httpRoute:          httpRoute,
+				httpRouteRuleIndex: 0,
+			}).Return(rule, nil).Once()
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID: config.Spec.LoadBalancerID,
+				listenerName:   string(listener.Name),
+				policyRules:    []loadbalancer.RoutingRule{rule},
+			}).Return(nil).Once()
+			ociLBModel.EXPECT().
+				deprovisionBackendSetByName(t.Context(), config.Spec.LoadBalancerID, oldBackendSetName).
+				Return(nil).
+				Once()
+
+			result, err := model.programRoute(t.Context(), programRouteParams{
+				gateway:          *gateway,
+				config:           config,
+				httpRoute:        httpRoute,
+				knownBackends:    knownServicesByName,
+				matchedListeners: []gatewayv1.Listener{listener},
+			})
+
+			require.NoError(t, err)
+			assert.Equal(t, []string{newBackendSetName}, result.programmedBackendSets)
+		})
+
 		t.Run("clears backend SSL config when BackendTLSPolicy no longer matches", func(t *testing.T) {
 			fake := faker.New()
 			ociLBModel := NewMockociLoadBalancerModel(t)
@@ -1897,7 +1969,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				Return(nil).
 				Once()
 
-			rules, err := programL7RoutePolicy(t.Context(), ociLBModel, programL7RoutePolicyParams{
+			rules, _, err := programL7RoutePolicy(t.Context(), ociLBModel, programL7RoutePolicyParams{
 				loadBalancerID:   config.Spec.LoadBalancerID,
 				routeName:        "http-" + fake.Lorem().Word(),
 				routeNamespace:   routeNamespace,
@@ -2303,6 +2375,108 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 	})
 
+	t.Run("removeStaleL7PolicyRules", func(t *testing.T) {
+		t.Run("removes rules for listeners that are no longer matched", func(t *testing.T) {
+			fake := faker.New()
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			loadBalancerID := "lb-" + fake.UUID().V4()
+			currentListenerName := "current-" + fake.Lorem().Word()
+			staleListenerName := "stale-" + fake.Lorem().Word()
+			staleRules := []string{
+				"rule-a-" + fake.Lorem().Word(),
+				"rule-b-" + fake.Lorem().Word(),
+			}
+
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  loadBalancerID,
+				listenerName:    staleListenerName,
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: staleRules,
+			}).Return(nil).Once()
+
+			err := removeStaleL7PolicyRules(
+				t.Context(),
+				ociLBModel,
+				loadBalancerID,
+				map[string][]string{
+					currentListenerName: {"current-rule-" + fake.Lorem().Word()},
+					staleListenerName:   staleRules,
+				},
+				map[string]struct{}{currentListenerName: {}},
+			)
+
+			require.NoError(t, err)
+		})
+
+		t.Run("returns stale rule cleanup errors", func(t *testing.T) {
+			fake := faker.New()
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			loadBalancerID := "lb-" + fake.UUID().V4()
+			staleListenerName := "stale-" + fake.Lorem().Word()
+			wantErr := errors.New("cleanup-" + fake.Lorem().Sentence(4))
+
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), mock.Anything).Return(wantErr).Once()
+
+			err := removeStaleL7PolicyRules(
+				t.Context(),
+				ociLBModel,
+				loadBalancerID,
+				map[string][]string{staleListenerName: {"rule-" + fake.Lorem().Word()}},
+				map[string]struct{}{},
+			)
+
+			require.ErrorIs(t, err, wantErr)
+		})
+	})
+
+	t.Run("deprovisionStaleL7BackendSets", func(t *testing.T) {
+		t.Run("deprovisions backend sets that are no longer desired", func(t *testing.T) {
+			fake := faker.New()
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			loadBalancerID := "lb-" + fake.UUID().V4()
+			currentBackendSetName := "current-" + fake.Lorem().Word()
+			staleBackendSetName := "stale-" + fake.Lorem().Word()
+
+			ociLBModel.EXPECT().
+				deprovisionBackendSetByName(t.Context(), loadBalancerID, staleBackendSetName).
+				Return(nil).
+				Once()
+
+			err := deprovisionStaleL7BackendSets(
+				t.Context(),
+				ociLBModel,
+				loadBalancerID,
+				map[string]struct{}{currentBackendSetName: {}},
+				map[string]struct{}{currentBackendSetName: {}, staleBackendSetName: {}},
+			)
+
+			require.NoError(t, err)
+		})
+
+		t.Run("returns stale backend set cleanup errors", func(t *testing.T) {
+			fake := faker.New()
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			loadBalancerID := "lb-" + fake.UUID().V4()
+			staleBackendSetName := "stale-" + fake.Lorem().Word()
+			wantErr := errors.New("backend-set-" + fake.Lorem().Sentence(4))
+
+			ociLBModel.EXPECT().
+				deprovisionBackendSetByName(t.Context(), loadBalancerID, staleBackendSetName).
+				Return(wantErr).
+				Once()
+
+			err := deprovisionStaleL7BackendSets(
+				t.Context(),
+				ociLBModel,
+				loadBalancerID,
+				map[string]struct{}{},
+				map[string]struct{}{staleBackendSetName: {}},
+			)
+
+			require.ErrorIs(t, err, wantErr)
+		})
+	})
+
 	t.Run("isProgrammingRequired", func(t *testing.T) {
 		// Helper to create base details for isProgrammingRequired tests
 		newIsProgrammingRequiredDetails := func() (gatewayv1.GatewayController, resolvedRouteDetails) {
@@ -2464,6 +2638,10 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 					"rule2-" + fake.Lorem().Word(),
 					"rule3-" + fake.Lorem().Word(),
 				},
+				programmedBackendSets: []string{
+					"backend-set-1-" + fake.Lorem().Word(),
+					"backend-set-2-" + fake.Lorem().Word(),
+				},
 			}
 
 			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
@@ -2477,6 +2655,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				annotations: map[string]string{
 					HTTPRouteProgrammingRevisionAnnotation:    HTTPRouteProgrammingRevisionValue,
 					HTTPRouteProgrammedPolicyRulesAnnotation:  strings.Join(params.programmedPolicyRules, ","),
+					HTTPRouteProgrammedBackendSetsAnnotation:  strings.Join(params.programmedBackendSets, ","),
 					L7RouteProgrammedLoadBalancerIDAnnotation: gatewayData.config.Spec.LoadBalancerID,
 				},
 				finalizer: HTTPRouteProgrammedFinalizer,

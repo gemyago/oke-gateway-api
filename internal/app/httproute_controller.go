@@ -127,6 +127,7 @@ func (r *HTTPRouteController) reconcileResolvedRoute(
 		httpRoute:             *acceptedRoute,
 		matchedRef:            resolvedData.matchedRef,
 		programmedPolicyRules: programResult.programmedPolicyRules,
+		programmedBackendSets: programResult.programmedBackendSets,
 	}); err != nil {
 		return false, fmt.Errorf("failed to set programmed status: %w", err)
 	}

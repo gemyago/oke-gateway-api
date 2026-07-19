@@ -40,9 +40,7 @@ type programGRPCRouteParams struct {
 	matchedListeners []gatewayv1.Listener
 }
 
-type programGRPCRouteResult struct {
-	programmedPolicyRules []string
-}
+type programGRPCRouteResult = programRouteResult
 
 type ensureGRPCListenersProtocolParams struct {
 	config           types.GatewayConfig
@@ -63,6 +61,7 @@ type setGRPCRouteProgrammedParams struct {
 	matchedRef   gatewayv1.ParentReference
 
 	programmedPolicyRules []string
+	programmedBackendSets []string
 }
 
 type grpcRouteModel interface {
@@ -447,40 +446,26 @@ func (m *grpcRouteModelImpl) programRoute(
 	ctx context.Context,
 	params programGRPCRouteParams,
 ) (programGRPCRouteResult, error) {
-	var previousRules []programmedHTTPRoutePolicyRule
-	if prevPolicyRulesStr, ok := params.grpcRoute.Annotations[GRPCRouteProgrammedPolicyRulesAnnotation]; ok {
-		previousRules = parseProgrammedHTTPRoutePolicyRules(prevPolicyRulesStr)
-	}
-
-	routePolicyParams := programL7RoutePolicyParams{
-		loadBalancerID:      params.config.Spec.LoadBalancerID,
-		gateway:             params.gateway,
-		config:              params.config,
-		routeName:           params.grpcRoute.Name,
-		routeNamespace:      params.grpcRoute.Namespace,
-		backendRefs:         grpcRouteBackendRefs(params.grpcRoute),
-		knownBackends:       params.knownBackends,
-		matchedListeners:    params.matchedListeners,
-		previousPolicyRules: previousRules,
-		backendTLSPolicy:    m.backendTLSPolicy,
-		backendTLSDisabled:  m.backendTLSDisabled,
-		ruleCount:           len(params.grpcRoute.Spec.Rules),
+	return programL7RouteResult(ctx, m.ociLoadBalancerModel, programL7RouteParams{
+		route:                 &params.grpcRoute,
+		loadBalancerID:        params.config.Spec.LoadBalancerID,
+		gateway:               params.gateway,
+		config:                params.config,
+		backendRefs:           grpcRouteBackendRefs(params.grpcRoute),
+		knownBackends:         params.knownBackends,
+		matchedListeners:      params.matchedListeners,
+		backendTLSPolicy:      m.backendTLSPolicy,
+		backendTLSDisabled:    m.backendTLSDisabled,
+		ruleCount:             len(params.grpcRoute.Spec.Rules),
+		policyRulesAnnotation: GRPCRouteProgrammedPolicyRulesAnnotation,
+		backendSetsAnnotation: GRPCRouteProgrammedBackendSetsAnnotation,
 		makeRoutingRule: func(ruleIndex int) (loadbalancer.RoutingRule, error) {
 			return m.ociLoadBalancerModel.makeGRPCRoutingRule(ctx, makeGRPCRoutingRuleParams{
 				grpcRoute:          params.grpcRoute,
 				grpcRouteRuleIndex: ruleIndex,
 			})
 		},
-	}
-
-	programmedPolicyRules, err := programL7RoutePolicy(ctx, m.ociLoadBalancerModel, routePolicyParams)
-	if err != nil {
-		return programGRPCRouteResult{}, err
-	}
-
-	return programGRPCRouteResult{
-		programmedPolicyRules: programmedPolicyRules,
-	}, nil
+	})
 }
 
 func (m *grpcRouteModelImpl) ensureGRPCListenersProtocol(
@@ -667,9 +652,11 @@ func (m *grpcRouteModelImpl) setProgrammed(
 		loadBalancerID:        params.config.Spec.LoadBalancerID,
 		matchedRef:            params.matchedRef,
 		programmedPolicyRules: params.programmedPolicyRules,
+		programmedBackendSets: params.programmedBackendSets,
 		programmingAnnotation: GRPCRouteProgrammingRevisionAnnotation,
 		programmingRevision:   GRPCRouteProgrammingRevisionValue,
 		policyRulesAnnotation: GRPCRouteProgrammedPolicyRulesAnnotation,
+		backendSetsAnnotation: GRPCRouteProgrammedBackendSetsAnnotation,
 		finalizer:             GRPCRouteProgrammedFinalizer,
 	})
 	if err != nil {

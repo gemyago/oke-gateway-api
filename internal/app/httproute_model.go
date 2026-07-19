@@ -46,6 +46,7 @@ type programRouteParams struct {
 type programRouteResult struct {
 	// Names of the policy rules that were programmed for this particular route
 	programmedPolicyRules []string
+	programmedBackendSets []string
 }
 
 type deprovisionRouteParams struct {
@@ -64,6 +65,7 @@ type setProgrammedParams struct {
 
 	// List of load balancer policy rules that were programmed for this route
 	programmedPolicyRules []string
+	programmedBackendSets []string
 }
 
 type programmedHTTPRoutePolicyRule struct {
@@ -129,10 +131,27 @@ type programL7RoutePolicyParams struct {
 	knownBackends       map[string]v1.Service
 	matchedListeners    []gatewayv1.Listener
 	previousPolicyRules []programmedHTTPRoutePolicyRule
+	previousBackendSets map[string]struct{}
 	ruleCount           int
 	makeRoutingRule     func(ruleIndex int) (loadbalancer.RoutingRule, error)
 	backendTLSPolicy    backendTLSPolicyModel
 	backendTLSDisabled  bool
+}
+
+type programL7RouteParams struct {
+	route                 client.Object
+	loadBalancerID        string
+	gateway               gatewayv1.Gateway
+	config                types.GatewayConfig
+	backendRefs           []gatewayv1.BackendRef
+	knownBackends         map[string]v1.Service
+	matchedListeners      []gatewayv1.Listener
+	backendTLSPolicy      backendTLSPolicyModel
+	backendTLSDisabled    bool
+	ruleCount             int
+	policyRulesAnnotation string
+	backendSetsAnnotation string
+	makeRoutingRule       func(ruleIndex int) (loadbalancer.RoutingRule, error)
 }
 
 type setL7RouteProgrammedParams struct {
@@ -143,9 +162,11 @@ type setL7RouteProgrammedParams struct {
 	loadBalancerID        string
 	matchedRef            gatewayv1.ParentReference
 	programmedPolicyRules []string
+	programmedBackendSets []string
 	programmingAnnotation string
 	programmingRevision   string
 	policyRulesAnnotation string
+	backendSetsAnnotation string
 	finalizer             string
 }
 
@@ -979,34 +1000,10 @@ func programL7RoutePolicy(
 	ctx context.Context,
 	ociLoadBalancerModel ociLoadBalancerModel,
 	params programL7RoutePolicyParams,
-) ([]string, error) {
-	processedBackendRefs := make(map[string]struct{})
-	for _, backendRef := range params.backendRefs {
-		key := l7BackendRefKey(backendRef, params.routeNamespace)
-		if _, ok := processedBackendRefs[key]; ok {
-			continue
-		}
-		serviceName := backendObjectRefName(backendRef.BackendObjectReference, params.routeNamespace).String()
-		service, ok := params.knownBackends[serviceName]
-		if !ok {
-			return nil, fmt.Errorf("resolved backend service %s not found", serviceName)
-		}
-		backendSSLConfig, manageSSLConfig, err := resolveL7BackendSSLConfig(ctx, params, service, backendRef)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve BackendTLSPolicy for service %s: %w", key, err)
-		}
-		err = ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
-			loadBalancerID:  params.loadBalancerID,
-			service:         service,
-			routeNS:         params.routeNamespace,
-			backendRef:      backendRef,
-			sslConfig:       backendSSLConfig,
-			manageSSLConfig: manageSSLConfig,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to reconcile backend set for service %s: %w", key, err)
-		}
-		processedBackendRefs[key] = struct{}{}
+) ([]string, []string, error) {
+	desiredBackendSets, reconcileErr := reconcileL7BackendSets(ctx, ociLoadBalancerModel, params)
+	if reconcileErr != nil {
+		return nil, nil, reconcileErr
 	}
 
 	policyRules := make([]loadbalancer.RoutingRule, 0, params.ruleCount)
@@ -1014,7 +1011,12 @@ func programL7RoutePolicy(
 	for ruleIndex := range params.ruleCount {
 		rule, err := params.makeRoutingRule(ruleIndex)
 		if err != nil {
-			return nil, fmt.Errorf("failed to make routing rule %d for route %s: %w", ruleIndex, params.routeName, err)
+			return nil, nil, fmt.Errorf(
+				"failed to make routing rule %d for route %s: %w",
+				ruleIndex,
+				params.routeName,
+				err,
+			)
 		}
 		policyRules = append(policyRules, rule)
 		policyRuleNames = append(policyRuleNames, *rule.Name)
@@ -1037,10 +1039,132 @@ func programL7RoutePolicy(
 			prevPolicyRules: prevRulesByListener[listenerName],
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to commit routing policy for listener %s: %w", listener.Name, err)
+			return nil, nil, fmt.Errorf("failed to commit routing policy for listener %s: %w", listener.Name, err)
 		}
 	}
 
+	if err := removeStaleL7PolicyRules(
+		ctx,
+		ociLoadBalancerModel,
+		params.loadBalancerID,
+		prevRulesByListener,
+		currentListenerNames,
+	); err != nil {
+		return nil, nil, err
+	}
+
+	if err := deprovisionStaleL7BackendSets(
+		ctx,
+		ociLoadBalancerModel,
+		params.loadBalancerID,
+		desiredBackendSets,
+		params.previousBackendSets,
+	); err != nil {
+		return nil, nil, err
+	}
+
+	programmedBackendSets := lo.Keys(desiredBackendSets)
+	sort.Strings(programmedBackendSets)
+
+	return programmedHTTPRoutePolicyRulesAnnotation(params.matchedListeners, policyRuleNames),
+		programmedBackendSets,
+		nil
+}
+
+func programL7Route(
+	ctx context.Context,
+	ociLoadBalancerModel ociLoadBalancerModel,
+	params programL7RouteParams,
+) ([]string, []string, error) {
+	var previousRules []programmedHTTPRoutePolicyRule
+	if prevPolicyRulesStr, ok := params.route.GetAnnotations()[params.policyRulesAnnotation]; ok {
+		previousRules = parseProgrammedHTTPRoutePolicyRules(prevPolicyRulesStr)
+	}
+	previousBackendSets := annotatedBackendSetNames(params.route, params.backendSetsAnnotation)
+
+	return programL7RoutePolicy(ctx, ociLoadBalancerModel, programL7RoutePolicyParams{
+		loadBalancerID:      params.loadBalancerID,
+		gateway:             params.gateway,
+		config:              params.config,
+		routeName:           params.route.GetName(),
+		routeNamespace:      params.route.GetNamespace(),
+		backendRefs:         params.backendRefs,
+		knownBackends:       params.knownBackends,
+		matchedListeners:    params.matchedListeners,
+		previousPolicyRules: previousRules,
+		previousBackendSets: previousBackendSets,
+		backendTLSPolicy:    params.backendTLSPolicy,
+		backendTLSDisabled:  params.backendTLSDisabled,
+		ruleCount:           params.ruleCount,
+		makeRoutingRule:     params.makeRoutingRule,
+	})
+}
+
+func programL7RouteResult(
+	ctx context.Context,
+	ociLoadBalancerModel ociLoadBalancerModel,
+	params programL7RouteParams,
+) (programRouteResult, error) {
+	programmedPolicyRules, programmedBackendSets, err := programL7Route(ctx, ociLoadBalancerModel, params)
+	if err != nil {
+		return programRouteResult{}, err
+	}
+
+	return programRouteResult{
+		programmedPolicyRules: programmedPolicyRules,
+		programmedBackendSets: programmedBackendSets,
+	}, nil
+}
+
+func reconcileL7BackendSets(
+	ctx context.Context,
+	ociLoadBalancerModel ociLoadBalancerModel,
+	params programL7RoutePolicyParams,
+) (map[string]struct{}, error) {
+	processedBackendRefs := make(map[string]struct{})
+	desiredBackendSets := make(map[string]struct{})
+	for _, backendRef := range params.backendRefs {
+		key := l7BackendRefKey(backendRef, params.routeNamespace)
+		if _, ok := processedBackendRefs[key]; ok {
+			continue
+		}
+		backendSetName := ociBackendSetNameFromBackendObjectRef(
+			params.routeNamespace,
+			backendRef.BackendObjectReference,
+		)
+		serviceName := backendObjectRefName(backendRef.BackendObjectReference, params.routeNamespace).String()
+		service, ok := params.knownBackends[serviceName]
+		if !ok {
+			return nil, fmt.Errorf("resolved backend service %s not found", serviceName)
+		}
+		backendSSLConfig, manageSSLConfig, err := resolveL7BackendSSLConfig(ctx, params, service, backendRef)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve BackendTLSPolicy for service %s: %w", key, err)
+		}
+		err = ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
+			loadBalancerID:  params.loadBalancerID,
+			service:         service,
+			routeNS:         params.routeNamespace,
+			backendRef:      backendRef,
+			sslConfig:       backendSSLConfig,
+			manageSSLConfig: manageSSLConfig,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to reconcile backend set for service %s: %w", key, err)
+		}
+		processedBackendRefs[key] = struct{}{}
+		desiredBackendSets[backendSetName] = struct{}{}
+	}
+	return desiredBackendSets, nil
+}
+
+func removeStaleL7PolicyRules(
+	ctx context.Context,
+	ociLoadBalancerModel ociLoadBalancerModel,
+	loadBalancerID string,
+	prevRulesByListener map[string][]string,
+	currentListenerNames map[string]struct{},
+) error {
 	staleListenerNames := lo.Keys(prevRulesByListener)
 	sort.Strings(staleListenerNames)
 	for _, listenerName := range staleListenerNames {
@@ -1048,17 +1172,40 @@ func programL7RoutePolicy(
 			continue
 		}
 		err := ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
-			loadBalancerID:  params.loadBalancerID,
+			loadBalancerID:  loadBalancerID,
 			listenerName:    listenerName,
 			policyRules:     []loadbalancer.RoutingRule{},
 			prevPolicyRules: prevRulesByListener[listenerName],
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to remove stale routing policy rules for listener %s: %w", listenerName, err)
+			return fmt.Errorf(
+				"failed to remove stale routing policy rules for listener %s: %w",
+				listenerName,
+				err,
+			)
 		}
 	}
+	return nil
+}
 
-	return programmedHTTPRoutePolicyRulesAnnotation(params.matchedListeners, policyRuleNames), nil
+func deprovisionStaleL7BackendSets(
+	ctx context.Context,
+	ociLoadBalancerModel ociLoadBalancerModel,
+	loadBalancerID string,
+	desiredBackendSets map[string]struct{},
+	previousBackendSets map[string]struct{},
+) error {
+	staleBackendSetNames := lo.Keys(previousBackendSets)
+	sort.Strings(staleBackendSetNames)
+	for _, backendSetName := range staleBackendSetNames {
+		if _, ok := desiredBackendSets[backendSetName]; ok {
+			continue
+		}
+		if err := ociLoadBalancerModel.deprovisionBackendSetByName(ctx, loadBalancerID, backendSetName); err != nil {
+			return fmt.Errorf("failed to deprovision stale backend set %s: %w", backendSetName, err)
+		}
+	}
+	return nil
 }
 
 func resolveL7BackendSSLConfig(
@@ -1090,24 +1237,19 @@ func (m *httpRouteModelImpl) programRoute(
 	ctx context.Context,
 	params programRouteParams,
 ) (programRouteResult, error) {
-	var previousRules []programmedHTTPRoutePolicyRule
-	if prevPolicyRulesStr, ok := params.httpRoute.Annotations[HTTPRouteProgrammedPolicyRulesAnnotation]; ok {
-		previousRules = parseProgrammedHTTPRoutePolicyRules(prevPolicyRulesStr)
-	}
-
-	programmedPolicyRules, err := programL7RoutePolicy(ctx, m.ociLoadBalancerModel, programL7RoutePolicyParams{
-		loadBalancerID:      params.config.Spec.LoadBalancerID,
-		gateway:             params.gateway,
-		config:              params.config,
-		routeName:           params.httpRoute.Name,
-		routeNamespace:      params.httpRoute.Namespace,
-		backendRefs:         httpRouteBackendRefs(params.httpRoute),
-		knownBackends:       params.knownBackends,
-		matchedListeners:    params.matchedListeners,
-		previousPolicyRules: previousRules,
-		backendTLSPolicy:    m.backendTLSPolicy,
-		backendTLSDisabled:  m.backendTLSDisabled,
-		ruleCount:           len(params.httpRoute.Spec.Rules),
+	return programL7RouteResult(ctx, m.ociLoadBalancerModel, programL7RouteParams{
+		route:                 &params.httpRoute,
+		loadBalancerID:        params.config.Spec.LoadBalancerID,
+		gateway:               params.gateway,
+		config:                params.config,
+		backendRefs:           httpRouteBackendRefs(params.httpRoute),
+		knownBackends:         params.knownBackends,
+		matchedListeners:      params.matchedListeners,
+		backendTLSPolicy:      m.backendTLSPolicy,
+		backendTLSDisabled:    m.backendTLSDisabled,
+		ruleCount:             len(params.httpRoute.Spec.Rules),
+		policyRulesAnnotation: HTTPRouteProgrammedPolicyRulesAnnotation,
+		backendSetsAnnotation: HTTPRouteProgrammedBackendSetsAnnotation,
 		makeRoutingRule: func(ruleIndex int) (loadbalancer.RoutingRule, error) {
 			return m.ociLoadBalancerModel.makeRoutingRule(ctx, makeRoutingRuleParams{
 				httpRoute:          params.httpRoute,
@@ -1115,13 +1257,6 @@ func (m *httpRouteModelImpl) programRoute(
 			})
 		},
 	})
-	if err != nil {
-		return programRouteResult{}, err
-	}
-
-	return programRouteResult{
-		programmedPolicyRules: programmedPolicyRules,
-	}, nil
 }
 
 func httpRouteBackendRefs(route gatewayv1.HTTPRoute) []gatewayv1.BackendRef {
@@ -1341,6 +1476,7 @@ func setL7RouteProgrammed(
 		annotations: map[string]string{
 			params.programmingAnnotation:              params.programmingRevision,
 			params.policyRulesAnnotation:              strings.Join(params.programmedPolicyRules, ","),
+			params.backendSetsAnnotation:              strings.Join(params.programmedBackendSets, ","),
 			L7RouteProgrammedLoadBalancerIDAnnotation: params.loadBalancerID,
 		},
 		finalizer: params.finalizer,
@@ -1361,9 +1497,11 @@ func (m *httpRouteModelImpl) setProgrammed(
 		loadBalancerID:        params.config.Spec.LoadBalancerID,
 		matchedRef:            params.matchedRef,
 		programmedPolicyRules: params.programmedPolicyRules,
+		programmedBackendSets: params.programmedBackendSets,
 		programmingAnnotation: HTTPRouteProgrammingRevisionAnnotation,
 		programmingRevision:   HTTPRouteProgrammingRevisionValue,
 		policyRulesAnnotation: HTTPRouteProgrammedPolicyRulesAnnotation,
+		backendSetsAnnotation: HTTPRouteProgrammedBackendSetsAnnotation,
 		finalizer:             HTTPRouteProgrammedFinalizer,
 	})
 	if err != nil {
