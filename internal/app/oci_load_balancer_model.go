@@ -485,6 +485,9 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 	)
 
 	resultingCertificates := maps.Clone(params.knownCertificates)
+	if resultingCertificates == nil {
+		resultingCertificates = map[string]loadbalancer.Certificate{}
+	}
 	listenerCertificates := make(map[string][]loadbalancer.Certificate)
 	gatewayListeners := params.gatewayListeners
 	if len(gatewayListeners) == 0 {
@@ -499,6 +502,7 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 		certs, reconcileErr := m.reconcileListenerSecretCertificates(ctx, listenerSecretCertificatesParams{
 			loadBalancerID:        params.loadBalancerID,
 			gatewayNamespace:      params.gateway.Namespace,
+			gateway:               params.gateway,
 			listenerSpec:          listenerSpec,
 			resultingCertificates: resultingCertificates,
 		})
@@ -520,6 +524,7 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 type listenerSecretCertificatesParams struct {
 	loadBalancerID        string
 	gatewayNamespace      string
+	gateway               *gatewayv1.Gateway
 	listenerSpec          gatewayv1.Listener
 	resultingCertificates map[string]loadbalancer.Certificate
 }
@@ -562,17 +567,68 @@ func (m *ociLoadBalancerModelImpl) reconcileListenerSecretCertificate(
 	}
 
 	certName := ociCertificateNameFromSecret(secret)
+	caPEM := ""
+	if params.gateway != nil {
+		frontendMTLSCA, frontendMTLSErr := m.frontendMTLSCAForListenerCertificate(ctx, params)
+		if frontendMTLSErr != nil {
+			return loadbalancer.Certificate{}, frontendMTLSErr
+		}
+		if frontendMTLSCA != "" {
+			caPEM = frontendMTLSCA
+			certName = frontendMTLSListenerCertificateName(secret, params.listenerSpec.Port, caPEM)
+		}
+	}
 	if cert, ok := params.resultingCertificates[certName]; ok {
 		m.logCertificateAlreadyExists(ctx, params.loadBalancerID, params.listenerSpec.Name, certName, secret)
 		return cert, nil
 	}
 
-	cert, err := m.createListenerCertificate(ctx, params.loadBalancerID, params.listenerSpec.Name, certName, secret)
+	cert, err := m.createListenerCertificate(ctx, createListenerCertificateParams{
+		loadBalancerID: params.loadBalancerID,
+		listenerName:   params.listenerSpec.Name,
+		certName:       certName,
+		secret:         secret,
+		caPEM:          caPEM,
+	})
 	if err != nil {
 		return loadbalancer.Certificate{}, err
 	}
 	params.resultingCertificates[certName] = cert
 	return cert, nil
+}
+
+func (m *ociLoadBalancerModelImpl) frontendMTLSCAForListenerCertificate(
+	ctx context.Context,
+	params listenerSecretCertificatesParams,
+) (string, error) {
+	optionCAIDs := frontendMTLSOCICABundleIDs(*params.gateway, params.listenerSpec.Port)
+	validation := effectiveFrontendTLSValidation(*params.gateway, params.listenerSpec.Port)
+	if validation == nil && len(optionCAIDs) == 0 {
+		return "", nil
+	}
+	settings, err := resolveFrontendMTLSSettings(*params.gateway, params.listenerSpec.Port, validation, optionCAIDs)
+	if err != nil {
+		return "", err
+	}
+	if len(settings.ociCAIDs) > 0 {
+		return "", frontendMTLSStatusError(string(gatewayv1.GatewayReasonInvalidParameters),
+			fmt.Sprintf(
+				"frontend mTLS OCI CA bundle OCID annotations require listener %s to use %s",
+				params.listenerSpec.Name,
+				ListenerTLSOptionOCICertificateOCID,
+			),
+		)
+	}
+
+	caPEMs := make([]string, 0, len(settings.caRefs))
+	for _, ref := range settings.caRefs {
+		resolved, resolveErr := m.resolveFrontendMTLSCARef(ctx, *params.gateway, ref)
+		if resolveErr != nil {
+			return "", resolveErr
+		}
+		caPEMs = append(caPEMs, strings.TrimSpace(resolved.caPEM))
+	}
+	return strings.Join(caPEMs, "\n"), nil
 }
 
 func (m *ociLoadBalancerModelImpl) getListenerCertificateSecret(
@@ -598,47 +654,55 @@ func certificateRefNamespacedName(
 	}
 }
 
+type createListenerCertificateParams struct {
+	loadBalancerID string
+	listenerName   gatewayv1.SectionName
+	certName       string
+	secret         corev1.Secret
+	caPEM          string
+}
+
 func (m *ociLoadBalancerModelImpl) createListenerCertificate(
 	ctx context.Context,
-	loadBalancerID string,
-	listenerName gatewayv1.SectionName,
-	certName string,
-	secret corev1.Secret,
+	params createListenerCertificateParams,
 ) (loadbalancer.Certificate, error) {
 	m.logger.InfoContext(ctx, "Creating certificate",
-		slog.String("loadBalancerId", loadBalancerID),
-		slog.String("listenerName", string(listenerName)),
-		slog.String("certificateName", certName),
-		slog.String("secretName", secret.Name),
-		slog.String("secretNamespace", secret.Namespace),
-		slog.String("secretVersion", secret.ResourceVersion),
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("listenerName", string(params.listenerName)),
+		slog.String("certificateName", params.certName),
+		slog.String("secretName", params.secret.Name),
+		slog.String("secretNamespace", params.secret.Namespace),
+		slog.String("secretVersion", params.secret.ResourceVersion),
 	)
 
 	certCreateDetails := loadbalancer.CreateCertificateDetails{
-		CertificateName:   &certName,
-		PublicCertificate: new(string(secret.Data[corev1.TLSCertKey])),
-		PrivateKey:        new(string(secret.Data[corev1.TLSPrivateKeyKey])),
+		CertificateName:   &params.certName,
+		PublicCertificate: new(string(params.secret.Data[corev1.TLSCertKey])),
+		PrivateKey:        new(string(params.secret.Data[corev1.TLSPrivateKeyKey])),
+	}
+	if params.caPEM != "" {
+		certCreateDetails.CaCertificate = &params.caPEM
 	}
 	createRes, createErr := m.ociClient.CreateCertificate(ctx, loadbalancer.CreateCertificateRequest{
-		LoadBalancerId:           &loadBalancerID,
+		LoadBalancerId:           &params.loadBalancerID,
 		CreateCertificateDetails: certCreateDetails,
 	})
 	if createErr != nil {
-		return loadbalancer.Certificate{}, fmt.Errorf("failed to create certificate %s: %w", certName, createErr)
+		return loadbalancer.Certificate{}, fmt.Errorf("failed to create certificate %s: %w", params.certName, createErr)
 	}
 	if createRes.OpcWorkRequestId == nil {
 		return loadbalancer.Certificate{}, fmt.Errorf(
 			"failed to create certificate %s: missing work request id",
-			certName,
+			params.certName,
 		)
 	}
 
 	if err := m.workRequestsWatcher.WaitFor(ctx, *createRes.OpcWorkRequestId); err != nil {
-		return loadbalancer.Certificate{}, fmt.Errorf("failed to wait for certificate %s: %w", certName, err)
+		return loadbalancer.Certificate{}, fmt.Errorf("failed to wait for certificate %s: %w", params.certName, err)
 	}
 
 	return loadbalancer.Certificate{
-		CertificateName:   &certName,
+		CertificateName:   &params.certName,
 		PublicCertificate: certCreateDetails.PublicCertificate,
 	}, nil
 }
@@ -862,10 +926,6 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 ) error {
 	listenerName := string(params.listenerSpec.Name)
 
-	if err := m.reconcileListenerRoutingPolicy(ctx, params); err != nil {
-		return fmt.Errorf("failed to reconcile listener routing policy: %w", err)
-	}
-
 	var sslConfig *loadbalancer.SslConfigurationDetails
 	if params.listenerCertificateID != "" {
 		sslConfig = &loadbalancer.SslConfigurationDetails{
@@ -894,6 +954,10 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 	sslConfig, err := m.applyFrontendMTLS(ctx, params, sslConfig)
 	if err != nil {
 		return err
+	}
+
+	if err = m.reconcileListenerRoutingPolicy(ctx, params); err != nil {
+		return fmt.Errorf("failed to reconcile listener routing policy: %w", err)
 	}
 
 	if existingListener, ok := params.knownListeners[listenerName]; ok {
@@ -1874,4 +1938,12 @@ func ociCertificateNameFromSecret(
 	secret corev1.Secret,
 ) string {
 	return secret.Namespace + "-" + secret.Name + "-rev-" + secret.ResourceVersion
+}
+
+func frontendMTLSListenerCertificateName(
+	secret corev1.Secret,
+	port gatewayv1.PortNumber,
+	caPEM string,
+) string {
+	return fmt.Sprintf("%s-fmtls-%d-%s", ociCertificateNameFromSecret(secret), port, sha256Hex(caPEM)[:8])
 }

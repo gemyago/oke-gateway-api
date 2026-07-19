@@ -78,14 +78,39 @@ func (m *ociLoadBalancerModelImpl) applyFrontendMTLS(
 	if validation == nil && len(optionCAIDs) == 0 {
 		return sslConfig, nil
 	}
-	if m.certsClient == nil {
-		return nil, errors.New("OCI certificates management client is required for frontend mTLS")
-	}
 	settings, err := resolveFrontendMTLSSettings(*params.gateway, params.listenerSpec.Port, validation, optionCAIDs)
 	if err != nil {
 		return nil, err
 	}
 
+	if sslConfig == nil {
+		sslConfig = &loadbalancer.SslConfigurationDetails{}
+	}
+	verifyPeer := true
+	sslConfig.VerifyPeerCertificate = &verifyPeer
+	sslConfig.VerifyDepth = &settings.verifyDepth
+	if sslConfig.CertificateName != nil {
+		if len(settings.ociCAIDs) > 0 {
+			return nil, frontendMTLSStatusError(string(gatewayv1.GatewayReasonInvalidParameters),
+				fmt.Sprintf(
+					"frontend mTLS OCI CA bundle OCID annotations require listener %s to use %s",
+					params.listenerSpec.Name,
+					ListenerTLSOptionOCICertificateOCID,
+				),
+			)
+		}
+		for _, ref := range settings.caRefs {
+			if _, err = m.resolveFrontendMTLSCARef(ctx, *params.gateway, ref); err != nil {
+				return nil, err
+			}
+		}
+		sslConfig.TrustedCertificateAuthorityIds = nil
+		return sslConfig, nil
+	}
+
+	if m.certsClient == nil {
+		return nil, errors.New("OCI certificates management client is required for frontend mTLS")
+	}
 	trustedCAIDs, err := m.resolveFrontendMTLSTrustedCAIDs(ctx, params, settings)
 	if err != nil {
 		return nil, err
@@ -93,12 +118,6 @@ func (m *ociLoadBalancerModelImpl) applyFrontendMTLS(
 
 	trustedCAIDs = lo.Uniq(trustedCAIDs)
 	sort.Strings(trustedCAIDs)
-	if sslConfig == nil {
-		sslConfig = &loadbalancer.SslConfigurationDetails{}
-	}
-	verifyPeer := true
-	sslConfig.VerifyPeerCertificate = &verifyPeer
-	sslConfig.VerifyDepth = &settings.verifyDepth
 	sslConfig.TrustedCertificateAuthorityIds = trustedCAIDs
 	return sslConfig, nil
 }

@@ -770,6 +770,85 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			)
 		})
 
+		t.Run("creates frontend mTLS certificate aliases with CA certificate", func(t *testing.T) {
+			fakeData := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			certRefName := gatewayv1.ObjectName("server-cert-" + fakeData.Lorem().Word())
+			certRefNamespace := gatewayv1.Namespace("server-ns-" + fakeData.Lorem().Word())
+			listener := makeRandomListener(
+				randomListenerWithHTTPSParamsOpt(),
+				func(l *gatewayv1.Listener) {
+					l.TLS.CertificateRefs = []gatewayv1.SecretObjectReference{{
+						Name:      certRefName,
+						Namespace: &certRefNamespace,
+					}}
+				},
+			)
+			gateway := newRandomGateway(randomGatewayWithListenersOpt(listener))
+			caRefName := gatewayv1.ObjectName("client-ca-" + fakeData.Lorem().Word())
+			gateway.Spec.TLS = &gatewayv1.GatewayTLSConfig{
+				Frontend: &gatewayv1.FrontendTLSConfig{
+					Default: gatewayv1.TLSConfig{Validation: &gatewayv1.FrontendTLSValidation{
+						CACertificateRefs: []gatewayv1.ObjectReference{{
+							Group: "",
+							Kind:  "ConfigMap",
+							Name:  caRefName,
+						}},
+					}},
+				},
+			}
+			ref := listener.TLS.CertificateRefs[0]
+			secret := makeRandomSecret(randomSecretWithTLSDataOpt())
+			caPEM := testCAPEM(t)
+			configMap := corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: gateway.Namespace,
+					Name:      string(caRefName),
+				},
+				Data: map[string]string{"ca.crt": caPEM},
+			}
+			trimmedCAPEM := strings.TrimSpace(caPEM)
+			certName := frontendMTLSListenerCertificateName(secret, listener.Port, trimmedCAPEM)
+			loadBalancerID := fakeData.UUID().V4()
+			workRequestID := fakeData.UUID().V4()
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			setupClientGet(t, k8sClient, types.NamespacedName{
+				Namespace: string(lo.FromPtr(ref.Namespace)),
+				Name:      string(ref.Name),
+			}, secret).Once()
+			setupClientGet(t, k8sClient, types.NamespacedName{
+				Namespace: gateway.Namespace,
+				Name:      string(caRefName),
+			}, configMap).Once()
+			ociLoadBalancerClient.EXPECT().CreateCertificate(t.Context(), loadbalancer.CreateCertificateRequest{
+				LoadBalancerId: &loadBalancerID,
+				CreateCertificateDetails: loadbalancer.CreateCertificateDetails{
+					CertificateName:   &certName,
+					PublicCertificate: new(string(secret.Data[corev1.TLSCertKey])),
+					PrivateKey:        new(string(secret.Data[corev1.TLSPrivateKeyKey])),
+					CaCertificate:     &trimmedCAPEM,
+				},
+			}).Return(loadbalancer.CreateCertificateResponse{
+				OpcWorkRequestId: &workRequestID,
+			}, nil).Once()
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil).Once()
+
+			gotResult, err := model.reconcileListenersCertificates(t.Context(), reconcileListenersCertificatesParams{
+				loadBalancerID: loadBalancerID,
+				gateway:        gateway,
+			})
+
+			require.NoError(t, err)
+			gotCerts := gotResult.certificatesByListener[string(listener.Name)]
+			require.Len(t, gotCerts, 1)
+			assert.Equal(t, certName, lo.FromPtr(gotCerts[0].CertificateName))
+			assert.Contains(t, gotResult.reconciledCertificates, certName)
+		})
+
 		t.Run("fails when secret get fails", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
@@ -1399,6 +1478,38 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			require.NoError(t, err)
 			ociLoadBalancerClient.AssertNotCalled(t, "CreateRoutingPolicy")
 			ociLoadBalancerClient.AssertNotCalled(t, "UpdateRoutingPolicy")
+		})
+
+		t.Run("does not create routing policy when frontend mTLS validation fails", func(t *testing.T) {
+			fakeData := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			gwListener := makeRandomListener(randomListenerWithHTTPSParamsOpt())
+			gateway := newRandomGateway(randomGatewayWithListenersOpt(gwListener))
+			gateway.Annotations = map[string]string{}
+			gateway.Annotations[FrontendMTLSTrustedCABundleOCIDsAnnotation] =
+				"ocid1.cabundle.oc1.." + fakeData.UUID().V4()
+			certName := "cert-" + fakeData.Lorem().Word()
+			params := reconcileHTTPListenerParams{
+				loadBalancerID:            fakeData.UUID().V4(),
+				defaultBackendSetName:     fakeData.UUID().V4(),
+				listenerSpec:              &gwListener,
+				gateway:                   gateway,
+				listenerCertificates:      []loadbalancer.Certificate{{CertificateName: &certName}},
+				knownRoutingPolicies:      map[string]loadbalancer.RoutingPolicy{},
+				knownListeners:            map[string]loadbalancer.Listener{},
+				listenerCertificateID:     "",
+				loadBalancerCompartmentID: "compartment-" + fakeData.Lorem().Word(),
+			}
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			err := model.reconcileHTTPListener(t.Context(), params)
+
+			require.ErrorContains(t, err, "OCI CA bundle OCID annotations require listener")
+			ociLoadBalancerClient.AssertNotCalled(t, "CreateRoutingPolicy")
+			ociLoadBalancerClient.AssertNotCalled(t, "UpdateRoutingPolicy")
+			ociLoadBalancerClient.AssertNotCalled(t, "CreateListener")
+			ociLoadBalancerClient.AssertNotCalled(t, "UpdateListener")
 		})
 
 		t.Run("fails when created listener has no work request id", func(t *testing.T) {

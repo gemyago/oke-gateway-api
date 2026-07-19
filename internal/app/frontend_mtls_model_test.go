@@ -89,7 +89,7 @@ func TestFrontendMTLSModel(t *testing.T) {
 		)
 	}
 
-	t.Run("applies standard ConfigMap CA refs to listener SSL configuration", func(t *testing.T) {
+	t.Run("uses listener certificate alias CA bundle for standard ConfigMap CA refs", func(t *testing.T) {
 		refName := gatewayv1.ObjectName("ca-" + faker.New().Lorem().Word())
 		gateway := makeGateway(t, 443, &gatewayv1.FrontendTLSValidation{
 			CACertificateRefs: []gatewayv1.ObjectReference{{
@@ -112,8 +112,37 @@ func TestFrontendMTLSModel(t *testing.T) {
 		require.NotNil(t, got)
 		assert.True(t, lo.FromPtr(got.VerifyPeerCertificate))
 		assert.Equal(t, defaultFrontendMTLSVerifyDepth, lo.FromPtr(got.VerifyDepth))
+		assert.Empty(t, got.TrustedCertificateAuthorityIds)
+		assert.Empty(t, certsClient.createCalls)
+	})
+
+	t.Run("creates OCI CA bundles for standard ConfigMap CA refs with OCI certificate IDs", func(t *testing.T) {
+		refName := gatewayv1.ObjectName("ca-" + faker.New().Lorem().Word())
+		gateway := makeGateway(t, 443, &gatewayv1.FrontendTLSValidation{
+			CACertificateRefs: []gatewayv1.ObjectReference{{
+				Group: "",
+				Kind:  "ConfigMap",
+				Name:  refName,
+			}},
+		})
+		configMap := makeConfigMap(t, gateway.Namespace, refName)
+		model, certsClient := makeModel(t, &gateway, &configMap)
+		sslConfig := &loadbalancer.SslConfigurationDetails{
+			CertificateIds: []string{"ocid1.certificate.oc1.." + faker.New().UUID().V4()},
+		}
+
+		got, err := model.applyFrontendMTLS(t.Context(), reconcileHTTPListenerParams{
+			loadBalancerCompartmentID: "compartment-" + faker.New().Lorem().Word(),
+			listenerSpec:              &gateway.Spec.Listeners[0],
+			gateway:                   &gateway,
+		}, sslConfig)
+
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.True(t, lo.FromPtr(got.VerifyPeerCertificate))
+		assert.Equal(t, defaultFrontendMTLSVerifyDepth, lo.FromPtr(got.VerifyDepth))
 		require.Len(t, got.TrustedCertificateAuthorityIds, 1)
-		assert.Len(t, certsClient.createCalls, 1)
+		require.Len(t, certsClient.createCalls, 1)
 		assert.Equal(t,
 			defaultCABundleName(gateway),
 			lo.FromPtr(certsClient.createCalls[0].CreateCaBundleDetails.Name),
@@ -147,16 +176,8 @@ func TestFrontendMTLSModel(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, 5, lo.FromPtr(got.VerifyDepth))
-		assert.Len(t, got.TrustedCertificateAuthorityIds, 1)
-		require.Len(t, certsClient.createCalls, 1)
-		assert.Equal(t,
-			frontendMTLSCABundleName(
-				gateway,
-				port,
-				gateway.Spec.TLS.Frontend.PerPort[0].TLS.Validation.CACertificateRefs[0],
-			),
-			lo.FromPtr(certsClient.createCalls[0].CreateCaBundleDetails.Name),
-		)
+		assert.Empty(t, got.TrustedCertificateAuthorityIds)
+		assert.Empty(t, certsClient.createCalls)
 	})
 
 	t.Run("uses existing OCI CA bundle OCIDs without creating bundles", func(t *testing.T) {
@@ -172,7 +193,9 @@ func TestFrontendMTLSModel(t *testing.T) {
 			loadBalancerCompartmentID: "compartment-" + fakeData.Lorem().Word(),
 			listenerSpec:              &gateway.Spec.Listeners[0],
 			gateway:                   &gateway,
-		}, &loadbalancer.SslConfigurationDetails{CertificateName: new("cert")})
+		}, &loadbalancer.SslConfigurationDetails{
+			CertificateIds: []string{"ocid1.certificate.oc1.." + fakeData.UUID().V4()},
+		})
 
 		require.NoError(t, err)
 		assert.Equal(t, []string{ociCAID}, got.TrustedCertificateAuthorityIds)
@@ -936,11 +959,19 @@ func TestFrontendMTLSModel(t *testing.T) {
 
 		assert.True(t, strings.HasPrefix(name, frontendMTLSCABundleNamePrefix))
 		assert.Len(t, name, len(frontendMTLSCABundleNamePrefix)+24)
+		refNamespace := gatewayv1.Namespace("ca-ns-" + fakeData.Lorem().Word())
+		namespacedRef := ref
+		namespacedRef.Namespace = &refNamespace
+		assert.NotEqual(t, name, frontendMTLSCABundleName(gateway, 8443, namespacedRef))
 		assert.Equal(t, string(gateway.UID), frontendMTLSGatewayIdentity(gateway))
 		assert.True(t, isOwnedFrontendMTLSCABundle(frontendMTLSCABundleTags(gateway, 8443, "hash"), gateway))
 		assert.False(t, isOwnedFrontendMTLSCABundle(nil, gateway))
 		assert.False(t, isFrontendMTLSCABundleAlreadyExists(errors.New("plain")))
 		assert.False(t, isFrontendMTLSCABundleAlreadyDeleted(errors.New("plain")))
+		require.ErrorContains(t, ensureFrontendMTLSCABundleUsable(certificatesmanagement.CaBundleSummary{
+			Name:           new("bundle-" + fakeData.Lorem().Word()),
+			LifecycleState: certificatesmanagement.CaBundleLifecycleStateFailed,
+		}), "not ready")
 
 		noUIDGateway := gateway
 		noUIDGateway.UID = ""
@@ -971,5 +1002,82 @@ func TestFrontendMTLSModel(t *testing.T) {
 		gateway.Annotations[frontendMTLSPortTrustedCABundleOCIDsAnnotation(443)] =
 			"ocid1.cabundle.oc1.." + fakeData.UUID().V4()
 		assert.True(t, gatewayFrontendMTLSConfigured(gateway))
+	})
+
+	t.Run("desired CA bundle names only include OCI certificate ID listeners", func(t *testing.T) {
+		fakeData := faker.New()
+		validation := &gatewayv1.FrontendTLSValidation{
+			CACertificateRefs: []gatewayv1.ObjectReference{{
+				Group: "",
+				Kind:  "ConfigMap",
+				Name:  gatewayv1.ObjectName("ca-" + fakeData.Lorem().Word()),
+			}},
+		}
+		gateway := makeGateway(t, 443, validation)
+		secretBackedListener := gateway.Spec.Listeners[0]
+
+		assert.Empty(t, desiredFrontendMTLSCABundleNames(gateway, []gatewayv1.Listener{secretBackedListener}))
+
+		ociIDListener := secretBackedListener
+		ociIDListener.TLS.Options = map[gatewayv1.AnnotationKey]gatewayv1.AnnotationValue{
+			ListenerTLSOptionOCICertificateOCID: gatewayv1.AnnotationValue(
+				"ocid1.certificate.oc1.." + fakeData.UUID().V4(),
+			),
+		}
+		got := desiredFrontendMTLSCABundleNames(gateway, []gatewayv1.Listener{ociIDListener})
+
+		assert.Contains(t, got, frontendMTLSCABundleName(gateway, 443, validation.CACertificateRefs[0]))
+
+		gateway.Spec.TLS = nil
+		assert.Empty(t, desiredFrontendMTLSCABundleNames(gateway, []gatewayv1.Listener{ociIDListener}))
+	})
+
+	t.Run("listener certificate CA helper covers empty and invalid OCI CA option paths", func(t *testing.T) {
+		fakeData := faker.New()
+		gateway := makeGateway(t, 443, nil)
+		gateway.Spec.TLS = nil
+		model, _ := makeModel(t, &gateway)
+
+		got, err := model.frontendMTLSCAForListenerCertificate(t.Context(), listenerSecretCertificatesParams{
+			gatewayNamespace: gateway.Namespace,
+			gateway:          &gateway,
+			listenerSpec:     gateway.Spec.Listeners[0],
+		})
+
+		require.NoError(t, err)
+		assert.Empty(t, got)
+
+		gateway.Annotations[FrontendMTLSTrustedCABundleOCIDsAnnotation] =
+			"ocid1.cabundle.oc1.." + fakeData.UUID().V4()
+		got, err = model.frontendMTLSCAForListenerCertificate(t.Context(), listenerSecretCertificatesParams{
+			gatewayNamespace: gateway.Namespace,
+			gateway:          &gateway,
+			listenerSpec:     gateway.Spec.Listeners[0],
+		})
+
+		require.ErrorContains(t, err, "OCI CA bundle OCID annotations require listener")
+		assert.Empty(t, got)
+
+		gateway.Annotations = map[string]string{}
+		gateway.Spec.TLS = &gatewayv1.GatewayTLSConfig{
+			Frontend: &gatewayv1.FrontendTLSConfig{
+				Default: gatewayv1.TLSConfig{Validation: &gatewayv1.FrontendTLSValidation{
+					Mode: gatewayv1.FrontendValidationModeType("InvalidMode"),
+					CACertificateRefs: []gatewayv1.ObjectReference{{
+						Group: "",
+						Kind:  "ConfigMap",
+						Name:  gatewayv1.ObjectName("ca-" + fakeData.Lorem().Word()),
+					}},
+				}},
+			},
+		}
+		got, err = model.frontendMTLSCAForListenerCertificate(t.Context(), listenerSecretCertificatesParams{
+			gatewayNamespace: gateway.Namespace,
+			gateway:          &gateway,
+			listenerSpec:     gateway.Spec.Listeners[0],
+		})
+
+		require.ErrorContains(t, err, "InvalidMode")
+		assert.Empty(t, got)
 	})
 }
