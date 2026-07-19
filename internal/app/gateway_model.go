@@ -513,9 +513,10 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 	}
 
 	if err = m.ociLoadBalancerModel.removeMissingListeners(ctx, removeMissingListenersParams{
-		loadBalancerID:   loadBalancerID,
-		knownListeners:   response.LoadBalancer.Listeners,
-		gatewayListeners: gatewayListeners,
+		loadBalancerID:       loadBalancerID,
+		knownListeners:       response.LoadBalancer.Listeners,
+		knownRoutingPolicies: response.LoadBalancer.RoutingPolicies,
+		gatewayListeners:     gatewayListeners,
 	}); err != nil {
 		return fmt.Errorf("failed to remove missing listeners: %w", err)
 	}

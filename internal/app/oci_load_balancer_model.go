@@ -122,9 +122,10 @@ type commitRoutingPolicyParams struct {
 }
 
 type removeMissingListenersParams struct {
-	loadBalancerID   string
-	knownListeners   map[string]loadbalancer.Listener
-	gatewayListeners []gatewayv1.Listener
+	loadBalancerID       string
+	knownListeners       map[string]loadbalancer.Listener
+	knownRoutingPolicies map[string]loadbalancer.RoutingPolicy
+	gatewayListeners     []gatewayv1.Listener
 }
 
 type removeUnusedCertificatesParams struct {
@@ -1377,34 +1378,87 @@ func (m *ociLoadBalancerModelImpl) deleteMissingListener(
 func (m *ociLoadBalancerModelImpl) deleteMissingRoutingPolicy(
 	ctx context.Context,
 	loadBalancerID string,
-	listener loadbalancer.Listener,
+	routingPolicyName *string,
 ) error {
-	if listener.RoutingPolicyName != nil {
+	if routingPolicyName != nil {
 		m.logger.DebugContext(ctx, "Deleting routing policy",
-			slog.String("routingPolicyName", *listener.RoutingPolicyName),
+			slog.String("routingPolicyName", *routingPolicyName),
 			slog.String("loadBalancerId", loadBalancerID),
 		)
 		var deletePolicyRes loadbalancer.DeleteRoutingPolicyResponse
 		deletePolicyRes, err := m.ociClient.DeleteRoutingPolicy(ctx, loadbalancer.DeleteRoutingPolicyRequest{
 			LoadBalancerId:    &loadBalancerID,
-			RoutingPolicyName: listener.RoutingPolicyName,
+			RoutingPolicyName: routingPolicyName,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to delete routing policy %s: %w", *listener.RoutingPolicyName, err)
+			return fmt.Errorf("failed to delete routing policy %s: %w", *routingPolicyName, err)
 		}
 		if deletePolicyRes.OpcWorkRequestId == nil {
 			return fmt.Errorf(
 				"failed to delete routing policy %s: missing work request id",
-				*listener.RoutingPolicyName,
+				*routingPolicyName,
 			)
 		}
 
 		if err = m.workRequestsWatcher.WaitFor(ctx, *deletePolicyRes.OpcWorkRequestId); err != nil {
-			return fmt.Errorf("failed to wait for routing policy %s deletion: %w", *listener.RoutingPolicyName, err)
+			return fmt.Errorf("failed to wait for routing policy %s deletion: %w", *routingPolicyName, err)
 		}
 	}
 
 	return nil
+}
+
+func (m *ociLoadBalancerModelImpl) removeOrphanedListenerRoutingPolicies(
+	ctx context.Context,
+	params removeMissingListenersParams,
+) []error {
+	desiredPolicyNames := lo.SliceToMap(params.gatewayListeners, func(l gatewayv1.Listener) (string, struct{}) {
+		return listenerPolicyName(string(l.Name)), struct{}{}
+	})
+	attachedPolicyNames := map[string]struct{}{}
+	for _, listener := range params.knownListeners {
+		if listener.RoutingPolicyName != nil {
+			attachedPolicyNames[*listener.RoutingPolicyName] = struct{}{}
+		}
+	}
+
+	var errs []error
+	for policyName := range params.knownRoutingPolicies {
+		if !isControllerManagedListenerPolicyName(policyName) {
+			continue
+		}
+		policy := params.knownRoutingPolicies[policyName]
+		if !isDefaultCatchAllOnlyRoutingPolicy(policy) {
+			continue
+		}
+		if _, desired := desiredPolicyNames[policyName]; desired {
+			continue
+		}
+		if _, attached := attachedPolicyNames[policyName]; attached {
+			continue
+		}
+
+		routingPolicyName := policyName
+		if err := m.deleteMissingRoutingPolicy(ctx, params.loadBalancerID, &routingPolicyName); err != nil {
+			m.logger.WarnContext(ctx, "Failed to delete orphaned routing policy, will try with others",
+				diag.ErrAttr(err),
+				slog.String("routingPolicyName", policyName),
+				slog.String("loadBalancerId", params.loadBalancerID),
+			)
+			errs = append(errs, err)
+		}
+	}
+
+	return errs
+}
+
+func isDefaultCatchAllOnlyRoutingPolicy(policy loadbalancer.RoutingPolicy) bool {
+	if len(policy.Rules) != 1 {
+		return false
+	}
+	rule := policy.Rules[0]
+	return lo.FromPtr(rule.Name) == defaultCatchAllRuleName &&
+		lo.FromPtr(rule.Condition) == "any(http.request.url.path sw '/')"
 }
 
 func (m *ociLoadBalancerModelImpl) removeMissingListeners(
@@ -1431,7 +1485,7 @@ func (m *ociLoadBalancerModelImpl) removeMissingListeners(
 				continue
 			}
 
-			if err := m.deleteMissingRoutingPolicy(ctx, params.loadBalancerID, listener); err != nil {
+			if err := m.deleteMissingRoutingPolicy(ctx, params.loadBalancerID, listener.RoutingPolicyName); err != nil {
 				m.logger.WarnContext(ctx, "Failed to delete routing policy, will try with others",
 					diag.ErrAttr(err),
 					slog.String("listenerName", listenerName),
@@ -1444,6 +1498,7 @@ func (m *ociLoadBalancerModelImpl) removeMissingListeners(
 			m.logger.DebugContext(ctx, "Completed listener removal", slog.String("listenerName", listenerName))
 		}
 	}
+	errs = append(errs, m.removeOrphanedListenerRoutingPolicies(ctx, params)...)
 
 	return errors.Join(errs...)
 }
@@ -1749,10 +1804,16 @@ and upper- or lowercase letters.
 */
 var invalidCharsForPolicyNamePattern = regexp.MustCompile(`[^a-zA-Z0-9_]`)
 var validOCIRoutingPolicyNamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+var hashedListenerPolicyNamePattern = regexp.MustCompile(`^p_[0-9a-f]{16}_[a-zA-Z0-9_]+$`)
 
 func isValidOCIRoutingPolicyName(policyName string) bool {
 	return len(policyName) <= maxListenerPolicyNameLength &&
 		validOCIRoutingPolicyNamePattern.MatchString(policyName)
+}
+
+func isControllerManagedListenerPolicyName(policyName string) bool {
+	return hashedListenerPolicyNamePattern.MatchString(policyName) ||
+		(strings.HasSuffix(policyName, "_policy") && isValidOCIRoutingPolicyName(policyName))
 }
 
 // ociListerPolicyRuleName returns the name of the routing rule for the listener policy.

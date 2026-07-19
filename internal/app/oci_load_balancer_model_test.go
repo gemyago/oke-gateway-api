@@ -2483,6 +2483,155 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("removes orphaned listener routing policies when listeners are already gone", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			currentListener := makeRandomListener()
+			currentOCIListener := makeRandomOCIListener(func(l *loadbalancer.Listener) {
+				l.Name = new(string(currentListener.Name))
+				l.RoutingPolicyName = new(listenerPolicyName(string(currentListener.Name)))
+			})
+			removedListenerName := "removed-" + fake.UUID().V4()
+			orphanPolicyName := listenerPolicyName(removedListenerName)
+			rtmpsPolicyName := listenerPolicyName("rtmps")
+			userPolicyName := "custom_policy"
+			defaultRule := loadbalancer.RoutingRule{
+				Name:      new(defaultCatchAllRuleName),
+				Condition: new("any(http.request.url.path sw '/')"),
+			}
+
+			params := removeMissingListenersParams{
+				loadBalancerID: fake.UUID().V4(),
+				knownListeners: map[string]loadbalancer.Listener{
+					*currentOCIListener.Name: currentOCIListener,
+				},
+				knownRoutingPolicies: map[string]loadbalancer.RoutingPolicy{
+					*currentOCIListener.RoutingPolicyName: makeRandomOCIRoutingPolicy(
+						func(p *loadbalancer.RoutingPolicy) {
+							p.Name = currentOCIListener.RoutingPolicyName
+						},
+					),
+					orphanPolicyName: makeRandomOCIRoutingPolicy(func(p *loadbalancer.RoutingPolicy) {
+						p.Name = &orphanPolicyName
+						p.Rules = []loadbalancer.RoutingRule{defaultRule}
+					}),
+					rtmpsPolicyName: makeRandomOCIRoutingPolicy(func(p *loadbalancer.RoutingPolicy) {
+						p.Name = &rtmpsPolicyName
+						p.Rules = []loadbalancer.RoutingRule{defaultRule}
+					}),
+					userPolicyName: makeRandomOCIRoutingPolicy(func(p *loadbalancer.RoutingPolicy) {
+						p.Name = &userPolicyName
+					}),
+				},
+				gatewayListeners: []gatewayv1.Listener{
+					currentListener,
+				},
+			}
+
+			deletePolicyRequestID := fake.UUID().V4()
+			ociLoadBalancerClient.EXPECT().DeleteRoutingPolicy(t.Context(), loadbalancer.DeleteRoutingPolicyRequest{
+				LoadBalancerId:    &params.loadBalancerID,
+				RoutingPolicyName: &orphanPolicyName,
+			}).Return(loadbalancer.DeleteRoutingPolicyResponse{OpcWorkRequestId: &deletePolicyRequestID}, nil).Once()
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), deletePolicyRequestID).Return(nil).Once()
+			deleteRTMPSPolicyRequestID := fake.UUID().V4()
+			ociLoadBalancerClient.EXPECT().DeleteRoutingPolicy(t.Context(), loadbalancer.DeleteRoutingPolicyRequest{
+				LoadBalancerId:    &params.loadBalancerID,
+				RoutingPolicyName: &rtmpsPolicyName,
+			}).Return(loadbalancer.DeleteRoutingPolicyResponse{OpcWorkRequestId: &deleteRTMPSPolicyRequestID}, nil).Once()
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), deleteRTMPSPolicyRequestID).Return(nil).Once()
+
+			err := model.removeMissingListeners(t.Context(), params)
+			require.NoError(t, err)
+		})
+
+		t.Run("skips protected orphaned listener routing policy candidates", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+
+			desiredListener := makeRandomListener()
+			attachedGatewayListener := makeRandomListener()
+			desiredPolicyName := listenerPolicyName(string(desiredListener.Name))
+			attachedPolicyName := listenerPolicyName("attached-" + fake.UUID().V4())
+			nonDefaultPolicyName := listenerPolicyName("non-default-" + fake.UUID().V4())
+			userPolicyName := "manual." + fake.Internet().Domain()
+			attachedListener := makeRandomOCIListener(func(l *loadbalancer.Listener) {
+				l.Name = new(string(attachedGatewayListener.Name))
+				l.RoutingPolicyName = &attachedPolicyName
+			})
+			defaultRule := loadbalancer.RoutingRule{
+				Name:      new(defaultCatchAllRuleName),
+				Condition: new("any(http.request.url.path sw '/')"),
+			}
+
+			params := removeMissingListenersParams{
+				loadBalancerID: fake.UUID().V4(),
+				knownListeners: map[string]loadbalancer.Listener{
+					*attachedListener.Name: attachedListener,
+				},
+				knownRoutingPolicies: map[string]loadbalancer.RoutingPolicy{
+					desiredPolicyName: makeRandomOCIRoutingPolicy(func(p *loadbalancer.RoutingPolicy) {
+						p.Name = &desiredPolicyName
+						p.Rules = []loadbalancer.RoutingRule{defaultRule}
+					}),
+					attachedPolicyName: makeRandomOCIRoutingPolicy(func(p *loadbalancer.RoutingPolicy) {
+						p.Name = &attachedPolicyName
+						p.Rules = []loadbalancer.RoutingRule{defaultRule}
+					}),
+					nonDefaultPolicyName: makeRandomOCIRoutingPolicy(func(p *loadbalancer.RoutingPolicy) {
+						p.Name = &nonDefaultPolicyName
+					}),
+					userPolicyName: makeRandomOCIRoutingPolicy(func(p *loadbalancer.RoutingPolicy) {
+						p.Name = &userPolicyName
+						p.Rules = []loadbalancer.RoutingRule{defaultRule}
+					}),
+				},
+				gatewayListeners: []gatewayv1.Listener{
+					desiredListener,
+					attachedGatewayListener,
+				},
+			}
+
+			err := model.removeMissingListeners(t.Context(), params)
+			require.NoError(t, err)
+		})
+
+		t.Run("returns orphaned routing policy delete errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			orphanPolicyName := listenerPolicyName("orphan-" + fake.UUID().V4())
+			wantErr := errors.New(fake.Lorem().Sentence(10))
+			defaultRule := loadbalancer.RoutingRule{
+				Name:      new(defaultCatchAllRuleName),
+				Condition: new("any(http.request.url.path sw '/')"),
+			}
+			params := removeMissingListenersParams{
+				loadBalancerID: fake.UUID().V4(),
+				knownRoutingPolicies: map[string]loadbalancer.RoutingPolicy{
+					orphanPolicyName: makeRandomOCIRoutingPolicy(func(p *loadbalancer.RoutingPolicy) {
+						p.Name = &orphanPolicyName
+						p.Rules = []loadbalancer.RoutingRule{defaultRule}
+					}),
+				},
+			}
+
+			ociLoadBalancerClient.EXPECT().DeleteRoutingPolicy(t.Context(), loadbalancer.DeleteRoutingPolicyRequest{
+				LoadBalancerId:    &params.loadBalancerID,
+				RoutingPolicyName: &orphanPolicyName,
+			}).Return(loadbalancer.DeleteRoutingPolicyResponse{}, wantErr).Once()
+
+			err := model.removeMissingListeners(t.Context(), params)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, wantErr)
+		})
+
 		t.Run("fail when delete listener fails", func(t *testing.T) {
 			fake := faker.New()
 			deps := makeMockDeps(t)

@@ -1100,9 +1100,10 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			removeCall := loadBalancerModel.EXPECT().
 				removeMissingListeners(t.Context(), removeMissingListenersParams{
-					loadBalancerID:   config.Spec.LoadBalancerID,
-					knownListeners:   loadBalancer.Listeners,
-					gatewayListeners: gateway.Spec.Listeners,
+					loadBalancerID:       config.Spec.LoadBalancerID,
+					knownListeners:       loadBalancer.Listeners,
+					knownRoutingPolicies: loadBalancer.RoutingPolicies,
+					gatewayListeners:     gateway.Spec.Listeners,
 				}).
 				Return(nil)
 
@@ -1323,9 +1324,10 @@ func TestGatewayModelImpl(t *testing.T) {
 			}
 			removeCall := loadBalancerModel.EXPECT().
 				removeMissingListeners(t.Context(), removeMissingListenersParams{
-					loadBalancerID:   config.Spec.LoadBalancerID,
-					knownListeners:   loadBalancer.Listeners,
-					gatewayListeners: gatewayListeners,
+					loadBalancerID:       config.Spec.LoadBalancerID,
+					knownListeners:       loadBalancer.Listeners,
+					knownRoutingPolicies: loadBalancer.RoutingPolicies,
+					gatewayListeners:     gatewayListeners,
 				}).
 				Return(nil)
 			loadBalancerModel.EXPECT().
