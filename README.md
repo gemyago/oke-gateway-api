@@ -24,7 +24,7 @@ update their status, or provision OCI resources for them.
 | `UDPRoute` | Supported on OCI Network Load Balancer |
 | `ReferenceGrant` | Supported for cross-namespace references used by supported routes and policies |
 | `BackendTLSPolicy` | Supported for OCI Load Balancer backend TLS; OCI Network Load Balancer uses passthrough routing instead |
-| `ListenerSet` | Supported for adding Gateway listeners across namespaces |
+| `ListenerSet` | Supported on OCI Load Balancer and OCI Network Load Balancer |
 | `XBackend`, `XBackendTrafficPolicy`, `XMesh` | Not supported; ignored if installed |
 
 ## Getting Started
