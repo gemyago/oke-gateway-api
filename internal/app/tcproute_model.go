@@ -356,9 +356,6 @@ func (m *tcpRouteModelImpl) handleUnresolvedFinalizedRoute(
 	ctx context.Context,
 	route gatewayv1.TCPRoute,
 ) error {
-	if route.DeletionTimestamp != nil {
-		return m.removeDeletingRouteFinalizer(ctx, route)
-	}
 	return m.deprovisionDetachedRoute(ctx, route)
 }
 
@@ -369,6 +366,7 @@ func (m *tcpRouteModelImpl) removeDeletingRouteFinalizer(
 	routeToUpdate := route.DeepCopy()
 	controllerutil.RemoveFinalizer(routeToUpdate, NetworkLoadBalancerTCPRouteProgrammedFinalizer)
 	setAnnotatedBackendSetNames(routeToUpdate, NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation, nil)
+	delete(routeToUpdate.Annotations, L4RouteProgrammedNetworkLoadBalancerIDAnnotation)
 	if err := m.client.Update(ctx, routeToUpdate); err != nil {
 		return fmt.Errorf("failed to remove finalizer from deleting TCPRoute %s/%s: %w",
 			routeToUpdate.Namespace,
@@ -1123,6 +1121,7 @@ func deprovisionL4Route[D any](ctx context.Context, params deprovisionL4RoutePar
 
 	controllerutil.RemoveFinalizer(params.routeToUpdate, params.finalizer)
 	setAnnotatedBackendSetNames(params.routeToUpdate, params.backendSetAnnotKey, nil)
+	delete(params.routeToUpdate.GetAnnotations(), L4RouteProgrammedNetworkLoadBalancerIDAnnotation)
 	if err = params.k8sClient.Update(ctx, params.routeToUpdate); err != nil {
 		return fmt.Errorf("failed to remove finalizer from %s %s/%s: %w",
 			params.routeKind,
@@ -1156,6 +1155,14 @@ func (m *tcpRouteModelImpl) deprovisionDetachedRoute(
 		}
 	}
 
+	cleaned, err := m.cleanupDetachedRouteByAnnotatedNetworkLoadBalancer(ctx, route, programmedBackendSets)
+	if err != nil || cleaned {
+		return err
+	}
+	if route.DeletionTimestamp != nil {
+		return m.removeDeletingRouteFinalizer(ctx, route)
+	}
+
 	return nil
 }
 
@@ -1179,7 +1186,41 @@ func (m *tcpRouteModelImpl) cleanupDetachedRouteParent(
 	routeToUpdate := route.DeepCopy()
 	controllerutil.RemoveFinalizer(routeToUpdate, NetworkLoadBalancerTCPRouteProgrammedFinalizer)
 	setAnnotatedBackendSetNames(routeToUpdate, NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation, nil)
+	delete(routeToUpdate.Annotations, L4RouteProgrammedNetworkLoadBalancerIDAnnotation)
 	if err = m.client.Update(ctx, routeToUpdate); err != nil {
+		return false, fmt.Errorf("failed to update detached TCPRoute %s/%s after cleanup: %w",
+			routeToUpdate.Namespace,
+			routeToUpdate.Name,
+			err,
+		)
+	}
+	return true, nil
+}
+
+func (m *tcpRouteModelImpl) cleanupDetachedRouteByAnnotatedNetworkLoadBalancer(
+	ctx context.Context,
+	route gatewayv1.TCPRoute,
+	programmedBackendSets map[string]struct{},
+) (bool, error) {
+	nlbID := route.Annotations[L4RouteProgrammedNetworkLoadBalancerIDAnnotation]
+	if nlbID == "" {
+		return false, nil
+	}
+
+	gatewayDetails := resolvedGatewayDetails{
+		config: types.GatewayConfig{Spec: types.GatewayConfigSpec{LoadBalancerID: nlbID}},
+	}
+	for backendSetName := range programmedBackendSets {
+		if err := m.clearBackendSetByName(ctx, gatewayDetails, tcpRouteKey(route), backendSetName, nil); err != nil {
+			return false, err
+		}
+	}
+
+	routeToUpdate := route.DeepCopy()
+	controllerutil.RemoveFinalizer(routeToUpdate, NetworkLoadBalancerTCPRouteProgrammedFinalizer)
+	setAnnotatedBackendSetNames(routeToUpdate, NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation, nil)
+	delete(routeToUpdate.Annotations, L4RouteProgrammedNetworkLoadBalancerIDAnnotation)
+	if err := m.client.Update(ctx, routeToUpdate); err != nil {
 		return false, fmt.Errorf("failed to update detached TCPRoute %s/%s after cleanup: %w",
 			routeToUpdate.Namespace,
 			routeToUpdate.Name,
@@ -1264,6 +1305,7 @@ func (m *tcpRouteModelImpl) removeDetachedRouteFinalizer(
 ) error {
 	routeToUpdate := route.DeepCopy()
 	controllerutil.RemoveFinalizer(routeToUpdate, NetworkLoadBalancerTCPRouteProgrammedFinalizer)
+	delete(routeToUpdate.Annotations, L4RouteProgrammedNetworkLoadBalancerIDAnnotation)
 	if err := m.client.Update(ctx, routeToUpdate); err != nil {
 		return fmt.Errorf("failed to remove finalizer from detached TCPRoute %s/%s: %w",
 			routeToUpdate.Namespace,
@@ -1326,6 +1368,7 @@ func (m *tcpRouteModelImpl) setProgrammed(ctx context.Context, details resolvedT
 		routeToUpdate:      routeToUpdate,
 		finalizer:          NetworkLoadBalancerTCPRouteProgrammedFinalizer,
 		backendSetAnnotKey: NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation,
+		loadBalancerID:     details.gatewayDetails.config.Spec.LoadBalancerID,
 		desiredBackendSets: desiredTCPRouteBackendSetNames(details),
 		updateParentStatus: func(conditions []metav1.Condition) error {
 			return m.updateParentStatus(ctx, resolvedTCPRouteDetails{
@@ -1345,6 +1388,7 @@ type setL4RouteProgrammedParams struct {
 	routeToUpdate      client.Object
 	finalizer          string
 	backendSetAnnotKey string
+	loadBalancerID     string
 	desiredBackendSets map[string]struct{}
 	updateParentStatus func([]metav1.Condition) error
 }
@@ -1353,6 +1397,16 @@ func setL4RouteProgrammed(ctx context.Context, params setL4RouteProgrammedParams
 	needsUpdate := controllerutil.AddFinalizer(params.routeToUpdate, params.finalizer)
 	if len(params.desiredBackendSets) > 0 {
 		setAnnotatedBackendSetNames(params.routeToUpdate, params.backendSetAnnotKey, params.desiredBackendSets)
+		needsUpdate = true
+	}
+	if params.loadBalancerID != "" &&
+		params.routeToUpdate.GetAnnotations()[L4RouteProgrammedNetworkLoadBalancerIDAnnotation] != params.loadBalancerID {
+		annotations := params.routeToUpdate.GetAnnotations()
+		if annotations == nil {
+			annotations = map[string]string{}
+		}
+		annotations[L4RouteProgrammedNetworkLoadBalancerIDAnnotation] = params.loadBalancerID
+		params.routeToUpdate.SetAnnotations(annotations)
 		needsUpdate = true
 	}
 	if needsUpdate {
