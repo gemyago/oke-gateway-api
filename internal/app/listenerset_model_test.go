@@ -180,7 +180,7 @@ func TestListenerSetModel(t *testing.T) {
 			listenerSet.CreationTimestamp = older
 			listenerSet.Spec.Listeners = []v1.ListenerEntry{{
 				Name:     "grpc",
-				Port:     443,
+				Port:     8443,
 				Protocol: v1.HTTPSProtocolType,
 				Hostname: lo.ToPtr(v1.Hostname("grpc.example.com")),
 			}}
@@ -196,19 +196,32 @@ func TestListenerSetModel(t *testing.T) {
 				Hostname: &conflictingHostname,
 			}}
 		})
+		listenerSet3 := makeListenerSet(func(listenerSet *v1.ListenerSet) {
+			listenerSet.Namespace = "team-c"
+			listenerSet.Name = "edge-extra"
+			listenerSet.CreationTimestamp = metav1.NewTime(time.Now())
+			listenerSet.Spec.Listeners = []v1.ListenerEntry{{
+				Name:     "admin",
+				Port:     8443,
+				Protocol: v1.HTTPSProtocolType,
+				Hostname: lo.ToPtr(v1.Hostname("admin.example.com")),
+			}}
+		})
 
-		got := effectiveListenersForGateway(gateway, []v1.ListenerSet{listenerSet2, listenerSet1})
+		got := effectiveListenersForGateway(gateway, []v1.ListenerSet{listenerSet3, listenerSet2, listenerSet1})
 
-		require.Len(t, got, 3)
+		require.Len(t, got, 4)
 		assert.Equal(t, effectiveListenerSourceGateway, got[0].sourceKind)
 		assert.Equal(t, effectiveListenerSourceListenerSet, got[1].sourceKind)
 		assert.Equal(t, "team-a", got[1].sourceNamespace)
 		assert.False(t, got[1].conflicted)
 		assert.True(t, got[2].conflicted)
 		assert.Equal(t, v1.ListenerReasonHostnameConflict, got[2].conflictReason)
+		assert.True(t, got[3].conflicted)
+		assert.Equal(t, v1.ListenerReasonPortUnavailable, got[3].conflictReason)
 
 		conflictingProtocol := makeListenerSet(func(listenerSet *v1.ListenerSet) {
-			listenerSet.Namespace = "team-c"
+			listenerSet.Namespace = "team-d"
 			listenerSet.Name = "edge-tcp"
 			listenerSet.CreationTimestamp = metav1.NewTime(time.Now())
 			listenerSet.Spec.Listeners = []v1.ListenerEntry{{

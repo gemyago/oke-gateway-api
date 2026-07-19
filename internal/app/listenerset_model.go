@@ -410,7 +410,7 @@ func effectiveListenersConflict(left v1.Listener, right v1.Listener) (v1.Listene
 	if listenersHaveHostnameConflict(left, right) {
 		return v1.ListenerReasonHostnameConflict, true
 	}
-	return "", false
+	return v1.ListenerReasonPortUnavailable, true
 }
 
 func listenersHaveHostnameConflict(left v1.Listener, right v1.Listener) bool {
