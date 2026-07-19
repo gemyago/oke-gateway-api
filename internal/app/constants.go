@@ -69,6 +69,10 @@ const (
 	// The value is set by the controller when the http route is programmed.
 	HTTPRouteProgrammedPolicyRulesAnnotation = "oke-gateway-api.gemyago.github.io/http-route-programmed-lb-policy-rules"
 
+	// HTTPRouteProgrammedBackendSetsAnnotation is a comma-separated list of load balancer backend set names.
+	// The value is set by the controller when the http route is programmed.
+	HTTPRouteProgrammedBackendSetsAnnotation = "oke-gateway-api.gemyago.github.io/http-route-programmed-lb-backend-sets"
+
 	// L7RouteProgrammedLoadBalancerIDAnnotation tracks the OCI Load Balancer used by HTTPRoute and GRPCRoute.
 	L7RouteProgrammedLoadBalancerIDAnnotation = "oke-gateway-api.gemyago.github.io/l7-route-programmed-load-balancer-id"
 
@@ -83,6 +87,10 @@ const (
 	// GRPCRouteProgrammedPolicyRulesAnnotation is a comma-separated list of load balancer listener/policy rule names.
 	// The value is set by the controller when the grpc route is programmed.
 	GRPCRouteProgrammedPolicyRulesAnnotation = "oke-gateway-api.gemyago.github.io/grpc-route-programmed-lb-policy-rules"
+
+	// GRPCRouteProgrammedBackendSetsAnnotation is a comma-separated list of load balancer backend set names.
+	// The value is set by the controller when the grpc route is programmed.
+	GRPCRouteProgrammedBackendSetsAnnotation = "oke-gateway-api.gemyago.github.io/grpc-route-programmed-lb-backend-sets"
 
 	// GRPCRouteProgrammedFinalizer is the finalizer that indicates that the grpc route has been programmed.
 	// It is used to clean up resources when the grpc route is deleted.
@@ -149,11 +157,11 @@ const (
 
 	// HTTPRouteProgrammingRevisionValue is the value for the http route programming revision.
 	// Incremented when the controller programming steps are changed.
-	HTTPRouteProgrammingRevisionValue = "5"
+	HTTPRouteProgrammingRevisionValue = "6"
 
 	// GRPCRouteProgrammingRevisionValue is the value for the grpc route programming revision.
 	// Incremented when the controller programming steps are changed.
-	GRPCRouteProgrammingRevisionValue = "2"
+	GRPCRouteProgrammingRevisionValue = "3"
 )
 
 const ConfigRefGroup = "oke-gateway-api.gemyago.github.io"

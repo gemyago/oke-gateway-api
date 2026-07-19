@@ -1263,6 +1263,11 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			[]string{fmt.Sprintf("%s/%s", listener.Name, lo.FromPtr(routingRule.Name))},
 			got.programmedPolicyRules,
 		)
+		assert.Equal(
+			t,
+			[]string{ociBackendSetNameFromBackendObjectRef(route.Namespace, backendRef.BackendObjectReference)},
+			got.programmedBackendSets,
+		)
 	})
 
 	t.Run("programRoute clears backend SSL config when BackendTLSPolicy no longer matches", func(t *testing.T) {
@@ -1411,12 +1416,15 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			}}
 		})
 		programmedRules := []string{"grpc/rule-" + fake.Lorem().Word()}
+		programmedBackendSets := []string{"backend-set-" + fake.Lorem().Word()}
 
 		resourcesModel.EXPECT().setCondition(t.Context(), mock.MatchedBy(func(params setConditionParams) bool {
 			return params.conditionType == string(gatewayv1.RouteConditionResolvedRefs) &&
 				params.finalizer == GRPCRouteProgrammedFinalizer &&
 				params.annotations[GRPCRouteProgrammingRevisionAnnotation] == GRPCRouteProgrammingRevisionValue &&
 				params.annotations[GRPCRouteProgrammedPolicyRulesAnnotation] == strings.Join(programmedRules, ",") &&
+				params.annotations[GRPCRouteProgrammedBackendSetsAnnotation] ==
+					strings.Join(programmedBackendSets, ",") &&
 				params.annotations[L7RouteProgrammedLoadBalancerIDAnnotation] == config.Spec.LoadBalancerID
 		})).Return(nil).Once()
 
@@ -1427,6 +1435,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			config:                config,
 			matchedRef:            parentRef,
 			programmedPolicyRules: programmedRules,
+			programmedBackendSets: programmedBackendSets,
 		})
 
 		require.NoError(t, err)
