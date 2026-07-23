@@ -141,7 +141,7 @@
 				
 				<option value="file42">github.com/gemyago/oke-gateway-api/internal/app/network_load_balancer_retry.go (96.9%)</option>
 				
-				<option value="file43">github.com/gemyago/oke-gateway-api/internal/app/oci_load_balancer_model.go (98.4%)</option>
+				<option value="file43">github.com/gemyago/oke-gateway-api/internal/app/oci_load_balancer_model.go (98.2%)</option>
 				
 				<option value="file44">github.com/gemyago/oke-gateway-api/internal/app/oci_load_balancer_routing_rules.go (98.2%)</option>
 				
@@ -159,7 +159,7 @@
 				
 				<option value="file51">github.com/gemyago/oke-gateway-api/internal/app/tlsroute_controller.go (100.0%)</option>
 				
-				<option value="file52">github.com/gemyago/oke-gateway-api/internal/app/tlsroute_model.go (95.2%)</option>
+				<option value="file52">github.com/gemyago/oke-gateway-api/internal/app/tlsroute_model.go (95.1%)</option>
 				
 				<option value="file53">github.com/gemyago/oke-gateway-api/internal/app/udproute_controller.go (100.0%)</option>
 				
@@ -1829,16 +1829,16 @@ func backendTLSSSLConfigFromOptions(
         <span class="cov5" title="7">return sslConfig, nil</span>
 }
 
-func splitCSVOption(value gatewayv1.AnnotationValue) []string <span class="cov7" title="20">{
+func splitCSVOption(value gatewayv1.AnnotationValue) []string <span class="cov8" title="27">{
         parts := strings.Split(string(value), ",")
         result := make([]string, 0, len(parts))
-        for _, part := range parts </span><span class="cov7" title="21">{
+        for _, part := range parts </span><span class="cov8" title="31">{
                 trimmed := strings.TrimSpace(part)
-                if trimmed != "" </span><span class="cov4" title="6">{
+                if trimmed != "" </span><span class="cov6" title="13">{
                         result = append(result, trimmed)
                 }</span>
         }
-        <span class="cov7" title="20">return result</span>
+        <span class="cov8" title="27">return result</span>
 }
 
 func (m *backendTLSPolicyModelImpl) ensurePolicyFinalizerAndCompartment(
@@ -2214,6 +2214,12 @@ const (
 
         // ListenerTLSOptionOCICertificateOCID configures an existing OCI Certificates Service certificate for a listener.
         ListenerTLSOptionOCICertificateOCID = "oci.oraclecloud.com/certificate-ocid"
+
+        // ListenerTLSOptionProtocols configures OCI listener SSL protocols as a comma-separated list.
+        ListenerTLSOptionProtocols = "oci.oraclecloud.com/tls-protocols"
+
+        // ListenerTLSOptionCipherSuiteName configures OCI listener SSL cipher suite name.
+        ListenerTLSOptionCipherSuiteName = "oci.oraclecloud.com/cipher-suite-name"
 
         // BackendTLSPolicyProgrammedFinalizer is used to clean up controller-managed OCI CA bundles.
         BackendTLSPolicyProgrammedFinalizer = "oke-gateway-api.gemyago.github.io/backend-tls-policy-programmed"
@@ -2603,7 +2609,7 @@ import (
 )
 
 func listenerOCICertificateOCID(listener gatewayv1.Listener) string <span class="cov9" title="43">{
-        if listener.TLS == nil || listener.TLS.Options == nil </span><span class="cov9" title="32">{
+        if listener.TLS == nil || listener.TLS.Options == nil </span><span class="cov8" title="32">{
                 return ""
         }</span>
         <span class="cov6" title="11">return string(listener.TLS.Options[gatewayv1.AnnotationKey(ListenerTLSOptionOCICertificateOCID)])</span>
@@ -2866,16 +2872,16 @@ func parseProgrammedGatewayCertificatesAnnotation(annotationValue string) []stri
         <span class="cov2" title="2">return normalizeProgrammedCertificateNames(certNames)</span>
 }
 
-func normalizeProgrammedCertificateNames(certNames []string) []string <span class="cov9" title="32">{
+func normalizeProgrammedCertificateNames(certNames []string) []string <span class="cov8" title="32">{
         normalized := make([]string, 0, len(certNames))
-        for _, certName := range certNames </span><span class="cov10" title="48">{
+        for _, certName := range certNames </span><span class="cov10" title="50">{
                 if certName == "" </span><span class="cov2" title="2">{
                         continue</span>
                 }
-                <span class="cov9" title="46">normalized = append(normalized, certName)</span>
+                <span class="cov9" title="48">normalized = append(normalized, certName)</span>
         }
 
-        <span class="cov9" title="32">sort.Strings(normalized)
+        <span class="cov8" title="32">sort.Strings(normalized)
         return slices.Compact(normalized)</span>
 }
 
@@ -2929,13 +2935,13 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
                 return fmt.Errorf("failed to reconcile listeners certificates: %w", err)
         }</span>
 
-        <span class="cov4" title="5">for _, listener := range data.gateway.Spec.Listeners </span><span class="cov6" title="10">{
+        <span class="cov4" title="5">for _, listener := range data.gateway.Spec.Listeners </span><span class="cov6" title="13">{
                 // TODO: Support listener with hostname
                 if listener.Protocol == gatewayv1.TLSProtocolType </span><span class="cov1" title="1">{
                         continue</span>
                 }
 
-                <span class="cov6" title="9">listenerName := string(listener.Name)
+                <span class="cov6" title="12">listenerName := string(listener.Name)
 
                 params := reconcileHTTPListenerParams{
                         loadBalancerID:        loadBalancerID,
@@ -3001,7 +3007,7 @@ func (m *gatewayModelImpl) isProgrammed(_ context.Context, data *resolvedGateway
 
         // Include secrets annotations in the check
         if len(data.gatewaySecrets) &gt; 0 </span><span class="cov2" title="2">{
-                for _, secret := range data.gatewaySecrets </span><span class="cov3" title="3">{
+                for _, secret := range data.gatewaySecrets </span><span class="cov4" title="4">{
                         secretUID := string(secret.UID)
                         annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + secretUID
                         annotations[annotationKey] = secret.ResourceVersion
@@ -3025,7 +3031,7 @@ func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGate
         }
 
         if len(data.gatewaySecrets) &gt; 0 </span><span class="cov1" title="1">{
-                for _, secret := range data.gatewaySecrets </span><span class="cov3" title="3">{
+                for _, secret := range data.gatewaySecrets </span><span class="cov2" title="2">{
                         secretUID := string(secret.UID)
                         annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + secretUID
                         annotations[annotationKey] = secret.ResourceVersion
@@ -3112,29 +3118,29 @@ func gatewayStatusAddressesFromValues(values []string) []gatewayv1.GatewayStatus
 }
 
 func sortGatewayStatusAddresses(addresses []gatewayv1.GatewayStatusAddress) <span class="cov4" title="4">{
-        sort.Slice(addresses, func(i, j int) bool </span><span class="cov8" title="23">{
+        sort.Slice(addresses, func(i, j int) bool </span><span class="cov8" title="22">{
                 leftRank := gatewayStatusAddressRank(addresses[i])
                 rightRank := gatewayStatusAddressRank(addresses[j])
-                if leftRank != rightRank </span><span class="cov7" title="16">{
+                if leftRank != rightRank </span><span class="cov7" title="15">{
                         return leftRank &lt; rightRank
                 }</span>
                 <span class="cov5" title="7">return addresses[i].Value &lt; addresses[j].Value</span>
         })
 }
 
-func gatewayStatusAddressRank(address gatewayv1.GatewayStatusAddress) int <span class="cov10" title="46">{
+func gatewayStatusAddressRank(address gatewayv1.GatewayStatusAddress) int <span class="cov10" title="44">{
         if address.Type == nil || *address.Type != gatewayv1.IPAddressType </span><span class="cov6" title="11">{
                 return gatewayStatusAddressRankOther
         }</span>
 
-        <span class="cov9" title="35">ip := net.ParseIP(address.Value)
+        <span class="cov9" title="33">ip := net.ParseIP(address.Value)
         if ip == nil </span><span class="cov4" title="5">{
                 return gatewayStatusAddressRankOther
         }</span>
-        <span class="cov8" title="30">if ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() </span><span class="cov7" title="19">{
+        <span class="cov8" title="28">if ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() </span><span class="cov7" title="18">{
                 return gatewayStatusAddressRankNonPublicIP
         }</span>
-        <span class="cov6" title="11">return gatewayStatusAddressRankPublicIP</span>
+        <span class="cov6" title="10">return gatewayStatusAddressRankPublicIP</span>
 }
 </pre>
 		
@@ -4240,22 +4246,22 @@ func (m *httpBackendModelImpl) identifyBackendsToUpdate(
         var drainingCount int
 
         for _, slice := range params.endpointSlices </span><span class="cov7" title="9">{
-                for _, endpoint := range slice.Endpoints </span><span class="cov8" title="15">{
+                for _, endpoint := range slice.Endpoints </span><span class="cov8" title="14">{
                         if endpoint.Conditions.Ready != nil &amp;&amp; !*endpoint.Conditions.Ready </span><span class="cov2" title="2">{
                                 continue</span>
                         }
-                        <span class="cov8" title="13">if len(endpoint.Addresses) == 0 </span><span class="cov1" title="1">{
+                        <span class="cov8" title="12">if len(endpoint.Addresses) == 0 </span><span class="cov1" title="1">{
                                 m.logger.WarnContext(ctx, "Endpoint has no addresses", slog.Any("endpoint", endpoint))
                                 continue</span>
                         }
-                        <span class="cov8" title="12">ipAddress := endpoint.Addresses[0]
+                        <span class="cov7" title="11">ipAddress := endpoint.Addresses[0]
                         isDraining := endpoint.Conditions.Terminating != nil &amp;&amp; *endpoint.Conditions.Terminating
 
                         if isDraining </span><span class="cov2" title="2">{
                                 drainingCount++
                         }</span>
 
-                        <span class="cov8" title="12">desiredBackendsMap[httpBackendAddressKey{
+                        <span class="cov7" title="11">desiredBackendsMap[httpBackendAddressKey{
                                 ipAddress: ipAddress,
                                 port:      int(params.endpointPort),
                         }] = loadbalancer.BackendDetails{
@@ -5172,8 +5178,8 @@ func programmedHTTPRoutePolicyRulesAnnotation(
         ruleNames []string,
 ) []string <span class="cov5" title="9">{
         rules := make([]string, 0, len(listeners)*len(ruleNames))
-        for _, listener := range listeners </span><span class="cov6" title="13">{
-                for _, ruleName := range ruleNames </span><span class="cov7" title="22">{
+        for _, listener := range listeners </span><span class="cov6" title="14">{
+                for _, ruleName := range ruleNames </span><span class="cov7" title="24">{
                         rules = append(rules, fmt.Sprintf("%s/%s", listener.Name, ruleName))
                 }</span>
         }
@@ -5186,7 +5192,7 @@ func previousPolicyRulesByListener(
         currentListeners []gatewayv1.Listener,
 ) map[string][]string <span class="cov6" title="18">{
         previousByListener := map[string][]string{}
-        currentListenerNames := lo.SliceToMap(currentListeners, func(listener gatewayv1.Listener) (string, struct{}) </span><span class="cov7" title="22">{
+        currentListenerNames := lo.SliceToMap(currentListeners, func(listener gatewayv1.Listener) (string, struct{}) </span><span class="cov7" title="24">{
                 return string(listener.Name), struct{}{}
         }</span>)
 
@@ -5610,12 +5616,12 @@ func programL7RoutePolicy(
         <span class="cov5" title="9">prevRulesByListener := previousPolicyRulesByListener(params.previousPolicyRules, params.matchedListeners)
         currentListenerNames := lo.SliceToMap(
                 params.matchedListeners,
-                func(listener gatewayv1.Listener) (string, struct{}) </span><span class="cov6" title="12">{
+                func(listener gatewayv1.Listener) (string, struct{}) </span><span class="cov6" title="13">{
                         return string(listener.Name), struct{}{}
                 }</span>,
         )
 
-        <span class="cov5" title="9">for _, listener := range params.matchedListeners </span><span class="cov6" title="12">{
+        <span class="cov5" title="9">for _, listener := range params.matchedListeners </span><span class="cov6" title="13">{
                 listenerName := string(listener.Name)
                 err := ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
                         loadBalancerID:  params.loadBalancerID,
@@ -5630,8 +5636,8 @@ func programL7RoutePolicy(
 
         <span class="cov5" title="8">staleListenerNames := lo.Keys(prevRulesByListener)
         sort.Strings(staleListenerNames)
-        for _, listenerName := range staleListenerNames </span><span class="cov4" title="5">{
-                if _, ok := currentListenerNames[listenerName]; ok </span><span class="cov3" title="4">{
+        for _, listenerName := range staleListenerNames </span><span class="cov3" title="4">{
+                if _, ok := currentListenerNames[listenerName]; ok </span><span class="cov3" title="3">{
                         continue</span>
                 }
                 <span class="cov1" title="1">err := ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
@@ -5742,7 +5748,7 @@ func (m *httpRouteModelImpl) deprovisionRoute(
         listenerNames := lo.Keys(prevRulesByListener)
         sort.Strings(listenerNames)
 
-        for _, listenerName := range listenerNames </span><span class="cov4" title="6">{
+        for _, listenerName := range listenerNames </span><span class="cov4" title="7">{
                 m.logger.DebugContext(ctx, "Deprovisioning listener policies for HTTPRoute",
                         slog.String("route", params.httpRoute.Name),
                         slog.String("listener", listenerName),
@@ -7349,7 +7355,7 @@ type MockociLoadBalancerClient_Expecter struct {
         mock *mock.Mock
 }
 
-func (_m *MockociLoadBalancerClient) EXPECT() *MockociLoadBalancerClient_Expecter <span class="cov9" title="206">{
+func (_m *MockociLoadBalancerClient) EXPECT() *MockociLoadBalancerClient_Expecter <span class="cov9" title="207">{
         return &amp;MockociLoadBalancerClient_Expecter{mock: &amp;_m.Mock}
 }</span>
 
@@ -8266,31 +8272,31 @@ func (_c *MockociLoadBalancerClient_UpdateBackendSet_Call) RunAndReturn(run func
 }</span>
 
 // UpdateListener provides a mock function with given fields: ctx, request
-func (_m *MockociLoadBalancerClient) UpdateListener(ctx context.Context, request loadbalancer.UpdateListenerRequest) (loadbalancer.UpdateListenerResponse, error) <span class="cov5" title="14">{
+func (_m *MockociLoadBalancerClient) UpdateListener(ctx context.Context, request loadbalancer.UpdateListenerRequest) (loadbalancer.UpdateListenerResponse, error) <span class="cov5" title="15">{
         ret := _m.Called(ctx, request)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for UpdateListener")</span>
         }
 
-        <span class="cov5" title="14">var r0 loadbalancer.UpdateListenerResponse
+        <span class="cov5" title="15">var r0 loadbalancer.UpdateListenerResponse
         var r1 error
         if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.UpdateListenerRequest) (loadbalancer.UpdateListenerResponse, error)); ok </span><span class="cov0" title="0">{
                 return rf(ctx, request)
         }</span>
-        <span class="cov5" title="14">if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.UpdateListenerRequest) loadbalancer.UpdateListenerResponse); ok </span><span class="cov0" title="0">{
+        <span class="cov5" title="15">if rf, ok := ret.Get(0).(func(context.Context, loadbalancer.UpdateListenerRequest) loadbalancer.UpdateListenerResponse); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, request)
-        }</span> else<span class="cov5" title="14"> {
+        }</span> else<span class="cov5" title="15"> {
                 r0 = ret.Get(0).(loadbalancer.UpdateListenerResponse)
         }</span>
 
-        <span class="cov5" title="14">if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.UpdateListenerRequest) error); ok </span><span class="cov0" title="0">{
+        <span class="cov5" title="15">if rf, ok := ret.Get(1).(func(context.Context, loadbalancer.UpdateListenerRequest) error); ok </span><span class="cov0" title="0">{
                 r1 = rf(ctx, request)
-        }</span> else<span class="cov5" title="14"> {
+        }</span> else<span class="cov5" title="15"> {
                 r1 = ret.Error(1)
         }</span>
 
-        <span class="cov5" title="14">return r0, r1</span>
+        <span class="cov5" title="15">return r0, r1</span>
 }
 
 // MockociLoadBalancerClient_UpdateListener_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateListener'
@@ -8301,7 +8307,7 @@ type MockociLoadBalancerClient_UpdateListener_Call struct {
 // UpdateListener is a helper method to define mock.On call
 //   - ctx context.Context
 //   - request loadbalancer.UpdateListenerRequest
-func (_e *MockociLoadBalancerClient_Expecter) UpdateListener(ctx interface{}, request interface{}) *MockociLoadBalancerClient_UpdateListener_Call <span class="cov5" title="14">{
+func (_e *MockociLoadBalancerClient_Expecter) UpdateListener(ctx interface{}, request interface{}) *MockociLoadBalancerClient_UpdateListener_Call <span class="cov5" title="15">{
         return &amp;MockociLoadBalancerClient_UpdateListener_Call{Call: _e.mock.On("UpdateListener", ctx, request)}
 }</span>
 
@@ -8312,7 +8318,7 @@ func (_c *MockociLoadBalancerClient_UpdateListener_Call) Run(run func(ctx contex
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockociLoadBalancerClient_UpdateListener_Call) Return(response loadbalancer.UpdateListenerResponse, err error) *MockociLoadBalancerClient_UpdateListener_Call <span class="cov5" title="14">{
+func (_c *MockociLoadBalancerClient_UpdateListener_Call) Return(response loadbalancer.UpdateListenerResponse, err error) *MockociLoadBalancerClient_UpdateListener_Call <span class="cov5" title="15">{
         _c.Call.Return(response, err)
         return _c
 }</span>
@@ -8441,13 +8447,13 @@ func (_c *MockociLoadBalancerClient_UpdateRuleSet_Call) RunAndReturn(run func(co
 func NewMockociLoadBalancerClient(t interface {
         mock.TestingT
         Cleanup(func())
-}) *MockociLoadBalancerClient <span class="cov10" title="245">{
+}) *MockociLoadBalancerClient <span class="cov10" title="247">{
         mock := &amp;MockociLoadBalancerClient{}
         mock.Mock.Test(t)
 
-        t.Cleanup(func() </span><span class="cov10" title="245">{ mock.AssertExpectations(t) }</span>)
+        t.Cleanup(func() </span><span class="cov10" title="247">{ mock.AssertExpectations(t) }</span>)
 
-        <span class="cov10" title="245">return mock</span>
+        <span class="cov10" title="247">return mock</span>
 }
 </pre>
 		
@@ -8473,26 +8479,26 @@ type MockociLoadBalancerModel_Expecter struct {
         mock *mock.Mock
 }
 
-func (_m *MockociLoadBalancerModel) EXPECT() *MockociLoadBalancerModel_Expecter <span class="cov9" title="93">{
+func (_m *MockociLoadBalancerModel) EXPECT() *MockociLoadBalancerModel_Expecter <span class="cov9" title="98">{
         return &amp;MockociLoadBalancerModel_Expecter{mock: &amp;_m.Mock}
 }</span>
 
 // commitRoutingPolicy provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) commitRoutingPolicy(ctx context.Context, params commitRoutingPolicyParams) error <span class="cov7" title="24">{
+func (_m *MockociLoadBalancerModel) commitRoutingPolicy(ctx context.Context, params commitRoutingPolicyParams) error <span class="cov7" title="26">{
         ret := _m.Called(ctx, params)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for commitRoutingPolicy")</span>
         }
 
-        <span class="cov7" title="24">var r0 error
+        <span class="cov7" title="26">var r0 error
         if rf, ok := ret.Get(0).(func(context.Context, commitRoutingPolicyParams) error); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, params)
-        }</span> else<span class="cov7" title="24"> {
+        }</span> else<span class="cov7" title="26"> {
                 r0 = ret.Error(0)
         }</span>
 
-        <span class="cov7" title="24">return r0</span>
+        <span class="cov7" title="26">return r0</span>
 }
 
 // MockociLoadBalancerModel_commitRoutingPolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'commitRoutingPolicy'
@@ -8503,7 +8509,7 @@ type MockociLoadBalancerModel_commitRoutingPolicy_Call struct {
 // commitRoutingPolicy is a helper method to define mock.On call
 //   - ctx context.Context
 //   - params commitRoutingPolicyParams
-func (_e *MockociLoadBalancerModel_Expecter) commitRoutingPolicy(ctx interface{}, params interface{}) *MockociLoadBalancerModel_commitRoutingPolicy_Call <span class="cov7" title="24">{
+func (_e *MockociLoadBalancerModel_Expecter) commitRoutingPolicy(ctx interface{}, params interface{}) *MockociLoadBalancerModel_commitRoutingPolicy_Call <span class="cov7" title="26">{
         return &amp;MockociLoadBalancerModel_commitRoutingPolicy_Call{Call: _e.mock.On("commitRoutingPolicy", ctx, params)}
 }</span>
 
@@ -8514,7 +8520,7 @@ func (_c *MockociLoadBalancerModel_commitRoutingPolicy_Call) Run(run func(ctx co
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockociLoadBalancerModel_commitRoutingPolicy_Call) Return(_a0 error) *MockociLoadBalancerModel_commitRoutingPolicy_Call <span class="cov7" title="24">{
+func (_c *MockociLoadBalancerModel_commitRoutingPolicy_Call) Return(_a0 error) *MockociLoadBalancerModel_commitRoutingPolicy_Call <span class="cov7" title="26">{
         _c.Call.Return(_a0)
         return _c
 }</span>
@@ -8837,21 +8843,21 @@ func (_c *MockociLoadBalancerModel_reconcileDefaultBackendSet_Call) RunAndReturn
 }</span>
 
 // reconcileHTTPListener provides a mock function with given fields: ctx, params
-func (_m *MockociLoadBalancerModel) reconcileHTTPListener(ctx context.Context, params reconcileHTTPListenerParams) error <span class="cov5" title="9">{
+func (_m *MockociLoadBalancerModel) reconcileHTTPListener(ctx context.Context, params reconcileHTTPListenerParams) error <span class="cov5" title="12">{
         ret := _m.Called(ctx, params)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for reconcileHTTPListener")</span>
         }
 
-        <span class="cov5" title="9">var r0 error
+        <span class="cov5" title="12">var r0 error
         if rf, ok := ret.Get(0).(func(context.Context, reconcileHTTPListenerParams) error); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, params)
-        }</span> else<span class="cov5" title="9"> {
+        }</span> else<span class="cov5" title="12"> {
                 r0 = ret.Error(0)
         }</span>
 
-        <span class="cov5" title="9">return r0</span>
+        <span class="cov5" title="12">return r0</span>
 }
 
 // MockociLoadBalancerModel_reconcileHTTPListener_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'reconcileHTTPListener'
@@ -8862,7 +8868,7 @@ type MockociLoadBalancerModel_reconcileHTTPListener_Call struct {
 // reconcileHTTPListener is a helper method to define mock.On call
 //   - ctx context.Context
 //   - params reconcileHTTPListenerParams
-func (_e *MockociLoadBalancerModel_Expecter) reconcileHTTPListener(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov5" title="9">{
+func (_e *MockociLoadBalancerModel_Expecter) reconcileHTTPListener(ctx interface{}, params interface{}) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov5" title="12">{
         return &amp;MockociLoadBalancerModel_reconcileHTTPListener_Call{Call: _e.mock.On("reconcileHTTPListener", ctx, params)}
 }</span>
 
@@ -8873,7 +8879,7 @@ func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Run(run func(ctx 
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Return(_a0 error) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov5" title="9">{
+func (_c *MockociLoadBalancerModel_reconcileHTTPListener_Call) Return(_a0 error) *MockociLoadBalancerModel_reconcileHTTPListener_Call <span class="cov5" title="12">{
         _c.Call.Return(_a0)
         return _c
 }</span>
@@ -10079,26 +10085,26 @@ type MockworkRequestsWatcher_Expecter struct {
         mock *mock.Mock
 }
 
-func (_m *MockworkRequestsWatcher) EXPECT() *MockworkRequestsWatcher_Expecter <span class="cov9" title="89">{
+func (_m *MockworkRequestsWatcher) EXPECT() *MockworkRequestsWatcher_Expecter <span class="cov9" title="90">{
         return &amp;MockworkRequestsWatcher_Expecter{mock: &amp;_m.Mock}
 }</span>
 
 // WaitFor provides a mock function with given fields: ctx, workRequestID
-func (_m *MockworkRequestsWatcher) WaitFor(ctx context.Context, workRequestID string) error <span class="cov9" title="90">{
+func (_m *MockworkRequestsWatcher) WaitFor(ctx context.Context, workRequestID string) error <span class="cov9" title="91">{
         ret := _m.Called(ctx, workRequestID)
 
         if len(ret) == 0 </span><span class="cov0" title="0">{
                 panic("no return value specified for WaitFor")</span>
         }
 
-        <span class="cov9" title="90">var r0 error
+        <span class="cov9" title="91">var r0 error
         if rf, ok := ret.Get(0).(func(context.Context, string) error); ok </span><span class="cov0" title="0">{
                 r0 = rf(ctx, workRequestID)
-        }</span> else<span class="cov9" title="90"> {
+        }</span> else<span class="cov9" title="91"> {
                 r0 = ret.Error(0)
         }</span>
 
-        <span class="cov9" title="90">return r0</span>
+        <span class="cov9" title="91">return r0</span>
 }
 
 // MockworkRequestsWatcher_WaitFor_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WaitFor'
@@ -10109,7 +10115,7 @@ type MockworkRequestsWatcher_WaitFor_Call struct {
 // WaitFor is a helper method to define mock.On call
 //   - ctx context.Context
 //   - workRequestID string
-func (_e *MockworkRequestsWatcher_Expecter) WaitFor(ctx interface{}, workRequestID interface{}) *MockworkRequestsWatcher_WaitFor_Call <span class="cov9" title="89">{
+func (_e *MockworkRequestsWatcher_Expecter) WaitFor(ctx interface{}, workRequestID interface{}) *MockworkRequestsWatcher_WaitFor_Call <span class="cov9" title="90">{
         return &amp;MockworkRequestsWatcher_WaitFor_Call{Call: _e.mock.On("WaitFor", ctx, workRequestID)}
 }</span>
 
@@ -10120,7 +10126,7 @@ func (_c *MockworkRequestsWatcher_WaitFor_Call) Run(run func(ctx context.Context
         <span class="cov0" title="0">return _c</span>
 }
 
-func (_c *MockworkRequestsWatcher_WaitFor_Call) Return(_a0 error) *MockworkRequestsWatcher_WaitFor_Call <span class="cov9" title="89">{
+func (_c *MockworkRequestsWatcher_WaitFor_Call) Return(_a0 error) *MockworkRequestsWatcher_WaitFor_Call <span class="cov9" title="90">{
         _c.Call.Return(_a0)
         return _c
 }</span>
@@ -10135,13 +10141,13 @@ func (_c *MockworkRequestsWatcher_WaitFor_Call) RunAndReturn(run func(context.Co
 func NewMockworkRequestsWatcher(t interface {
         mock.TestingT
         Cleanup(func())
-}) *MockworkRequestsWatcher <span class="cov10" title="138">{
+}) *MockworkRequestsWatcher <span class="cov10" title="139">{
         mock := &amp;MockworkRequestsWatcher{}
         mock.Mock.Test(t)
 
-        t.Cleanup(func() </span><span class="cov10" title="138">{ mock.AssertExpectations(t) }</span>)
+        t.Cleanup(func() </span><span class="cov10" title="139">{ mock.AssertExpectations(t) }</span>)
 
-        <span class="cov10" title="138">return mock</span>
+        <span class="cov10" title="139">return mock</span>
 }
 </pre>
 		
@@ -11041,7 +11047,7 @@ type networkLoadBalancerOperationLocks struct {
         mutexes sync.Map
 }
 
-func newNetworkLoadBalancerOperationLocks() *networkLoadBalancerOperationLocks <span class="cov10" title="271">{
+func newNetworkLoadBalancerOperationLocks() *networkLoadBalancerOperationLocks <span class="cov10" title="274">{
         return &amp;networkLoadBalancerOperationLocks{}
 }</span>
 
@@ -11410,7 +11416,7 @@ func loadBalancerBackendSetMatches(
                 )
 }</span>
 
-func firstSSLConfig(configs []*loadbalancer.SslConfigurationDetails) *loadbalancer.SslConfigurationDetails <span class="cov7" title="31">{
+func firstSSLConfig(configs []*loadbalancer.SslConfigurationDetails) *loadbalancer.SslConfigurationDetails <span class="cov6" title="31">{
         if len(configs) == 0 </span><span class="cov5" title="16">{
                 return nil
         }</span>
@@ -11435,7 +11441,27 @@ func loadBalancerSSLConfigurationsEqual(
                 stringSlicesEqual(current.TrustedCertificateAuthorityIds, desired.TrustedCertificateAuthorityIds)</span>
 }
 
-func stringSlicesEqual(left []string, right []string) bool <span class="cov4" title="6">{
+func loadBalancerListenerSSLConfigurationsEqual(
+        current *loadbalancer.SslConfigurationDetails,
+        desired *loadbalancer.SslConfigurationDetails,
+) bool <span class="cov7" title="35">{
+        if current == nil || desired == nil </span><span class="cov6" title="25">{
+                return current == nil &amp;&amp; desired == nil
+        }</span>
+        <span class="cov5" title="10">if lo.FromPtr(current.CertificateName) != lo.FromPtr(desired.CertificateName) ||
+                !stringSlicesEqual(current.CertificateIds, desired.CertificateIds) </span><span class="cov2" title="2">{
+                return false
+        }</span>
+        <span class="cov4" title="8">if desired.CipherSuiteName != nil &amp;&amp; lo.FromPtr(current.CipherSuiteName) != lo.FromPtr(desired.CipherSuiteName) </span><span class="cov2" title="2">{
+                return false
+        }</span>
+        <span class="cov4" title="6">if len(desired.Protocols) &gt; 0 &amp;&amp; !stringSlicesEqual(current.Protocols, desired.Protocols) </span><span class="cov0" title="0">{
+                return false
+        }</span>
+        <span class="cov4" title="6">return true</span>
+}
+
+func stringSlicesEqual(left []string, right []string) bool <span class="cov6" title="20">{
         left = append([]string(nil), left...)
         right = append([]string(nil), right...)
         sort.Strings(left)
@@ -11494,11 +11520,11 @@ func (m *ociLoadBalancerModelImpl) updateBackendSetConfig(
 
 func sslConfigurationDetailsFromBackendSet(
         config *loadbalancer.SslConfiguration,
-) *loadbalancer.SslConfigurationDetails <span class="cov6" title="19">{
-        if config == nil </span><span class="cov4" title="9">{
+) *loadbalancer.SslConfigurationDetails <span class="cov7" title="54">{
+        if config == nil </span><span class="cov7" title="33">{
                 return nil
         }</span>
-        <span class="cov5" title="10">return &amp;loadbalancer.SslConfigurationDetails{
+        <span class="cov6" title="21">return &amp;loadbalancer.SslConfigurationDetails{
                 VerifyDepth:                    config.VerifyDepth,
                 VerifyPeerCertificate:          config.VerifyPeerCertificate,
                 HasSessionResumption:           config.HasSessionResumption,
@@ -11669,12 +11695,12 @@ func (m *ociLoadBalancerModelImpl) reconcileListenerSecretCertificates(
 
         <span class="cov6" title="19">certificates := make([]loadbalancer.Certificate, 0, len(params.listenerSpec.TLS.CertificateRefs))
         seenRefs := make(map[apitypes.NamespacedName]struct{}, len(params.listenerSpec.TLS.CertificateRefs))
-        for _, ref := range params.listenerSpec.TLS.CertificateRefs </span><span class="cov7" title="30">{
+        for _, ref := range params.listenerSpec.TLS.CertificateRefs </span><span class="cov6" title="30">{
                 refName := certificateRefNamespacedName(params.gatewayNamespace, ref)
                 if _, exists := seenRefs[refName]; exists </span><span class="cov1" title="1">{
                         continue</span>
                 }
-                <span class="cov7" title="29">seenRefs[refName] = struct{}{}
+                <span class="cov6" title="29">seenRefs[refName] = struct{}{}
 
                 cert, err := m.reconcileListenerSecretCertificate(ctx, params, ref)
                 if err != nil </span><span class="cov4" title="7">{
@@ -11690,7 +11716,7 @@ func (m *ociLoadBalancerModelImpl) reconcileListenerSecretCertificate(
         ctx context.Context,
         params listenerSecretCertificatesParams,
         ref gatewayv1.SecretObjectReference,
-) (loadbalancer.Certificate, error) <span class="cov7" title="29">{
+) (loadbalancer.Certificate, error) <span class="cov6" title="29">{
         secret, err := m.getListenerCertificateSecret(ctx, params.gatewayNamespace, ref)
         if err != nil </span><span class="cov2" title="2">{
                 return loadbalancer.Certificate{}, err
@@ -11714,7 +11740,7 @@ func (m *ociLoadBalancerModelImpl) getListenerCertificateSecret(
         ctx context.Context,
         gatewayNamespace string,
         ref gatewayv1.SecretObjectReference,
-) (corev1.Secret, error) <span class="cov7" title="29">{
+) (corev1.Secret, error) <span class="cov6" title="29">{
         secret := corev1.Secret{}
         err := m.k8sClient.Get(ctx, certificateRefNamespacedName(gatewayNamespace, ref), &amp;secret)
         if err != nil </span><span class="cov2" title="2">{
@@ -11795,7 +11821,7 @@ func (m *ociLoadBalancerModelImpl) logCertificateAlreadyExists(
         )
 }</span>
 
-func defaultCatchAllRoutingRule(defaultBackendSetName string) loadbalancer.RoutingRule <span class="cov7" title="31">{
+func defaultCatchAllRoutingRule(defaultBackendSetName string) loadbalancer.RoutingRule <span class="cov6" title="31">{
         return loadbalancer.RoutingRule{
                 Name:      new(defaultCatchAllRuleName),
                 Condition: new("any(http.request.url.path sw '/')"),
@@ -11822,7 +11848,7 @@ func defaultCatchAllRuleMatches(rule loadbalancer.RoutingRule, defaultBackendSet
 }</span>
 
 func routingPolicyDefaultRuleDrifted(policy loadbalancer.RoutingPolicy, defaultBackendSetName string) bool <span class="cov5" title="16">{
-        for _, rule := range policy.Rules </span><span class="cov6" title="17">{
+        for _, rule := range policy.Rules </span><span class="cov5" title="17">{
                 if lo.FromPtr(rule.Name) == defaultCatchAllRuleName </span><span class="cov5" title="14">{
                         return !defaultCatchAllRuleMatches(rule, defaultBackendSetName)
                 }</span>
@@ -12001,11 +12027,12 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
                 return fmt.Errorf("failed to reconcile listener routing policy: %w", err)
         }</span>
 
-        <span class="cov6" title="17">var sslConfig *loadbalancer.SslConfigurationDetails
+        <span class="cov5" title="17">var sslConfig *loadbalancer.SslConfigurationDetails
         if params.listenerCertificateID != "" </span><span class="cov2" title="2">{
                 sslConfig = &amp;loadbalancer.SslConfigurationDetails{
                         CertificateIds: []string{params.listenerCertificateID},
                 }
+                applyListenerTLSOptions(sslConfig, params.listenerSpec.TLS)
         }</span> else<span class="cov5" title="15"> if params.listenerSpec.TLS != nil </span><span class="cov3" title="4">{
                 if len(params.listenerCertificates) == 0 </span><span class="cov2" title="2">{
                         return &amp;resourceStatusError{
@@ -12022,7 +12049,8 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 
                 sslConfig = &amp;loadbalancer.SslConfigurationDetails{
                         CertificateName: cert.CertificateName,
-                }</span>
+                }
+                applyListenerTLSOptions(sslConfig, params.listenerSpec.TLS)</span>
         }
 
         <span class="cov5" title="15">if existingListener, ok := params.knownListeners[listenerName]; ok </span><span class="cov4" title="7">{
@@ -12506,24 +12534,24 @@ func (m *ociLoadBalancerModelImpl) removeMissingListeners(
         <span class="cov5" title="10">return errors.Join(errs...)</span>
 }
 
-func routingRuleLess(ruleI, ruleJ loadbalancer.RoutingRule) bool <span class="cov9" title="106">{
+func routingRuleLess(ruleI, ruleJ loadbalancer.RoutingRule) bool <span class="cov9" title="122">{
         ruleNameI := lo.FromPtr(ruleI.Name)
         ruleNameJ := lo.FromPtr(ruleJ.Name)
         if ruleNameI == defaultCatchAllRuleName </span><span class="cov5" title="14">{
                 return false
         }</span>
-        <span class="cov9" title="92">if ruleNameJ == defaultCatchAllRuleName </span><span class="cov5" title="16">{
+        <span class="cov9" title="108">if ruleNameJ == defaultCatchAllRuleName </span><span class="cov6" title="20">{
                 return true
         }</span>
-        <span class="cov8" title="76">grpcRuleI := routingRuleMatchesNativeGRPC(ruleI)
+        <span class="cov8" title="88">grpcRuleI := routingRuleMatchesNativeGRPC(ruleI)
         grpcRuleJ := routingRuleMatchesNativeGRPC(ruleJ)
         if grpcRuleI != grpcRuleJ </span><span class="cov3" title="4">{
                 return grpcRuleI
         }</span>
-        <span class="cov8" title="72">return ruleNameI &lt; ruleNameJ</span>
+        <span class="cov8" title="84">return ruleNameI &lt; ruleNameJ</span>
 }
 
-func routingRuleMatchesNativeGRPC(rule loadbalancer.RoutingRule) bool <span class="cov10" title="152">{
+func routingRuleMatchesNativeGRPC(rule loadbalancer.RoutingRule) bool <span class="cov10" title="176">{
         condition := lo.FromPtr(rule.Condition)
         return strings.Contains(condition, "eq (i 'application/grpc')") ||
                 strings.Contains(condition, "sw (i 'application/grpc+')") ||
@@ -12531,7 +12559,7 @@ func routingRuleMatchesNativeGRPC(rule loadbalancer.RoutingRule) bool <span clas
 }</span>
 
 func sortRoutingRules(rules []loadbalancer.RoutingRule) <span class="cov6" title="27">{
-        sort.Slice(rules, func(i, j int) bool </span><span class="cov9" title="106">{
+        sort.Slice(rules, func(i, j int) bool </span><span class="cov9" title="122">{
                 return routingRuleLess(rules[i], rules[j])
         }</span>)
 }
@@ -12765,35 +12793,35 @@ func certificateNamesFromListenerCertificates(
         listenerCertificates map[string][]loadbalancer.Certificate,
 ) []string <span class="cov5" title="10">{
         certNames := make([]string, 0, len(listenerCertificates))
-        for _, certificates := range listenerCertificates </span><span class="cov5" title="14">{
-                for _, cert := range certificates </span><span class="cov5" title="15">{
+        for _, certificates := range listenerCertificates </span><span class="cov5" title="16">{
+                for _, cert := range certificates </span><span class="cov5" title="17">{
                         if cert.CertificateName == nil </span><span class="cov0" title="0">{
                                 continue</span>
                         }
-                        <span class="cov5" title="15">certNames = append(certNames, *cert.CertificateName)</span>
+                        <span class="cov5" title="17">certNames = append(certNames, *cert.CertificateName)</span>
                 }
         }
         <span class="cov5" title="10">return normalizeProgrammedCertificateNames(certNames)</span>
 }
 
-func listenerPolicyName(listenerName string) string <span class="cov9" title="113">{
+func listenerPolicyName(listenerName string) string <span class="cov9" title="122">{
         rawName := listenerName + "_policy"
         if isValidOCIRoutingPolicyName(rawName) </span><span class="cov4" title="6">{
                 return rawName
         }</span>
 
-        <span class="cov9" title="107">hash := listenerPolicyNameHash(listenerName)
+        <span class="cov9" title="116">hash := listenerPolicyNameHash(listenerName)
         namePrefix := fmt.Sprintf("p_%s_", hash)
         nameSuffix := invalidCharsForPolicyNamePattern.ReplaceAllString(rawName, "_")
         maxSuffixLength := maxListenerPolicyNameLength - len(namePrefix)
-        if len(nameSuffix) &gt; maxSuffixLength </span><span class="cov9" title="107">{
+        if len(nameSuffix) &gt; maxSuffixLength </span><span class="cov9" title="116">{
                 nameSuffix = nameSuffix[:maxSuffixLength]
         }</span>
 
-        <span class="cov9" title="107">return namePrefix + nameSuffix</span>
+        <span class="cov9" title="116">return namePrefix + nameSuffix</span>
 }
 
-func listenerPolicyNameHash(listenerName string) string <span class="cov9" title="111">{
+func listenerPolicyNameHash(listenerName string) string <span class="cov9" title="120">{
         sum := sha256.Sum256([]byte(listenerName))
         return hex.EncodeToString(sum[:])[:listenerPolicyNameHashLength]
 }</span>
@@ -12808,7 +12836,7 @@ and upper- or lowercase letters.
 var invalidCharsForPolicyNamePattern = regexp.MustCompile(`[^a-zA-Z0-9_]`)
 var validOCIRoutingPolicyNamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
-func isValidOCIRoutingPolicyName(policyName string) bool <span class="cov9" title="121">{
+func isValidOCIRoutingPolicyName(policyName string) bool <span class="cov9" title="130">{
         return len(policyName) &lt;= maxListenerPolicyNameLength &amp;&amp;
                 validOCIRoutingPolicyNamePattern.MatchString(policyName)
 }</span>
@@ -12816,7 +12844,7 @@ func isValidOCIRoutingPolicyName(policyName string) bool <span class="cov9" titl
 // ociListerPolicyRuleName returns the name of the routing rule for the listener policy.
 // It's expected that the rule name is unique within the listener policy for every route.
 // Names should also be sortable, so we're using a 4 digit index.
-func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string <span class="cov6" title="17">{
+func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string <span class="cov5" title="17">{
         rule := route.Spec.Rules[ruleIndex]
         nameParts := []string{route.Namespace, route.Name}
 
@@ -12824,7 +12852,7 @@ func ociListerPolicyRuleName(route gatewayv1.HTTPRoute, ruleIndex int) string <s
                 nameParts = append(nameParts, string(*rule.Name))
         }</span>
 
-        <span class="cov6" title="17">return ociListenerPolicyRuleNameFromParts(ruleIndex, nameParts...)</span>
+        <span class="cov5" title="17">return ociListenerPolicyRuleNameFromParts(ruleIndex, nameParts...)</span>
 }
 
 func ociGRPCListenerPolicyRuleName(route gatewayv1.GRPCRoute, ruleIndex int) string <span class="cov3" title="5">{
@@ -12852,13 +12880,13 @@ func ociListenerPolicyRuleNameFromParts(ruleIndex int, nameParts ...string) stri
         })
 }</span>
 
-func ociListenerPolicyRuleIdentity(ruleIndex int, nameParts ...string) string <span class="cov7" title="29">{
+func ociListenerPolicyRuleIdentity(ruleIndex int, nameParts ...string) string <span class="cov6" title="29">{
         var result strings.Builder
         result.WriteString(strconv.Itoa(ruleIndex))
         for _, part := range nameParts </span><span class="cov8" title="71">{
                 fmt.Fprintf(&amp;result, ":%d:%s", len(part), part)
         }</span>
-        <span class="cov7" title="29">return result.String()</span>
+        <span class="cov6" title="29">return result.String()</span>
 }
 
 // ociBackendSetName returns the name of the backend set for the route.
@@ -12909,7 +12937,7 @@ type makeOciListenerUpdateDetailsParams struct {
 
 func makeOciListenerUpdateDetails(
         params makeOciListenerUpdateDetailsParams,
-) (loadbalancer.UpdateListenerDetails, bool) <span class="cov6" title="19">{
+) (loadbalancer.UpdateListenerDetails, bool) <span class="cov6" title="23">{
         expectedProtocol := expectedHTTPListenerProtocol(params.existingListenerData)
         hasChanges := params.existingListenerData.Protocol == nil ||
                 *params.existingListenerData.Protocol != expectedProtocol
@@ -12918,43 +12946,27 @@ func makeOciListenerUpdateDetails(
                 hasChanges = true
         }</span>
 
-        <span class="cov6" title="19">if lo.FromPtr(params.existingListenerData.DefaultBackendSetName) != params.defaultBackendSetName </span><span class="cov3" title="5">{
+        <span class="cov6" title="23">if lo.FromPtr(params.existingListenerData.DefaultBackendSetName) != params.defaultBackendSetName </span><span class="cov3" title="5">{
                 hasChanges = true
         }</span>
 
-        <span class="cov6" title="19">expectedPolicyName := listenerPolicyName(params.listenerName)
+        <span class="cov6" title="23">expectedPolicyName := listenerPolicyName(params.listenerName)
         if lo.FromPtr(params.existingListenerData.RoutingPolicyName) != expectedPolicyName </span><span class="cov3" title="5">{
                 hasChanges = true
         }</span>
 
-        <span class="cov6" title="19">existingCertName := ""
-        if params.existingListenerData.SslConfiguration != nil &amp;&amp;
-                params.existingListenerData.SslConfiguration.CertificateName != nil </span><span class="cov2" title="2">{
-                existingCertName = *params.existingListenerData.SslConfiguration.CertificateName
-        }</span>
-        <span class="cov6" title="19">existingCertIDs := normalizeCertificateIDs(nil)
-        if params.existingListenerData.SslConfiguration != nil </span><span class="cov3" title="4">{
-                existingCertIDs = normalizeCertificateIDs(params.existingListenerData.SslConfiguration.CertificateIds)
-        }</span>
-
-        <span class="cov6" title="19">newCertName := ""
-        if params.sslConfig != nil &amp;&amp; params.sslConfig.CertificateName != nil </span><span class="cov2" title="3">{
-                newCertName = *params.sslConfig.CertificateName
-        }</span>
-        <span class="cov6" title="19">newCertIDs := normalizeCertificateIDs(nil)
-        if params.sslConfig != nil </span><span class="cov4" title="7">{
-                newCertIDs = normalizeCertificateIDs(params.sslConfig.CertificateIds)
-        }</span>
-
-        <span class="cov6" title="19">if existingCertName != newCertName || !slices.Equal(existingCertIDs, newCertIDs) </span><span class="cov4" title="7">{
+        <span class="cov6" title="23">if !loadBalancerListenerSSLConfigurationsEqual(
+                sslConfigurationDetailsFromBackendSet(params.existingListenerData.SslConfiguration),
+                params.sslConfig,
+        ) </span><span class="cov4" title="8">{
                 hasChanges = true
         }</span>
 
-        <span class="cov6" title="19">if !hasChanges </span><span class="cov3" title="4">{
+        <span class="cov6" title="23">if !hasChanges </span><span class="cov4" title="7">{
                 return loadbalancer.UpdateListenerDetails{}, false
         }</span>
 
-        <span class="cov5" title="15">return loadbalancer.UpdateListenerDetails{
+        <span class="cov5" title="16">return loadbalancer.UpdateListenerDetails{
                 Protocol:              new(expectedProtocol),
                 Port:                  new(int(params.listenerSpec.Port)),
                 DefaultBackendSetName: new(params.defaultBackendSetName),
@@ -12963,18 +12975,27 @@ func makeOciListenerUpdateDetails(
         }, true</span>
 }
 
-func expectedHTTPListenerProtocol(existingListener loadbalancer.Listener) string <span class="cov6" title="19">{
+func expectedHTTPListenerProtocol(existingListener loadbalancer.Listener) string <span class="cov6" title="23">{
         if lo.FromPtr(existingListener.Protocol) == ociListenerProtocolHTTP2 </span><span class="cov2" title="2">{
                 return ociListenerProtocolHTTP2
         }</span>
-        <span class="cov6" title="17">return ociListenerProtocolHTTP</span>
+        <span class="cov6" title="21">return ociListenerProtocolHTTP</span>
 }
 
-func normalizeCertificateIDs(certificateIDs []string) []string <span class="cov8" title="80">{
-        if len(certificateIDs) == 0 </span><span class="cov8" title="67">{
-                return nil
+func applyListenerTLSOptions(
+        sslConfig *loadbalancer.SslConfigurationDetails,
+        tlsConfig *gatewayv1.ListenerTLSConfig,
+) <span class="cov5" title="12">{
+        if sslConfig == nil || tlsConfig == nil </span><span class="cov3" title="5">{
+                return
         }</span>
-        <span class="cov5" title="13">return certificateIDs</span>
+        <span class="cov4" title="7">if protocols := splitCSVOption(tlsConfig.Options[ListenerTLSOptionProtocols]); len(protocols) &gt; 0 </span><span class="cov3" title="4">{
+                sslConfig.Protocols = protocols
+        }</span>
+        <span class="cov4" title="7">cipherSuite := strings.TrimSpace(string(tlsConfig.Options[ListenerTLSOptionCipherSuiteName]))
+        if cipherSuite != "" </span><span class="cov3" title="4">{
+                sslConfig.CipherSuiteName = &amp;cipherSuite
+        }</span>
 }
 
 type ociLoadBalancerModelDeps struct {
@@ -12987,7 +13008,7 @@ type ociLoadBalancerModelDeps struct {
         RoutingRulesMapper  ociLoadBalancerRoutingRulesMapper
 }
 
-func newOciLoadBalancerModel(deps ociLoadBalancerModelDeps) *ociLoadBalancerModelImpl <span class="cov9" title="98">{
+func newOciLoadBalancerModel(deps ociLoadBalancerModelDeps) *ociLoadBalancerModelImpl <span class="cov8" title="98">{
         return &amp;ociLoadBalancerModelImpl{
                 logger:              deps.RootLogger.WithGroup("oci-load-balancer-model"),
                 ociClient:           deps.OciClient,
@@ -16427,10 +16448,12 @@ func (m *tlsRouteModelImpl) reconcileLoadBalancerBackendSet(
 func (m *tlsRouteModelImpl) tlsListenerSSLConfig(
         details resolvedTLSRouteDetails,
         certificates reconcileListenersCertificatesResult,
-) (*loadbalancer.SslConfigurationDetails, error) <span class="cov3" title="4">{
+) (*loadbalancer.SslConfigurationDetails, error) <span class="cov4" title="5">{
         listenerName := string(details.matchedListener.Name)
-        if certificateID := certificates.certificateIDsByListener[listenerName]; certificateID != "" </span><span class="cov1" title="1">{
-                return &amp;loadbalancer.SslConfigurationDetails{CertificateIds: []string{certificateID}}, nil
+        if certificateID := certificates.certificateIDsByListener[listenerName]; certificateID != "" </span><span class="cov2" title="2">{
+                sslConfig := &amp;loadbalancer.SslConfigurationDetails{CertificateIds: []string{certificateID}}
+                applyListenerTLSOptions(sslConfig, details.matchedListener.TLS)
+                return sslConfig, nil
         }</span>
         <span class="cov3" title="3">listenerCertificates := certificates.certificatesByListener[listenerName]
         if len(listenerCertificates) == 0 </span><span class="cov1" title="1">{
@@ -16442,7 +16465,9 @@ func (m *tlsRouteModelImpl) tlsListenerSSLConfig(
                         ),
                 )
         }</span>
-        <span class="cov2" title="2">return &amp;loadbalancer.SslConfigurationDetails{CertificateName: listenerCertificates[0].CertificateName}, nil</span>
+        <span class="cov2" title="2">sslConfig := &amp;loadbalancer.SslConfigurationDetails{CertificateName: listenerCertificates[0].CertificateName}
+        applyListenerTLSOptions(sslConfig, details.matchedListener.TLS)
+        return sslConfig, nil</span>
 }
 
 func (m *tlsRouteModelImpl) reconcileLoadBalancerTLSListener(
@@ -16452,7 +16477,7 @@ func (m *tlsRouteModelImpl) reconcileLoadBalancerTLSListener(
         existingListener loadbalancer.Listener,
         listener gatewayv1.Listener,
         sslConfig *loadbalancer.SslConfigurationDetails,
-) error <span class="cov5" title="10">{
+) error <span class="cov5" title="12">{
         listenerName := string(listener.Name)
         updateDetails, hasExistingChanges := makeOciTLSListenerUpdateDetails(
                 existingListener,
@@ -16460,11 +16485,11 @@ func (m *tlsRouteModelImpl) reconcileLoadBalancerTLSListener(
                 backendSetName,
                 sslConfig,
         )
-        if existingListener.Name != nil </span><span class="cov4" title="5">{
-                if !hasExistingChanges </span><span class="cov1" title="1">{
+        if existingListener.Name != nil </span><span class="cov4" title="7">{
+                if !hasExistingChanges </span><span class="cov2" title="2">{
                         return nil
                 }</span>
-                <span class="cov3" title="4">updateRes, err := m.ociLoadBalancerAPI.UpdateListener(ctx, loadbalancer.UpdateListenerRequest{
+                <span class="cov4" title="5">updateRes, err := m.ociLoadBalancerAPI.UpdateListener(ctx, loadbalancer.UpdateListenerRequest{
                         LoadBalancerId:        new(loadBalancerID),
                         ListenerName:          new(listenerName),
                         UpdateListenerDetails: updateDetails,
@@ -16472,13 +16497,13 @@ func (m *tlsRouteModelImpl) reconcileLoadBalancerTLSListener(
                 if err != nil </span><span class="cov1" title="1">{
                         return fmt.Errorf("failed to update TLSRoute listener %s: %w", listenerName, err)
                 }</span>
-                <span class="cov3" title="3">if updateRes.OpcWorkRequestId == nil </span><span class="cov1" title="1">{
+                <span class="cov3" title="4">if updateRes.OpcWorkRequestId == nil </span><span class="cov1" title="1">{
                         return fmt.Errorf("failed to update TLSRoute listener %s: missing work request id", listenerName)
                 }</span>
-                <span class="cov2" title="2">if err = m.workRequestsWatcher.WaitFor(ctx, *updateRes.OpcWorkRequestId); err != nil </span><span class="cov1" title="1">{
+                <span class="cov3" title="3">if err = m.workRequestsWatcher.WaitFor(ctx, *updateRes.OpcWorkRequestId); err != nil </span><span class="cov1" title="1">{
                         return fmt.Errorf("failed to wait for TLSRoute listener %s update: %w", listenerName, err)
                 }</span>
-                <span class="cov1" title="1">return nil</span>
+                <span class="cov2" title="2">return nil</span>
         }
 
         <span class="cov4" title="5">createRes, err := m.ociLoadBalancerAPI.CreateListener(ctx, loadbalancer.CreateListenerRequest{
@@ -16508,38 +16533,27 @@ func makeOciTLSListenerUpdateDetails(
         listener gatewayv1.Listener,
         backendSetName string,
         sslConfig *loadbalancer.SslConfigurationDetails,
-) (loadbalancer.UpdateListenerDetails, bool) <span class="cov5" title="10">{
+) (loadbalancer.UpdateListenerDetails, bool) <span class="cov5" title="12">{
         hasChanges := existingListener.Protocol == nil || *existingListener.Protocol != tlsRouteLoadBalancerProtocol
         if existingListener.Port == nil || *existingListener.Port != int(listener.Port) </span><span class="cov4" title="8">{
                 hasChanges = true
         }</span>
-        <span class="cov5" title="10">if lo.FromPtr(existingListener.DefaultBackendSetName) != backendSetName </span><span class="cov5" title="9">{
+        <span class="cov5" title="12">if lo.FromPtr(existingListener.DefaultBackendSetName) != backendSetName </span><span class="cov5" title="9">{
                 hasChanges = true
         }</span>
-        <span class="cov5" title="10">if lo.FromPtr(existingListener.RoutingPolicyName) != "" </span><span class="cov1" title="1">{
+        <span class="cov5" title="12">if lo.FromPtr(existingListener.RoutingPolicyName) != "" </span><span class="cov1" title="1">{
                 hasChanges = true
         }</span>
-        <span class="cov5" title="10">existingCertName := ""
-        existingCertIDs := normalizeCertificateIDs(nil)
-        if existingListener.SslConfiguration != nil </span><span class="cov1" title="1">{
-                existingCertName = lo.FromPtr(existingListener.SslConfiguration.CertificateName)
-                existingCertIDs = normalizeCertificateIDs(existingListener.SslConfiguration.CertificateIds)
-        }</span>
-        <span class="cov5" title="10">newCertName := ""
-        newCertIDs := normalizeCertificateIDs(nil)
-        if sslConfig != nil </span><span class="cov5" title="10">{
-                newCertName = lo.FromPtr(sslConfig.CertificateName)
-                newCertIDs = normalizeCertificateIDs(sslConfig.CertificateIds)
-        }</span>
-        <span class="cov5" title="10">if existingCertName != newCertName || !lo.EveryBy(newCertIDs, func(certID string) bool </span><span class="cov4" title="8">{
-                return lo.Contains(existingCertIDs, certID)
-        }</span>) || len(existingCertIDs) != len(newCertIDs) <span class="cov5" title="9">{
+        <span class="cov5" title="12">if !loadBalancerListenerSSLConfigurationsEqual(
+                sslConfigurationDetailsFromBackendSet(existingListener.SslConfiguration),
+                sslConfig,
+        ) </span><span class="cov5" title="10">{
                 hasChanges = true
         }</span>
-        <span class="cov5" title="10">if !hasChanges </span><span class="cov1" title="1">{
+        <span class="cov5" title="12">if !hasChanges </span><span class="cov2" title="2">{
                 return loadbalancer.UpdateListenerDetails{}, false
         }</span>
-        <span class="cov5" title="9">return loadbalancer.UpdateListenerDetails{
+        <span class="cov5" title="10">return loadbalancer.UpdateListenerDetails{
                 Protocol:              new(tlsRouteLoadBalancerProtocol),
                 Port:                  new(int(listener.Port)),
                 DefaultBackendSetName: new(backendSetName),
@@ -17141,20 +17155,20 @@ type tlsRouteModelDeps struct {
         BackendTLS                backendTLSPolicyModel
 }
 
-func newTLSRouteModel(deps tlsRouteModelDeps) *tlsRouteModelImpl <span class="cov10" title="112">{
+func newTLSRouteModel(deps tlsRouteModelDeps) *tlsRouteModelImpl <span class="cov10" title="115">{
         operationLocks := deps.OperationLocks
-        if operationLocks == nil </span><span class="cov9" title="111">{
+        if operationLocks == nil </span><span class="cov9" title="114">{
                 operationLocks = newNetworkLoadBalancerOperationLocks()
         }</span>
-        <span class="cov10" title="112">watcher := deps.WorkRequestsWatcher
-        if watcher == nil </span><span class="cov9" title="91">{
+        <span class="cov10" title="115">watcher := deps.WorkRequestsWatcher
+        if watcher == nil </span><span class="cov9" title="93">{
                 watcher = noopWorkRequestsWatcher{}
         }</span>
-        <span class="cov10" title="112">nlbWatcher := deps.NLBWorkRequestsWatcher
-        if nlbWatcher == nil </span><span class="cov9" title="101">{
+        <span class="cov10" title="115">nlbWatcher := deps.NLBWorkRequestsWatcher
+        if nlbWatcher == nil </span><span class="cov9" title="104">{
                 nlbWatcher = noopWorkRequestsWatcher{}
         }</span>
-        <span class="cov10" title="112">return &amp;tlsRouteModelImpl{
+        <span class="cov10" title="115">return &amp;tlsRouteModelImpl{
                 client:                    deps.K8sClient,
                 logger:                    deps.RootLogger.WithGroup("tlsroute-model"),
                 networkLoadBalancerModel:  deps.NetworkLoadBalancerModel,
@@ -20033,25 +20047,25 @@ type diagLogHandler struct {
         target slog.Handler
 }
 
-func (h *diagLogHandler) Enabled(ctx context.Context, lvl slog.Level) bool <span class="cov9" title="626">{
+func (h *diagLogHandler) Enabled(ctx context.Context, lvl slog.Level) bool <span class="cov9" title="627">{
         return h.target.Enabled(ctx, lvl)
 }</span>
 
-func (h *diagLogHandler) Handle(ctx context.Context, rec slog.Record) error <span class="cov9" title="628">{
+func (h *diagLogHandler) Handle(ctx context.Context, rec slog.Record) error <span class="cov9" title="629">{
         if diagAttributes, ok := ctx.Value(contextDiagAttrs).(LogAttributes); ok </span><span class="cov1" title="2">{
                 rec.AddAttrs(
                         slog.Attr{Key: "correlationId", Value: diagAttributes.CorrelationID},
                 )
         }</span>
 
-        <span class="cov9" title="628">return h.target.Handle(ctx, rec)</span>
+        <span class="cov9" title="629">return h.target.Handle(ctx, rec)</span>
 }
 
-func (h *diagLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler <span class="cov10" title="906">{
+func (h *diagLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler <span class="cov10" title="909">{
         return &amp;diagLogHandler{target: h.target.WithAttrs(attrs)}
 }</span>
 
-func (h *diagLogHandler) WithGroup(name string) slog.Handler <span class="cov9" title="870">{
+func (h *diagLogHandler) WithGroup(name string) slog.Handler <span class="cov9" title="873">{
         // Using WithAttrs here since group will nest all the attributes
         // inside of it (including correlationId), which makes it harder to
         // filter logs by the correlationId.
@@ -20070,23 +20084,23 @@ type RootLoggerOpts struct {
         logLevel slog.Level
 }
 
-func NewRootLoggerOpts() *RootLoggerOpts <span class="cov9" title="799">{
+func NewRootLoggerOpts() *RootLoggerOpts <span class="cov9" title="802">{
         return &amp;RootLoggerOpts{
                 output: os.Stdout,
         }
 }</span>
 
-func (opts *RootLoggerOpts) WithJSONLogs(value bool) *RootLoggerOpts <span class="cov9" title="796">{
+func (opts *RootLoggerOpts) WithJSONLogs(value bool) *RootLoggerOpts <span class="cov9" title="799">{
         opts.jsonLogs = value
         return opts
 }</span>
 
-func (opts *RootLoggerOpts) WithLogLevel(logLevel slog.Level) *RootLoggerOpts <span class="cov9" title="796">{
+func (opts *RootLoggerOpts) WithLogLevel(logLevel slog.Level) *RootLoggerOpts <span class="cov9" title="799">{
         opts.logLevel = logLevel
         return opts
 }</span>
 
-func (opts *RootLoggerOpts) WithOutput(output io.Writer) *RootLoggerOpts <span class="cov9" title="794">{
+func (opts *RootLoggerOpts) WithOutput(output io.Writer) *RootLoggerOpts <span class="cov9" title="797">{
         opts.output = output
         return opts
 }</span>
@@ -20103,15 +20117,15 @@ func (opts *RootLoggerOpts) WithOptionalOutputFile(outputFile string) *RootLogge
         return opts</span>
 }
 
-func SetupRootLogger(opts *RootLoggerOpts) *slog.Logger <span class="cov9" title="799">{
+func SetupRootLogger(opts *RootLoggerOpts) *slog.Logger <span class="cov9" title="802">{
         logHandlerOpts := &amp;slog.HandlerOptions{Level: opts.logLevel}
         var logHandler slog.Handler
-        if opts.jsonLogs </span><span class="cov9" title="794">{
+        if opts.jsonLogs </span><span class="cov9" title="797">{
                 logHandler = slog.NewJSONHandler(opts.output, logHandlerOpts)
         }</span> else<span class="cov3" title="5"> {
                 logHandler = slog.NewTextHandler(opts.output, logHandlerOpts)
         }</span>
-        <span class="cov9" title="799">return slog.New(&amp;diagLogHandler{target: logHandler})</span>
+        <span class="cov9" title="802">return slog.New(&amp;diagLogHandler{target: logHandler})</span>
 }
 </pre>
 		
@@ -20144,7 +20158,7 @@ func openTestLogFile() *os.File <span class="cov4" title="10">{
 
 var testOutput = openTestLogFile() //nolint:gochecknoglobals //it's ok for tests
 
-func RootTestLogger() *slog.Logger <span class="cov10" title="793">{
+func RootTestLogger() *slog.Logger <span class="cov10" title="796">{
         return SetupRootLogger(
                 NewRootLoggerOpts().WithOutput(testOutput).WithLogLevel(slog.LevelDebug).WithJSONLogs(true),
         )
@@ -21509,7 +21523,7 @@ type OCIResourceNameConfig struct {
 }
 
 // defaultHashFunc calculates a CRC32 checksum and returns it as an 8-character lowercase hexadecimal string.
-func defaultHashFunc(input string) string <span class="cov7" title="27">{
+func defaultHashFunc(input string) string <span class="cov7" title="34">{
         checksum := crc32.ChecksumIEEE([]byte(input))
         return fmt.Sprintf("%08x", checksum)
 }</span>
@@ -21544,18 +21558,18 @@ func ConstructOCIResourceName(originalName string, config OCIResourceNameConfig)
                 resultingName = config.sanitizeFunc(originalName, config.InvalidCharsPattern)
         }</span>
 
-        <span class="cov10" title="129">if config.MaxLength &gt; 0 &amp;&amp; len(resultingName) &gt; config.MaxLength </span><span class="cov7" title="34">{
+        <span class="cov10" title="129">if config.MaxLength &gt; 0 &amp;&amp; len(resultingName) &gt; config.MaxLength </span><span class="cov7" title="41">{
                 hash := config.hashFunc(originalName)
                 if len(hash) &gt;= config.MaxLength </span><span class="cov2" title="2">{
                         return hash[:config.MaxLength]
                 }</span>
-                <span class="cov7" title="32">originalLength := len(resultingName)
+                <span class="cov7" title="39">originalLength := len(resultingName)
                 hashStarts := originalLength/ociResourceNameHashPartDivider - len(hash)/ociResourceNameHashPartDivider
                 maxHashStart := config.MaxLength - len(hash)
                 if hashStarts &gt; maxHashStart </span><span class="cov2" title="2">{
                         hashStarts = (maxHashStart + 1) / ociResourceNameHashPartDivider
                 }</span>
-                <span class="cov7" title="32">hashEnds := hashStarts + len(hash)
+                <span class="cov7" title="39">hashEnds := hashStarts + len(hash)
                 remainingLength := config.MaxLength - hashEnds
                 resultingName = resultingName[:hashStarts] + hash + resultingName[originalLength-remainingLength:]</span>
         }
@@ -22051,7 +22065,7 @@ func RandomString(length int) string <span class="cov8" title="10">{
         fake := faker.New()
         segmentsCount := math.Ceil(float64(length) / randomStringSegmentLength)
         segments := make([]string, int(segmentsCount))
-        for i := range segments </span><span class="cov10" title="15">{
+        for i := range segments </span><span class="cov10" title="14">{
                 segments[i] = fake.Numerify("################################")
         }</span>
         <span class="cov8" title="10">return strings.Join(segments, "")[:length]</span>
