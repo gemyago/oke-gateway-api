@@ -8,10 +8,10 @@ metadata:
 rules:
 # Permissions to watch and update Gateway API resources
 - apiGroups: ["gateway.networking.k8s.io"]
-  resources: ["gatewayclasses", "gateways", "httproutes", "grpcroutes", "tcproutes", "udproutes", "tlsroutes", "backendtlspolicies", "referencegrants"]
+  resources: ["gatewayclasses", "gateways", "httproutes", "grpcroutes", "tcproutes", "udproutes", "tlsroutes", "backendtlspolicies", "listenersets", "referencegrants"]
   verbs: ["get", "list", "watch", "update", "patch"] # Read access + update/patch for finalizers/annotations
 - apiGroups: ["gateway.networking.k8s.io"]
-  resources: ["gatewayclasses/status", "gateways/status", "httproutes/status", "grpcroutes/status", "tcproutes/status", "udproutes/status", "tlsroutes/status", "backendtlspolicies/status"]
+  resources: ["gatewayclasses/status", "gateways/status", "httproutes/status", "grpcroutes/status", "tcproutes/status", "udproutes/status", "tlsroutes/status", "backendtlspolicies/status", "listenersets/status"]
   verbs: ["update", "patch"] # Update status
 # Permissions to read necessary core resources for OCI LB configuration
 - apiGroups: [""]

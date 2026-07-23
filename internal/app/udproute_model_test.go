@@ -13,7 +13,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -603,6 +605,11 @@ func TestUDPRouteModel(t *testing.T) {
 					"bs_coap",
 					obj.GetAnnotations()[NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation],
 				)
+				assert.Equal(
+					t,
+					"nlb-id",
+					obj.GetAnnotations()[L4RouteProgrammedNetworkLoadBalancerIDAnnotation],
+				)
 				return nil
 			})
 
@@ -622,6 +629,7 @@ func TestUDPRouteModel(t *testing.T) {
 						},
 					},
 				},
+				config: types.GatewayConfig{Spec: types.GatewayConfigSpec{LoadBalancerID: "nlb-id"}},
 			},
 			matchedRef: gatewayv1.ParentReference{
 				Name: "edge",
@@ -714,6 +722,7 @@ func TestUDPRouteModel(t *testing.T) {
 				Finalizers: []string{NetworkLoadBalancerUDPRouteProgrammedFinalizer},
 				Annotations: map[string]string{
 					NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation: "bs_old",
+					L4RouteProgrammedNetworkLoadBalancerIDAnnotation:           "nlb-id",
 				},
 			},
 			Status: gatewayv1.UDPRouteStatus{
@@ -759,6 +768,7 @@ func TestUDPRouteModel(t *testing.T) {
 			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.UpdateOption) error {
 				assert.NotContains(t, obj.GetFinalizers(), NetworkLoadBalancerUDPRouteProgrammedFinalizer)
 				assert.NotContains(t, obj.GetAnnotations(), NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation)
+				assert.NotContains(t, obj.GetAnnotations(), L4RouteProgrammedNetworkLoadBalancerIDAnnotation)
 				return nil
 			})
 
@@ -801,6 +811,139 @@ func TestUDPRouteModel(t *testing.T) {
 		assert.Equal(t, 5684, lo.FromPtr(request.UpdateBackendSetDetails.HealthChecker.Port))
 		assert.Empty(t, request.UpdateBackendSetDetails.HealthChecker.RequestData)
 		assert.Empty(t, request.UpdateBackendSetDetails.HealthChecker.ResponseData)
+	})
+
+	t.Run("deprovisionDetachedRoute clears annotated backend set by load balancer id", func(t *testing.T) {
+		listenerSetKind := gatewayv1.Kind("ListenerSet")
+		route := gatewayv1.UDPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "iot",
+				Name:       "coap",
+				Finalizers: []string{NetworkLoadBalancerUDPRouteProgrammedFinalizer},
+				Annotations: map[string]string{
+					NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation: "bs_listener_set",
+					L4RouteProgrammedNetworkLoadBalancerIDAnnotation:           "nlb-id",
+				},
+			},
+			Status: gatewayv1.UDPRouteStatus{
+				RouteStatus: gatewayv1.RouteStatus{
+					Parents: []gatewayv1.RouteParentStatus{{
+						ParentRef: gatewayv1.ParentReference{
+							Kind: &listenerSetKind,
+							Name: "extra",
+						},
+						ControllerName: gatewayv1.GatewayController(NetworkLoadBalancerControllerClassName),
+					}},
+				},
+			},
+		}
+		mockClient := NewMockk8sClient(t)
+		mockClient.EXPECT().
+			Get(
+				t.Context(),
+				apitypes.NamespacedName{Namespace: "iot", Name: "extra"},
+				mock.AnythingOfType("*v1.Gateway"),
+			).
+			Return(apierrors.NewNotFound(schema.GroupResource{
+				Group:    gatewayv1.GroupName,
+				Resource: "gateways",
+			}, "extra"))
+		mockClient.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute")).
+			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.UpdateOption) error {
+				assert.NotContains(t, obj.GetFinalizers(), NetworkLoadBalancerUDPRouteProgrammedFinalizer)
+				assert.NotContains(t, obj.GetAnnotations(), NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation)
+				assert.NotContains(t, obj.GetAnnotations(), L4RouteProgrammedNetworkLoadBalancerIDAnnotation)
+				return nil
+			})
+		nlbClient := &stubNetworkLoadBalancerClient{}
+		model := newUDPRouteModel(udpRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  mockClient,
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{
+				networkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id: new("nlb-id"),
+					BackendSets: map[string]networkloadbalancer.BackendSet{
+						"bs_listener_set": {
+							Name: new("bs_listener_set"),
+							HealthChecker: &networkloadbalancer.HealthChecker{
+								Protocol: networkloadbalancer.HealthCheckProtocolsTcp,
+							},
+						},
+					},
+				},
+			},
+			OciNetworkLoadBalancerAPI: nlbClient,
+		})
+		modelImpl := mustUDPRouteModelImpl(t, model)
+
+		err := modelImpl.deprovisionDetachedRoute(t.Context(), route)
+
+		require.NoError(t, err)
+		require.Len(t, nlbClient.updateBackendSetRequests, 1)
+		request := nlbClient.updateBackendSetRequests[0]
+		assert.Equal(t, "nlb-id", lo.FromPtr(request.NetworkLoadBalancerId))
+		assert.Equal(t, "bs_listener_set", lo.FromPtr(request.BackendSetName))
+		assert.Empty(t, request.UpdateBackendSetDetails.Backends)
+	})
+
+	t.Run("deprovisionDetachedRoute returns annotated load balancer cleanup update errors", func(t *testing.T) {
+		route := gatewayv1.UDPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "iot",
+				Name:       "coap",
+				Finalizers: []string{NetworkLoadBalancerUDPRouteProgrammedFinalizer},
+				Annotations: map[string]string{
+					NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation: "bs_listener_set",
+					L4RouteProgrammedNetworkLoadBalancerIDAnnotation:           "nlb-id",
+				},
+			},
+		}
+		mockClient := NewMockk8sClient(t)
+		mockClient.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute")).
+			Return(errors.New("update failed"))
+		model := newUDPRouteModel(udpRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  mockClient,
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{
+				networkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id: new("nlb-id"),
+					BackendSets: map[string]networkloadbalancer.BackendSet{
+						"bs_listener_set": {Name: new("bs_listener_set")},
+					},
+				},
+			},
+			OciNetworkLoadBalancerAPI: &stubNetworkLoadBalancerClient{},
+		})
+		modelImpl := mustUDPRouteModelImpl(t, model)
+
+		err := modelImpl.deprovisionDetachedRoute(t.Context(), route)
+
+		require.ErrorContains(t, err, "failed to update detached UDPRoute")
+	})
+
+	t.Run("deprovisionDetachedRoute returns annotated load balancer cleanup errors", func(t *testing.T) {
+		route := gatewayv1.UDPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "iot",
+				Name:       "coap",
+				Finalizers: []string{NetworkLoadBalancerUDPRouteProgrammedFinalizer},
+				Annotations: map[string]string{
+					NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation: "bs_listener_set",
+					L4RouteProgrammedNetworkLoadBalancerIDAnnotation:           "nlb-id",
+				},
+			},
+		}
+		model := newUDPRouteModel(udpRouteModelDeps{
+			RootLogger:               diag.RootTestLogger(),
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{err: errors.New("nlb failed")},
+		})
+		modelImpl := mustUDPRouteModelImpl(t, model)
+
+		err := modelImpl.deprovisionDetachedRoute(t.Context(), route)
+
+		require.ErrorContains(t, err, "nlb failed")
 	})
 
 	t.Run("deprovisionDetachedRoute removes finalizer when no backend sets are annotated", func(t *testing.T) {

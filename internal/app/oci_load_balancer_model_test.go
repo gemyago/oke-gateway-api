@@ -2253,6 +2253,50 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("removes stale ListenerSet derived listeners", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+			gateway := gatewayv1.Gateway{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "infra-" + fake.Lorem().Word(),
+					Name:      "edge-" + fake.Lorem().Word(),
+				},
+			}
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "apps-" + fake.Lorem().Word(),
+					Name:      "media-" + fake.Lorem().Word(),
+				},
+			}
+			staleListenerName := listenerSetOCIListenerName(
+				gateway,
+				listenerSet,
+				gatewayv1.Listener{Name: "https", Protocol: gatewayv1.HTTPSProtocolType, Port: 443},
+			)
+			staleListener := makeRandomOCIListener(func(listener *loadbalancer.Listener) {
+				listener.Name = &staleListenerName
+			})
+			params := removeMissingListenersParams{
+				loadBalancerID: fake.UUID().V4(),
+				knownListeners: map[string]loadbalancer.Listener{
+					staleListenerName: staleListener,
+				},
+			}
+			workRequestID := fake.UUID().V4()
+			ociLoadBalancerClient.EXPECT().DeleteListener(t.Context(), loadbalancer.DeleteListenerRequest{
+				LoadBalancerId: &params.loadBalancerID,
+				ListenerName:   &staleListenerName,
+			}).Return(loadbalancer.DeleteListenerResponse{OpcWorkRequestId: &workRequestID}, nil).Once()
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil).Once()
+
+			err := model.removeMissingListeners(t.Context(), params)
+
+			require.NoError(t, err)
+		})
+
 		t.Run("some listeners to remove with routing policy", func(t *testing.T) {
 			fake := faker.New()
 			deps := makeMockDeps(t)

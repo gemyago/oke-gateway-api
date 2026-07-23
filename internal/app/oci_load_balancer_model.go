@@ -72,6 +72,7 @@ type reconcileHTTPListenerParams struct {
 type reconcileListenersCertificatesParams struct {
 	loadBalancerID    string
 	gateway           *gatewayv1.Gateway
+	gatewayListeners  []gatewayv1.Listener
 	knownCertificates map[string]loadbalancer.Certificate
 }
 
@@ -160,6 +161,12 @@ type ociLoadBalancerModel interface {
 	deprovisionBackendSet(
 		ctx context.Context,
 		params deprovisionBackendSetParams,
+	) error
+
+	deprovisionBackendSetByName(
+		ctx context.Context,
+		loadBalancerID string,
+		backendSetName string,
 	) error
 
 	// makeRoutingRule appends a new routing rule to the routing policy.
@@ -462,9 +469,13 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 
 	resultingCertificates := maps.Clone(params.knownCertificates)
 	listenerCertificates := make(map[string][]loadbalancer.Certificate)
-	certificateIDsByListener := gatewayCertificateIDsByListener(*params.gateway)
+	gatewayListeners := params.gatewayListeners
+	if len(gatewayListeners) == 0 {
+		gatewayListeners = params.gateway.Spec.Listeners
+	}
+	certificateIDsByListener := certificateIDsByListener(gatewayListeners)
 
-	for _, listenerSpec := range params.gateway.Spec.Listeners {
+	for _, listenerSpec := range gatewayListeners {
 		if _, usesOCICertificate := certificateIDsByListener[string(listenerSpec.Name)]; usesOCICertificate {
 			continue
 		}
@@ -1086,21 +1097,28 @@ func (m *ociLoadBalancerModelImpl) deprovisionBackendSet(
 		params.routeNamespace,
 		params.backendRef.BackendObjectReference,
 	)
+	return m.deprovisionBackendSetByName(ctx, params.loadBalancerID, backendSetName)
+}
 
+func (m *ociLoadBalancerModelImpl) deprovisionBackendSetByName(
+	ctx context.Context,
+	loadBalancerID string,
+	backendSetName string,
+) error {
 	m.logger.InfoContext(ctx, "Deprovisioning backend set",
-		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("loadBalancerId", loadBalancerID),
 		slog.String("backendSetName", backendSetName),
 	)
 
 	deleteRes, err := m.ociClient.DeleteBackendSet(ctx, loadbalancer.DeleteBackendSetRequest{
-		LoadBalancerId: &params.loadBalancerID,
+		LoadBalancerId: &loadBalancerID,
 		BackendSetName: &backendSetName,
 	})
 	if err != nil {
 		serviceErr, ok := common.IsServiceError(err)
 		if ok && serviceErr.GetHTTPStatusCode() == http.StatusNotFound {
 			m.logger.InfoContext(ctx, "Backend set not found, assuming already deprovisioned",
-				slog.String("loadBalancerId", params.loadBalancerID),
+				slog.String("loadBalancerId", loadBalancerID),
 				slog.String("backendSetName", backendSetName),
 			)
 			return nil // Already gone
@@ -1109,7 +1127,7 @@ func (m *ociLoadBalancerModelImpl) deprovisionBackendSet(
 			serviceErr.GetCode() == "InvalidParameter" &&
 			strings.Contains(serviceErr.GetMessage(), "used in routing policy") {
 			m.logger.InfoContext(ctx, "Backend set is used in routing policy, skipping deletion",
-				slog.String("loadBalancerId", params.loadBalancerID),
+				slog.String("loadBalancerId", loadBalancerID),
 				slog.String("backendSetName", backendSetName),
 				slog.Any("serviceError", err),
 			)
@@ -1129,7 +1147,7 @@ func (m *ociLoadBalancerModelImpl) deprovisionBackendSet(
 	}
 
 	m.logger.InfoContext(ctx, "Successfully deprovisioned backend set",
-		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("loadBalancerId", loadBalancerID),
 		slog.String("backendSetName", backendSetName),
 	)
 	return nil

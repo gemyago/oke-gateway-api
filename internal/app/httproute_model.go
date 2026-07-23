@@ -46,6 +46,7 @@ type programRouteParams struct {
 type programRouteResult struct {
 	// Names of the policy rules that were programmed for this particular route
 	programmedPolicyRules []string
+	programmedBackendSets []string
 }
 
 type deprovisionRouteParams struct {
@@ -59,10 +60,12 @@ type setProgrammedParams struct {
 	httpRoute    gatewayv1.HTTPRoute
 	gatewayClass gatewayv1.GatewayClass
 	gateway      gatewayv1.Gateway
+	config       types.GatewayConfig
 	matchedRef   gatewayv1.ParentReference
 
 	// List of load balancer policy rules that were programmed for this route
 	programmedPolicyRules []string
+	programmedBackendSets []string
 }
 
 type programmedHTTPRoutePolicyRule struct {
@@ -93,14 +96,16 @@ type l7RouteCandidate struct {
 }
 
 type l7RouteConflictParams struct {
-	gateway          gatewayv1.Gateway
-	matchedListeners []gatewayv1.Listener
-	current          l7RouteCandidate
-	oppositeRoutes   []l7RouteCandidate
+	gateway            gatewayv1.Gateway
+	effectiveListeners []effectiveListener
+	matchedListeners   []gatewayv1.Listener
+	current            l7RouteCandidate
+	oppositeRoutes     []l7RouteCandidate
 }
 
 type checkL7RouteConflictParams struct {
 	gateway               gatewayv1.Gateway
+	effectiveListeners    []effectiveListener
 	matchedListeners      []gatewayv1.Listener
 	current               l7RouteCandidate
 	oppositeRouteListName string
@@ -126,10 +131,27 @@ type programL7RoutePolicyParams struct {
 	knownBackends       map[string]v1.Service
 	matchedListeners    []gatewayv1.Listener
 	previousPolicyRules []programmedHTTPRoutePolicyRule
+	previousBackendSets map[string]struct{}
 	ruleCount           int
 	makeRoutingRule     func(ruleIndex int) (loadbalancer.RoutingRule, error)
 	backendTLSPolicy    backendTLSPolicyModel
 	backendTLSDisabled  bool
+}
+
+type programL7RouteParams struct {
+	route                 client.Object
+	loadBalancerID        string
+	gateway               gatewayv1.Gateway
+	config                types.GatewayConfig
+	backendRefs           []gatewayv1.BackendRef
+	knownBackends         map[string]v1.Service
+	matchedListeners      []gatewayv1.Listener
+	backendTLSPolicy      backendTLSPolicyModel
+	backendTLSDisabled    bool
+	ruleCount             int
+	policyRulesAnnotation string
+	backendSetsAnnotation string
+	makeRoutingRule       func(ruleIndex int) (loadbalancer.RoutingRule, error)
 }
 
 type setL7RouteProgrammedParams struct {
@@ -137,11 +159,14 @@ type setL7RouteProgrammedParams struct {
 	parentStatuses        []gatewayv1.RouteParentStatus
 	gatewayClass          gatewayv1.GatewayClass
 	gateway               gatewayv1.Gateway
+	loadBalancerID        string
 	matchedRef            gatewayv1.ParentReference
 	programmedPolicyRules []string
+	programmedBackendSets []string
 	programmingAnnotation string
 	programmingRevision   string
 	policyRulesAnnotation string
+	backendSetsAnnotation string
 	finalizer             string
 }
 
@@ -219,7 +244,13 @@ func l7RouteConflictingWinner(params l7RouteConflictParams) (l7RouteCandidate, b
 		if params.current.identity.kind != oppositeRoute.identity.kind {
 			continue
 		}
-		if !l7RoutesShareListenerHostname(params.gateway, params.matchedListeners, params.current, oppositeRoute) {
+		if !l7RoutesShareListenerHostname(
+			params.gateway,
+			params.effectiveListeners,
+			params.matchedListeners,
+			params.current,
+			oppositeRoute,
+		) {
 			continue
 		}
 		if l7RouteWins(oppositeRoute.identity, params.current.identity) {
@@ -242,10 +273,11 @@ func checkL7RouteConflict(ctx context.Context, params checkL7RouteConflictParams
 		)
 	}
 	winner, conflicted := l7RouteConflictingWinner(l7RouteConflictParams{
-		gateway:          params.gateway,
-		matchedListeners: params.matchedListeners,
-		current:          params.current,
-		oppositeRoutes:   oppositeRoutes,
+		gateway:            params.gateway,
+		effectiveListeners: params.effectiveListeners,
+		matchedListeners:   params.matchedListeners,
+		current:            params.current,
+		oppositeRoutes:     oppositeRoutes,
 	})
 	return winner, conflicted, nil
 }
@@ -320,12 +352,13 @@ func removeL7RoutePolicyRules(
 
 func l7RoutesShareListenerHostname(
 	gateway gatewayv1.Gateway,
+	effectiveListeners []effectiveListener,
 	matchedListeners []gatewayv1.Listener,
 	a l7RouteCandidate,
 	b l7RouteCandidate,
 ) bool {
 	listenerByName := lo.SliceToMap(
-		gateway.Spec.Listeners,
+		effectiveOCIListeners(gateway, effectiveListeners),
 		func(listener gatewayv1.Listener) (gatewayv1.SectionName, gatewayv1.Listener) {
 			return listener.Name, listener
 		},
@@ -336,7 +369,7 @@ func l7RoutesShareListenerHostname(
 			return listener.Name, struct{}{}
 		},
 	)
-	for _, listenerName := range l7RouteAttachedListenerNames(gateway, b.parentRefs, b.identity.namespace) {
+	for _, listenerName := range l7RouteAttachedListenerNames(gateway, effectiveListeners, b.parentRefs, b.identity.namespace) {
 		if _, matched := matchedListenerNames[listenerName]; !matched {
 			continue
 		}
@@ -356,35 +389,39 @@ func l7RoutesShareListenerHostname(
 
 func l7RouteAttachedListenerNames(
 	gateway gatewayv1.Gateway,
+	effectiveListeners []effectiveListener,
 	parentRefs []gatewayv1.ParentReference,
 	routeNamespace string,
 ) []gatewayv1.SectionName {
 	listenerNames := lo.SliceToMap(
-		gateway.Spec.Listeners,
+		effectiveOCIListeners(gateway, effectiveListeners),
 		func(listener gatewayv1.Listener) (gatewayv1.SectionName, struct{}) {
 			return listener.Name, struct{}{}
 		},
 	)
-	result := make([]gatewayv1.SectionName, 0, len(gateway.Spec.Listeners))
+	result := make([]gatewayv1.SectionName, 0, len(listenerNames))
 	for _, parentRef := range parentRefs {
-		parentNamespace := routeNamespace
-		if parentRef.Namespace != nil {
-			parentNamespace = string(*parentRef.Namespace)
-		}
-		if parentNamespace != gateway.Namespace || string(parentRef.Name) != gateway.Name {
-			continue
-		}
-		if parentRef.SectionName != nil {
-			if _, found := listenerNames[*parentRef.SectionName]; found {
-				result = append(result, *parentRef.SectionName)
+		for _, listener := range effectiveListenersForParentRef(
+			resolvedGatewayDetails{gateway: gateway, effectiveListeners: effectiveListeners},
+			parentRef,
+			routeNamespace,
+			func(ref gatewayv1.ParentReference, listener gatewayv1.Listener) bool {
+				return ref.SectionName == nil || listener.Name == *ref.SectionName
+			},
+		) {
+			if _, found := listenerNames[listener.Name]; found {
+				result = append(result, listener.Name)
 			}
-			continue
-		}
-		for _, listener := range gateway.Spec.Listeners {
-			result = append(result, listener.Name)
 		}
 	}
 	return lo.Uniq(result)
+}
+
+func effectiveOCIListeners(gateway gatewayv1.Gateway, listeners []effectiveListener) []gatewayv1.Listener {
+	return effectiveOCIListenersForGateway(&resolvedGatewayDetails{
+		gateway:            gateway,
+		effectiveListeners: listeners,
+	})
 }
 
 func l7RouteHostnamesForListener(
@@ -580,15 +617,7 @@ func (m *httpRouteModelImpl) resolveRouteParentRefData(
 	parentRef gatewayv1.ParentReference,
 	defaultNamespace string,
 ) (*resolvedGatewayDetails, []gatewayv1.Listener, error) {
-	var resolvedGatewayData resolvedGatewayDetails
-	gatewayNamespace := defaultNamespace
-	if parentRef.Namespace != nil {
-		gatewayNamespace = string(lo.FromPtr(parentRef.Namespace))
-	}
-	parentName := apitypes.NamespacedName{
-		Namespace: gatewayNamespace,
-		Name:      string(parentRef.Name),
-	}
+	parentName := parentRefTargetName(parentRef, defaultNamespace)
 	m.logger.DebugContext(ctx, "Resolving parent for HTTProute",
 		slog.String("parentName", parentName.String()),
 		slog.Any("parentRef", parentRef),
@@ -598,9 +627,13 @@ func (m *httpRouteModelImpl) resolveRouteParentRefData(
 		}.String()),
 	)
 
-	gatewayResolved, err := m.gatewayModel.resolveReconcileRequest(ctx, reconcile.Request{
-		NamespacedName: parentName,
-	}, &resolvedGatewayData)
+	resolvedGatewayData, gatewayResolved, err := resolveL7ParentGateway(
+		ctx,
+		m.client,
+		m.gatewayModel,
+		parentRef,
+		defaultNamespace,
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to resolve gateway %s for route %s/%s: %w",
 			parentName.String(), httpRoute.Namespace, httpRoute.Name, err)
@@ -614,10 +647,12 @@ func (m *httpRouteModelImpl) resolveRouteParentRefData(
 
 	if parentRef.SectionName != nil {
 		sectionName := *parentRef.SectionName
-		matchingListeners := lo.Filter(
-			resolvedGatewayData.gateway.Spec.Listeners,
-			func(l gatewayv1.Listener, _ int) bool {
-				return l.Name == sectionName
+		matchingListeners := effectiveListenersForParentRef(
+			resolvedGatewayData,
+			parentRef,
+			defaultNamespace,
+			func(ref gatewayv1.ParentReference, listener gatewayv1.Listener) bool {
+				return ref.SectionName != nil && listener.Name == sectionName
 			},
 		)
 
@@ -641,7 +676,45 @@ func (m *httpRouteModelImpl) resolveRouteParentRefData(
 	m.logger.DebugContext(ctx, "Gateway resolved without section name, all listeners match",
 		slog.String("parentName", parentName.String()),
 	)
-	return &resolvedGatewayData, resolvedGatewayData.gateway.Spec.Listeners, nil
+	return &resolvedGatewayData, effectiveListenersForParentRef(
+		resolvedGatewayData,
+		parentRef,
+		defaultNamespace,
+		func(gatewayv1.ParentReference, gatewayv1.Listener) bool { return true },
+	), nil
+}
+
+func resolveL7ParentGateway(
+	ctx context.Context,
+	k8sClient k8sClient,
+	gatewayModel gatewayModel,
+	parentRef gatewayv1.ParentReference,
+	routeNamespace string,
+) (resolvedGatewayDetails, bool, error) {
+	parentName := parentRefTargetName(parentRef, routeNamespace)
+	if parentRefTargetsListenerSet(parentRef) {
+		resolvedName, resolved, err := listenerSetParentGatewayTarget(ctx, k8sClient, routeNamespace, parentRef)
+		if err != nil || !resolved {
+			return resolvedGatewayDetails{}, resolved, err
+		}
+		parentName = resolvedName
+	} else if !parentRefTargetsGateway(parentRef) {
+		return resolvedGatewayDetails{}, false, nil
+	}
+
+	var resolvedGatewayData resolvedGatewayDetails
+	gatewayResolved, err := gatewayModel.resolveReconcileRequest(ctx, reconcile.Request{
+		NamespacedName: parentName,
+	}, &resolvedGatewayData)
+	if err != nil || !gatewayResolved {
+		return resolvedGatewayData, gatewayResolved, err
+	}
+	if parentRefTargetsListenerSet(parentRef) && len(resolvedGatewayData.effectiveListeners) == 0 {
+		if err = populateAttachedListenerSetsUnindexed(ctx, k8sClient, &resolvedGatewayData); err != nil {
+			return resolvedGatewayDetails{}, false, err
+		}
+	}
+	return resolvedGatewayData, true, nil
 }
 
 // aggregateRouteParentRefData adds or updates the results map with the resolved parent details.
@@ -730,6 +803,13 @@ func (m *httpRouteModelImpl) resolveRequest(
 			slog.String("route", req.NamespacedName.String()),
 			slog.Int("triedParentRefs", len(httpRoute.Spec.ParentRefs)),
 		)
+		deletingProgrammedRoute := httpRoute.DeletionTimestamp != nil &&
+			controllerutil.ContainsFinalizer(&httpRoute, HTTPRouteProgrammedFinalizer)
+		if deletingProgrammedRoute {
+			if err := m.deprovisionDetachedRoute(ctx, httpRoute); err != nil {
+				return nil, fmt.Errorf("failed to deprovision detached HTTPRoute %s: %w", req.NamespacedName, err)
+			}
+		}
 	}
 
 	return results, nil
@@ -743,8 +823,9 @@ func (m *httpRouteModelImpl) acceptRoute(
 	routeDetails resolvedRouteDetails,
 ) (*gatewayv1.HTTPRoute, error) {
 	winner, conflicted, err := checkL7RouteConflict(ctx, checkL7RouteConflictParams{
-		gateway:          routeDetails.gatewayDetails.gateway,
-		matchedListeners: routeDetails.matchedListeners,
+		gateway:            routeDetails.gatewayDetails.gateway,
+		effectiveListeners: routeDetails.gatewayDetails.effectiveListeners,
+		matchedListeners:   routeDetails.matchedListeners,
 		current: l7RouteCandidate{
 			identity: l7RouteIdentity{
 				kind:              l7HTTPRouteKind,
@@ -919,34 +1000,10 @@ func programL7RoutePolicy(
 	ctx context.Context,
 	ociLoadBalancerModel ociLoadBalancerModel,
 	params programL7RoutePolicyParams,
-) ([]string, error) {
-	processedBackendRefs := make(map[string]struct{})
-	for _, backendRef := range params.backendRefs {
-		key := l7BackendRefKey(backendRef, params.routeNamespace)
-		if _, ok := processedBackendRefs[key]; ok {
-			continue
-		}
-		serviceName := backendObjectRefName(backendRef.BackendObjectReference, params.routeNamespace).String()
-		service, ok := params.knownBackends[serviceName]
-		if !ok {
-			return nil, fmt.Errorf("resolved backend service %s not found", serviceName)
-		}
-		backendSSLConfig, manageSSLConfig, err := resolveL7BackendSSLConfig(ctx, params, service, backendRef)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve BackendTLSPolicy for service %s: %w", key, err)
-		}
-		err = ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
-			loadBalancerID:  params.loadBalancerID,
-			service:         service,
-			routeNS:         params.routeNamespace,
-			backendRef:      backendRef,
-			sslConfig:       backendSSLConfig,
-			manageSSLConfig: manageSSLConfig,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to reconcile backend set for service %s: %w", key, err)
-		}
-		processedBackendRefs[key] = struct{}{}
+) ([]string, []string, error) {
+	desiredBackendSets, reconcileErr := reconcileL7BackendSets(ctx, ociLoadBalancerModel, params)
+	if reconcileErr != nil {
+		return nil, nil, reconcileErr
 	}
 
 	policyRules := make([]loadbalancer.RoutingRule, 0, params.ruleCount)
@@ -954,7 +1011,12 @@ func programL7RoutePolicy(
 	for ruleIndex := range params.ruleCount {
 		rule, err := params.makeRoutingRule(ruleIndex)
 		if err != nil {
-			return nil, fmt.Errorf("failed to make routing rule %d for route %s: %w", ruleIndex, params.routeName, err)
+			return nil, nil, fmt.Errorf(
+				"failed to make routing rule %d for route %s: %w",
+				ruleIndex,
+				params.routeName,
+				err,
+			)
 		}
 		policyRules = append(policyRules, rule)
 		policyRuleNames = append(policyRuleNames, *rule.Name)
@@ -977,10 +1039,132 @@ func programL7RoutePolicy(
 			prevPolicyRules: prevRulesByListener[listenerName],
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to commit routing policy for listener %s: %w", listener.Name, err)
+			return nil, nil, fmt.Errorf("failed to commit routing policy for listener %s: %w", listener.Name, err)
 		}
 	}
 
+	if err := removeStaleL7PolicyRules(
+		ctx,
+		ociLoadBalancerModel,
+		params.loadBalancerID,
+		prevRulesByListener,
+		currentListenerNames,
+	); err != nil {
+		return nil, nil, err
+	}
+
+	if err := deprovisionStaleL7BackendSets(
+		ctx,
+		ociLoadBalancerModel,
+		params.loadBalancerID,
+		desiredBackendSets,
+		params.previousBackendSets,
+	); err != nil {
+		return nil, nil, err
+	}
+
+	programmedBackendSets := lo.Keys(desiredBackendSets)
+	sort.Strings(programmedBackendSets)
+
+	return programmedHTTPRoutePolicyRulesAnnotation(params.matchedListeners, policyRuleNames),
+		programmedBackendSets,
+		nil
+}
+
+func programL7Route(
+	ctx context.Context,
+	ociLoadBalancerModel ociLoadBalancerModel,
+	params programL7RouteParams,
+) ([]string, []string, error) {
+	var previousRules []programmedHTTPRoutePolicyRule
+	if prevPolicyRulesStr, ok := params.route.GetAnnotations()[params.policyRulesAnnotation]; ok {
+		previousRules = parseProgrammedHTTPRoutePolicyRules(prevPolicyRulesStr)
+	}
+	previousBackendSets := annotatedBackendSetNames(params.route, params.backendSetsAnnotation)
+
+	return programL7RoutePolicy(ctx, ociLoadBalancerModel, programL7RoutePolicyParams{
+		loadBalancerID:      params.loadBalancerID,
+		gateway:             params.gateway,
+		config:              params.config,
+		routeName:           params.route.GetName(),
+		routeNamespace:      params.route.GetNamespace(),
+		backendRefs:         params.backendRefs,
+		knownBackends:       params.knownBackends,
+		matchedListeners:    params.matchedListeners,
+		previousPolicyRules: previousRules,
+		previousBackendSets: previousBackendSets,
+		backendTLSPolicy:    params.backendTLSPolicy,
+		backendTLSDisabled:  params.backendTLSDisabled,
+		ruleCount:           params.ruleCount,
+		makeRoutingRule:     params.makeRoutingRule,
+	})
+}
+
+func programL7RouteResult(
+	ctx context.Context,
+	ociLoadBalancerModel ociLoadBalancerModel,
+	params programL7RouteParams,
+) (programRouteResult, error) {
+	programmedPolicyRules, programmedBackendSets, err := programL7Route(ctx, ociLoadBalancerModel, params)
+	if err != nil {
+		return programRouteResult{}, err
+	}
+
+	return programRouteResult{
+		programmedPolicyRules: programmedPolicyRules,
+		programmedBackendSets: programmedBackendSets,
+	}, nil
+}
+
+func reconcileL7BackendSets(
+	ctx context.Context,
+	ociLoadBalancerModel ociLoadBalancerModel,
+	params programL7RoutePolicyParams,
+) (map[string]struct{}, error) {
+	processedBackendRefs := make(map[string]struct{})
+	desiredBackendSets := make(map[string]struct{})
+	for _, backendRef := range params.backendRefs {
+		key := l7BackendRefKey(backendRef, params.routeNamespace)
+		if _, ok := processedBackendRefs[key]; ok {
+			continue
+		}
+		backendSetName := ociBackendSetNameFromBackendObjectRef(
+			params.routeNamespace,
+			backendRef.BackendObjectReference,
+		)
+		serviceName := backendObjectRefName(backendRef.BackendObjectReference, params.routeNamespace).String()
+		service, ok := params.knownBackends[serviceName]
+		if !ok {
+			return nil, fmt.Errorf("resolved backend service %s not found", serviceName)
+		}
+		backendSSLConfig, manageSSLConfig, err := resolveL7BackendSSLConfig(ctx, params, service, backendRef)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve BackendTLSPolicy for service %s: %w", key, err)
+		}
+		err = ociLoadBalancerModel.reconcileBackendSet(ctx, reconcileBackendSetParams{
+			loadBalancerID:  params.loadBalancerID,
+			service:         service,
+			routeNS:         params.routeNamespace,
+			backendRef:      backendRef,
+			sslConfig:       backendSSLConfig,
+			manageSSLConfig: manageSSLConfig,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to reconcile backend set for service %s: %w", key, err)
+		}
+		processedBackendRefs[key] = struct{}{}
+		desiredBackendSets[backendSetName] = struct{}{}
+	}
+	return desiredBackendSets, nil
+}
+
+func removeStaleL7PolicyRules(
+	ctx context.Context,
+	ociLoadBalancerModel ociLoadBalancerModel,
+	loadBalancerID string,
+	prevRulesByListener map[string][]string,
+	currentListenerNames map[string]struct{},
+) error {
 	staleListenerNames := lo.Keys(prevRulesByListener)
 	sort.Strings(staleListenerNames)
 	for _, listenerName := range staleListenerNames {
@@ -988,17 +1172,40 @@ func programL7RoutePolicy(
 			continue
 		}
 		err := ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
-			loadBalancerID:  params.loadBalancerID,
+			loadBalancerID:  loadBalancerID,
 			listenerName:    listenerName,
 			policyRules:     []loadbalancer.RoutingRule{},
 			prevPolicyRules: prevRulesByListener[listenerName],
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to remove stale routing policy rules for listener %s: %w", listenerName, err)
+			return fmt.Errorf(
+				"failed to remove stale routing policy rules for listener %s: %w",
+				listenerName,
+				err,
+			)
 		}
 	}
+	return nil
+}
 
-	return programmedHTTPRoutePolicyRulesAnnotation(params.matchedListeners, policyRuleNames), nil
+func deprovisionStaleL7BackendSets(
+	ctx context.Context,
+	ociLoadBalancerModel ociLoadBalancerModel,
+	loadBalancerID string,
+	desiredBackendSets map[string]struct{},
+	previousBackendSets map[string]struct{},
+) error {
+	staleBackendSetNames := lo.Keys(previousBackendSets)
+	sort.Strings(staleBackendSetNames)
+	for _, backendSetName := range staleBackendSetNames {
+		if _, ok := desiredBackendSets[backendSetName]; ok {
+			continue
+		}
+		if err := ociLoadBalancerModel.deprovisionBackendSetByName(ctx, loadBalancerID, backendSetName); err != nil {
+			return fmt.Errorf("failed to deprovision stale backend set %s: %w", backendSetName, err)
+		}
+	}
+	return nil
 }
 
 func resolveL7BackendSSLConfig(
@@ -1030,24 +1237,19 @@ func (m *httpRouteModelImpl) programRoute(
 	ctx context.Context,
 	params programRouteParams,
 ) (programRouteResult, error) {
-	var previousRules []programmedHTTPRoutePolicyRule
-	if prevPolicyRulesStr, ok := params.httpRoute.Annotations[HTTPRouteProgrammedPolicyRulesAnnotation]; ok {
-		previousRules = parseProgrammedHTTPRoutePolicyRules(prevPolicyRulesStr)
-	}
-
-	programmedPolicyRules, err := programL7RoutePolicy(ctx, m.ociLoadBalancerModel, programL7RoutePolicyParams{
-		loadBalancerID:      params.config.Spec.LoadBalancerID,
-		gateway:             params.gateway,
-		config:              params.config,
-		routeName:           params.httpRoute.Name,
-		routeNamespace:      params.httpRoute.Namespace,
-		backendRefs:         httpRouteBackendRefs(params.httpRoute),
-		knownBackends:       params.knownBackends,
-		matchedListeners:    params.matchedListeners,
-		previousPolicyRules: previousRules,
-		backendTLSPolicy:    m.backendTLSPolicy,
-		backendTLSDisabled:  m.backendTLSDisabled,
-		ruleCount:           len(params.httpRoute.Spec.Rules),
+	return programL7RouteResult(ctx, m.ociLoadBalancerModel, programL7RouteParams{
+		route:                 &params.httpRoute,
+		loadBalancerID:        params.config.Spec.LoadBalancerID,
+		gateway:               params.gateway,
+		config:                params.config,
+		backendRefs:           httpRouteBackendRefs(params.httpRoute),
+		knownBackends:         params.knownBackends,
+		matchedListeners:      params.matchedListeners,
+		backendTLSPolicy:      m.backendTLSPolicy,
+		backendTLSDisabled:    m.backendTLSDisabled,
+		ruleCount:             len(params.httpRoute.Spec.Rules),
+		policyRulesAnnotation: HTTPRouteProgrammedPolicyRulesAnnotation,
+		backendSetsAnnotation: HTTPRouteProgrammedBackendSetsAnnotation,
 		makeRoutingRule: func(ruleIndex int) (loadbalancer.RoutingRule, error) {
 			return m.ociLoadBalancerModel.makeRoutingRule(ctx, makeRoutingRuleParams{
 				httpRoute:          params.httpRoute,
@@ -1055,13 +1257,6 @@ func (m *httpRouteModelImpl) programRoute(
 			})
 		},
 	})
-	if err != nil {
-		return programRouteResult{}, err
-	}
-
-	return programRouteResult{
-		programmedPolicyRules: programmedPolicyRules,
-	}, nil
 }
 
 func httpRouteBackendRefs(route gatewayv1.HTTPRoute) []gatewayv1.BackendRef {
@@ -1143,6 +1338,85 @@ func (m *httpRouteModelImpl) deprovisionRoute(
 	return nil
 }
 
+type deprovisionDetachedL7RouteParams struct {
+	route                 client.Object
+	routeKind             string
+	policyRulesAnnotation string
+	loadBalancerID        string
+	backendRefs           []gatewayv1.BackendRef
+	removeFinalizer       func(context.Context) error
+}
+
+func deprovisionDetachedL7Route(
+	ctx context.Context,
+	ociLoadBalancerModel ociLoadBalancerModel,
+	params deprovisionDetachedL7RouteParams,
+) error {
+	if params.loadBalancerID == "" {
+		return params.removeFinalizer(ctx)
+	}
+
+	if policyRules := params.route.GetAnnotations()[params.policyRulesAnnotation]; policyRules != "" {
+		err := removeL7RoutePolicyRules(ctx, ociLoadBalancerModel, params.loadBalancerID, nil, policyRules)
+		if err != nil {
+			return fmt.Errorf("failed to remove detached %s policy rules: %w", params.routeKind, err)
+		}
+	}
+
+	processedBackendRefs := make(map[string]struct{})
+	for _, backendRef := range params.backendRefs {
+		key := l7BackendRefKey(backendRef, params.route.GetNamespace())
+		if _, ok := processedBackendRefs[key]; ok {
+			continue
+		}
+		err := ociLoadBalancerModel.deprovisionBackendSet(ctx, deprovisionBackendSetParams{
+			loadBalancerID: params.loadBalancerID,
+			routeNamespace: params.route.GetNamespace(),
+			backendRef:     backendRef,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to deprovision detached %s backend set %s: %w",
+				params.routeKind, key, err)
+		}
+		processedBackendRefs[key] = struct{}{}
+	}
+
+	return params.removeFinalizer(ctx)
+}
+
+func (m *httpRouteModelImpl) deprovisionDetachedRoute(
+	ctx context.Context,
+	httpRoute gatewayv1.HTTPRoute,
+) error {
+	return deprovisionDetachedL7Route(ctx, m.ociLoadBalancerModel, deprovisionDetachedL7RouteParams{
+		route:                 &httpRoute,
+		routeKind:             "HTTPRoute",
+		policyRulesAnnotation: HTTPRouteProgrammedPolicyRulesAnnotation,
+		loadBalancerID:        httpRoute.Annotations[L7RouteProgrammedLoadBalancerIDAnnotation],
+		backendRefs:           httpRouteBackendRefs(httpRoute),
+		removeFinalizer: func(ctx context.Context) error {
+			return m.removeDetachedHTTPRouteFinalizer(ctx, httpRoute)
+		},
+	})
+}
+
+func (m *httpRouteModelImpl) removeDetachedHTTPRouteFinalizer(
+	ctx context.Context,
+	httpRoute gatewayv1.HTTPRoute,
+) error {
+	routeToUpdate := httpRoute.DeepCopy()
+	controllerutil.RemoveFinalizer(routeToUpdate, HTTPRouteProgrammedFinalizer)
+	if routeToUpdate.Annotations != nil {
+		delete(routeToUpdate.Annotations, HTTPRouteProgrammedPolicyRulesAnnotation)
+		delete(routeToUpdate.Annotations, L7RouteProgrammedLoadBalancerIDAnnotation)
+	}
+	if err := m.client.Update(ctx, routeToUpdate); err != nil {
+		return fmt.Errorf("failed to update detached HTTPRoute %s/%s after cleanup: %w",
+			routeToUpdate.Namespace, routeToUpdate.Name, err)
+	}
+	return nil
+}
+
 func (m *httpRouteModelImpl) isProgrammingRequired(
 	details resolvedRouteDetails,
 ) (bool, error) {
@@ -1167,7 +1441,8 @@ func (m *httpRouteModelImpl) isProgrammingRequired(
 		conditionType: string(gatewayv1.RouteConditionResolvedRefs),
 
 		annotations: map[string]string{
-			HTTPRouteProgrammingRevisionAnnotation: HTTPRouteProgrammingRevisionValue,
+			HTTPRouteProgrammingRevisionAnnotation:    HTTPRouteProgrammingRevisionValue,
+			L7RouteProgrammedLoadBalancerIDAnnotation: details.gatewayDetails.config.Spec.LoadBalancerID,
 		},
 	}), nil
 }
@@ -1199,8 +1474,10 @@ func setL7RouteProgrammed(
 		reason:        string(gatewayv1.RouteReasonResolvedRefs),
 		message:       fmt.Sprintf("Route programmed by %s", params.gateway.Name),
 		annotations: map[string]string{
-			params.programmingAnnotation: params.programmingRevision,
-			params.policyRulesAnnotation: strings.Join(params.programmedPolicyRules, ","),
+			params.programmingAnnotation:              params.programmingRevision,
+			params.policyRulesAnnotation:              strings.Join(params.programmedPolicyRules, ","),
+			params.backendSetsAnnotation:              strings.Join(params.programmedBackendSets, ","),
+			L7RouteProgrammedLoadBalancerIDAnnotation: params.loadBalancerID,
 		},
 		finalizer: params.finalizer,
 	})
@@ -1217,11 +1494,14 @@ func (m *httpRouteModelImpl) setProgrammed(
 		parentStatuses:        httpRoute.Status.Parents,
 		gatewayClass:          params.gatewayClass,
 		gateway:               params.gateway,
+		loadBalancerID:        params.config.Spec.LoadBalancerID,
 		matchedRef:            params.matchedRef,
 		programmedPolicyRules: params.programmedPolicyRules,
+		programmedBackendSets: params.programmedBackendSets,
 		programmingAnnotation: HTTPRouteProgrammingRevisionAnnotation,
 		programmingRevision:   HTTPRouteProgrammingRevisionValue,
 		policyRulesAnnotation: HTTPRouteProgrammedPolicyRulesAnnotation,
+		backendSetsAnnotation: HTTPRouteProgrammedBackendSetsAnnotation,
 		finalizer:             HTTPRouteProgrammedFinalizer,
 	})
 	if err != nil {

@@ -102,6 +102,19 @@ func TestNetworkLoadBalancerGatewayController(t *testing.T) {
 		},
 	}
 
+	t.Run("SetListenerSetEnabled", func(t *testing.T) {
+		gatewayModel := &networkLoadBalancerGatewayModelImpl{}
+		controller := NewNetworkLoadBalancerGatewayController(NetworkLoadBalancerGatewayControllerDeps{
+			RootLogger:     diag.RootTestLogger(),
+			ResourcesModel: &stubResourcesModel{},
+			GatewayModel:   gatewayModel,
+		})
+
+		controller.SetListenerSetEnabled(true)
+
+		assert.True(t, gatewayModel.listenerSetEnabled)
+	})
+
 	t.Run("programs relevant gateway", func(t *testing.T) {
 		nlb := &networkloadbalancer.NetworkLoadBalancer{}
 		gatewayModel := &stubNLBGatewayModel{relevant: true, data: baseData, nlb: nlb}

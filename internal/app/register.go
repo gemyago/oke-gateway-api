@@ -25,6 +25,7 @@ func Register(container *dig.Container) error {
 		NewGatewayClassController,
 		NewGatewayController,
 		NewNetworkLoadBalancerGatewayController,
+		NewListenerSetController,
 		NewHTTPRouteController,
 		NewGRPCRouteController,
 		NewTCPRouteController,

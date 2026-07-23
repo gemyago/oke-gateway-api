@@ -79,6 +79,20 @@ func TestHTTPServer(t *testing.T) {
 			require.Error(t, err)
 			assert.ErrorIs(t, err, syscall.ECONNREFUSED)
 		})
+
+		t.Run("should return listen errors", func(t *testing.T) {
+			srv := NewHTTPServer(HTTPServerDeps{
+				RootLogger:    diag.RootTestLogger(),
+				Host:          "localhost",
+				Port:          -1,
+				ShutdownHooks: services.NewTestShutdownHooks(),
+				Handler:       http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+			})
+
+			err := srv.Start(t.Context())
+
+			require.ErrorContains(t, err, "failed to listen")
+		})
 	})
 }
 

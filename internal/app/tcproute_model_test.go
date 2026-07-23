@@ -13,7 +13,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -133,6 +135,178 @@ func TestTCPRouteModel(t *testing.T) {
 		}
 
 		assert.Empty(t, desiredTCPRouteBackendSetNames(details))
+	})
+
+	t.Run("resolveL4ParentGatewayForRouteParentRef", func(t *testing.T) {
+		t.Run("resolves ListenerSet parent refs through their parent Gateway", func(t *testing.T) {
+			listenerSetKind := gatewayv1.Kind("ListenerSet")
+			parentNamespace := gatewayv1.Namespace("infra")
+			fromAll := gatewayv1.NamespacesFromAll
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(newL4TestScheme(t)).
+				WithObjects(
+					&gatewayv1.GatewayClass{
+						ObjectMeta: metav1.ObjectMeta{Name: "oke-nlb"},
+						Spec: gatewayv1.GatewayClassSpec{
+							ControllerName: gatewayv1.GatewayController(NetworkLoadBalancerControllerClassName),
+						},
+					},
+					&gatewayv1.Gateway{
+						ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "edge"},
+						Spec: gatewayv1.GatewaySpec{
+							GatewayClassName: "oke-nlb",
+							Infrastructure: &gatewayv1.GatewayInfrastructure{
+								ParametersRef: &gatewayv1.LocalParametersReference{Name: "nlb-config"},
+							},
+							AllowedListeners: &gatewayv1.AllowedListeners{
+								Namespaces: &gatewayv1.ListenerNamespaces{From: &fromAll},
+							},
+						},
+					},
+					&types.GatewayConfig{
+						ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "nlb-config"},
+						Spec:       types.GatewayConfigSpec{LoadBalancerID: "ocid1.networkloadbalancer.oc1..existing"},
+					},
+					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "apps"}},
+					&gatewayv1.ListenerSet{
+						ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"},
+						Spec: gatewayv1.ListenerSetSpec{
+							ParentRef: gatewayv1.ParentGatewayReference{
+								Namespace: &parentNamespace,
+								Name:      "edge",
+							},
+							Listeners: []gatewayv1.ListenerEntry{
+								{Name: "rtmp", Port: 1935, Protocol: gatewayv1.TCPProtocolType},
+							},
+						},
+					},
+				).
+				Build()
+
+			details, resolved, err := resolveL4ParentGatewayForRouteParentRef(
+				t.Context(),
+				k8sClient,
+				"apps",
+				gatewayv1.ParentReference{Kind: &listenerSetKind, Name: "extra"},
+			)
+
+			require.NoError(t, err)
+			assert.True(t, resolved)
+			assert.Equal(t, "edge", details.gateway.Name)
+			require.Len(t, details.listenerSets, 1)
+			require.Len(t, details.effectiveListeners, 1)
+		})
+
+		t.Run("ignores missing and invalid ListenerSet parent refs", func(t *testing.T) {
+			listenerSetKind := gatewayv1.Kind("ListenerSet")
+			otherKind := gatewayv1.Kind("Service")
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(newL4TestScheme(t)).
+				WithObjects(&gatewayv1.ListenerSet{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "invalid"},
+					Spec: gatewayv1.ListenerSetSpec{
+						ParentRef: gatewayv1.ParentGatewayReference{Kind: &otherKind, Name: "edge"},
+					},
+				}).
+				Build()
+
+			_, resolved, err := resolveL4ParentGatewayForRouteParentRef(
+				t.Context(),
+				k8sClient,
+				"apps",
+				gatewayv1.ParentReference{Kind: &listenerSetKind, Name: "missing"},
+			)
+			require.NoError(t, err)
+			assert.False(t, resolved)
+
+			_, resolved, err = resolveL4ParentGatewayForRouteParentRef(
+				t.Context(),
+				k8sClient,
+				"apps",
+				gatewayv1.ParentReference{Kind: &listenerSetKind, Name: "invalid"},
+			)
+			require.NoError(t, err)
+			assert.False(t, resolved)
+		})
+
+		t.Run("ignores unsupported parent refs", func(t *testing.T) {
+			serviceKind := gatewayv1.Kind("Service")
+			k8sClient := NewMockk8sClient(t)
+
+			_, resolved, err := resolveL4ParentGatewayForRouteParentRef(
+				t.Context(),
+				k8sClient,
+				"apps",
+				gatewayv1.ParentReference{Kind: &serviceKind, Name: "backend"},
+			)
+
+			require.NoError(t, err)
+			assert.False(t, resolved)
+		})
+
+		t.Run("wraps ListenerSet lookup errors", func(t *testing.T) {
+			listenerSetKind := gatewayv1.Kind("ListenerSet")
+			k8sClient := NewMockk8sClient(t)
+			wantErr := errors.New("listenerset get failed")
+			k8sClient.EXPECT().
+				Get(t.Context(), apitypes.NamespacedName{Namespace: "apps", Name: "extra"}, mock.AnythingOfType("*v1.ListenerSet")).
+				Return(wantErr)
+
+			_, _, err := resolveL4ParentGatewayForRouteParentRef(
+				t.Context(),
+				k8sClient,
+				"apps",
+				gatewayv1.ParentReference{Kind: &listenerSetKind, Name: "extra"},
+			)
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to get ListenerSet apps/extra")
+		})
+
+		t.Run("wraps attached ListenerSet list errors", func(t *testing.T) {
+			listenerSetKind := gatewayv1.Kind("ListenerSet")
+			parentNamespace := gatewayv1.Namespace("infra")
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"},
+				Spec: gatewayv1.ListenerSetSpec{ParentRef: gatewayv1.ParentGatewayReference{
+					Namespace: &parentNamespace,
+					Name:      "edge",
+				}},
+			}
+			gateway := gatewayv1.Gateway{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "edge"},
+				Spec: gatewayv1.GatewaySpec{
+					GatewayClassName: "oke-nlb",
+					Infrastructure: &gatewayv1.GatewayInfrastructure{
+						ParametersRef: &gatewayv1.LocalParametersReference{Name: "nlb-config"},
+					},
+				},
+			}
+			gatewayClass := gatewayv1.GatewayClass{
+				ObjectMeta: metav1.ObjectMeta{Name: "oke-nlb"},
+				Spec: gatewayv1.GatewayClassSpec{
+					ControllerName: gatewayv1.GatewayController(NetworkLoadBalancerControllerClassName),
+				},
+			}
+			config := types.GatewayConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "nlb-config"}}
+			wantErr := errors.New("list failed")
+			k8sClient := NewMockk8sClient(t)
+			setupClientGet(t, k8sClient, apitypes.NamespacedName{Namespace: "apps", Name: "extra"}, listenerSet)
+			setupClientGet(t, k8sClient, apitypes.NamespacedName{Namespace: "infra", Name: "edge"}, gateway)
+			setupClientGet(t, k8sClient, apitypes.NamespacedName{Name: "oke-nlb"}, gatewayClass)
+			setupClientGet(t, k8sClient, apitypes.NamespacedName{Namespace: "infra", Name: "nlb-config"}, config)
+			k8sClient.EXPECT().List(t.Context(), &gatewayv1.ListenerSetList{}).Return(wantErr)
+
+			_, _, err := resolveL4ParentGatewayForRouteParentRef(
+				t.Context(),
+				k8sClient,
+				"apps",
+				gatewayv1.ParentReference{Kind: &listenerSetKind, Name: "extra"},
+			)
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to list ListenerSets")
+		})
 	})
 
 	t.Run("resolveRequest wraps Kubernetes read errors", func(t *testing.T) {
@@ -659,6 +833,11 @@ func TestTCPRouteModel(t *testing.T) {
 					"bs_rtmp",
 					obj.GetAnnotations()[NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation],
 				)
+				assert.Equal(
+					t,
+					"nlb-id",
+					obj.GetAnnotations()[L4RouteProgrammedNetworkLoadBalancerIDAnnotation],
+				)
 				return nil
 			})
 
@@ -678,6 +857,7 @@ func TestTCPRouteModel(t *testing.T) {
 						},
 					},
 				},
+				config: types.GatewayConfig{Spec: types.GatewayConfigSpec{LoadBalancerID: "nlb-id"}},
 			},
 			matchedRef: gatewayv1.ParentReference{
 				Name: "edge",
@@ -762,6 +942,36 @@ func TestTCPRouteModel(t *testing.T) {
 		require.ErrorContains(t, err, "failed to update TCPRoute rtmp status")
 	})
 
+	t.Run("setL4RouteProgrammed records load balancer id when annotations are nil", func(t *testing.T) {
+		route := &gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{
+			Namespace:  "iot",
+			Name:       "rtmp",
+			Generation: 1,
+		}}
+		mockClient := NewMockk8sClient(t)
+		mockClient.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
+			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.UpdateOption) error {
+				assert.Equal(t, "nlb-id", obj.GetAnnotations()[L4RouteProgrammedNetworkLoadBalancerIDAnnotation])
+				return nil
+			})
+
+		err := setL4RouteProgrammed(t.Context(), setL4RouteProgrammedParams{
+			k8sClient:      mockClient,
+			routeKind:      "TCPRoute",
+			controllerName: gatewayv1.GatewayController(NetworkLoadBalancerControllerClassName),
+			routeToUpdate:  route,
+			finalizer:      NetworkLoadBalancerTCPRouteProgrammedFinalizer,
+			loadBalancerID: "nlb-id",
+			updateParentStatus: func(conditions []metav1.Condition) error {
+				require.Len(t, conditions, 2)
+				return nil
+			},
+		})
+
+		require.NoError(t, err)
+	})
+
 	t.Run("deprovisionDetachedRoute clears annotated backend set and removes finalizer", func(t *testing.T) {
 		route := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{
@@ -770,6 +980,7 @@ func TestTCPRouteModel(t *testing.T) {
 				Finalizers: []string{NetworkLoadBalancerTCPRouteProgrammedFinalizer},
 				Annotations: map[string]string{
 					NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation: "bs_old",
+					L4RouteProgrammedNetworkLoadBalancerIDAnnotation:           "nlb-id",
 				},
 			},
 			Status: gatewayv1.TCPRouteStatus{
@@ -819,6 +1030,7 @@ func TestTCPRouteModel(t *testing.T) {
 			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.UpdateOption) error {
 				assert.NotContains(t, obj.GetFinalizers(), NetworkLoadBalancerTCPRouteProgrammedFinalizer)
 				assert.NotContains(t, obj.GetAnnotations(), NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation)
+				assert.NotContains(t, obj.GetAnnotations(), L4RouteProgrammedNetworkLoadBalancerIDAnnotation)
 				return nil
 			})
 
@@ -859,6 +1071,139 @@ func TestTCPRouteModel(t *testing.T) {
 			request.UpdateBackendSetDetails.HealthChecker.Protocol,
 		)
 		assert.Equal(t, 1935, lo.FromPtr(request.UpdateBackendSetDetails.HealthChecker.Port))
+	})
+
+	t.Run("deprovisionDetachedRoute clears annotated backend set by load balancer id", func(t *testing.T) {
+		listenerSetKind := gatewayv1.Kind("ListenerSet")
+		route := gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "iot",
+				Name:       "rtmp",
+				Finalizers: []string{NetworkLoadBalancerTCPRouteProgrammedFinalizer},
+				Annotations: map[string]string{
+					NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation: "bs_listener_set",
+					L4RouteProgrammedNetworkLoadBalancerIDAnnotation:           "nlb-id",
+				},
+			},
+			Status: gatewayv1.TCPRouteStatus{
+				RouteStatus: gatewayv1.RouteStatus{
+					Parents: []gatewayv1.RouteParentStatus{{
+						ParentRef: gatewayv1.ParentReference{
+							Kind: &listenerSetKind,
+							Name: "extra",
+						},
+						ControllerName: gatewayv1.GatewayController(NetworkLoadBalancerControllerClassName),
+					}},
+				},
+			},
+		}
+		mockClient := NewMockk8sClient(t)
+		mockClient.EXPECT().
+			Get(
+				t.Context(),
+				apitypes.NamespacedName{Namespace: "iot", Name: "extra"},
+				mock.AnythingOfType("*v1.Gateway"),
+			).
+			Return(apierrors.NewNotFound(schema.GroupResource{
+				Group:    gatewayv1.GroupName,
+				Resource: "gateways",
+			}, "extra"))
+		mockClient.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
+			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.UpdateOption) error {
+				assert.NotContains(t, obj.GetFinalizers(), NetworkLoadBalancerTCPRouteProgrammedFinalizer)
+				assert.NotContains(t, obj.GetAnnotations(), NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation)
+				assert.NotContains(t, obj.GetAnnotations(), L4RouteProgrammedNetworkLoadBalancerIDAnnotation)
+				return nil
+			})
+		nlbClient := &stubNetworkLoadBalancerClient{}
+		model := newTCPRouteModel(tcpRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  mockClient,
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{
+				networkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id: new("nlb-id"),
+					BackendSets: map[string]networkloadbalancer.BackendSet{
+						"bs_listener_set": {
+							Name: new("bs_listener_set"),
+							HealthChecker: &networkloadbalancer.HealthChecker{
+								Protocol: networkloadbalancer.HealthCheckProtocolsTcp,
+							},
+						},
+					},
+				},
+			},
+			OciNetworkLoadBalancerAPI: nlbClient,
+		})
+		modelImpl := mustTCPRouteModelImpl(t, model)
+
+		err := modelImpl.deprovisionDetachedRoute(t.Context(), route)
+
+		require.NoError(t, err)
+		require.Len(t, nlbClient.updateBackendSetRequests, 1)
+		request := nlbClient.updateBackendSetRequests[0]
+		assert.Equal(t, "nlb-id", lo.FromPtr(request.NetworkLoadBalancerId))
+		assert.Equal(t, "bs_listener_set", lo.FromPtr(request.BackendSetName))
+		assert.Empty(t, request.UpdateBackendSetDetails.Backends)
+	})
+
+	t.Run("deprovisionDetachedRoute returns annotated load balancer cleanup update errors", func(t *testing.T) {
+		route := gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "iot",
+				Name:       "rtmp",
+				Finalizers: []string{NetworkLoadBalancerTCPRouteProgrammedFinalizer},
+				Annotations: map[string]string{
+					NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation: "bs_listener_set",
+					L4RouteProgrammedNetworkLoadBalancerIDAnnotation:           "nlb-id",
+				},
+			},
+		}
+		mockClient := NewMockk8sClient(t)
+		mockClient.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
+			Return(errors.New("update failed"))
+		model := newTCPRouteModel(tcpRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  mockClient,
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{
+				networkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id: new("nlb-id"),
+					BackendSets: map[string]networkloadbalancer.BackendSet{
+						"bs_listener_set": {Name: new("bs_listener_set")},
+					},
+				},
+			},
+			OciNetworkLoadBalancerAPI: &stubNetworkLoadBalancerClient{},
+		})
+		modelImpl := mustTCPRouteModelImpl(t, model)
+
+		err := modelImpl.deprovisionDetachedRoute(t.Context(), route)
+
+		require.ErrorContains(t, err, "failed to update detached TCPRoute")
+	})
+
+	t.Run("deprovisionDetachedRoute returns annotated load balancer cleanup errors", func(t *testing.T) {
+		route := gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "iot",
+				Name:       "rtmp",
+				Finalizers: []string{NetworkLoadBalancerTCPRouteProgrammedFinalizer},
+				Annotations: map[string]string{
+					NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation: "bs_listener_set",
+					L4RouteProgrammedNetworkLoadBalancerIDAnnotation:           "nlb-id",
+				},
+			},
+		}
+		model := newTCPRouteModel(tcpRouteModelDeps{
+			RootLogger:               diag.RootTestLogger(),
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{err: errors.New("nlb failed")},
+		})
+		modelImpl := mustTCPRouteModelImpl(t, model)
+
+		err := modelImpl.deprovisionDetachedRoute(t.Context(), route)
+
+		require.ErrorContains(t, err, "nlb failed")
 	})
 
 	t.Run("deprovisionDetachedRoute removes finalizer when no backend sets are annotated", func(t *testing.T) {

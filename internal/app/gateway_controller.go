@@ -45,6 +45,12 @@ func NewGatewayController(deps GatewayControllerDeps) *GatewayController {
 	}
 }
 
+func (r *GatewayController) SetListenerSetEnabled(enabled bool) {
+	if model, ok := r.gatewayModel.(interface{ setListenerSetEnabled(bool) }); ok {
+		model.setListenerSetEnabled(enabled)
+	}
+}
+
 func isGatewayAccepted(gateway *gatewayv1.Gateway) bool {
 	condition := meta.FindStatusCondition(
 		gateway.Status.Conditions,

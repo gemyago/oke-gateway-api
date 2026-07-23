@@ -113,9 +113,11 @@ func (r *GRPCRouteController) reconcileResolvedRoute(
 	if err = r.grpcRouteModel.setProgrammed(ctx, setGRPCRouteProgrammedParams{
 		gatewayClass:          resolvedData.gatewayDetails.gatewayClass,
 		gateway:               resolvedData.gatewayDetails.gateway,
+		config:                resolvedData.gatewayDetails.config,
 		grpcRoute:             *acceptedRoute,
 		matchedRef:            resolvedData.matchedRef,
 		programmedPolicyRules: programResult.programmedPolicyRules,
+		programmedBackendSets: programResult.programmedBackendSets,
 	}); err != nil {
 		return false, fmt.Errorf("failed to set programmed status: %w", err)
 	}
