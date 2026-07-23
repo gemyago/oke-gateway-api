@@ -118,6 +118,54 @@ func (_c *MockociLoadBalancerModel_deprovisionBackendSet_Call) RunAndReturn(run 
 	return _c
 }
 
+// deprovisionBackendSetByName provides a mock function with given fields: ctx, loadBalancerID, backendSetName
+func (_m *MockociLoadBalancerModel) deprovisionBackendSetByName(ctx context.Context, loadBalancerID string, backendSetName string) error {
+	ret := _m.Called(ctx, loadBalancerID, backendSetName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for deprovisionBackendSetByName")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, loadBalancerID, backendSetName)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockociLoadBalancerModel_deprovisionBackendSetByName_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'deprovisionBackendSetByName'
+type MockociLoadBalancerModel_deprovisionBackendSetByName_Call struct {
+	*mock.Call
+}
+
+// deprovisionBackendSetByName is a helper method to define mock.On call
+//   - ctx context.Context
+//   - loadBalancerID string
+//   - backendSetName string
+func (_e *MockociLoadBalancerModel_Expecter) deprovisionBackendSetByName(ctx interface{}, loadBalancerID interface{}, backendSetName interface{}) *MockociLoadBalancerModel_deprovisionBackendSetByName_Call {
+	return &MockociLoadBalancerModel_deprovisionBackendSetByName_Call{Call: _e.mock.On("deprovisionBackendSetByName", ctx, loadBalancerID, backendSetName)}
+}
+
+func (_c *MockociLoadBalancerModel_deprovisionBackendSetByName_Call) Run(run func(ctx context.Context, loadBalancerID string, backendSetName string)) *MockociLoadBalancerModel_deprovisionBackendSetByName_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_deprovisionBackendSetByName_Call) Return(_a0 error) *MockociLoadBalancerModel_deprovisionBackendSetByName_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_deprovisionBackendSetByName_Call) RunAndReturn(run func(context.Context, string, string) error) *MockociLoadBalancerModel_deprovisionBackendSetByName_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ensureHTTP2ListenerProtocol provides a mock function with given fields: ctx, params
 func (_m *MockociLoadBalancerModel) ensureHTTP2ListenerProtocol(ctx context.Context, params ensureHTTP2ListenerProtocolParams) error {
 	ret := _m.Called(ctx, params)
@@ -577,6 +625,53 @@ func (_c *MockociLoadBalancerModel_removeUnusedCertificates_Call) Return(_a0 err
 }
 
 func (_c *MockociLoadBalancerModel_removeUnusedCertificates_Call) RunAndReturn(run func(context.Context, removeUnusedCertificatesParams) error) *MockociLoadBalancerModel_removeUnusedCertificates_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// cleanupFrontendMTLSCABundles provides a mock function with given fields: ctx, params
+func (_m *MockociLoadBalancerModel) cleanupFrontendMTLSCABundles(ctx context.Context, params cleanupFrontendMTLSCABundlesParams) error {
+	ret := _m.Called(ctx, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for cleanupFrontendMTLSCABundles")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, cleanupFrontendMTLSCABundlesParams) error); ok {
+		r0 = rf(ctx, params)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'cleanupFrontendMTLSCABundles'
+type MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call struct {
+	*mock.Call
+}
+
+// cleanupFrontendMTLSCABundles is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params cleanupFrontendMTLSCABundlesParams
+func (_e *MockociLoadBalancerModel_Expecter) cleanupFrontendMTLSCABundles(ctx interface{}, params interface{}) *MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call {
+	return &MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call{Call: _e.mock.On("cleanupFrontendMTLSCABundles", ctx, params)}
+}
+
+func (_c *MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call) Run(run func(ctx context.Context, params cleanupFrontendMTLSCABundlesParams)) *MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(cleanupFrontendMTLSCABundlesParams))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call) Return(_a0 error) *MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call) RunAndReturn(run func(context.Context, cleanupFrontendMTLSCABundlesParams) error) *MockociLoadBalancerModel_cleanupFrontendMTLSCABundles_Call {
 	_c.Call.Return(run)
 	return _c
 }

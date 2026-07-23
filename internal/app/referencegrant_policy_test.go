@@ -172,4 +172,144 @@ func TestReferenceGrantPolicy(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, allowed)
 	})
+
+	t.Run("referenceGrantAllowsSecretRef permits same namespace secret", func(t *testing.T) {
+		allowed, err := referenceGrantAllowsSecretRef(
+			t.Context(),
+			NewMockk8sClient(t),
+			"ListenerSet",
+			"apps",
+			types.NamespacedName{Namespace: "apps", Name: "tls-cert"},
+		)
+
+		require.NoError(t, err)
+		assert.True(t, allowed)
+	})
+
+	t.Run("referenceGrantAllowsSecretRef permits matching cross namespace secret grant", func(t *testing.T) {
+		mockClient := NewMockk8sClient(t)
+		mockClient.EXPECT().
+			List(t.Context(), mock.AnythingOfType("*v1beta1.ReferenceGrantList"), mock.Anything).
+			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1beta1.ReferenceGrantList{
+					Items: []gatewayv1beta1.ReferenceGrant{{
+						ObjectMeta: metav1.ObjectMeta{Namespace: "certs", Name: "allow-listenersets"},
+						Spec: gatewayv1beta1.ReferenceGrantSpec{
+							From: []gatewayv1beta1.ReferenceGrantFrom{{
+								Group:     gatewayv1.Group(gatewayAPIGroup),
+								Kind:      gatewayv1.Kind("ListenerSet"),
+								Namespace: gatewayv1.Namespace("apps"),
+							}},
+							To: []gatewayv1beta1.ReferenceGrantTo{{
+								Group: gatewayv1.Group(""),
+								Kind:  gatewayv1.Kind("Secret"),
+								Name:  lo.ToPtr(gatewayv1.ObjectName("tls-cert")),
+							}},
+						},
+					}},
+				}))
+				return nil
+			})
+
+		allowed, err := referenceGrantAllowsSecretRef(
+			t.Context(),
+			mockClient,
+			"ListenerSet",
+			"apps",
+			types.NamespacedName{Namespace: "certs", Name: "tls-cert"},
+		)
+
+		require.NoError(t, err)
+		assert.True(t, allowed)
+	})
+
+	t.Run("referenceGrantAllowsSecretRef wraps grant list errors", func(t *testing.T) {
+		mockClient := NewMockk8sClient(t)
+		mockClient.EXPECT().
+			List(t.Context(), mock.AnythingOfType("*v1beta1.ReferenceGrantList"), mock.Anything).
+			Return(errors.New("secret grant list failed"))
+
+		allowed, err := referenceGrantAllowsSecretRef(
+			t.Context(),
+			mockClient,
+			"ListenerSet",
+			"apps",
+			types.NamespacedName{Namespace: "certs", Name: "tls-cert"},
+		)
+
+		require.ErrorContains(t, err, "failed to list ReferenceGrants")
+		assert.False(t, allowed)
+	})
+
+	t.Run("referenceGrantAllowsSecretRef ignores non matching grants", func(t *testing.T) {
+		mockClient := NewMockk8sClient(t)
+		mockClient.EXPECT().
+			List(t.Context(), mock.AnythingOfType("*v1beta1.ReferenceGrantList"), mock.Anything).
+			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1beta1.ReferenceGrantList{
+					Items: []gatewayv1beta1.ReferenceGrant{
+						{
+							Spec: gatewayv1beta1.ReferenceGrantSpec{
+								From: []gatewayv1beta1.ReferenceGrantFrom{{
+									Group:     gatewayv1.Group(gatewayAPIGroup),
+									Kind:      gatewayv1.Kind("Gateway"),
+									Namespace: gatewayv1.Namespace("apps"),
+								}},
+								To: []gatewayv1beta1.ReferenceGrantTo{{
+									Group: gatewayv1.Group(""),
+									Kind:  gatewayv1.Kind("Secret"),
+								}},
+							},
+						},
+						{
+							Spec: gatewayv1beta1.ReferenceGrantSpec{
+								From: []gatewayv1beta1.ReferenceGrantFrom{{
+									Group:     gatewayv1.Group(gatewayAPIGroup),
+									Kind:      gatewayv1.Kind("ListenerSet"),
+									Namespace: gatewayv1.Namespace("apps"),
+								}},
+								To: []gatewayv1beta1.ReferenceGrantTo{{
+									Group: gatewayv1.Group(""),
+									Kind:  gatewayv1.Kind("Secret"),
+									Name:  lo.ToPtr(gatewayv1.ObjectName("other-cert")),
+								}},
+							},
+						},
+					},
+				}))
+				return nil
+			})
+
+		allowed, err := referenceGrantAllowsSecretRef(
+			t.Context(),
+			mockClient,
+			"ListenerSet",
+			"apps",
+			types.NamespacedName{Namespace: "certs", Name: "tls-cert"},
+		)
+
+		require.NoError(t, err)
+		assert.False(t, allowed)
+	})
+
+	t.Run("referenceGrantAllowsSecretRef rejects cross namespace secret without grant", func(t *testing.T) {
+		mockClient := NewMockk8sClient(t)
+		mockClient.EXPECT().
+			List(t.Context(), mock.AnythingOfType("*v1beta1.ReferenceGrantList"), mock.Anything).
+			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1beta1.ReferenceGrantList{}))
+				return nil
+			})
+
+		allowed, err := referenceGrantAllowsSecretRef(
+			t.Context(),
+			mockClient,
+			"ListenerSet",
+			"apps",
+			types.NamespacedName{Namespace: "certs", Name: "tls-cert"},
+		)
+
+		require.NoError(t, err)
+		assert.False(t, allowed)
+	})
 }

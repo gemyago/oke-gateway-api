@@ -28,6 +28,15 @@ const (
 	// ListenerTLSOptionCipherSuiteName configures OCI listener SSL cipher suite name.
 	ListenerTLSOptionCipherSuiteName = "oci.oraclecloud.com/cipher-suite-name"
 
+	// FrontendMTLSTrustedCABundleOCIDsAnnotation adds existing OCI CA bundle OCIDs to frontend mTLS.
+	FrontendMTLSTrustedCABundleOCIDsAnnotation = "oci.oraclecloud.com/frontend-mtls-trusted-ca-bundle-ocids"
+
+	// FrontendMTLSVerifyDepthAnnotation configures OCI frontend mTLS peer certificate verification depth.
+	FrontendMTLSVerifyDepthAnnotation = "oci.oraclecloud.com/frontend-mtls-verify-depth"
+
+	// GatewayFrontendMTLSCABundleCompartmentsAnnotation stores OCI compartments with controller-managed CA bundles.
+	GatewayFrontendMTLSCABundleCompartmentsAnnotation = "oke-gateway-api.gemyago.github.io/frontend-mtls-compartments"
+
 	// BackendTLSPolicyProgrammedFinalizer is used to clean up controller-managed OCI CA bundles.
 	BackendTLSPolicyProgrammedFinalizer = "oke-gateway-api.gemyago.github.io/backend-tls-policy-programmed"
 
@@ -60,6 +69,13 @@ const (
 	// The value is set by the controller when the http route is programmed.
 	HTTPRouteProgrammedPolicyRulesAnnotation = "oke-gateway-api.gemyago.github.io/http-route-programmed-lb-policy-rules"
 
+	// HTTPRouteProgrammedBackendSetsAnnotation is a comma-separated list of load balancer backend set names.
+	// The value is set by the controller when the http route is programmed.
+	HTTPRouteProgrammedBackendSetsAnnotation = "oke-gateway-api.gemyago.github.io/http-route-programmed-lb-backend-sets"
+
+	// L7RouteProgrammedLoadBalancerIDAnnotation tracks the OCI Load Balancer used by HTTPRoute and GRPCRoute.
+	L7RouteProgrammedLoadBalancerIDAnnotation = "oke-gateway-api.gemyago.github.io/l7-route-programmed-load-balancer-id"
+
 	// HTTPRouteProgrammedFinalizer is the finalizer that indicates that the http route has been programmed.
 	// It is used to clean up the resources when the http route is deleted.
 	HTTPRouteProgrammedFinalizer = "oke-gateway-api.gemyago.github.io/http-route-programmed"
@@ -71,6 +87,10 @@ const (
 	// GRPCRouteProgrammedPolicyRulesAnnotation is a comma-separated list of load balancer listener/policy rule names.
 	// The value is set by the controller when the grpc route is programmed.
 	GRPCRouteProgrammedPolicyRulesAnnotation = "oke-gateway-api.gemyago.github.io/grpc-route-programmed-lb-policy-rules"
+
+	// GRPCRouteProgrammedBackendSetsAnnotation is a comma-separated list of load balancer backend set names.
+	// The value is set by the controller when the grpc route is programmed.
+	GRPCRouteProgrammedBackendSetsAnnotation = "oke-gateway-api.gemyago.github.io/grpc-route-programmed-lb-backend-sets"
 
 	// GRPCRouteProgrammedFinalizer is the finalizer that indicates that the grpc route has been programmed.
 	// It is used to clean up resources when the grpc route is deleted.
@@ -94,6 +114,10 @@ const (
 
 	// NetworkLoadBalancerGatewayIDAnnotation stores the OCI NLB OCID programmed by the controller.
 	NetworkLoadBalancerGatewayIDAnnotation = "oke-gateway-api.gemyago.github.io/nlb-id"
+
+	// L4RouteProgrammedNetworkLoadBalancerIDAnnotation tracks the OCI Network Load Balancer used by L4 routes.
+	L4RouteProgrammedNetworkLoadBalancerIDAnnotation = "oke-gateway-api.gemyago.github.io/" +
+		"l4-route-programmed-network-load-balancer-id"
 
 	// NetworkLoadBalancerTCPRouteProgrammedFinalizer indicates a TCPRoute has programmed OCI NLB resources.
 	NetworkLoadBalancerTCPRouteProgrammedFinalizer = "oke-gateway-api.gemyago.github.io/nlb-tcproute-programmed"
@@ -133,11 +157,11 @@ const (
 
 	// HTTPRouteProgrammingRevisionValue is the value for the http route programming revision.
 	// Incremented when the controller programming steps are changed.
-	HTTPRouteProgrammingRevisionValue = "5"
+	HTTPRouteProgrammingRevisionValue = "6"
 
 	// GRPCRouteProgrammingRevisionValue is the value for the grpc route programming revision.
 	// Incremented when the controller programming steps are changed.
-	GRPCRouteProgrammingRevisionValue = "2"
+	GRPCRouteProgrammingRevisionValue = "3"
 )
 
 const ConfigRefGroup = "oke-gateway-api.gemyago.github.io"

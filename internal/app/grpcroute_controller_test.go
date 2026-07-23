@@ -439,6 +439,36 @@ func TestGRPCRouteController(t *testing.T) {
 		assertDriftRequeue(t, got, 2*time.Minute)
 	})
 
+	t.Run("wraps rejected status update errors", func(t *testing.T) {
+		route := makeRoute()
+		resolved := makeResolved(route)
+		statusErr := newGRPCRouteRefNotPermittedStatusError("cross namespace backend is not permitted")
+		wantErr := errors.New("reject failed")
+		routeModel := fakeGRPCRouteModel{
+			resolveRequestFunc: func(
+				_ context.Context,
+				_ reconcile.Request,
+			) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+				return resolvedMap(route, resolved), nil
+			},
+			isProgrammingRequiredFn: func(resolvedGRPCRouteDetails) bool { return true },
+			acceptRouteFunc: func(_ context.Context, details resolvedGRPCRouteDetails) (*gatewayv1.GRPCRoute, error) {
+				return &details.grpcRoute, nil
+			},
+			resolveBackendRefsFunc: func(context.Context, resolveGRPCBackendRefsParams) (map[string]corev1.Service, error) {
+				return nil, statusErr
+			},
+			setRejectedFunc: func(context.Context, resolvedGRPCRouteDetails, grpcRouteStatusError) error {
+				return wantErr
+			},
+		}
+
+		_, err := newController(routeModel, NewMockhttpBackendModel(t)).Reconcile(t.Context(), reconcile.Request{})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to reject route")
+	})
+
 	t.Run("deprovisions deleted routes", func(t *testing.T) {
 		route := makeRoute()
 		now := metav1.Now()

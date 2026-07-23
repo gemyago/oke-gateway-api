@@ -24,7 +24,7 @@ update their status, or provision OCI resources for them.
 | `UDPRoute` | Supported on OCI Network Load Balancer |
 | `ReferenceGrant` | Supported for cross-namespace references used by supported routes and policies |
 | `BackendTLSPolicy` | Supported for OCI Load Balancer backend TLS; OCI Network Load Balancer uses passthrough routing instead |
-| `ListenerSet` | Not supported; ignored if installed |
+| `ListenerSet` | Supported on OCI Load Balancer and OCI Network Load Balancer |
 | `XBackend`, `XBackendTrafficPolicy`, `XMesh` | Not supported; ignored if installed |
 
 ## Getting Started
@@ -35,7 +35,7 @@ kubectl apply --server-side=true \
   -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.0/standard-install.yaml
 ```
 The controller can run with only the standard CRDs. `HTTPRoute`, `GRPCRoute`, `TLSRoute`,
-`TCPRoute`, `UDPRoute`, and `BackendTLSPolicy` are standard in Gateway API v1.6.0.
+`TCPRoute`, `UDPRoute`, `BackendTLSPolicy`, and `ListenerSet` are standard in Gateway API v1.6.0.
 
 Prepare API key and config file (use actual values):
 ```ini
@@ -227,6 +227,8 @@ Gateway listener TLS options can configure OCI Load Balancer frontend cipher sui
 
 OCI documents supported predefined cipher suite names in [Predefined Load Balancer Cipher Suites](https://docs.oracle.com/en-us/iaas/Content/Balance/Tasks/managingciphersuites_topic-Predefined_Cipher_Suites.htm). OCI SSL configuration accepts `TLSv1`, `TLSv1.1`, `TLSv1.2`, and `TLSv1.3`; see the OCI Load Balancer [`SSLConfiguration`](https://docs.oracle.com/en-us/iaas/tools/python/latest/api/load_balancer/models/oci.load_balancer.models.SSLConfiguration.html) documentation for protocol values and defaults.
 
+Gateway frontend mutual TLS is supported on OCI Load Balancer HTTPS and terminate TLS listeners through standard `Gateway.spec.tls.frontend` validation. Use `caCertificateRefs` to reference ConfigMaps containing `ca.crt`; the controller creates OCI CA bundles and programs listener peer certificate verification. Existing OCI CA bundles can be referenced with the `oci.oraclecloud.com/frontend-mtls-trusted-ca-bundle-ocids` Gateway annotation, and verify depth can be set with `oci.oraclecloud.com/frontend-mtls-verify-depth`. See [deploy/manifests/examples/gateway-https-mtls.yaml](./deploy/manifests/examples/gateway-https-mtls.yaml) and [deploy/manifests/examples/listenerset-https-mtls.yaml](./deploy/manifests/examples/listenerset-https-mtls.yaml).
+
 ## GRPCRoute With OCI Load Balancer
 
 `GRPCRoute` uses the standard Gateway API CRDs and is reconciled on OCI Load Balancer with the other layer 7 routes. It is not implemented on OCI Network Load Balancer. Use `TCPRoute` if you only need gRPC passthrough to pods.
@@ -234,6 +236,14 @@ OCI documents supported predefined cipher suite names in [Predefined Load Balanc
 The controller supports gRPC host, service, method, and exact header matching. `HTTPRoute` and `GRPCRoute` can share the same HTTPS listener and hostname; `GRPCRoute` rules require a native gRPC `content-type` and are ordered before broad `HTTPRoute` matches.
 
 See [deploy/manifests/examples/grpcroute.yaml](./deploy/manifests/examples/grpcroute.yaml) for a minimal route example.
+
+## ListenerSet
+
+`ListenerSet` attaches additional listeners to an existing `Gateway`. ListenerSet listeners are reconciled with the Gateway's listeners on the same OCI Load Balancer or OCI Network Load Balancer, and route `parentRefs` may target the ListenerSet by name and `sectionName`.
+
+Use ListenerSet when separate namespaces need to contribute listeners to a shared Gateway. The parent Gateway must opt in with `spec.allowedListeners`; generated OCI listener names for ListenerSet listeners are stable and may differ from Kubernetes listener names. Cross-namespace certificate references still require a `ReferenceGrant`.
+
+See [deploy/manifests/examples/listenerset-alb.yaml](./deploy/manifests/examples/listenerset-alb.yaml) for OCI Load Balancer HTTP usage, [deploy/manifests/examples/listenerset-nlb.yaml](./deploy/manifests/examples/listenerset-nlb.yaml) for OCI Network Load Balancer TCP/UDP usage, [deploy/manifests/examples/listenerset-https-secret.yaml](./deploy/manifests/examples/listenerset-https-secret.yaml) and [deploy/manifests/examples/listenerset-https-oci-certificate.yaml](./deploy/manifests/examples/listenerset-https-oci-certificate.yaml) for HTTPS certificates, [deploy/manifests/examples/listenerset-tlsroute-alb.yaml](./deploy/manifests/examples/listenerset-tlsroute-alb.yaml) and [deploy/manifests/examples/listenerset-tlsroute-nlb.yaml](./deploy/manifests/examples/listenerset-tlsroute-nlb.yaml) for TLSRoute, and [deploy/manifests/examples/listenerset-cross-namespace-certificate.yaml](./deploy/manifests/examples/listenerset-cross-namespace-certificate.yaml) plus [deploy/manifests/examples/listenerset-namespace-selector.yaml](./deploy/manifests/examples/listenerset-namespace-selector.yaml) for cross-namespace attachment patterns.
 
 ## Backend TLS
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"path"
+	"slices"
+	"strings"
 
 	"github.com/samber/lo"
 	"go.uber.org/dig"
@@ -27,6 +29,9 @@ const httpRouteParentGatewayIndexKey = ".metadata.parentRefs.gateway"
 const grpcRouteParentGatewayIndexKey = ".metadata.grpcParentRefs.gateway"
 const tlsRouteParentGatewayIndexKey = ".metadata.tlsParentRefs.gateway"
 const gatewayCertificateIndexKey = ".metadata.certificates" // Virtual field name, indexed
+const gatewayFrontendMTLSCAConfigMapIndexKey = ".metadata.frontendMTLSConfigMaps"
+const listenerSetParentGatewayIndexKey = ".metadata.parentRef.gateway"
+const listenerSetCertificateIndexKey = ".metadata.listenerSetCertificates"
 const tcpRouteBackendServiceIndexKey = ".metadata.tcpBackendRefs.serviceName"
 const udpRouteBackendServiceIndexKey = ".metadata.udpBackendRefs.serviceName"
 const tlsRouteBackendServiceIndexKey = ".metadata.tlsBackendRefs.serviceName"
@@ -46,9 +51,11 @@ type WatchesModelDeps struct {
 
 // RegisterFieldIndexersOptions controls which optional route indexers are registered.
 type RegisterFieldIndexersOptions struct {
-	EnableTCPRoute bool
-	EnableUDPRoute bool
-	EnableTLSRoute bool
+	EnableTCPRoute     bool
+	EnableUDPRoute     bool
+	EnableTLSRoute     bool
+	EnableListenerSet  bool
+	EnableFrontendMTLS bool
 }
 
 // NewWatchesModel creates a new watchesModel.
@@ -127,14 +134,20 @@ func (m *WatchesModel) RegisterFieldIndexers(
 		}
 	}
 
-	if err := indexer.IndexField(ctx,
-		&gatewayv1.Gateway{},
-		gatewayCertificateIndexKey,
-		func(o client.Object) []string {
-			return m.indexGatewayByCertificateSecrets(ctx, o)
-		},
-	); err != nil {
-		return fmt.Errorf("failed to index Gateway by certificate: %w", err)
+	if err := m.registerGatewayCertificateIndexers(ctx, indexer); err != nil {
+		return err
+	}
+
+	if opts.EnableFrontendMTLS {
+		if err := m.registerFrontendMTLSIndexers(ctx, indexer); err != nil {
+			return err
+		}
+	}
+
+	if opts.EnableListenerSet {
+		if err := m.registerListenerSetIndexers(ctx, indexer); err != nil {
+			return err
+		}
 	}
 
 	m.logger.DebugContext(ctx, "Field indexers registered",
@@ -144,10 +157,61 @@ func (m *WatchesModel) RegisterFieldIndexers(
 		slog.String("indexKey", grpcRouteParentGatewayIndexKey),
 		slog.String("indexKey", tlsRouteParentGatewayIndexKey),
 		slog.String("indexKey", gatewayCertificateIndexKey),
+		slog.String("indexKey", gatewayFrontendMTLSCAConfigMapIndexKey),
 		slog.Bool("tcpRouteIndexEnabled", opts.EnableTCPRoute),
 		slog.Bool("udpRouteIndexEnabled", opts.EnableUDPRoute),
 		slog.Bool("tlsRouteIndexEnabled", opts.EnableTLSRoute),
+		slog.Bool("listenerSetIndexEnabled", opts.EnableListenerSet),
+		slog.Bool("frontendMTLSIndexEnabled", opts.EnableFrontendMTLS),
 	)
+	return nil
+}
+
+func (m *WatchesModel) registerGatewayCertificateIndexers(ctx context.Context, indexer client.FieldIndexer) error {
+	if err := indexer.IndexField(ctx,
+		&gatewayv1.Gateway{},
+		gatewayCertificateIndexKey,
+		func(o client.Object) []string {
+			return m.indexGatewayByCertificateSecrets(ctx, o)
+		},
+	); err != nil {
+		return fmt.Errorf("failed to index Gateway by certificate: %w", err)
+	}
+	return nil
+}
+
+func (m *WatchesModel) registerFrontendMTLSIndexers(ctx context.Context, indexer client.FieldIndexer) error {
+	if err := indexer.IndexField(ctx,
+		&gatewayv1.Gateway{},
+		gatewayFrontendMTLSCAConfigMapIndexKey,
+		func(o client.Object) []string {
+			return m.indexGatewayByFrontendMTLSConfigMaps(ctx, o)
+		},
+	); err != nil {
+		return fmt.Errorf("failed to index Gateway by frontend mTLS ConfigMap: %w", err)
+	}
+	return nil
+}
+
+func (m *WatchesModel) registerListenerSetIndexers(ctx context.Context, indexer client.FieldIndexer) error {
+	if err := indexer.IndexField(ctx,
+		&gatewayv1.ListenerSet{},
+		listenerSetParentGatewayIndexKey,
+		func(o client.Object) []string {
+			return m.indexListenerSetByParentGateway(ctx, o)
+		},
+	); err != nil {
+		return fmt.Errorf("failed to index ListenerSet by parent Gateway: %w", err)
+	}
+	if err := indexer.IndexField(ctx,
+		&gatewayv1.ListenerSet{},
+		listenerSetCertificateIndexKey,
+		func(o client.Object) []string {
+			return m.indexListenerSetByCertificateSecrets(ctx, o)
+		},
+	); err != nil {
+		return fmt.Errorf("failed to index ListenerSet by certificate: %w", err)
+	}
 	return nil
 }
 
@@ -235,13 +299,55 @@ func (m *WatchesModel) indexTLSRouteByParentGateway(ctx context.Context, obj cli
 	return parentGatewayIndexKeys(tlsRoute.Namespace, tlsRoute.Spec.ParentRefs)
 }
 
+func (m *WatchesModel) indexListenerSetByParentGateway(ctx context.Context, obj client.Object) []string {
+	listenerSet, ok := obj.(*gatewayv1.ListenerSet)
+	if !ok {
+		m.logger.WarnContext(ctx, "Received non-ListenerSet object", slog.Any("object", obj))
+		return nil
+	}
+	if listenerSet.DeletionTimestamp != nil {
+		return nil
+	}
+	parentName, ok := listenerSetParentGatewayName(*listenerSet)
+	if !ok {
+		return nil
+	}
+	return []string{parentName}
+}
+
+func (m *WatchesModel) indexListenerSetByCertificateSecrets(ctx context.Context, obj client.Object) []string {
+	listenerSet, ok := obj.(*gatewayv1.ListenerSet)
+	if !ok {
+		m.logger.WarnContext(ctx, "Received non-ListenerSet object", slog.Any("object", obj))
+		return nil
+	}
+	if listenerSet.DeletionTimestamp != nil {
+		return nil
+	}
+	uniqueSecretKeys := make(map[string]struct{})
+	for _, listener := range listenerSet.Spec.Listeners {
+		if (listener.Protocol != gatewayv1.HTTPSProtocolType && listener.Protocol != gatewayv1.TLSProtocolType) ||
+			listener.TLS == nil {
+			continue
+		}
+		for _, ref := range listener.TLS.CertificateRefs {
+			ns := listenerSet.Namespace
+			if ref.Namespace != nil {
+				ns = string(*ref.Namespace)
+			}
+			uniqueSecretKeys[path.Join(ns, string(ref.Name))] = struct{}{}
+		}
+	}
+	return lo.Keys(uniqueSecretKeys)
+}
+
 func parentGatewayIndexKeys(routeNamespace string, refs []gatewayv1.ParentReference) []string {
 	uniqueGatewayKeys := make(map[string]struct{})
 	for _, ref := range refs {
 		if ref.Group != nil && string(*ref.Group) != gatewayv1.GroupName {
 			continue
 		}
-		if ref.Kind != nil && string(*ref.Kind) != "Gateway" {
+		if ref.Kind != nil && string(*ref.Kind) != "Gateway" && string(*ref.Kind) != "ListenerSet" {
 			continue
 		}
 
@@ -559,6 +665,53 @@ func (m *WatchesModel) indexGatewayByCertificateSecrets(ctx context.Context, obj
 	return secretKeys
 }
 
+func (m *WatchesModel) indexGatewayByFrontendMTLSConfigMaps(ctx context.Context, obj client.Object) []string {
+	gateway, isGateway := obj.(*gatewayv1.Gateway)
+	logger := m.logger.WithGroup("gateway-frontend-mtls-configmap-index")
+
+	if !isGateway {
+		logger.WarnContext(ctx, "Received non-Gateway object", slog.Any("object", obj))
+		return nil
+	}
+	if gateway.DeletionTimestamp != nil ||
+		gateway.Spec.TLS == nil ||
+		gateway.Spec.TLS.Frontend == nil {
+		return nil
+	}
+	if gateway.Annotations == nil || gateway.Annotations[ControllerClassName] != "true" {
+		return nil
+	}
+
+	uniqueConfigMapKeys := make(map[string]struct{})
+	addRefs := func(validation *gatewayv1.FrontendTLSValidation) {
+		if validation == nil {
+			return
+		}
+		for _, ref := range validation.CACertificateRefs {
+			if ref.Group != "" || ref.Kind != "ConfigMap" {
+				continue
+			}
+			ns := gateway.Namespace
+			if ref.Namespace != nil {
+				ns = string(*ref.Namespace)
+			}
+			uniqueConfigMapKeys[path.Join(ns, string(ref.Name))] = struct{}{}
+		}
+	}
+	addRefs(gateway.Spec.TLS.Frontend.Default.Validation)
+	for _, portConfig := range gateway.Spec.TLS.Frontend.PerPort {
+		addRefs(portConfig.TLS.Validation)
+	}
+
+	configMapKeys := lo.Keys(uniqueConfigMapKeys)
+	logger.DebugContext(ctx, "Indexed Gateway by frontend mTLS ConfigMap",
+		slog.String("gateway", client.ObjectKeyFromObject(gateway).String()),
+		slog.String("indexKey", gatewayFrontendMTLSCAConfigMapIndexKey),
+		slog.Any("configMapKeys", configMapKeys),
+	)
+	return configMapKeys
+}
+
 // MapEndpointSliceToHTTPRoute maps EndpointSlice events to HTTPRoute reconcile requests.
 // Its signature matches handler.MapFunc.
 func (m *WatchesModel) MapEndpointSliceToHTTPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
@@ -733,6 +886,67 @@ func (m *WatchesModel) MapGRPCRouteToHTTPRoute(ctx context.Context, obj client.O
 	)
 }
 
+func (m *WatchesModel) MapListenerSetToHTTPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	return mapListenerSetToIndexedRoutes(ctx, m.logger, m.k8sClient, obj, &gatewayv1.HTTPRouteList{},
+		httpRouteParentGatewayIndexKey,
+		"HTTPRoutes",
+		func(routeList *gatewayv1.HTTPRouteList) []reconcile.Request {
+			requests := make([]reconcile.Request, 0, len(routeList.Items))
+			for _, route := range routeList.Items {
+				if route.DeletionTimestamp != nil {
+					continue
+				}
+				requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&route)})
+			}
+			return requests
+		},
+	)
+}
+
+func (m *WatchesModel) MapListenerSetToGRPCRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	return mapListenerSetToIndexedRoutes(ctx, m.logger, m.k8sClient, obj, &gatewayv1.GRPCRouteList{},
+		grpcRouteParentGatewayIndexKey,
+		"GRPCRoutes",
+		func(routeList *gatewayv1.GRPCRouteList) []reconcile.Request {
+			requests := make([]reconcile.Request, 0, len(routeList.Items))
+			for _, route := range routeList.Items {
+				if route.DeletionTimestamp != nil {
+					continue
+				}
+				requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&route)})
+			}
+			return requests
+		},
+	)
+}
+
+func mapListenerSetToIndexedRoutes[T client.ObjectList](
+	ctx context.Context,
+	logger *slog.Logger,
+	k8sClient k8sClient,
+	obj client.Object,
+	routeList T,
+	indexKey string,
+	routeKind string,
+	requestsFromList func(T) []reconcile.Request,
+) []reconcile.Request {
+	listenerSet, ok := obj.(*gatewayv1.ListenerSet)
+	if !ok {
+		logger.WarnContext(ctx, "Received non-ListenerSet object", slog.Any("object", obj))
+		return nil
+	}
+
+	listenerSetKey := client.ObjectKeyFromObject(listenerSet).String()
+	if err := k8sClient.List(ctx, routeList, client.MatchingFields{indexKey: listenerSetKey}); err != nil {
+		logger.ErrorContext(ctx, fmt.Sprintf("Failed to list %s for ListenerSet change", routeKind),
+			slog.String("listenerSet", listenerSetKey),
+			diag.ErrAttr(err),
+		)
+		return nil
+	}
+	return requestsFromList(routeList)
+}
+
 func (m *WatchesModel) MapEndpointSliceToTCPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
 	var routeList gatewayv1.TCPRouteList
 	return mapEndpointSliceToL4Route(
@@ -851,6 +1065,36 @@ func (m *WatchesModel) MapConfigMapToTLSRoute(ctx context.Context, obj client.Ob
 			return m.MapBackendTLSPolicyToTLSRoute(ctx, &policy)
 		},
 	)
+}
+
+func (m *WatchesModel) MapConfigMapToGateway(ctx context.Context, obj client.Object) []reconcile.Request {
+	configMap, ok := obj.(*corev1.ConfigMap)
+	if !ok {
+		m.logger.WarnContext(ctx, "Received non-ConfigMap object", slog.Any("object", obj))
+		return nil
+	}
+	indexKey := path.Join(configMap.Namespace, configMap.Name)
+	var gatewayList gatewayv1.GatewayList
+	if err := m.k8sClient.List(
+		ctx,
+		&gatewayList,
+		client.MatchingFields{gatewayFrontendMTLSCAConfigMapIndexKey: indexKey},
+	); err != nil {
+		m.logger.ErrorContext(ctx,
+			"Failed to list Gateways for frontend mTLS ConfigMap",
+			slog.String("indexKey", indexKey),
+			diag.ErrAttr(err),
+		)
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(gatewayList.Items))
+	for _, gateway := range gatewayList.Items {
+		if gateway.DeletionTimestamp != nil {
+			continue
+		}
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&gateway)})
+	}
+	return requests
 }
 
 func (m *WatchesModel) MapServiceToHTTPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
@@ -1164,6 +1408,72 @@ func udpRouteReferencesGateway(route gatewayv1.UDPRoute, gateway gatewayv1.Gatew
 	return false
 }
 
+func routeRefsTargetListenerSet(
+	parentRefs []gatewayv1.ParentReference,
+	routeNamespace string,
+	listenerSet gatewayv1.ListenerSet,
+) bool {
+	listenerSetName := client.ObjectKeyFromObject(&listenerSet)
+	for _, parentRef := range parentRefs {
+		if !parentRefTargetsListenerSet(parentRef) {
+			continue
+		}
+		if parentRefTargetName(parentRef, routeNamespace) == listenerSetName {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *WatchesModel) MapListenerSetToTCPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	var routeList gatewayv1.TCPRouteList
+	return mapListenerSetToL4Route(ctx, m.logger, m.k8sClient, obj, &routeList, "TCPRoutes",
+		func(routeList *gatewayv1.TCPRouteList, listenerSet *gatewayv1.ListenerSet) []reconcile.Request {
+			requests := make([]reconcile.Request, 0)
+			for _, route := range routeList.Items {
+				if route.DeletionTimestamp == nil &&
+					routeRefsTargetListenerSet(route.Spec.ParentRefs, route.Namespace, *listenerSet) {
+					requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&route)})
+				}
+			}
+			return requests
+		},
+	)
+}
+
+func (m *WatchesModel) MapListenerSetToUDPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	var routeList gatewayv1.UDPRouteList
+	return mapListenerSetToL4Route(ctx, m.logger, m.k8sClient, obj, &routeList, "UDPRoutes",
+		func(routeList *gatewayv1.UDPRouteList, listenerSet *gatewayv1.ListenerSet) []reconcile.Request {
+			requests := make([]reconcile.Request, 0)
+			for _, route := range routeList.Items {
+				if route.DeletionTimestamp == nil &&
+					routeRefsTargetListenerSet(route.Spec.ParentRefs, route.Namespace, *listenerSet) {
+					requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&route)})
+				}
+			}
+			return requests
+		},
+	)
+}
+
+func (m *WatchesModel) MapListenerSetToTLSRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	return mapListenerSetToIndexedRoutes(ctx, m.logger, m.k8sClient, obj, &gatewayv1.TLSRouteList{},
+		tlsRouteParentGatewayIndexKey,
+		"TLSRoutes",
+		func(routeList *gatewayv1.TLSRouteList) []reconcile.Request {
+			requests := make([]reconcile.Request, 0, len(routeList.Items))
+			for _, route := range routeList.Items {
+				if route.DeletionTimestamp != nil {
+					continue
+				}
+				requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&route)})
+			}
+			return requests
+		},
+	)
+}
+
 func (m *WatchesModel) MapGatewayToTCPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
 	var routeList gatewayv1.TCPRouteList
 	return mapGatewayToL4Route(ctx, m.logger, m.k8sClient, obj, &routeList, "TCPRoutes",
@@ -1223,6 +1533,309 @@ func (m *WatchesModel) MapGatewayToTLSRoute(ctx context.Context, obj client.Obje
 	return requests
 }
 
+func (m *WatchesModel) MapListenerSetToGateway(ctx context.Context, obj client.Object) []reconcile.Request {
+	listenerSet, ok := obj.(*gatewayv1.ListenerSet)
+	if !ok {
+		m.logger.WarnContext(ctx, "Received non-ListenerSet object", slog.Any("object", obj))
+		return nil
+	}
+	requestsByKey := map[client.ObjectKey]reconcile.Request{}
+	if parentName, targetsGateway := listenerSetParentGatewayName(*listenerSet); targetsGateway {
+		addListenerSetParentGatewayRequest(requestsByKey, parentName)
+	}
+	if listenerSet.Annotations != nil {
+		addListenerSetParentGatewayRequest(
+			requestsByKey,
+			listenerSet.Annotations[ListenerSetParentGatewayAnnotation],
+		)
+	}
+	if len(requestsByKey) == 0 {
+		return nil
+	}
+	return lo.Values(requestsByKey)
+}
+
+func addListenerSetParentGatewayRequest(requestsByKey map[client.ObjectKey]reconcile.Request, parentName string) {
+	namespace, name, ok := strings.Cut(parentName, "/")
+	if !ok {
+		return
+	}
+	key := client.ObjectKey{Namespace: namespace, Name: name}
+	requestsByKey[key] = reconcile.Request{NamespacedName: key}
+}
+
+func (m *WatchesModel) MapGatewayToListenerSet(ctx context.Context, obj client.Object) []reconcile.Request {
+	gateway, ok := obj.(*gatewayv1.Gateway)
+	if !ok {
+		m.logger.WarnContext(ctx, "Received non-Gateway object", slog.Any("object", obj))
+		return nil
+	}
+	var listenerSetList gatewayv1.ListenerSetList
+	if err := m.k8sClient.List(ctx, &listenerSetList, client.MatchingFields{
+		listenerSetParentGatewayIndexKey: client.ObjectKeyFromObject(gateway).String(),
+	}); err != nil {
+		m.logger.ErrorContext(ctx,
+			"Failed to list ListenerSets for Gateway change",
+			slog.String("gateway", client.ObjectKeyFromObject(gateway).String()),
+			diag.ErrAttr(err),
+		)
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(listenerSetList.Items))
+	for _, listenerSet := range listenerSetList.Items {
+		if listenerSet.DeletionTimestamp != nil {
+			continue
+		}
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&listenerSet)})
+	}
+	return requests
+}
+
+func (m *WatchesModel) MapNamespaceToListenerSet(ctx context.Context, obj client.Object) []reconcile.Request {
+	namespace, ok := obj.(*corev1.Namespace)
+	if !ok {
+		m.logger.WarnContext(ctx, "Received non-Namespace object", slog.Any("object", obj))
+		return nil
+	}
+	var listenerSetList gatewayv1.ListenerSetList
+	if err := m.k8sClient.List(ctx, &listenerSetList, client.InNamespace(namespace.Name)); err != nil {
+		m.logger.ErrorContext(ctx,
+			"Failed to list ListenerSets for Namespace change",
+			slog.String("namespace", namespace.Name),
+			diag.ErrAttr(err),
+		)
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(listenerSetList.Items))
+	for _, listenerSet := range listenerSetList.Items {
+		if listenerSet.DeletionTimestamp != nil {
+			continue
+		}
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&listenerSet)})
+	}
+	return requests
+}
+
+func (m *WatchesModel) MapReferenceGrantToGatewayWithListenerSets(
+	ctx context.Context,
+	obj client.Object,
+) []reconcile.Request {
+	grant, ok := obj.(*gatewayv1beta1.ReferenceGrant)
+	if !ok {
+		m.logger.WarnContext(ctx, "Received non-ReferenceGrant object", slog.Any("object", obj))
+		return nil
+	}
+	if !referenceGrantMayAllowListenerSetSecret(*grant) {
+		return nil
+	}
+
+	var listenerSetList gatewayv1.ListenerSetList
+	if err := m.k8sClient.List(ctx, &listenerSetList); err != nil {
+		m.logger.ErrorContext(ctx,
+			"Failed to list ListenerSets for ReferenceGrant change",
+			slog.String("referenceGrant", client.ObjectKeyFromObject(grant).String()),
+			diag.ErrAttr(err),
+		)
+		return nil
+	}
+
+	requestsByKey := make(map[client.ObjectKey]reconcile.Request)
+	for _, listenerSet := range listenerSetList.Items {
+		if listenerSet.DeletionTimestamp != nil || !listenerSetReferencesGrantedSecret(listenerSet, *grant) {
+			continue
+		}
+		for _, request := range m.MapListenerSetToGateway(ctx, &listenerSet) {
+			requestsByKey[request.NamespacedName] = request
+		}
+	}
+	return lo.Values(requestsByKey)
+}
+
+func (m *WatchesModel) MapReferenceGrantToGatewayFrontendMTLS(
+	ctx context.Context,
+	obj client.Object,
+) []reconcile.Request {
+	grant, ok := obj.(*gatewayv1beta1.ReferenceGrant)
+	if !ok {
+		m.logger.WarnContext(ctx, "Received non-ReferenceGrant object", slog.Any("object", obj))
+		return nil
+	}
+	if !referenceGrantHasMatchingFromKind(*grant, gatewayv1.Kind("Gateway")) ||
+		!referenceGrantHasMatchingCoreToKind(*grant, gatewayv1.Kind("ConfigMap")) {
+		return nil
+	}
+
+	var gatewayList gatewayv1.GatewayList
+	if err := m.k8sClient.List(ctx, &gatewayList); err != nil {
+		m.logger.ErrorContext(ctx,
+			"Failed to list Gateways for frontend mTLS ReferenceGrant change",
+			slog.String("referenceGrant", client.ObjectKeyFromObject(grant).String()),
+			diag.ErrAttr(err),
+		)
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0)
+	for _, gateway := range gatewayList.Items {
+		if gateway.DeletionTimestamp != nil || !gatewayFrontendMTLSReferencesGrantedConfigMap(gateway, *grant) {
+			continue
+		}
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&gateway)})
+	}
+	return requests
+}
+
+func (m *WatchesModel) MapReferenceGrantToListenerSet(ctx context.Context, obj client.Object) []reconcile.Request {
+	grant, ok := obj.(*gatewayv1beta1.ReferenceGrant)
+	if !ok {
+		m.logger.WarnContext(ctx, "Received non-ReferenceGrant object", slog.Any("object", obj))
+		return nil
+	}
+	if !referenceGrantMayAllowListenerSetSecret(*grant) {
+		return nil
+	}
+
+	var listenerSetList gatewayv1.ListenerSetList
+	if err := m.k8sClient.List(ctx, &listenerSetList); err != nil {
+		m.logger.ErrorContext(ctx,
+			"Failed to list ListenerSets for ReferenceGrant change",
+			slog.String("referenceGrant", client.ObjectKeyFromObject(grant).String()),
+			diag.ErrAttr(err),
+		)
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(listenerSetList.Items))
+	for _, listenerSet := range listenerSetList.Items {
+		if listenerSet.DeletionTimestamp != nil || !listenerSetReferencesGrantedSecret(listenerSet, *grant) {
+			continue
+		}
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&listenerSet)})
+	}
+	return requests
+}
+
+func referenceGrantMayAllowListenerSetSecret(grant gatewayv1beta1.ReferenceGrant) bool {
+	return referenceGrantHasMatchingFromKind(grant, gatewayv1.Kind("ListenerSet")) &&
+		referenceGrantHasSecretTo(grant)
+}
+
+func referenceGrantHasMatchingFromKind(grant gatewayv1beta1.ReferenceGrant, kind gatewayv1.Kind) bool {
+	for _, from := range grant.Spec.From {
+		if string(from.Group) == gatewayAPIGroup && from.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func referenceGrantHasSecretTo(grant gatewayv1beta1.ReferenceGrant) bool {
+	return referenceGrantHasMatchingCoreToKind(grant, gatewayv1.Kind("Secret"))
+}
+
+func referenceGrantHasMatchingCoreToKind(grant gatewayv1beta1.ReferenceGrant, kind gatewayv1.Kind) bool {
+	for _, to := range grant.Spec.To {
+		if string(to.Group) == "" && to.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func listenerSetReferencesGrantedSecret(
+	listenerSet gatewayv1.ListenerSet,
+	grant gatewayv1beta1.ReferenceGrant,
+) bool {
+	if !referenceGrantHasMatchingFrom(grant, gatewayv1.Kind("ListenerSet"), listenerSet.Namespace) {
+		return false
+	}
+	for _, listener := range listenerSet.Spec.Listeners {
+		if listener.TLS == nil {
+			continue
+		}
+		for _, ref := range listener.TLS.CertificateRefs {
+			certNamespace := listenerSet.Namespace
+			if ref.Namespace != nil {
+				certNamespace = string(*ref.Namespace)
+			}
+			if certNamespace == listenerSet.Namespace || certNamespace != grant.Namespace {
+				continue
+			}
+			if referenceGrantHasMatchingSecretTo(grant, string(ref.Name)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func gatewayFrontendMTLSReferencesGrantedConfigMap(
+	gateway gatewayv1.Gateway,
+	grant gatewayv1beta1.ReferenceGrant,
+) bool {
+	if gateway.Spec.TLS == nil || gateway.Spec.TLS.Frontend == nil {
+		return false
+	}
+	if !referenceGrantHasMatchingFrom(grant, gatewayv1.Kind("Gateway"), gateway.Namespace) {
+		return false
+	}
+	matchesRef := func(ref gatewayv1.ObjectReference) bool {
+		refNamespace := gateway.Namespace
+		if ref.Namespace != nil {
+			refNamespace = string(*ref.Namespace)
+		}
+		return refNamespace == grant.Namespace &&
+			ref.Group == "" &&
+			ref.Kind == gatewayv1.Kind("ConfigMap") &&
+			referenceGrantHasMatchingCoreTo(grant, gatewayv1.Kind("ConfigMap"), string(ref.Name))
+	}
+	if validation := gateway.Spec.TLS.Frontend.Default.Validation; validation != nil {
+		if slices.ContainsFunc(validation.CACertificateRefs, matchesRef) {
+			return true
+		}
+	}
+	for _, portConfig := range gateway.Spec.TLS.Frontend.PerPort {
+		if portConfig.TLS.Validation == nil {
+			continue
+		}
+		if slices.ContainsFunc(portConfig.TLS.Validation.CACertificateRefs, matchesRef) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *WatchesModel) MapNamespaceToGateway(ctx context.Context, obj client.Object) []reconcile.Request {
+	if _, ok := obj.(*corev1.Namespace); !ok {
+		m.logger.WarnContext(ctx, "Received non-Namespace object", slog.Any("object", obj))
+		return nil
+	}
+
+	var gatewayList gatewayv1.GatewayList
+	if err := m.k8sClient.List(ctx, &gatewayList); err != nil {
+		m.logger.ErrorContext(ctx, "Failed to list Gateways for Namespace change", diag.ErrAttr(err))
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0)
+	for _, gateway := range gatewayList.Items {
+		if gateway.DeletionTimestamp != nil || !gatewayAllowedListenersUsesNamespaceSelector(gateway) {
+			continue
+		}
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&gateway)})
+	}
+	return requests
+}
+
+func gatewayAllowedListenersUsesNamespaceSelector(gateway gatewayv1.Gateway) bool {
+	if gateway.Spec.AllowedListeners == nil ||
+		gateway.Spec.AllowedListeners.Namespaces == nil ||
+		gateway.Spec.AllowedListeners.Namespaces.From == nil {
+		return false
+	}
+	return *gateway.Spec.AllowedListeners.Namespaces.From == gatewayv1.NamespacesFromSelector
+}
+
 func mapGatewayToL4Route[T client.ObjectList](
 	ctx context.Context,
 	logger *slog.Logger,
@@ -1247,6 +1860,31 @@ func mapGatewayToL4Route[T client.ObjectList](
 	}
 
 	return requestsFromList(routeList, gateway)
+}
+
+func mapListenerSetToL4Route[T client.ObjectList](
+	ctx context.Context,
+	logger *slog.Logger,
+	k8sClient k8sClient,
+	obj client.Object,
+	routeList T,
+	routeKind string,
+	requestsFromList func(T, *gatewayv1.ListenerSet) []reconcile.Request,
+) []reconcile.Request {
+	listenerSet, ok := obj.(*gatewayv1.ListenerSet)
+	if !ok {
+		logger.WarnContext(ctx, "Received non-ListenerSet object", slog.Any("object", obj))
+		return nil
+	}
+
+	if err := k8sClient.List(ctx, routeList); err != nil {
+		logger.ErrorContext(ctx, fmt.Sprintf("Failed to list %s for ListenerSet change", routeKind),
+			slog.String("listenerSet", client.ObjectKeyFromObject(listenerSet).String()),
+			diag.ErrAttr(err),
+		)
+		return nil
+	}
+	return requestsFromList(routeList, listenerSet)
 }
 
 // MapGatewayConfigToGateway maps GatewayConfig events to Gateway reconcile requests.
@@ -1371,9 +2009,8 @@ func (m *WatchesModel) MapSecretToGateway(ctx context.Context, obj client.Object
 			)
 			continue
 		}
-		requests = append(requests, reconcile.Request{
-			NamespacedName: client.ObjectKeyFromObject(&gateway),
-		})
+		gatewayKey := client.ObjectKeyFromObject(&gateway)
+		requests = append(requests, reconcile.Request{NamespacedName: gatewayKey})
 		m.logger.InfoContext(ctx,
 			"Queueing Gateway for reconciliation due to Secret change",
 			slog.String("gateway", client.ObjectKeyFromObject(&gateway).String()),
@@ -1385,6 +2022,86 @@ func (m *WatchesModel) MapSecretToGateway(ctx context.Context, obj client.Object
 		)
 	}
 
+	return requests
+}
+
+func (m *WatchesModel) MapSecretToGatewayWithListenerSets(ctx context.Context, obj client.Object) []reconcile.Request {
+	directRequests := m.MapSecretToGateway(ctx, obj)
+	secret, ok := obj.(*corev1.Secret)
+	if !ok || secret.Type != corev1.SecretTypeTLS {
+		return directRequests
+	}
+	if _, hasCert := secret.Data[corev1.TLSCertKey]; !hasCert {
+		return directRequests
+	}
+	if _, hasKey := secret.Data[corev1.TLSPrivateKeyKey]; !hasKey {
+		return directRequests
+	}
+
+	indexKey := path.Join(secret.Namespace, secret.Name)
+	var listenerSetList gatewayv1.ListenerSetList
+	if err := m.k8sClient.List(
+		ctx,
+		&listenerSetList,
+		client.MatchingFields{listenerSetCertificateIndexKey: indexKey},
+	); err != nil {
+		m.logger.ErrorContext(ctx,
+			"Failed to list ListenerSets for certificate",
+			slog.String("indexKey", indexKey),
+			diag.ErrAttr(err),
+		)
+		return directRequests
+	}
+
+	requestsByKey := make(map[client.ObjectKey]reconcile.Request)
+	for _, request := range directRequests {
+		requestsByKey[request.NamespacedName] = request
+	}
+	for _, listenerSet := range listenerSetList.Items {
+		if listenerSet.DeletionTimestamp != nil {
+			continue
+		}
+		for _, request := range m.MapListenerSetToGateway(ctx, &listenerSet) {
+			requestsByKey[request.NamespacedName] = request
+		}
+	}
+	return lo.Values(requestsByKey)
+}
+
+func (m *WatchesModel) MapSecretToListenerSet(ctx context.Context, obj client.Object) []reconcile.Request {
+	secret, ok := obj.(*corev1.Secret)
+	if !ok || secret.Type != corev1.SecretTypeTLS {
+		return nil
+	}
+	if _, hasCert := secret.Data[corev1.TLSCertKey]; !hasCert {
+		return nil
+	}
+	if _, hasKey := secret.Data[corev1.TLSPrivateKeyKey]; !hasKey {
+		return nil
+	}
+
+	indexKey := path.Join(secret.Namespace, secret.Name)
+	var listenerSetList gatewayv1.ListenerSetList
+	if err := m.k8sClient.List(
+		ctx,
+		&listenerSetList,
+		client.MatchingFields{listenerSetCertificateIndexKey: indexKey},
+	); err != nil {
+		m.logger.ErrorContext(ctx,
+			"Failed to list ListenerSets for certificate",
+			slog.String("indexKey", indexKey),
+			diag.ErrAttr(err),
+		)
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(listenerSetList.Items))
+	for _, listenerSet := range listenerSetList.Items {
+		if listenerSet.DeletionTimestamp != nil {
+			continue
+		}
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&listenerSet)})
+	}
 	return requests
 }
 

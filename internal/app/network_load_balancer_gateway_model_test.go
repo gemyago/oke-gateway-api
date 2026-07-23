@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -336,6 +337,60 @@ func TestNetworkLoadBalancerGatewayModelResolveBranches(t *testing.T) {
 		assert.False(t, relevant)
 		require.ErrorContains(t, err, "failed to get GatewayClass")
 	})
+
+	t.Run("resolves attached ListenerSets when enabled", func(t *testing.T) {
+		parentNamespace := gatewayv1.Namespace("iot")
+		fromAll := gatewayv1.NamespacesFromAll
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithObjects(
+				gateway(func(g *gatewayv1.Gateway) {
+					g.Spec.AllowedListeners = &gatewayv1.AllowedListeners{
+						Namespaces: &gatewayv1.ListenerNamespaces{From: &fromAll},
+					}
+				}),
+				gatewayClass(gatewayv1.GatewayController(NetworkLoadBalancerControllerClassName)),
+				config,
+				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "apps"}},
+				&gatewayv1.ListenerSet{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"},
+					Spec: gatewayv1.ListenerSetSpec{
+						ParentRef: gatewayv1.ParentGatewayReference{
+							Namespace: &parentNamespace,
+							Name:      "edge",
+						},
+						Listeners: []gatewayv1.ListenerEntry{{
+							Name:     "rtmp",
+							Port:     1935,
+							Protocol: gatewayv1.TCPProtocolType,
+						}},
+					},
+				},
+			).
+			WithIndex(&gatewayv1.ListenerSet{}, listenerSetParentGatewayIndexKey, func(obj client.Object) []string {
+				listenerSet, ok := obj.(*gatewayv1.ListenerSet)
+				require.True(t, ok)
+				parentName, ok := listenerSetParentGatewayName(*listenerSet)
+				require.True(t, ok)
+				return []string{parentName}
+			}).
+			Build()
+		model := newNetworkLoadBalancerGatewayModel(networkLoadBalancerGatewayModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  k8sClient,
+		})
+		model.setListenerSetEnabled(true)
+
+		var details resolvedGatewayDetails
+		relevant, err := model.resolveReconcileRequest(t.Context(), reconcile.Request{
+			NamespacedName: k8stypes.NamespacedName{Namespace: "iot", Name: "edge"},
+		}, &details)
+
+		require.NoError(t, err)
+		assert.True(t, relevant)
+		require.Len(t, details.listenerSets, 1)
+		require.Len(t, details.effectiveListeners, 1)
+	})
 }
 
 func (s *stubNetworkLoadBalancerClient) GetNetworkLoadBalancer(
@@ -622,6 +677,36 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 		assert.Equal(t, "spec.loadBalancerId is required for OCI Network Load Balancer gateways", statusErr.message)
 	})
 
+	t.Run("rejects frontend mTLS configuration", func(t *testing.T) {
+		model := newModel(&stubNetworkLoadBalancerClient{
+			getResponse: networkloadbalancer.GetNetworkLoadBalancerResponse{
+				NetworkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id: new("ocid1.networkloadbalancer.oc1..existing"),
+				},
+			},
+		}, &stubWorkRequestsWatcher{})
+		details := newDetails()
+		details.gateway.Spec.TLS = &gatewayv1.GatewayTLSConfig{
+			Frontend: &gatewayv1.FrontendTLSConfig{
+				Default: gatewayv1.TLSConfig{Validation: &gatewayv1.FrontendTLSValidation{
+					CACertificateRefs: []gatewayv1.ObjectReference{{
+						Group: "",
+						Kind:  "ConfigMap",
+						Name:  gatewayv1.ObjectName("client-ca"),
+					}},
+				}},
+			},
+		}
+
+		err := model.programGateway(t.Context(), details)
+
+		var statusErr *resourceStatusError
+		require.ErrorAs(t, err, &statusErr)
+		assert.Equal(t, string(gatewayv1.GatewayConditionAccepted), statusErr.conditionType)
+		assert.Equal(t, string(gatewayv1.GatewayReasonInvalid), statusErr.reason)
+		assert.Equal(t, "frontend mTLS is not supported by OCI Network Load Balancer gateways", statusErr.message)
+	})
+
 	t.Run("covers unsupported listener protocols", func(t *testing.T) {
 		_, supported := networkLoadBalancerListenerProtocol(gatewayv1.HTTPProtocolType)
 		assert.False(t, supported)
@@ -691,6 +776,100 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 		assert.Equal(t, "bs_coap_dtls", lo.FromPtr(client.createListenerRequests[1].DefaultBackendSetName))
 		assert.Equal(t, networkLoadBalancerUDPIdleTimeoutSeconds,
 			lo.FromPtr(client.createListenerRequests[1].UdpIdleTimeout))
+	})
+
+	t.Run("programs ListenerSet tcp and udp listeners with derived OCI listener names", func(t *testing.T) {
+		client := &stubNetworkLoadBalancerClient{
+			getResponse: networkloadbalancer.GetNetworkLoadBalancerResponse{
+				NetworkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id:          new("ocid1.networkloadbalancer.oc1..existing"),
+					DisplayName: new("shared-nlb"),
+				},
+			},
+			createBackendSetResponse: networkloadbalancer.CreateBackendSetResponse{
+				OpcWorkRequestId: new("create-backend-set-work"),
+			},
+			createListenerResponse: networkloadbalancer.CreateListenerResponse{
+				OpcWorkRequestId: new("create-listener-work"),
+			},
+		}
+		model := newModel(client, &stubWorkRequestsWatcher{})
+		details := newDetails()
+		details.gateway.Spec.Listeners = nil
+		listenerSet := gatewayv1.ListenerSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:         "iot",
+				Name:              "media",
+				CreationTimestamp: metav1.Now(),
+			},
+			Spec: gatewayv1.ListenerSetSpec{
+				ParentRef: gatewayv1.ParentGatewayReference{Name: gatewayv1.ObjectName(details.gateway.Name)},
+				Listeners: []gatewayv1.ListenerEntry{
+					{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: 1935},
+					{Name: "coap-dtls", Protocol: gatewayv1.UDPProtocolType, Port: 5684},
+				},
+			},
+		}
+		details.listenerSets = []gatewayv1.ListenerSet{listenerSet}
+		details.effectiveListeners = effectiveListenersForGateway(details.gateway, details.listenerSets)
+		wantListeners := gatewayManagedOCIListenersForNetworkLoadBalancer(details)
+
+		err := model.programGateway(t.Context(), details)
+
+		require.NoError(t, err)
+		require.Len(t, wantListeners, 2)
+		require.Len(t, client.createBackendSetRequests, 2)
+		assert.Equal(t,
+			networkLoadBalancerBackendSetName(wantListeners[0]),
+			lo.FromPtr(client.createBackendSetRequests[0].Name),
+		)
+		assert.Equal(t,
+			networkLoadBalancerBackendSetName(wantListeners[1]),
+			lo.FromPtr(client.createBackendSetRequests[1].Name),
+		)
+		require.Len(t, client.createListenerRequests, 2)
+		assert.Equal(t, string(wantListeners[0].Name), lo.FromPtr(client.createListenerRequests[0].Name))
+		assert.Equal(t, string(wantListeners[1].Name), lo.FromPtr(client.createListenerRequests[1].Name))
+		assert.NotEqual(t, "rtmp", lo.FromPtr(client.createListenerRequests[0].Name))
+		assert.Contains(t, lo.FromPtr(client.createListenerRequests[0].Name), "ls_")
+	})
+
+	t.Run("skips TLS passthrough gateway listeners owned by TLSRoute", func(t *testing.T) {
+		client := &stubNetworkLoadBalancerClient{
+			getResponse: networkloadbalancer.GetNetworkLoadBalancerResponse{
+				NetworkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id:          new("ocid1.networkloadbalancer.oc1..existing"),
+					DisplayName: new("shared-nlb"),
+					Listeners: map[string]networkloadbalancer.Listener{
+						"tls": {
+							Name: new("tls"),
+						},
+					},
+					BackendSets: map[string]networkloadbalancer.BackendSet{
+						"bs_tls": {
+							Name: new("bs_tls"),
+						},
+					},
+				},
+			},
+		}
+		model := newModel(client, &stubWorkRequestsWatcher{})
+		mode := gatewayv1.TLSModePassthrough
+		details := newDetails()
+		details.gateway.Spec.Listeners = []gatewayv1.Listener{{
+			Name:     "tls",
+			Protocol: gatewayv1.TLSProtocolType,
+			Port:     443,
+			TLS:      &gatewayv1.ListenerTLSConfig{Mode: &mode},
+		}}
+
+		err := model.programGateway(t.Context(), details)
+
+		require.NoError(t, err)
+		assert.Empty(t, client.createBackendSetRequests)
+		assert.Empty(t, client.createListenerRequests)
+		assert.Empty(t, client.deleteListenerRequests)
+		assert.Empty(t, client.deleteBackendSetRequests)
 	})
 
 	t.Run("programs existing network load balancer by id without marking it managed", func(t *testing.T) {
@@ -987,6 +1166,54 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 				"delete-listener-work-request",
 				"delete-backend-set-work-request",
 			},
+			watcher.waited,
+		)
+	})
+
+	t.Run("removes stale ListenerSet derived listeners and backend sets", func(t *testing.T) {
+		details := newDetails()
+		details.gateway.Spec.Listeners = nil
+		listener := gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: 1935}
+		listenerSet := gatewayv1.ListenerSet{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "media"},
+		}
+		staleListenerName := listenerSetOCIListenerName(details.gateway, listenerSet, listener)
+		staleBackendSetName := networkLoadBalancerBackendSetName(gatewayv1.Listener{
+			Name:     gatewayv1.SectionName(staleListenerName),
+			Protocol: listener.Protocol,
+		})
+		watcher := &stubWorkRequestsWatcher{}
+		client := &stubNetworkLoadBalancerClient{
+			getResponse: networkloadbalancer.GetNetworkLoadBalancerResponse{
+				NetworkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id:          new("ocid1.networkloadbalancer.oc1..existing"),
+					DisplayName: new("shared-nlb"),
+					Listeners: map[string]networkloadbalancer.Listener{
+						staleListenerName: {Name: &staleListenerName},
+					},
+					BackendSets: map[string]networkloadbalancer.BackendSet{
+						staleBackendSetName: {Name: &staleBackendSetName},
+					},
+				},
+			},
+			deleteListenerResponse: networkloadbalancer.DeleteListenerResponse{
+				OpcWorkRequestId: new("delete-listener-work-request"),
+			},
+			deleteBackendSetResponse: networkloadbalancer.DeleteBackendSetResponse{
+				OpcWorkRequestId: new("delete-backend-set-work-request"),
+			},
+		}
+		model := newModel(client, watcher)
+
+		err := model.programGateway(t.Context(), details)
+
+		require.NoError(t, err)
+		require.Len(t, client.deleteListenerRequests, 1)
+		assert.Equal(t, staleListenerName, lo.FromPtr(client.deleteListenerRequests[0].ListenerName))
+		require.Len(t, client.deleteBackendSetRequests, 1)
+		assert.Equal(t, staleBackendSetName, lo.FromPtr(client.deleteBackendSetRequests[0].BackendSetName))
+		assert.ElementsMatch(t,
+			[]string{"delete-listener-work-request", "delete-backend-set-work-request"},
 			watcher.waited,
 		)
 	})

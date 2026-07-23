@@ -15,14 +15,17 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
+	k8sapi "github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
 	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
 	"github.com/gemyago/oke-gateway-api/internal/types"
 )
@@ -123,6 +126,179 @@ func TestGatewayModelImpl(t *testing.T) {
 			assert.Equal(t, gatewayConfig, receiver.config)
 			assert.Equal(t, *gateway, receiver.gateway)
 			assert.Equal(t, *gatewayClass, receiver.gatewayClass)
+		})
+
+		t.Run("valid gateway with ListenerSet listeners", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			model.setListenerSetEnabled(true)
+
+			gatewayClass := newRandomGatewayClass(
+				randomGatewayClassWithControllerNameOpt(ControllerClassName),
+			)
+			gateway := newRandomGateway()
+			gateway.Namespace = "infra-" + fake.Lorem().Word()
+			gateway.Name = "edge-" + fake.Lorem().Word()
+			fromAll := gatewayv1.NamespacesFromAll
+			gateway.Spec.AllowedListeners = &gatewayv1.AllowedListeners{
+				Namespaces: &gatewayv1.ListenerNamespaces{From: &fromAll},
+			}
+			gateway.Spec.Infrastructure = &gatewayv1.GatewayInfrastructure{
+				ParametersRef: &gatewayv1.LocalParametersReference{
+					Group: ConfigRefGroup,
+					Kind:  ConfigRefKind,
+					Name:  "config-" + fake.Lorem().Word(),
+				},
+			}
+			gatewayConfig := types.GatewayConfig{
+				Spec: types.GatewayConfigSpec{LoadBalancerID: fake.UUID().V4()},
+			}
+			parentNamespace := gatewayv1.Namespace(gateway.Namespace)
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "apps-" + fake.Lorem().Word(),
+					Name:      "extra-" + fake.Lorem().Word(),
+				},
+				Spec: gatewayv1.ListenerSetSpec{
+					ParentRef: gatewayv1.ParentGatewayReference{
+						Namespace: &parentNamespace,
+						Name:      gatewayv1.ObjectName(gateway.Name),
+					},
+					Listeners: []gatewayv1.ListenerEntry{{
+						Name:     "https",
+						Port:     443,
+						Protocol: gatewayv1.HTTPSProtocolType,
+						TLS: &gatewayv1.ListenerTLSConfig{
+							CertificateRefs: []gatewayv1.SecretObjectReference{{Name: "tls-cert"}},
+						},
+					}},
+				},
+			}
+			secret := makeRandomSecret(
+				randomSecretWithNameOpt("tls-cert"),
+				randomSecretWithTLSDataOpt(),
+			)
+			secret.Namespace = listenerSet.Namespace
+			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(gateway)}
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			setupClientGet(t, mockClient, req.NamespacedName, *gateway)
+			setupClientGet(t, mockClient, apitypes.NamespacedName{
+				Name: string(gateway.Spec.GatewayClassName),
+			}, *gatewayClass)
+			setupClientGet(t, mockClient, apitypes.NamespacedName{
+				Namespace: gateway.Namespace,
+				Name:      gateway.Spec.Infrastructure.ParametersRef.Name,
+			}, gatewayConfig)
+			mockClient.EXPECT().
+				List(t.Context(), &gatewayv1.ListenerSetList{},
+					client.MatchingFields{listenerSetParentGatewayIndexKey: req.NamespacedName.String()}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.ListenerSet{
+						listenerSet,
+						{
+							ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "ignored"},
+							Spec: gatewayv1.ListenerSetSpec{ParentRef: gatewayv1.ParentGatewayReference{
+								Name: "other",
+							}},
+						},
+					}))
+					return nil
+				})
+			setupClientGet(t, mockClient, apitypes.NamespacedName{Name: listenerSet.Namespace}, corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: listenerSet.Namespace},
+			})
+			setupClientGet(t, mockClient, apitypes.NamespacedName{
+				Namespace: secret.Namespace,
+				Name:      secret.Name,
+			}, secret)
+
+			var receiver resolvedGatewayDetails
+			relevant, err := model.resolveReconcileRequest(t.Context(), req, &receiver)
+
+			require.NoError(t, err)
+			assert.True(t, relevant)
+			require.Len(t, receiver.listenerSets, 1)
+			require.Len(t, receiver.effectiveListeners, 1+len(gateway.Spec.Listeners))
+			assert.Contains(t, receiver.gatewaySecrets, secret.Namespace+"/"+secret.Name)
+		})
+
+		t.Run("returns invalid certificate option errors", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			gatewayClass := newRandomGatewayClass(randomGatewayClassWithControllerNameOpt(ControllerClassName))
+			gateway := newRandomGateway()
+			gateway.Spec.Listeners = []gatewayv1.Listener{{
+				Name:     "https",
+				Protocol: gatewayv1.HTTPSProtocolType,
+				TLS: &gatewayv1.ListenerTLSConfig{
+					CertificateRefs: []gatewayv1.SecretObjectReference{{Name: "tls-cert"}},
+					Options: map[gatewayv1.AnnotationKey]gatewayv1.AnnotationValue{
+						ListenerTLSOptionOCICertificateOCID: "ocid1.certificate.oc1..test",
+					},
+				},
+			}}
+			gateway.Spec.Infrastructure = &gatewayv1.GatewayInfrastructure{
+				ParametersRef: &gatewayv1.LocalParametersReference{Name: "alb-config"},
+			}
+			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(gateway)}
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			setupClientGet(t, mockClient, req.NamespacedName, *gateway)
+			setupClientGet(
+				t,
+				mockClient,
+				apitypes.NamespacedName{Name: string(gateway.Spec.GatewayClassName)},
+				*gatewayClass,
+			)
+			setupClientGet(t, mockClient, apitypes.NamespacedName{
+				Namespace: gateway.Namespace,
+				Name:      "alb-config",
+			}, makeRandomGatewayConfig())
+
+			var receiver resolvedGatewayDetails
+			relevant, err := model.resolveReconcileRequest(t.Context(), req, &receiver)
+
+			assert.False(t, relevant)
+			require.ErrorContains(t, err, "cannot be used together with listener.tls.certificateRefs")
+		})
+
+		t.Run("returns ListenerSet population errors", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			model.setListenerSetEnabled(true)
+			gatewayClass := newRandomGatewayClass(randomGatewayClassWithControllerNameOpt(ControllerClassName))
+			gateway := newRandomGateway()
+			gateway.Spec.Infrastructure = &gatewayv1.GatewayInfrastructure{
+				ParametersRef: &gatewayv1.LocalParametersReference{Name: "alb-config"},
+			}
+			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(gateway)}
+			wantErr := errors.New("listenerset list failed")
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			setupClientGet(t, mockClient, req.NamespacedName, *gateway)
+			setupClientGet(
+				t,
+				mockClient,
+				apitypes.NamespacedName{Name: string(gateway.Spec.GatewayClassName)},
+				*gatewayClass,
+			)
+			setupClientGet(t, mockClient, apitypes.NamespacedName{
+				Namespace: gateway.Namespace,
+				Name:      "alb-config",
+			}, makeRandomGatewayConfig())
+			mockClient.EXPECT().
+				List(t.Context(), &gatewayv1.ListenerSetList{},
+					client.MatchingFields{listenerSetParentGatewayIndexKey: req.NamespacedName.String()}).
+				Return(wantErr)
+
+			var receiver resolvedGatewayDetails
+			relevant, err := model.resolveReconcileRequest(t.Context(), req, &receiver)
+
+			assert.False(t, relevant)
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to list ListenerSets")
 		})
 
 		t.Run("missingGateway", func(t *testing.T) {
@@ -899,6 +1075,7 @@ func TestGatewayModelImpl(t *testing.T) {
 				reconcileListenersCertificates(t.Context(), reconcileListenersCertificatesParams{
 					loadBalancerID:    config.Spec.LoadBalancerID,
 					gateway:           gateway,
+					gatewayListeners:  gateway.Spec.Listeners,
 					knownCertificates: loadBalancer.Certificates,
 				}).
 				Return(reconcileListenersCertificatesResult{
@@ -923,9 +1100,10 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			removeCall := loadBalancerModel.EXPECT().
 				removeMissingListeners(t.Context(), removeMissingListenersParams{
-					loadBalancerID:   config.Spec.LoadBalancerID,
-					knownListeners:   loadBalancer.Listeners,
-					gatewayListeners: gateway.Spec.Listeners,
+					loadBalancerID:       config.Spec.LoadBalancerID,
+					knownListeners:       loadBalancer.Listeners,
+					knownRoutingPolicies: loadBalancer.RoutingPolicies,
+					gatewayListeners:     gateway.Spec.Listeners,
 				}).
 				Return(nil)
 
@@ -945,6 +1123,223 @@ func TestGatewayModelImpl(t *testing.T) {
 			})
 
 			require.NoError(t, err)
+		})
+		t.Run("programs frontend mTLS listener params and cleanup", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			fakeData := faker.New()
+
+			config := makeRandomGatewayConfig()
+			httpsListener := makeRandomListener(randomListenerWithHTTPSParamsOpt())
+			gateway := newRandomGateway()
+			gateway.Spec.Listeners = []gatewayv1.Listener{httpsListener}
+			ref := gatewayv1.ObjectReference{
+				Group: "",
+				Kind:  "ConfigMap",
+				Name:  gatewayv1.ObjectName("ca-" + fakeData.Lorem().Word()),
+			}
+			gateway.Spec.TLS = &gatewayv1.GatewayTLSConfig{
+				Frontend: &gatewayv1.FrontendTLSConfig{
+					Default: gatewayv1.TLSConfig{Validation: &gatewayv1.FrontendTLSValidation{
+						CACertificateRefs: []gatewayv1.ObjectReference{ref},
+					}},
+				},
+			}
+			compartmentID := "ocid1.compartment.oc1.." + fakeData.UUID().V4()
+			loadBalancer := makeRandomOCILoadBalancer(
+				randomOCILoadBalancerWithRandomBackendSetsOpt(),
+				randomOCILoadBalancerWithRandomPoliciesOpt(),
+				randomOCILoadBalancerWithRandomCertificatesOpt(),
+			)
+			loadBalancer.CompartmentId = &compartmentID
+			defaultBackendSet := makeRandomOCIBackendSet()
+			certificatesByListener := map[string][]loadbalancer.Certificate{
+				string(httpsListener.Name): {makeRandomOCICertificate()},
+			}
+			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+				}).
+				Return(loadbalancer.GetLoadBalancerResponse{LoadBalancer: loadBalancer}, nil)
+			loadBalancerModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			loadBalancerModel.EXPECT().
+				reconcileDefaultBackendSet(t.Context(), mock.Anything).
+				Return(defaultBackendSet, nil)
+			reconcileCertificatesCall := loadBalancerModel.EXPECT().
+				reconcileListenersCertificates(t.Context(), mock.Anything).
+				Return(reconcileListenersCertificatesResult{certificatesByListener: certificatesByListener}, nil)
+			loadBalancerModel.EXPECT().
+				reconcileHTTPListener(t.Context(), mock.MatchedBy(func(params reconcileHTTPListenerParams) bool {
+					return params.gateway != nil &&
+						params.gateway.Name == gateway.Name &&
+						params.loadBalancerCompartmentID == compartmentID &&
+						params.listenerSpec != nil &&
+						params.listenerSpec.Name == httpsListener.Name
+				})).
+				Return(nil).
+				Once().
+				NotBefore(reconcileCertificatesCall.Call)
+			removeCall := loadBalancerModel.EXPECT().
+				removeMissingListeners(t.Context(), mock.Anything).
+				Return(nil)
+			loadBalancerModel.EXPECT().
+				removeUnusedCertificates(t.Context(), mock.Anything).
+				Return(nil).
+				NotBefore(removeCall.Call)
+
+			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
+				gateway: *gateway,
+				config:  config,
+			})
+
+			require.NoError(t, err)
+		})
+		t.Run("wraps frontend mTLS cleanup errors", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			fakeData := faker.New()
+
+			config := makeRandomGatewayConfig()
+			httpsListener := makeRandomListener(randomListenerWithHTTPSParamsOpt())
+			gateway := newRandomGateway()
+			gateway.Spec.Listeners = []gatewayv1.Listener{httpsListener}
+			gateway.Annotations = map[string]string{}
+			gateway.Annotations[GatewayFrontendMTLSCABundleCompartmentsAnnotation] =
+				"ocid1.compartment.oc1.." + fakeData.UUID().V4()
+			compartmentID := "ocid1.compartment.oc1.." + fakeData.UUID().V4()
+			loadBalancer := makeRandomOCILoadBalancer(
+				randomOCILoadBalancerWithRandomBackendSetsOpt(),
+				randomOCILoadBalancerWithRandomPoliciesOpt(),
+				randomOCILoadBalancerWithRandomCertificatesOpt(),
+			)
+			loadBalancer.CompartmentId = &compartmentID
+			defaultBackendSet := makeRandomOCIBackendSet()
+
+			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+				}).
+				Return(loadbalancer.GetLoadBalancerResponse{LoadBalancer: loadBalancer}, nil)
+			loadBalancerModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			loadBalancerModel.EXPECT().
+				reconcileDefaultBackendSet(t.Context(), mock.Anything).
+				Return(defaultBackendSet, nil)
+			reconcileCertificatesCall := loadBalancerModel.EXPECT().
+				reconcileListenersCertificates(t.Context(), mock.Anything).
+				Return(reconcileListenersCertificatesResult{}, nil)
+			loadBalancerModel.EXPECT().
+				reconcileHTTPListener(t.Context(), mock.Anything).
+				Return(nil).
+				NotBefore(reconcileCertificatesCall.Call)
+			loadBalancerModel.EXPECT().
+				cleanupFrontendMTLSCABundles(t.Context(), mock.Anything).
+				Return(errors.New("cleanup failed"))
+
+			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
+				gateway: *gateway,
+				config:  config,
+			})
+
+			require.ErrorContains(t, err, "failed to clean up frontend mTLS CA bundles")
+		})
+		t.Run("programs ListenerSet listeners with derived OCI listener names", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			config := makeRandomGatewayConfig()
+			directListener := makeRandomListener(randomListenerWithHTTPProtocolOpt())
+			listenerSetListener := makeRandomListener(randomListenerWithHTTPSParamsOpt())
+			gateway := newRandomGateway()
+			gateway.Spec.Listeners = []gatewayv1.Listener{directListener}
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace:         gateway.Namespace,
+					Name:              "team-" + faker.New().Internet().Slug(),
+					CreationTimestamp: metav1.Now(),
+				},
+				Spec: gatewayv1.ListenerSetSpec{
+					ParentRef: gatewayv1.ParentGatewayReference{Name: gatewayv1.ObjectName(gateway.Name)},
+					Listeners: []gatewayv1.ListenerEntry{{
+						Name:     listenerSetListener.Name,
+						Protocol: listenerSetListener.Protocol,
+						Port:     listenerSetListener.Port,
+						Hostname: listenerSetListener.Hostname,
+						TLS:      listenerSetListener.TLS,
+					}},
+				},
+			}
+			data := &resolvedGatewayDetails{
+				gateway:            *gateway,
+				config:             config,
+				listenerSets:       []gatewayv1.ListenerSet{listenerSet},
+				effectiveListeners: effectiveListenersForGateway(*gateway, []gatewayv1.ListenerSet{listenerSet}),
+			}
+			gatewayListeners := effectiveOCIListenersForGateway(data)
+			loadBalancer := makeRandomOCILoadBalancer(
+				randomOCILoadBalancerWithRandomBackendSetsOpt(),
+				randomOCILoadBalancerWithRandomPoliciesOpt(),
+				randomOCILoadBalancerWithRandomCertificatesOpt(),
+			)
+			defaultBackendSet := makeRandomOCIBackendSet()
+			certificatesByListener := map[string][]loadbalancer.Certificate{}
+			for _, listener := range gatewayListeners {
+				certificatesByListener[string(listener.Name)] = []loadbalancer.Certificate{makeRandomOCICertificate()}
+			}
+
+			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+				}).
+				Return(loadbalancer.GetLoadBalancerResponse{LoadBalancer: loadBalancer}, nil)
+			loadBalancerModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			loadBalancerModel.EXPECT().
+				reconcileDefaultBackendSet(t.Context(), mock.Anything).
+				Return(defaultBackendSet, nil)
+			reconcileCertificatesCall := loadBalancerModel.EXPECT().
+				reconcileListenersCertificates(t.Context(), reconcileListenersCertificatesParams{
+					loadBalancerID:    config.Spec.LoadBalancerID,
+					gateway:           gateway,
+					gatewayListeners:  gatewayListeners,
+					knownCertificates: loadBalancer.Certificates,
+				}).
+				Return(reconcileListenersCertificatesResult{
+					certificatesByListener: certificatesByListener,
+				}, nil)
+			for _, listener := range gatewayListeners {
+				loadBalancerModel.EXPECT().
+					reconcileHTTPListener(t.Context(), mock.MatchedBy(func(params reconcileHTTPListenerParams) bool {
+						return params.listenerSpec != nil &&
+							params.listenerSpec.Name == listener.Name &&
+							reflect.DeepEqual(
+								params.listenerCertificates,
+								certificatesByListener[string(listener.Name)],
+							)
+					})).
+					Return(nil).
+					Once().
+					NotBefore(reconcileCertificatesCall.Call)
+			}
+			removeCall := loadBalancerModel.EXPECT().
+				removeMissingListeners(t.Context(), removeMissingListenersParams{
+					loadBalancerID:       config.Spec.LoadBalancerID,
+					knownListeners:       loadBalancer.Listeners,
+					knownRoutingPolicies: loadBalancer.RoutingPolicies,
+					gatewayListeners:     gatewayListeners,
+				}).
+				Return(nil)
+			loadBalancerModel.EXPECT().
+				removeUnusedCertificates(t.Context(), mock.Anything).
+				Return(nil).
+				NotBefore(removeCall.Call)
+
+			err := model.programGateway(t.Context(), data)
+
+			require.NoError(t, err)
+			assert.NotEqual(t, listenerSetListener.Name, gatewayListeners[1].Name)
+			assert.Contains(t, string(gatewayListeners[1].Name), "ls_")
 		})
 		t.Run("skips TLS listeners because TLSRoute owns ALB TLS listener reconciliation", func(t *testing.T) {
 			deps := newMockDeps(t)
@@ -1148,6 +1543,7 @@ func TestGatewayModelImpl(t *testing.T) {
 				reconcileListenersCertificates(t.Context(), reconcileListenersCertificatesParams{
 					loadBalancerID:    config.Spec.LoadBalancerID,
 					gateway:           gateway,
+					gatewayListeners:  gateway.Spec.Listeners,
 					knownCertificates: loadBalancer.Certificates,
 				}).
 				Return(reconcileListenersCertificatesResult{
@@ -1486,9 +1882,396 @@ func TestGatewayModelImpl(t *testing.T) {
 			mockResourcesModel.AssertExpectations(t)
 		})
 	})
+
+	t.Run("populateAttachedListenerSets", func(t *testing.T) {
+		t.Run("returns indexed list errors", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			data := makeRandomAcceptedGatewayDetails()
+			wantErr := errors.New("list failed")
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockClient.EXPECT().
+				List(t.Context(), &gatewayv1.ListenerSetList{},
+					client.MatchingFields{
+						listenerSetParentGatewayIndexKey: client.ObjectKeyFromObject(&data.gateway).String(),
+					}).
+				Return(wantErr)
+
+			err := populateAttachedListenerSets(t.Context(), model.client, data)
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to list ListenerSets")
+		})
+
+		t.Run("returns namespace lookup errors", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			data := makeRandomAcceptedGatewayDetails()
+			fromAll := gatewayv1.NamespacesFromAll
+			data.gateway.Spec.AllowedListeners = &gatewayv1.AllowedListeners{
+				Namespaces: &gatewayv1.ListenerNamespaces{From: &fromAll},
+			}
+			parentNamespace := gatewayv1.Namespace(data.gateway.Namespace)
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"},
+				Spec: gatewayv1.ListenerSetSpec{
+					ParentRef: gatewayv1.ParentGatewayReference{
+						Namespace: &parentNamespace,
+						Name:      gatewayv1.ObjectName(data.gateway.Name),
+					},
+				},
+			}
+			wantErr := errors.New("namespace failed")
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockClient.EXPECT().
+				List(t.Context(), &gatewayv1.ListenerSetList{},
+					client.MatchingFields{
+						listenerSetParentGatewayIndexKey: client.ObjectKeyFromObject(&data.gateway).String(),
+					}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).
+						Elem().
+						FieldByName("Items").
+						Set(reflect.ValueOf([]gatewayv1.ListenerSet{listenerSet}))
+					return nil
+				})
+			mockClient.EXPECT().
+				Get(t.Context(), apitypes.NamespacedName{Name: listenerSet.Namespace}, mock.AnythingOfType("*v1.Namespace")).
+				Return(wantErr)
+
+			err := populateAttachedListenerSets(t.Context(), model.client, data)
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to get ListenerSet namespace")
+		})
+
+		t.Run("unindexed list skips missing namespaces and attaches selected namespaces", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			data := makeRandomAcceptedGatewayDetails()
+			fromSelector := gatewayv1.NamespacesFromSelector
+			data.gateway.Spec.AllowedListeners = &gatewayv1.AllowedListeners{
+				Namespaces: &gatewayv1.ListenerNamespaces{
+					From: &fromSelector,
+					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{
+						"team": "edge",
+					}},
+				},
+			}
+			parentNamespace := gatewayv1.Namespace(data.gateway.Namespace)
+			attachedListenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"},
+				Spec: gatewayv1.ListenerSetSpec{
+					ParentRef: gatewayv1.ParentGatewayReference{
+						Namespace: &parentNamespace,
+						Name:      gatewayv1.ObjectName(data.gateway.Name),
+					},
+					Listeners: []gatewayv1.ListenerEntry{
+						{Name: "tcp", Port: 1935, Protocol: gatewayv1.TCPProtocolType},
+					},
+				},
+			}
+			missingNamespaceListenerSet := attachedListenerSet
+			missingNamespaceListenerSet.Namespace = "missing"
+			missingNamespaceListenerSet.Name = "missing"
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockClient.EXPECT().
+				List(t.Context(), &gatewayv1.ListenerSetList{}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.ListenerSet{
+						missingNamespaceListenerSet,
+						attachedListenerSet,
+					}))
+					return nil
+				})
+			mockClient.EXPECT().
+				Get(t.Context(), apitypes.NamespacedName{Name: missingNamespaceListenerSet.Namespace}, mock.Anything).
+				Return(apierrors.NewNotFound(schema.GroupResource{Resource: "namespaces"}, missingNamespaceListenerSet.Namespace))
+			setupClientGet(
+				t,
+				mockClient,
+				apitypes.NamespacedName{Name: attachedListenerSet.Namespace},
+				corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:   attachedListenerSet.Namespace,
+						Labels: map[string]string{"team": "edge"},
+					},
+				},
+			)
+
+			err := populateAttachedListenerSetsUnindexed(t.Context(), model.client, data)
+
+			require.NoError(t, err)
+			require.Len(t, data.listenerSets, 1)
+			assert.Equal(t, attachedListenerSet.Name, data.listenerSets[0].Name)
+			require.Len(t, data.effectiveListeners, len(data.gateway.Spec.Listeners)+1)
+		})
+	})
+
+	t.Run("setListenerSetsProgrammed", func(t *testing.T) {
+		t.Run("updates only semantically changed ListenerSet status", func(t *testing.T) {
+			deps := newMockDeps(t)
+			gateway := gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "edge"}}
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace:  "apps",
+					Name:       "extra",
+					Generation: 3,
+				},
+				Spec: gatewayv1.ListenerSetSpec{
+					ParentRef: gatewayv1.ParentGatewayReference{Name: gatewayv1.ObjectName(gateway.Name)},
+					Listeners: []gatewayv1.ListenerEntry{
+						{Name: "https", Port: 443, Protocol: gatewayv1.HTTPSProtocolType},
+					},
+				},
+			}
+			upToDate := listenerSet
+			upToDate.Name = "current"
+			upToDate.Spec.Listeners = append([]gatewayv1.ListenerEntry(nil), listenerSet.Spec.Listeners...)
+			upToDate.Spec.Listeners[0].Port = 8443
+			data := &resolvedGatewayDetails{
+				gateway: gateway,
+				listenerSets: []gatewayv1.ListenerSet{
+					upToDate,
+					listenerSet,
+				},
+			}
+			data.effectiveListeners = effectiveListenersForGateway(gateway, data.listenerSets)
+			data.listenerSets[0].Status = listenerSetStatusForGateway(
+				gateway,
+				data.listenerSets[0],
+				data.effectiveListeners,
+				gatewayv1.GatewayController(ControllerClassName),
+			)
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+			mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
+			mockStatusWriter.EXPECT().
+				Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+					updated, ok := obj.(*gatewayv1.ListenerSet)
+					return ok &&
+						updated.Namespace == listenerSet.Namespace &&
+						updated.Name == listenerSet.Name &&
+						meta.IsStatusConditionTrue(
+							updated.Status.Conditions,
+							string(gatewayv1.ListenerSetConditionProgrammed),
+						)
+				})).
+				Return(nil).
+				Once()
+
+			err := setListenerSetsProgrammed(
+				t.Context(),
+				mockClient,
+				data,
+				gatewayv1.GatewayController(ControllerClassName),
+			)
+
+			require.NoError(t, err)
+		})
+
+		t.Run("returns status update errors", func(t *testing.T) {
+			deps := newMockDeps(t)
+			gateway := gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "edge"}}
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"},
+				Spec: gatewayv1.ListenerSetSpec{
+					ParentRef: gatewayv1.ParentGatewayReference{Name: gatewayv1.ObjectName(gateway.Name)},
+					Listeners: []gatewayv1.ListenerEntry{
+						{Name: "http", Port: 80, Protocol: gatewayv1.HTTPProtocolType},
+					},
+				},
+			}
+			data := &resolvedGatewayDetails{
+				gateway:            gateway,
+				listenerSets:       []gatewayv1.ListenerSet{listenerSet},
+				effectiveListeners: effectiveListenersForGateway(gateway, []gatewayv1.ListenerSet{listenerSet}),
+			}
+			wantErr := errors.New("status failed")
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+			mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
+			mockStatusWriter.EXPECT().Update(t.Context(), mock.Anything).Return(wantErr).Once()
+
+			err := setListenerSetsProgrammed(
+				t.Context(),
+				mockClient,
+				data,
+				gatewayv1.GatewayController(ControllerClassName),
+			)
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to update ListenerSet apps/extra status")
+		})
+	})
+
+	t.Run("setProgrammed returns ListenerSet status update errors", func(t *testing.T) {
+		deps := newMockDeps(t)
+		model := newGatewayModel(deps)
+		listenerSet := gatewayv1.ListenerSet{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"},
+			Spec: gatewayv1.ListenerSetSpec{
+				ParentRef: gatewayv1.ParentGatewayReference{Name: "edge"},
+				Listeners: []gatewayv1.ListenerEntry{{Name: "http", Port: 80, Protocol: gatewayv1.HTTPProtocolType}},
+			},
+		}
+		data := &resolvedGatewayDetails{
+			gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "edge"}},
+			listenerSets: []gatewayv1.ListenerSet{
+				listenerSet,
+			},
+			effectiveListeners: effectiveListenersForGateway(
+				gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "edge"}},
+				[]gatewayv1.ListenerSet{listenerSet},
+			),
+		}
+		wantErr := errors.New("listenerset status failed")
+
+		mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+		mockResourcesModel.EXPECT().
+			setCondition(t.Context(), mock.Anything).
+			Return(nil).
+			Once()
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
+		mockStatusWriter.EXPECT().Update(t.Context(), mock.Anything).Return(wantErr).Once()
+
+		err := model.setProgrammed(t.Context(), data)
+
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("populateGatewaySecrets with effective listeners", func(t *testing.T) {
+		deps := newMockDeps(t)
+		model := newGatewayModel(deps)
+		gateway := gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "edge"}}
+		certNamespace := gatewayv1.Namespace("apps")
+		certName := gatewayv1.ObjectName("tls-cert")
+		data := &resolvedGatewayDetails{
+			gateway: gateway,
+			effectiveListeners: []effectiveListener{
+				{
+					listener: gatewayv1.Listener{
+						Name:     "conflicted",
+						Protocol: gatewayv1.HTTPSProtocolType,
+						TLS: &gatewayv1.ListenerTLSConfig{
+							CertificateRefs: []gatewayv1.SecretObjectReference{{Name: "ignored-conflict"}},
+						},
+					},
+					conflicted: true,
+				},
+				{
+					listener: gatewayv1.Listener{
+						Name:     "oci-cert",
+						Protocol: gatewayv1.HTTPSProtocolType,
+						TLS: &gatewayv1.ListenerTLSConfig{
+							Options: map[gatewayv1.AnnotationKey]gatewayv1.AnnotationValue{
+								ListenerTLSOptionOCICertificateOCID: "ocid1.certificate.oc1..test",
+							},
+						},
+					},
+				},
+				{
+					sourceNamespace: string(certNamespace),
+					listener: gatewayv1.Listener{
+						Name:     "https",
+						Protocol: gatewayv1.HTTPSProtocolType,
+						TLS: &gatewayv1.ListenerTLSConfig{
+							CertificateRefs: []gatewayv1.SecretObjectReference{{
+								Namespace: &certNamespace,
+								Name:      certName,
+							}},
+						},
+					},
+				},
+			},
+		}
+		secret := makeRandomSecret(
+			randomSecretWithNameOpt(string(certName)),
+			randomSecretWithTLSDataOpt(),
+		)
+		secret.Namespace = string(certNamespace)
+
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+		setupClientGet(t, mockClient, apitypes.NamespacedName{
+			Namespace: secret.Namespace,
+			Name:      secret.Name,
+		}, secret).Once()
+
+		err := model.populateGatewaySecrets(t.Context(), data)
+
+		require.NoError(t, err)
+		assert.Len(t, data.gatewaySecrets, 1)
+		assert.Contains(t, data.gatewaySecrets, secret.Namespace+"/"+secret.Name)
+	})
+
+	t.Run(
+		"populateGatewaySecrets rejects cross namespace ListenerSet certificate without ReferenceGrant",
+		func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			certNamespace := gatewayv1.Namespace("certs")
+			certName := gatewayv1.ObjectName("tls-cert")
+			data := &resolvedGatewayDetails{
+				gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "edge"}},
+				effectiveListeners: []effectiveListener{{
+					sourceKind:      effectiveListenerSourceListenerSet,
+					sourceNamespace: "apps",
+					listener: gatewayv1.Listener{
+						Name:     "https",
+						Protocol: gatewayv1.HTTPSProtocolType,
+						TLS: &gatewayv1.ListenerTLSConfig{
+							CertificateRefs: []gatewayv1.SecretObjectReference{{
+								Namespace: &certNamespace,
+								Name:      certName,
+							}},
+						},
+					},
+				}},
+			}
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockClient.EXPECT().
+				List(t.Context(), mock.AnythingOfType("*v1beta1.ReferenceGrantList"), mock.Anything).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1beta1.ReferenceGrantList{}))
+					return nil
+				})
+
+			err := model.populateGatewaySecrets(t.Context(), data)
+
+			var statusErr *resourceStatusError
+			require.ErrorAs(t, err, &statusErr)
+			assert.Equal(t, string(gatewayv1.GatewayReasonInvalidParameters), statusErr.reason)
+			assert.Contains(t, statusErr.message, "certificateRef certs/tls-cert is not permitted by a ReferenceGrant")
+		},
+	)
 }
 
 func TestProgrammedGatewayCertificatesAnnotation(t *testing.T) {
+	t.Run("collects OCI certificate IDs by listener", func(t *testing.T) {
+		assert.Equal(t, map[string]string{
+			"https": "ocid1.certificate.oc1..test",
+		}, gatewayCertificateIDsByListener(gatewayv1.Gateway{
+			Spec: gatewayv1.GatewaySpec{Listeners: []gatewayv1.Listener{
+				{Name: "http"},
+				{
+					Name: "https",
+					TLS: &gatewayv1.ListenerTLSConfig{
+						Options: map[gatewayv1.AnnotationKey]gatewayv1.AnnotationValue{
+							ListenerTLSOptionOCICertificateOCID: "ocid1.certificate.oc1..test",
+						},
+					},
+				},
+			}},
+		}))
+	})
+
 	t.Run("normalizes annotation values", func(t *testing.T) {
 		got := programmedGatewayCertificatesAnnotation([]string{
 			"kora-cert-rev-2",

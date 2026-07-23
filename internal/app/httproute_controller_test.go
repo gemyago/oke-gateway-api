@@ -120,6 +120,7 @@ func TestHTTPRouteController(t *testing.T) {
 				setProgrammedParams{
 					gatewayClass:          wantResolvedData.gatewayDetails.gatewayClass,
 					gateway:               wantResolvedData.gatewayDetails.gateway,
+					config:                wantResolvedData.gatewayDetails.config,
 					httpRoute:             wantAcceptedRoute,
 					matchedRef:            wantResolvedData.matchedRef,
 					programmedPolicyRules: programmedPolicyRules,
@@ -163,6 +164,41 @@ func TestHTTPRouteController(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("skips programming when accept returns nil", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			controller := NewHTTPRouteController(deps)
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: fake.Internet().Domain(),
+					Name:      fake.Lorem().Word(),
+				},
+			}
+			resolvedData := resolvedRouteDetails{
+				httpRoute: makeRandomHTTPRoute(),
+				gatewayDetails: resolvedGatewayDetails{
+					gateway: *newRandomGateway(),
+					config:  makeRandomGatewayConfig(),
+				},
+			}
+
+			mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+			mockModel.EXPECT().resolveRequest(
+				t.Context(),
+				req,
+			).Return(map[types.NamespacedName]resolvedRouteDetails{
+				req.NamespacedName: resolvedData,
+			}, (error)(nil))
+			mockModel.EXPECT().acceptRoute(t.Context(), resolvedData).Return(nil, nil)
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, result)
+			mockModel.AssertNotCalled(t, "isProgrammingRequired", mock.Anything)
+			mockModel.AssertNotCalled(t, "programRoute", mock.Anything, mock.Anything)
 		})
 
 		t.Run("RelevantRouteDeleted", func(t *testing.T) {
@@ -534,6 +570,7 @@ func TestHTTPRouteController(t *testing.T) {
 				setProgrammedParams{
 					gatewayClass:          wantResolvedData.gatewayDetails.gatewayClass,
 					gateway:               wantResolvedData.gatewayDetails.gateway,
+					config:                wantResolvedData.gatewayDetails.config,
 					httpRoute:             wantAcceptedRoute,
 					matchedRef:            wantResolvedData.matchedRef,
 					programmedPolicyRules: programmedPolicyRules,
@@ -625,6 +662,7 @@ func TestHTTPRouteController(t *testing.T) {
 				setProgrammedParams{
 					gatewayClass: wantResolvedData.gatewayDetails.gatewayClass,
 					gateway:      wantResolvedData.gatewayDetails.gateway,
+					config:       wantResolvedData.gatewayDetails.config,
 					httpRoute:    wantAcceptedRoute,
 					matchedRef:   wantResolvedData.matchedRef,
 				},

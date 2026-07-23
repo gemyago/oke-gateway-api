@@ -37,6 +37,44 @@ func referenceGrantAllowsServiceBackend(
 	return false, nil
 }
 
+func referenceGrantAllowsSecretRef(
+	ctx context.Context,
+	k8sClient k8sClient,
+	fromKind gatewayv1.Kind,
+	fromNamespace string,
+	secretName apitypes.NamespacedName,
+) (bool, error) {
+	return referenceGrantAllowsCoreRef(ctx, k8sClient, fromKind, fromNamespace, "Secret", secretName)
+}
+
+func referenceGrantAllowsCoreRef(
+	ctx context.Context,
+	k8sClient k8sClient,
+	fromKind gatewayv1.Kind,
+	fromNamespace string,
+	toKind gatewayv1.Kind,
+	refName apitypes.NamespacedName,
+) (bool, error) {
+	if refName.Namespace == fromNamespace {
+		return true, nil
+	}
+
+	var grants gatewayv1beta1.ReferenceGrantList
+	if err := k8sClient.List(ctx, &grants, client.InNamespace(refName.Namespace)); err != nil {
+		return false, fmt.Errorf("failed to list ReferenceGrants in namespace %s: %w", refName.Namespace, err)
+	}
+
+	for _, grant := range grants.Items {
+		if !referenceGrantHasMatchingFrom(grant, fromKind, fromNamespace) {
+			continue
+		}
+		if referenceGrantHasMatchingCoreTo(grant, toKind, refName.Name) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func referenceGrantHasMatchingFrom(
 	grant gatewayv1beta1.ReferenceGrant,
 	routeKind gatewayv1.Kind,
@@ -52,12 +90,20 @@ func referenceGrantHasMatchingFrom(
 	return false
 }
 
+func referenceGrantHasMatchingSecretTo(grant gatewayv1beta1.ReferenceGrant, secretName string) bool {
+	return referenceGrantHasMatchingCoreTo(grant, "Secret", secretName)
+}
+
 func referenceGrantHasMatchingServiceTo(grant gatewayv1beta1.ReferenceGrant, serviceName string) bool {
+	return referenceGrantHasMatchingCoreTo(grant, serviceKind, serviceName)
+}
+
+func referenceGrantHasMatchingCoreTo(grant gatewayv1beta1.ReferenceGrant, kind gatewayv1.Kind, name string) bool {
 	for _, to := range grant.Spec.To {
-		if string(to.Group) != "" || string(to.Kind) != serviceKind {
+		if string(to.Group) != "" || to.Kind != kind {
 			continue
 		}
-		if to.Name == nil || string(*to.Name) == serviceName {
+		if to.Name == nil || string(*to.Name) == name {
 			return true
 		}
 	}

@@ -60,18 +60,21 @@ type deprovisionBackendSetParams struct {
 }
 
 type reconcileHTTPListenerParams struct {
-	loadBalancerID        string
-	knownListeners        map[string]loadbalancer.Listener
-	knownRoutingPolicies  map[string]loadbalancer.RoutingPolicy
-	listenerCertificates  []loadbalancer.Certificate
-	listenerCertificateID string
-	defaultBackendSetName string
-	listenerSpec          *gatewayv1.Listener
+	loadBalancerID            string
+	loadBalancerCompartmentID string
+	knownListeners            map[string]loadbalancer.Listener
+	knownRoutingPolicies      map[string]loadbalancer.RoutingPolicy
+	listenerCertificates      []loadbalancer.Certificate
+	listenerCertificateID     string
+	defaultBackendSetName     string
+	listenerSpec              *gatewayv1.Listener
+	gateway                   *gatewayv1.Gateway
 }
 
 type reconcileListenersCertificatesParams struct {
 	loadBalancerID    string
 	gateway           *gatewayv1.Gateway
+	gatewayListeners  []gatewayv1.Listener
 	knownCertificates map[string]loadbalancer.Certificate
 }
 
@@ -119,9 +122,10 @@ type commitRoutingPolicyParams struct {
 }
 
 type removeMissingListenersParams struct {
-	loadBalancerID   string
-	knownListeners   map[string]loadbalancer.Listener
-	gatewayListeners []gatewayv1.Listener
+	loadBalancerID       string
+	knownListeners       map[string]loadbalancer.Listener
+	knownRoutingPolicies map[string]loadbalancer.RoutingPolicy
+	gatewayListeners     []gatewayv1.Listener
 }
 
 type removeUnusedCertificatesParams struct {
@@ -162,6 +166,12 @@ type ociLoadBalancerModel interface {
 		params deprovisionBackendSetParams,
 	) error
 
+	deprovisionBackendSetByName(
+		ctx context.Context,
+		loadBalancerID string,
+		backendSetName string,
+	) error
+
 	// makeRoutingRule appends a new routing rule to the routing policy.
 	makeRoutingRule(
 		ctx context.Context,
@@ -185,11 +195,17 @@ type ociLoadBalancerModel interface {
 		ctx context.Context,
 		params removeUnusedCertificatesParams,
 	) error
+
+	cleanupFrontendMTLSCABundles(
+		ctx context.Context,
+		params cleanupFrontendMTLSCABundlesParams,
+	) error
 }
 
 type ociLoadBalancerModelImpl struct {
 	k8sClient           k8sClient
 	ociClient           ociLoadBalancerClient
+	certsClient         ociCertificatesManagementClient
 	logger              *slog.Logger
 	workRequestsWatcher workRequestsWatcher
 	routingRulesMapper  ociLoadBalancerRoutingRulesMapper
@@ -267,6 +283,15 @@ func loadBalancerListenerSSLConfigurationsEqual(
 		return false
 	}
 	if len(desired.Protocols) > 0 && !stringSlicesEqual(current.Protocols, desired.Protocols) {
+		return false
+	}
+	if lo.FromPtr(current.VerifyPeerCertificate) != lo.FromPtr(desired.VerifyPeerCertificate) {
+		return false
+	}
+	if desired.VerifyDepth != nil && lo.FromPtr(current.VerifyDepth) != lo.FromPtr(desired.VerifyDepth) {
+		return false
+	}
+	if !stringSlicesEqual(current.TrustedCertificateAuthorityIds, desired.TrustedCertificateAuthorityIds) {
 		return false
 	}
 	return true
@@ -461,16 +486,24 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 	)
 
 	resultingCertificates := maps.Clone(params.knownCertificates)
+	if resultingCertificates == nil {
+		resultingCertificates = map[string]loadbalancer.Certificate{}
+	}
 	listenerCertificates := make(map[string][]loadbalancer.Certificate)
-	certificateIDsByListener := gatewayCertificateIDsByListener(*params.gateway)
+	gatewayListeners := params.gatewayListeners
+	if len(gatewayListeners) == 0 {
+		gatewayListeners = params.gateway.Spec.Listeners
+	}
+	certificateIDsByListener := certificateIDsByListener(gatewayListeners)
 
-	for _, listenerSpec := range params.gateway.Spec.Listeners {
+	for _, listenerSpec := range gatewayListeners {
 		if _, usesOCICertificate := certificateIDsByListener[string(listenerSpec.Name)]; usesOCICertificate {
 			continue
 		}
 		certs, reconcileErr := m.reconcileListenerSecretCertificates(ctx, listenerSecretCertificatesParams{
 			loadBalancerID:        params.loadBalancerID,
 			gatewayNamespace:      params.gateway.Namespace,
+			gateway:               params.gateway,
 			listenerSpec:          listenerSpec,
 			resultingCertificates: resultingCertificates,
 		})
@@ -492,6 +525,7 @@ func (m *ociLoadBalancerModelImpl) reconcileListenersCertificates(
 type listenerSecretCertificatesParams struct {
 	loadBalancerID        string
 	gatewayNamespace      string
+	gateway               *gatewayv1.Gateway
 	listenerSpec          gatewayv1.Listener
 	resultingCertificates map[string]loadbalancer.Certificate
 }
@@ -534,17 +568,68 @@ func (m *ociLoadBalancerModelImpl) reconcileListenerSecretCertificate(
 	}
 
 	certName := ociCertificateNameFromSecret(secret)
+	caPEM := ""
+	if params.gateway != nil {
+		frontendMTLSCA, frontendMTLSErr := m.frontendMTLSCAForListenerCertificate(ctx, params)
+		if frontendMTLSErr != nil {
+			return loadbalancer.Certificate{}, frontendMTLSErr
+		}
+		if frontendMTLSCA != "" {
+			caPEM = frontendMTLSCA
+			certName = frontendMTLSListenerCertificateName(secret, params.listenerSpec.Port, caPEM)
+		}
+	}
 	if cert, ok := params.resultingCertificates[certName]; ok {
 		m.logCertificateAlreadyExists(ctx, params.loadBalancerID, params.listenerSpec.Name, certName, secret)
 		return cert, nil
 	}
 
-	cert, err := m.createListenerCertificate(ctx, params.loadBalancerID, params.listenerSpec.Name, certName, secret)
+	cert, err := m.createListenerCertificate(ctx, createListenerCertificateParams{
+		loadBalancerID: params.loadBalancerID,
+		listenerName:   params.listenerSpec.Name,
+		certName:       certName,
+		secret:         secret,
+		caPEM:          caPEM,
+	})
 	if err != nil {
 		return loadbalancer.Certificate{}, err
 	}
 	params.resultingCertificates[certName] = cert
 	return cert, nil
+}
+
+func (m *ociLoadBalancerModelImpl) frontendMTLSCAForListenerCertificate(
+	ctx context.Context,
+	params listenerSecretCertificatesParams,
+) (string, error) {
+	optionCAIDs := frontendMTLSOCICABundleIDs(*params.gateway, params.listenerSpec.Port)
+	validation := effectiveFrontendTLSValidation(*params.gateway, params.listenerSpec.Port)
+	if validation == nil && len(optionCAIDs) == 0 {
+		return "", nil
+	}
+	settings, err := resolveFrontendMTLSSettings(*params.gateway, params.listenerSpec.Port, validation, optionCAIDs)
+	if err != nil {
+		return "", err
+	}
+	if len(settings.ociCAIDs) > 0 {
+		return "", frontendMTLSStatusError(string(gatewayv1.GatewayReasonInvalidParameters),
+			fmt.Sprintf(
+				"frontend mTLS OCI CA bundle OCID annotations require listener %s to use %s",
+				params.listenerSpec.Name,
+				ListenerTLSOptionOCICertificateOCID,
+			),
+		)
+	}
+
+	caPEMs := make([]string, 0, len(settings.caRefs))
+	for _, ref := range settings.caRefs {
+		resolved, resolveErr := m.resolveFrontendMTLSCARef(ctx, *params.gateway, ref)
+		if resolveErr != nil {
+			return "", resolveErr
+		}
+		caPEMs = append(caPEMs, strings.TrimSpace(resolved.caPEM))
+	}
+	return strings.Join(caPEMs, "\n"), nil
 }
 
 func (m *ociLoadBalancerModelImpl) getListenerCertificateSecret(
@@ -570,47 +655,55 @@ func certificateRefNamespacedName(
 	}
 }
 
+type createListenerCertificateParams struct {
+	loadBalancerID string
+	listenerName   gatewayv1.SectionName
+	certName       string
+	secret         corev1.Secret
+	caPEM          string
+}
+
 func (m *ociLoadBalancerModelImpl) createListenerCertificate(
 	ctx context.Context,
-	loadBalancerID string,
-	listenerName gatewayv1.SectionName,
-	certName string,
-	secret corev1.Secret,
+	params createListenerCertificateParams,
 ) (loadbalancer.Certificate, error) {
 	m.logger.InfoContext(ctx, "Creating certificate",
-		slog.String("loadBalancerId", loadBalancerID),
-		slog.String("listenerName", string(listenerName)),
-		slog.String("certificateName", certName),
-		slog.String("secretName", secret.Name),
-		slog.String("secretNamespace", secret.Namespace),
-		slog.String("secretVersion", secret.ResourceVersion),
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("listenerName", string(params.listenerName)),
+		slog.String("certificateName", params.certName),
+		slog.String("secretName", params.secret.Name),
+		slog.String("secretNamespace", params.secret.Namespace),
+		slog.String("secretVersion", params.secret.ResourceVersion),
 	)
 
 	certCreateDetails := loadbalancer.CreateCertificateDetails{
-		CertificateName:   &certName,
-		PublicCertificate: new(string(secret.Data[corev1.TLSCertKey])),
-		PrivateKey:        new(string(secret.Data[corev1.TLSPrivateKeyKey])),
+		CertificateName:   &params.certName,
+		PublicCertificate: new(string(params.secret.Data[corev1.TLSCertKey])),
+		PrivateKey:        new(string(params.secret.Data[corev1.TLSPrivateKeyKey])),
+	}
+	if params.caPEM != "" {
+		certCreateDetails.CaCertificate = &params.caPEM
 	}
 	createRes, createErr := m.ociClient.CreateCertificate(ctx, loadbalancer.CreateCertificateRequest{
-		LoadBalancerId:           &loadBalancerID,
+		LoadBalancerId:           &params.loadBalancerID,
 		CreateCertificateDetails: certCreateDetails,
 	})
 	if createErr != nil {
-		return loadbalancer.Certificate{}, fmt.Errorf("failed to create certificate %s: %w", certName, createErr)
+		return loadbalancer.Certificate{}, fmt.Errorf("failed to create certificate %s: %w", params.certName, createErr)
 	}
 	if createRes.OpcWorkRequestId == nil {
 		return loadbalancer.Certificate{}, fmt.Errorf(
 			"failed to create certificate %s: missing work request id",
-			certName,
+			params.certName,
 		)
 	}
 
 	if err := m.workRequestsWatcher.WaitFor(ctx, *createRes.OpcWorkRequestId); err != nil {
-		return loadbalancer.Certificate{}, fmt.Errorf("failed to wait for certificate %s: %w", certName, err)
+		return loadbalancer.Certificate{}, fmt.Errorf("failed to wait for certificate %s: %w", params.certName, err)
 	}
 
 	return loadbalancer.Certificate{
-		CertificateName:   &certName,
+		CertificateName:   &params.certName,
 		PublicCertificate: certCreateDetails.PublicCertificate,
 	}, nil
 }
@@ -834,10 +927,6 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 ) error {
 	listenerName := string(params.listenerSpec.Name)
 
-	if err := m.reconcileListenerRoutingPolicy(ctx, params); err != nil {
-		return fmt.Errorf("failed to reconcile listener routing policy: %w", err)
-	}
-
 	var sslConfig *loadbalancer.SslConfigurationDetails
 	if params.listenerCertificateID != "" {
 		sslConfig = &loadbalancer.SslConfigurationDetails{
@@ -863,6 +952,14 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 		}
 		applyListenerTLSOptions(sslConfig, params.listenerSpec.TLS)
 	}
+	sslConfig, err := m.applyFrontendMTLS(ctx, params, sslConfig)
+	if err != nil {
+		return err
+	}
+
+	if err = m.reconcileListenerRoutingPolicy(ctx, params); err != nil {
+		return fmt.Errorf("failed to reconcile listener routing policy: %w", err)
+	}
 
 	if existingListener, ok := params.knownListeners[listenerName]; ok {
 		return m.reconcileExistingHTTPListener(ctx, params, listenerName, existingListener, sslConfig)
@@ -884,6 +981,9 @@ func (m *ociLoadBalancerModelImpl) reconcileExistingHTTPListener(
 		listenerSpec:          params.listenerSpec,
 		defaultBackendSetName: params.defaultBackendSetName,
 		sslConfig:             sslConfig,
+		preserveHTTP2: listenerPolicyContainsGRPCRules(
+			params.knownRoutingPolicies[listenerPolicyName(listenerName)],
+		),
 	})
 	if !hasChanges {
 		m.logger.DebugContext(ctx, "Listener already up to date, skipping update",
@@ -1086,21 +1186,28 @@ func (m *ociLoadBalancerModelImpl) deprovisionBackendSet(
 		params.routeNamespace,
 		params.backendRef.BackendObjectReference,
 	)
+	return m.deprovisionBackendSetByName(ctx, params.loadBalancerID, backendSetName)
+}
 
+func (m *ociLoadBalancerModelImpl) deprovisionBackendSetByName(
+	ctx context.Context,
+	loadBalancerID string,
+	backendSetName string,
+) error {
 	m.logger.InfoContext(ctx, "Deprovisioning backend set",
-		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("loadBalancerId", loadBalancerID),
 		slog.String("backendSetName", backendSetName),
 	)
 
 	deleteRes, err := m.ociClient.DeleteBackendSet(ctx, loadbalancer.DeleteBackendSetRequest{
-		LoadBalancerId: &params.loadBalancerID,
+		LoadBalancerId: &loadBalancerID,
 		BackendSetName: &backendSetName,
 	})
 	if err != nil {
 		serviceErr, ok := common.IsServiceError(err)
 		if ok && serviceErr.GetHTTPStatusCode() == http.StatusNotFound {
 			m.logger.InfoContext(ctx, "Backend set not found, assuming already deprovisioned",
-				slog.String("loadBalancerId", params.loadBalancerID),
+				slog.String("loadBalancerId", loadBalancerID),
 				slog.String("backendSetName", backendSetName),
 			)
 			return nil // Already gone
@@ -1109,7 +1216,7 @@ func (m *ociLoadBalancerModelImpl) deprovisionBackendSet(
 			serviceErr.GetCode() == "InvalidParameter" &&
 			strings.Contains(serviceErr.GetMessage(), "used in routing policy") {
 			m.logger.InfoContext(ctx, "Backend set is used in routing policy, skipping deletion",
-				slog.String("loadBalancerId", params.loadBalancerID),
+				slog.String("loadBalancerId", loadBalancerID),
 				slog.String("backendSetName", backendSetName),
 				slog.Any("serviceError", err),
 			)
@@ -1129,7 +1236,7 @@ func (m *ociLoadBalancerModelImpl) deprovisionBackendSet(
 	}
 
 	m.logger.InfoContext(ctx, "Successfully deprovisioned backend set",
-		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("loadBalancerId", loadBalancerID),
 		slog.String("backendSetName", backendSetName),
 	)
 	return nil
@@ -1274,34 +1381,90 @@ func (m *ociLoadBalancerModelImpl) deleteMissingListener(
 func (m *ociLoadBalancerModelImpl) deleteMissingRoutingPolicy(
 	ctx context.Context,
 	loadBalancerID string,
-	listener loadbalancer.Listener,
+	routingPolicyName *string,
 ) error {
-	if listener.RoutingPolicyName != nil {
+	if routingPolicyName != nil {
 		m.logger.DebugContext(ctx, "Deleting routing policy",
-			slog.String("routingPolicyName", *listener.RoutingPolicyName),
+			slog.String("routingPolicyName", *routingPolicyName),
 			slog.String("loadBalancerId", loadBalancerID),
 		)
 		var deletePolicyRes loadbalancer.DeleteRoutingPolicyResponse
 		deletePolicyRes, err := m.ociClient.DeleteRoutingPolicy(ctx, loadbalancer.DeleteRoutingPolicyRequest{
 			LoadBalancerId:    &loadBalancerID,
-			RoutingPolicyName: listener.RoutingPolicyName,
+			RoutingPolicyName: routingPolicyName,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to delete routing policy %s: %w", *listener.RoutingPolicyName, err)
+			return fmt.Errorf("failed to delete routing policy %s: %w", *routingPolicyName, err)
 		}
 		if deletePolicyRes.OpcWorkRequestId == nil {
 			return fmt.Errorf(
 				"failed to delete routing policy %s: missing work request id",
-				*listener.RoutingPolicyName,
+				*routingPolicyName,
 			)
 		}
 
 		if err = m.workRequestsWatcher.WaitFor(ctx, *deletePolicyRes.OpcWorkRequestId); err != nil {
-			return fmt.Errorf("failed to wait for routing policy %s deletion: %w", *listener.RoutingPolicyName, err)
+			return fmt.Errorf("failed to wait for routing policy %s deletion: %w", *routingPolicyName, err)
 		}
 	}
 
 	return nil
+}
+
+func (m *ociLoadBalancerModelImpl) removeOrphanedListenerRoutingPolicies(
+	ctx context.Context,
+	params removeMissingListenersParams,
+) []error {
+	httpListeners := lo.Filter(params.gatewayListeners, func(l gatewayv1.Listener, _ int) bool {
+		return l.Protocol == gatewayv1.HTTPProtocolType || l.Protocol == gatewayv1.HTTPSProtocolType
+	})
+	desiredPolicyNames := lo.SliceToMap(httpListeners, func(l gatewayv1.Listener) (string, struct{}) {
+		return listenerPolicyName(string(l.Name)), struct{}{}
+	})
+	attachedPolicyNames := map[string]struct{}{}
+	for _, listener := range params.knownListeners {
+		if listener.RoutingPolicyName != nil {
+			attachedPolicyNames[*listener.RoutingPolicyName] = struct{}{}
+		}
+	}
+
+	var errs []error
+	for policyName := range params.knownRoutingPolicies {
+		if !isControllerManagedListenerPolicyName(policyName) {
+			continue
+		}
+		policy := params.knownRoutingPolicies[policyName]
+		if !isDefaultCatchAllOnlyRoutingPolicy(policy) {
+			continue
+		}
+		if _, desired := desiredPolicyNames[policyName]; desired {
+			continue
+		}
+		if _, attached := attachedPolicyNames[policyName]; attached {
+			continue
+		}
+
+		routingPolicyName := policyName
+		if err := m.deleteMissingRoutingPolicy(ctx, params.loadBalancerID, &routingPolicyName); err != nil {
+			m.logger.WarnContext(ctx, "Failed to delete orphaned routing policy, will try with others",
+				diag.ErrAttr(err),
+				slog.String("routingPolicyName", policyName),
+				slog.String("loadBalancerId", params.loadBalancerID),
+			)
+			errs = append(errs, err)
+		}
+	}
+
+	return errs
+}
+
+func isDefaultCatchAllOnlyRoutingPolicy(policy loadbalancer.RoutingPolicy) bool {
+	if len(policy.Rules) != 1 {
+		return false
+	}
+	rule := policy.Rules[0]
+	return lo.FromPtr(rule.Name) == defaultCatchAllRuleName &&
+		lo.FromPtr(rule.Condition) == "any(http.request.url.path sw '/')"
 }
 
 func (m *ociLoadBalancerModelImpl) removeMissingListeners(
@@ -1328,7 +1491,7 @@ func (m *ociLoadBalancerModelImpl) removeMissingListeners(
 				continue
 			}
 
-			if err := m.deleteMissingRoutingPolicy(ctx, params.loadBalancerID, listener); err != nil {
+			if err := m.deleteMissingRoutingPolicy(ctx, params.loadBalancerID, listener.RoutingPolicyName); err != nil {
 				m.logger.WarnContext(ctx, "Failed to delete routing policy, will try with others",
 					diag.ErrAttr(err),
 					slog.String("listenerName", listenerName),
@@ -1341,6 +1504,7 @@ func (m *ociLoadBalancerModelImpl) removeMissingListeners(
 			m.logger.DebugContext(ctx, "Completed listener removal", slog.String("listenerName", listenerName))
 		}
 	}
+	errs = append(errs, m.removeOrphanedListenerRoutingPolicies(ctx, params)...)
 
 	return errors.Join(errs...)
 }
@@ -1542,8 +1706,16 @@ func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
 	for _, certName := range params.desiredCertificates {
 		desiredCertificates[certName] = struct{}{}
 	}
+	previouslyProgrammedCertificates := append(
+		[]string(nil),
+		params.previouslyProgrammedCertificates...,
+	)
+	previouslyProgrammedCertificates = append(
+		previouslyProgrammedCertificates,
+		knownFrontendMTLSCertificateNames(params.knownCertificates, params.desiredCertificates)...,
+	)
 
-	for _, certName := range params.previouslyProgrammedCertificates {
+	for _, certName := range normalizeProgrammedCertificateNames(previouslyProgrammedCertificates) {
 		if _, isDesired := desiredCertificates[certName]; isDesired {
 			continue
 		}
@@ -1615,6 +1787,30 @@ func certificateNamesFromListenerCertificates(
 	return normalizeProgrammedCertificateNames(certNames)
 }
 
+func knownFrontendMTLSCertificateNames(
+	knownCertificates map[string]loadbalancer.Certificate,
+	controllerCertificates []string,
+) []string {
+	prefixes := make([]string, 0, len(controllerCertificates))
+	for _, certName := range normalizeProgrammedCertificateNames(controllerCertificates) {
+		prefixes = append(prefixes, certName+"-fmtls-")
+	}
+	if len(prefixes) == 0 {
+		return nil
+	}
+
+	matched := make([]string, 0)
+	for certName := range knownCertificates {
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(certName, prefix) {
+				matched = append(matched, certName)
+				break
+			}
+		}
+	}
+	return normalizeProgrammedCertificateNames(matched)
+}
+
 func listenerPolicyName(listenerName string) string {
 	rawName := listenerName + "_policy"
 	if isValidOCIRoutingPolicyName(rawName) {
@@ -1646,10 +1842,16 @@ and upper- or lowercase letters.
 */
 var invalidCharsForPolicyNamePattern = regexp.MustCompile(`[^a-zA-Z0-9_]`)
 var validOCIRoutingPolicyNamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+var hashedListenerPolicyNamePattern = regexp.MustCompile(`^p_[0-9a-f]{16}_[a-zA-Z0-9_]+$`)
 
 func isValidOCIRoutingPolicyName(policyName string) bool {
 	return len(policyName) <= maxListenerPolicyNameLength &&
 		validOCIRoutingPolicyNamePattern.MatchString(policyName)
+}
+
+func isControllerManagedListenerPolicyName(policyName string) bool {
+	return hashedListenerPolicyNamePattern.MatchString(policyName) ||
+		(strings.HasSuffix(policyName, "_policy") && isValidOCIRoutingPolicyName(policyName))
 }
 
 // ociListerPolicyRuleName returns the name of the routing rule for the listener policy.
@@ -1744,12 +1946,13 @@ type makeOciListenerUpdateDetailsParams struct {
 	listenerSpec          *gatewayv1.Listener
 	defaultBackendSetName string
 	sslConfig             *loadbalancer.SslConfigurationDetails
+	preserveHTTP2         bool
 }
 
 func makeOciListenerUpdateDetails(
 	params makeOciListenerUpdateDetailsParams,
 ) (loadbalancer.UpdateListenerDetails, bool) {
-	expectedProtocol := expectedHTTPListenerProtocol(params.existingListenerData)
+	expectedProtocol := expectedHTTPListenerProtocol(params.preserveHTTP2)
 	hasChanges := params.existingListenerData.Protocol == nil ||
 		*params.existingListenerData.Protocol != expectedProtocol
 
@@ -1786,11 +1989,20 @@ func makeOciListenerUpdateDetails(
 	}, true
 }
 
-func expectedHTTPListenerProtocol(existingListener loadbalancer.Listener) string {
-	if lo.FromPtr(existingListener.Protocol) == ociListenerProtocolHTTP2 {
+func expectedHTTPListenerProtocol(preserveHTTP2 bool) string {
+	if preserveHTTP2 {
 		return ociListenerProtocolHTTP2
 	}
 	return ociListenerProtocolHTTP
+}
+
+func listenerPolicyContainsGRPCRules(policy loadbalancer.RoutingPolicy) bool {
+	for _, rule := range policy.Rules {
+		if rule.Condition != nil && strings.Contains(strings.ToLower(*rule.Condition), "application/grpc") {
+			return true
+		}
+	}
+	return false
 }
 
 func applyListenerTLSOptions(
@@ -1812,17 +2024,19 @@ func applyListenerTLSOptions(
 type ociLoadBalancerModelDeps struct {
 	dig.In
 
-	RootLogger          *slog.Logger
-	K8sClient           k8sClient
-	OciClient           ociLoadBalancerClient
-	WorkRequestsWatcher workRequestsWatcher
-	RoutingRulesMapper  ociLoadBalancerRoutingRulesMapper
+	RootLogger                *slog.Logger
+	K8sClient                 k8sClient
+	OciClient                 ociLoadBalancerClient
+	OciCertificatesMgmtClient ociCertificatesManagementClient
+	WorkRequestsWatcher       workRequestsWatcher
+	RoutingRulesMapper        ociLoadBalancerRoutingRulesMapper
 }
 
 func newOciLoadBalancerModel(deps ociLoadBalancerModelDeps) *ociLoadBalancerModelImpl {
 	return &ociLoadBalancerModelImpl{
 		logger:              deps.RootLogger.WithGroup("oci-load-balancer-model"),
 		ociClient:           deps.OciClient,
+		certsClient:         deps.OciCertificatesMgmtClient,
 		k8sClient:           deps.K8sClient,
 		workRequestsWatcher: deps.WorkRequestsWatcher,
 		routingRulesMapper:  deps.RoutingRulesMapper,
@@ -1833,4 +2047,12 @@ func ociCertificateNameFromSecret(
 	secret corev1.Secret,
 ) string {
 	return secret.Namespace + "-" + secret.Name + "-rev-" + secret.ResourceVersion
+}
+
+func frontendMTLSListenerCertificateName(
+	secret corev1.Secret,
+	port gatewayv1.PortNumber,
+	caPEM string,
+) string {
+	return fmt.Sprintf("%s-fmtls-%d-%s", ociCertificateNameFromSecret(secret), port, sha256Hex(caPEM)[:8])
 }

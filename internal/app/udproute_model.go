@@ -18,6 +18,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	"github.com/gemyago/oke-gateway-api/internal/types"
 )
 
 type resolvedUDPRouteDetails struct {
@@ -81,14 +83,7 @@ func udpRouteBackendRefName(backendRef gatewayv1.BackendRef, defaultNamespace st
 }
 
 func udpParentRefTarget(parentRef gatewayv1.ParentReference, routeNamespace string) apitypes.NamespacedName {
-	namespace := routeNamespace
-	if parentRef.Namespace != nil {
-		namespace = string(*parentRef.Namespace)
-	}
-	return apitypes.NamespacedName{
-		Namespace: namespace,
-		Name:      string(parentRef.Name),
-	}
+	return parentRefTargetName(parentRef, routeNamespace)
 }
 
 func udpRouteMatchesListener(parentRef gatewayv1.ParentReference, listener gatewayv1.Listener) bool {
@@ -115,14 +110,20 @@ func desiredUDPRouteBackendSetNames(details resolvedUDPRouteDetails) map[string]
 		Name:      details.gatewayDetails.gateway.Name,
 	}
 	for _, parentRef := range details.udpRoute.Spec.ParentRefs {
-		if !parentRefTargetsGateway(parentRef) ||
+		if !parentRefTargetsGateway(parentRef) && !parentRefTargetsListenerSet(parentRef) {
+			continue
+		}
+		if parentRefTargetsGateway(parentRef) &&
 			udpParentRefTarget(parentRef, details.udpRoute.Namespace) != gatewayName {
 			continue
 		}
-		for _, listener := range details.gatewayDetails.gateway.Spec.Listeners {
-			if udpRouteMatchesListener(parentRef, listener) {
-				desired[networkLoadBalancerBackendSetName(listener)] = struct{}{}
-			}
+		for _, listener := range effectiveListenersForParentRef(
+			details.gatewayDetails,
+			parentRef,
+			details.udpRoute.Namespace,
+			udpRouteMatchesListener,
+		) {
+			desired[networkLoadBalancerBackendSetName(listener)] = struct{}{}
 		}
 	}
 	return desired
@@ -166,10 +167,7 @@ func (m *udpRouteModelImpl) resolveParentRef(
 	}
 
 	results := make([]resolvedUDPRouteDetails, 0)
-	for _, listener := range gatewayDetails.gateway.Spec.Listeners {
-		if !udpRouteMatchesListener(parentRef, listener) {
-			continue
-		}
+	for _, listener := range effectiveListenersForParentRef(gatewayDetails, parentRef, route.Namespace, udpRouteMatchesListener) {
 		results = append(results, resolvedUDPRouteDetails{
 			udpRoute:        route,
 			gatewayDetails:  gatewayDetails,
@@ -185,7 +183,7 @@ func (m *udpRouteModelImpl) resolveParentGateway(
 	routeNamespace string,
 	parentRef gatewayv1.ParentReference,
 ) (resolvedGatewayDetails, bool, error) {
-	return resolveL4ParentGateway(ctx, m.client, udpParentRefTarget(parentRef, routeNamespace))
+	return resolveL4ParentGatewayForRouteParentRef(ctx, m.client, routeNamespace, parentRef)
 }
 
 func (m *udpRouteModelImpl) rejectNoMatchingListener(
@@ -215,9 +213,6 @@ func (m *udpRouteModelImpl) handleUnresolvedFinalizedRoute(
 	ctx context.Context,
 	route gatewayv1.UDPRoute,
 ) error {
-	if route.DeletionTimestamp != nil {
-		return m.removeDeletingRouteFinalizer(ctx, route)
-	}
 	return m.deprovisionDetachedRoute(ctx, route)
 }
 
@@ -228,6 +223,7 @@ func (m *udpRouteModelImpl) removeDeletingRouteFinalizer(
 	routeToUpdate := route.DeepCopy()
 	controllerutil.RemoveFinalizer(routeToUpdate, NetworkLoadBalancerUDPRouteProgrammedFinalizer)
 	setAnnotatedBackendSetNames(routeToUpdate, NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation, nil)
+	delete(routeToUpdate.Annotations, L4RouteProgrammedNetworkLoadBalancerIDAnnotation)
 	if err := m.client.Update(ctx, routeToUpdate); err != nil {
 		return fmt.Errorf("failed to remove finalizer from deleting UDPRoute %s/%s: %w",
 			routeToUpdate.Namespace,
@@ -704,6 +700,14 @@ func (m *udpRouteModelImpl) deprovisionDetachedRoute(
 		}
 	}
 
+	cleaned, err := m.cleanupDetachedRouteByAnnotatedNetworkLoadBalancer(ctx, route, programmedBackendSets)
+	if err != nil || cleaned {
+		return err
+	}
+	if route.DeletionTimestamp != nil {
+		return m.removeDeletingRouteFinalizer(ctx, route)
+	}
+
 	return nil
 }
 
@@ -727,7 +731,41 @@ func (m *udpRouteModelImpl) cleanupDetachedRouteParent(
 	routeToUpdate := route.DeepCopy()
 	controllerutil.RemoveFinalizer(routeToUpdate, NetworkLoadBalancerUDPRouteProgrammedFinalizer)
 	setAnnotatedBackendSetNames(routeToUpdate, NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation, nil)
+	delete(routeToUpdate.Annotations, L4RouteProgrammedNetworkLoadBalancerIDAnnotation)
 	if err = m.client.Update(ctx, routeToUpdate); err != nil {
+		return false, fmt.Errorf("failed to update detached UDPRoute %s/%s after cleanup: %w",
+			routeToUpdate.Namespace,
+			routeToUpdate.Name,
+			err,
+		)
+	}
+	return true, nil
+}
+
+func (m *udpRouteModelImpl) cleanupDetachedRouteByAnnotatedNetworkLoadBalancer(
+	ctx context.Context,
+	route gatewayv1.UDPRoute,
+	programmedBackendSets map[string]struct{},
+) (bool, error) {
+	nlbID := route.Annotations[L4RouteProgrammedNetworkLoadBalancerIDAnnotation]
+	if nlbID == "" {
+		return false, nil
+	}
+
+	gatewayDetails := resolvedGatewayDetails{
+		config: types.GatewayConfig{Spec: types.GatewayConfigSpec{LoadBalancerID: nlbID}},
+	}
+	for backendSetName := range programmedBackendSets {
+		if err := m.clearBackendSetByName(ctx, gatewayDetails, udpRouteKey(route), backendSetName, nil); err != nil {
+			return false, err
+		}
+	}
+
+	routeToUpdate := route.DeepCopy()
+	controllerutil.RemoveFinalizer(routeToUpdate, NetworkLoadBalancerUDPRouteProgrammedFinalizer)
+	setAnnotatedBackendSetNames(routeToUpdate, NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation, nil)
+	delete(routeToUpdate.Annotations, L4RouteProgrammedNetworkLoadBalancerIDAnnotation)
+	if err := m.client.Update(ctx, routeToUpdate); err != nil {
 		return false, fmt.Errorf("failed to update detached UDPRoute %s/%s after cleanup: %w",
 			routeToUpdate.Namespace,
 			routeToUpdate.Name,
@@ -756,6 +794,7 @@ func (m *udpRouteModelImpl) removeDetachedRouteFinalizer(
 ) error {
 	routeToUpdate := route.DeepCopy()
 	controllerutil.RemoveFinalizer(routeToUpdate, NetworkLoadBalancerUDPRouteProgrammedFinalizer)
+	delete(routeToUpdate.Annotations, L4RouteProgrammedNetworkLoadBalancerIDAnnotation)
 	if err := m.client.Update(ctx, routeToUpdate); err != nil {
 		return fmt.Errorf("failed to remove finalizer from detached UDPRoute %s/%s: %w",
 			routeToUpdate.Namespace,
@@ -792,6 +831,7 @@ func (m *udpRouteModelImpl) setProgrammed(ctx context.Context, details resolvedU
 		routeToUpdate:      routeToUpdate,
 		finalizer:          NetworkLoadBalancerUDPRouteProgrammedFinalizer,
 		backendSetAnnotKey: NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation,
+		loadBalancerID:     details.gatewayDetails.config.Spec.LoadBalancerID,
 		desiredBackendSets: desiredUDPRouteBackendSetNames(details),
 		updateParentStatus: func(conditions []metav1.Condition) error {
 			return m.updateParentStatus(ctx, resolvedUDPRouteDetails{

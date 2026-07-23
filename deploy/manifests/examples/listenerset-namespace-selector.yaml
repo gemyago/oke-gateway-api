@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-team
+  labels:
+    gateway-listeners: allowed
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: shared-alb
+  namespace: infra
+spec:
+  gatewayClassName: oke-gateway-api
+  infrastructure:
+    parametersRef:
+      group: oke-gateway-api.gemyago.github.io
+      kind: GatewayConfig
+      name: oke-gateway-config
+  allowedListeners:
+    namespaces:
+      from: Selector
+      selector:
+        matchLabels:
+          gateway-listeners: allowed
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: ListenerSet
+metadata:
+  name: app-http
+  namespace: app-team
+spec:
+  parentRef:
+    namespace: infra
+    name: shared-alb
+  listeners:
+    - name: http-alt
+      protocol: HTTP
+      port: 8080
+      hostname: app.example.com

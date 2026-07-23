@@ -61,6 +61,11 @@ type networkLoadBalancerGatewayModelImpl struct {
 	resourcesModel      resourcesModel
 	workRequestsWatcher workRequestsWatcher
 	operationLocks      *networkLoadBalancerOperationLocks
+	listenerSetEnabled  bool
+}
+
+func (m *networkLoadBalancerGatewayModelImpl) setListenerSetEnabled(enabled bool) {
+	m.listenerSetEnabled = enabled
 }
 
 func networkLoadBalancerBackendSetName(listener gatewayv1.Listener) string {
@@ -239,9 +244,7 @@ func (m *networkLoadBalancerGatewayModelImpl) resolveReconcileRequest(
 	}
 
 	if receiver.gateway.Spec.Infrastructure == nil || receiver.gateway.Spec.Infrastructure.ParametersRef == nil {
-		if receiver.gateway.DeletionTimestamp != nil &&
-			controllerutil.ContainsFinalizer(&receiver.gateway, NetworkLoadBalancerGatewayProgrammedFinalizer) &&
-			receiver.gateway.Annotations[NetworkLoadBalancerGatewayIDAnnotation] != "" {
+		if networkLoadBalancerGatewayCanFinalizeWithoutConfig(receiver.gateway) {
 			return true, nil
 		}
 		return false, &resourceStatusError{
@@ -257,9 +260,7 @@ func (m *networkLoadBalancerGatewayModelImpl) resolveReconcileRequest(
 	}
 	if err := m.client.Get(ctx, configName, &receiver.config); err != nil {
 		if apierrors.IsNotFound(err) {
-			if receiver.gateway.DeletionTimestamp != nil &&
-				controllerutil.ContainsFinalizer(&receiver.gateway, NetworkLoadBalancerGatewayProgrammedFinalizer) &&
-				receiver.gateway.Annotations[NetworkLoadBalancerGatewayIDAnnotation] != "" {
+			if networkLoadBalancerGatewayCanFinalizeWithoutConfig(receiver.gateway) {
 				return true, nil
 			}
 			return false, &resourceStatusError{
@@ -270,8 +271,19 @@ func (m *networkLoadBalancerGatewayModelImpl) resolveReconcileRequest(
 		}
 		return false, fmt.Errorf("failed to get GatewayConfig %s: %w", configName, err)
 	}
+	if m.listenerSetEnabled {
+		if err := populateAttachedListenerSets(ctx, m.client, receiver); err != nil {
+			return false, err
+		}
+	}
 
 	return true, nil
+}
+
+func networkLoadBalancerGatewayCanFinalizeWithoutConfig(gateway gatewayv1.Gateway) bool {
+	return gateway.DeletionTimestamp != nil &&
+		controllerutil.ContainsFinalizer(&gateway, NetworkLoadBalancerGatewayProgrammedFinalizer) &&
+		gateway.Annotations[NetworkLoadBalancerGatewayIDAnnotation] != ""
 }
 
 func (m *networkLoadBalancerGatewayModelImpl) ensureNetworkLoadBalancer(
@@ -474,7 +486,7 @@ func desiredNetworkLoadBalancerListenerNames(
 ) map[string]struct{} {
 	desired := make(map[string]struct{})
 	for _, listener := range listeners {
-		if _, supported := networkLoadBalancerListenerProtocol(listener.Protocol); !supported {
+		if !networkLoadBalancerListenerPreservedByGateway(listener.Protocol) {
 			continue
 		}
 		desired[string(listener.Name)] = struct{}{}
@@ -487,12 +499,19 @@ func desiredNetworkLoadBalancerBackendSetNames(
 ) map[string]struct{} {
 	desired := make(map[string]struct{})
 	for _, listener := range listeners {
-		if _, supported := networkLoadBalancerListenerProtocol(listener.Protocol); !supported {
+		if !networkLoadBalancerListenerPreservedByGateway(listener.Protocol) {
 			continue
 		}
 		desired[networkLoadBalancerBackendSetName(listener)] = struct{}{}
 	}
 	return desired
+}
+
+func networkLoadBalancerListenerPreservedByGateway(protocol gatewayv1.ProtocolType) bool {
+	if _, supported := networkLoadBalancerListenerProtocol(protocol); supported {
+		return true
+	}
+	return protocol == gatewayv1.TLSProtocolType
 }
 
 func (m *networkLoadBalancerGatewayModelImpl) removeMissingListeners(
@@ -630,19 +649,59 @@ func (m *networkLoadBalancerGatewayModelImpl) programGateway(
 	}
 
 	return m.operationLocks.withLock(nlb.Id, func() error {
-		for _, listener := range data.gateway.Spec.Listeners {
+		gatewayListeners := effectiveOCIListenersForGateway(data)
+		if err = validateNetworkLoadBalancerGatewayListeners(data); err != nil {
+			return err
+		}
+		gatewayManagedListeners := gatewayManagedOCIListenersForNetworkLoadBalancer(data)
+		for _, listener := range gatewayManagedListeners {
 			if err = m.reconcileListener(ctx, *nlb, listener); err != nil {
 				return fmt.Errorf("failed to reconcile Network Load Balancer listener %s: %w", listener.Name, err)
 			}
 		}
-		if err = m.removeMissingListeners(ctx, *nlb, data.gateway.Spec.Listeners); err != nil {
+		if err = m.removeMissingListeners(ctx, *nlb, gatewayListeners); err != nil {
 			return err
 		}
-		if err = m.removeMissingBackendSets(ctx, *nlb, data.gateway.Spec.Listeners); err != nil {
+		if err = m.removeMissingBackendSets(ctx, *nlb, gatewayListeners); err != nil {
 			return err
 		}
 		return nil
 	})
+}
+
+func validateNetworkLoadBalancerGatewayListeners(data *resolvedGatewayDetails) error {
+	if gatewayFrontendMTLSConfigured(data.gateway) {
+		return &resourceStatusError{
+			conditionType: string(gatewayv1.GatewayConditionAccepted),
+			reason:        string(gatewayv1.GatewayReasonInvalid),
+			message:       "frontend mTLS is not supported by OCI Network Load Balancer gateways",
+		}
+	}
+
+	effectiveListeners := data.effectiveListeners
+	if len(effectiveListeners) == 0 {
+		effectiveListeners = effectiveListenersForGateway(data.gateway, nil)
+	}
+	for _, listener := range effectiveListeners {
+		if listener.sourceKind != effectiveListenerSourceGateway ||
+			listener.conflicted ||
+			listener.listener.Protocol == gatewayv1.TLSProtocolType {
+			continue
+		}
+		if _, supported := networkLoadBalancerListenerProtocol(listener.listener.Protocol); supported {
+			continue
+		}
+		return &resourceStatusError{
+			conditionType: string(gatewayv1.GatewayConditionAccepted),
+			reason:        string(gatewayv1.GatewayReasonInvalid),
+			message: fmt.Sprintf(
+				"listener %s uses unsupported protocol %s for OCI Network Load Balancer",
+				listener.listener.Name,
+				listener.listener.Protocol,
+			),
+		}
+	}
+	return nil
 }
 
 func (m *networkLoadBalancerGatewayModelImpl) isProgrammed(_ context.Context, data *resolvedGatewayDetails) bool {
@@ -680,6 +739,7 @@ func (m *networkLoadBalancerGatewayModelImpl) setProgrammed(
 	}
 
 	data.gateway.Status.Addresses = gatewayStatusAddressesFromNetworkLoadBalancer(nlb)
+	data.gateway.Status.AttachedListenerSets = attachedListenerSetCount(data.listenerSets)
 	annotations := map[string]string{
 		NetworkLoadBalancerGatewayProgrammingRevisionAnnotation: NetworkLoadBalancerGatewayProgrammingRevisionValue,
 	}
@@ -701,6 +761,14 @@ func (m *networkLoadBalancerGatewayModelImpl) setProgrammed(
 		finalizer:   NetworkLoadBalancerGatewayProgrammedFinalizer,
 	}); err != nil {
 		return fmt.Errorf("failed to set programmed condition for Gateway %s: %w", data.gateway.Name, err)
+	}
+	if err := setListenerSetsProgrammed(
+		ctx,
+		m.client,
+		data,
+		gatewayv1.GatewayController(NetworkLoadBalancerControllerClassName),
+	); err != nil {
+		return err
 	}
 	return nil
 }

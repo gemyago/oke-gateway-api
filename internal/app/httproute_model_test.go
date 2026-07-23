@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
@@ -77,6 +79,130 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				fmt.Sprintf(" %s/%s , %s ,,", listenerName, scopedRule, legacyRule),
 			))
 			assert.Empty(t, parseProgrammedHTTPRoutePolicyRules(" ,, "))
+		})
+	})
+
+	t.Run("removeL7RoutePolicyRules", func(t *testing.T) {
+		t.Run("removes previous policy rules per listener", func(t *testing.T) {
+			fake := faker.New()
+			loadBalancerID := "ocid1.loadbalancer.oc1.." + fake.UUID().V4()
+			listeners := []gatewayv1.Listener{
+				{Name: "b-listener"},
+				{Name: "a-listener"},
+			}
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  loadBalancerID,
+				listenerName:    "a-listener",
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{"legacy-rule", "a-rule"},
+			}).Return(nil).Once()
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  loadBalancerID,
+				listenerName:    "b-listener",
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{"legacy-rule", "b-rule"},
+			}).Return(nil).Once()
+
+			err := removeL7RoutePolicyRules(
+				t.Context(),
+				ociLBModel,
+				loadBalancerID,
+				listeners,
+				"legacy-rule,b-listener/b-rule,a-listener/a-rule",
+			)
+
+			require.NoError(t, err)
+		})
+
+		t.Run("wraps routing policy removal errors", func(t *testing.T) {
+			loadBalancerID := "ocid1.loadbalancer.oc1.." + faker.New().UUID().V4()
+			listeners := []gatewayv1.Listener{{Name: "https"}}
+			wantErr := errors.New("commit failed")
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  loadBalancerID,
+				listenerName:    "https",
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{"old-rule"},
+			}).Return(wantErr).Once()
+
+			err := removeL7RoutePolicyRules(t.Context(), ociLBModel, loadBalancerID, listeners, "https/old-rule")
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to remove route policy rules for listener https")
+		})
+	})
+
+	t.Run("deprovisionDetachedL7Route", func(t *testing.T) {
+		t.Run("removes finalizer when load balancer annotation is missing", func(t *testing.T) {
+			called := false
+			err := deprovisionDetachedL7Route(t.Context(), nil, deprovisionDetachedL7RouteParams{
+				route:     &gatewayv1.HTTPRoute{},
+				routeKind: "HTTPRoute",
+				removeFinalizer: func(context.Context) error {
+					called = true
+					return nil
+				},
+			})
+
+			require.NoError(t, err)
+			assert.True(t, called)
+		})
+
+		t.Run("returns policy rule cleanup errors", func(t *testing.T) {
+			wantErr := errors.New("policy cleanup failed")
+			route := &gatewayv1.HTTPRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "apps",
+					Name:      "api",
+					Annotations: map[string]string{
+						HTTPRouteProgrammedPolicyRulesAnnotation: "http/rule",
+					},
+				},
+			}
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  "lb-id",
+				listenerName:    "http",
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{"rule"},
+			}).Return(wantErr).Once()
+
+			err := deprovisionDetachedL7Route(t.Context(), ociLBModel, deprovisionDetachedL7RouteParams{
+				route:                 route,
+				routeKind:             "HTTPRoute",
+				policyRulesAnnotation: HTTPRouteProgrammedPolicyRulesAnnotation,
+				loadBalancerID:        "lb-id",
+				removeFinalizer:       func(context.Context) error { return nil },
+			})
+
+			require.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("deduplicates backend refs and returns backend set cleanup errors", func(t *testing.T) {
+			wantErr := errors.New("backend cleanup failed")
+			route := &gatewayv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "api"}}
+			backendRef := makeRandomBackendRef().BackendRef
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			ociLBModel.EXPECT().deprovisionBackendSet(t.Context(), deprovisionBackendSetParams{
+				loadBalancerID: "lb-id",
+				routeNamespace: "apps",
+				backendRef:     backendRef,
+			}).Return(wantErr).Once()
+
+			err := deprovisionDetachedL7Route(t.Context(), ociLBModel, deprovisionDetachedL7RouteParams{
+				route:          route,
+				routeKind:      "HTTPRoute",
+				loadBalancerID: "lb-id",
+				backendRefs:    []gatewayv1.BackendRef{backendRef, backendRef},
+				removeFinalizer: func(context.Context) error {
+					t.Fatal("finalizer should not be removed when backend cleanup fails")
+					return nil
+				},
+			})
+
+			require.ErrorIs(t, err, wantErr)
 		})
 	})
 
@@ -153,6 +279,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		assert.True(t, l7HostnamePatternsIntersect("*.foo.example.com", "*.example.com"))
 		assert.ElementsMatch(t, []gatewayv1.SectionName{grpcListener.Name}, l7RouteAttachedListenerNames(
 			gateway,
+			nil,
 			[]gatewayv1.ParentReference{parentRef, {Name: "other"}},
 			"routes",
 		))
@@ -161,6 +288,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			[]gatewayv1.SectionName{grpcListener.Name, webListener.Name},
 			l7RouteAttachedListenerNames(
 				gateway,
+				nil,
 				[]gatewayv1.ParentReference{{Namespace: &parentNamespace, Name: gatewayv1.ObjectName(gateway.Name)}},
 				"routes",
 			),
@@ -181,16 +309,71 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		))
 		assert.False(t, l7RoutesShareListenerHostname(
 			gateway,
+			nil,
 			[]gatewayv1.Listener{webListener},
 			current,
 			olderOpposite,
 		))
 		assert.False(t, l7RoutesShareListenerHostname(
 			gateway,
+			nil,
 			[]gatewayv1.Listener{{Name: "missing"}},
 			current,
 			olderOpposite,
 		))
+		listenerSetKind := gatewayv1.Kind("ListenerSet")
+		listenerSet := gatewayv1.ListenerSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:         "routes",
+				Name:              "team-a",
+				CreationTimestamp: metav1.NewTime(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)),
+			},
+			Spec: gatewayv1.ListenerSetSpec{
+				ParentRef: gatewayv1.ParentGatewayReference{
+					Namespace: &parentNamespace,
+					Name:      gatewayv1.ObjectName(gateway.Name),
+				},
+				Listeners: []gatewayv1.ListenerEntry{{
+					Name:     "api",
+					Protocol: gatewayv1.HTTPSProtocolType,
+					Port:     8443,
+					Hostname: lo.ToPtr(gatewayv1.Hostname("api.example.com")),
+				}},
+			},
+		}
+		listenerSetParentRef := gatewayv1.ParentReference{
+			Kind:        &listenerSetKind,
+			Name:        gatewayv1.ObjectName(listenerSet.Name),
+			SectionName: lo.ToPtr(gatewayv1.SectionName("api")),
+		}
+		effectiveListeners := effectiveListenersForGateway(gateway, []gatewayv1.ListenerSet{listenerSet})
+		matchedListenerSetListeners := effectiveListenersForParentRef(
+			resolvedGatewayDetails{gateway: gateway, effectiveListeners: effectiveListeners},
+			listenerSetParentRef,
+			current.identity.namespace,
+			func(ref gatewayv1.ParentReference, listener gatewayv1.Listener) bool {
+				return ref.SectionName != nil && listener.Name == *ref.SectionName
+			},
+		)
+		listenerSetCurrent := current
+		listenerSetCurrent.parentRefs = []gatewayv1.ParentReference{listenerSetParentRef}
+		listenerSetCurrent.hostnames = []gatewayv1.Hostname{"api.example.com"}
+		olderListenerSetRoute := listenerSetCurrent
+		olderListenerSetRoute.identity.name = "aaa"
+		olderListenerSetRoute.identity.creationTimestamp = metav1.NewTime(
+			time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		)
+
+		winner, conflicted = l7RouteConflictingWinner(l7RouteConflictParams{
+			gateway:            gateway,
+			effectiveListeners: effectiveListeners,
+			matchedListeners:   matchedListenerSetListeners,
+			current:            listenerSetCurrent,
+			oppositeRoutes:     []l7RouteCandidate{olderListenerSetRoute},
+		})
+		assert.True(t, conflicted)
+		assert.Equal(t, olderListenerSetRoute.identity, winner.identity)
+
 		newerOpposite := olderOpposite
 		newerOpposite.identity.kind = current.identity.kind
 		newerOpposite.identity.creationTimestamp = metav1.NewTime(time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC))
@@ -276,6 +459,81 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 	})
 
 	t.Run("resolveRequest", func(t *testing.T) {
+		t.Run("cleans deleting programmed route with no resolved parent", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			loadBalancerID := "lb-" + fake.UUID().V4()
+			listenerName := "listener-" + fake.Lorem().Word()
+			ruleName := "rule-" + fake.Lorem().Word()
+			deleteTime := metav1.Now()
+			backendRef := makeRandomBackendRef()
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef)),
+				),
+			)
+			route.DeletionTimestamp = &deleteTime
+			route.Finalizers = []string{HTTPRouteProgrammedFinalizer}
+			route.Annotations = map[string]string{
+				HTTPRouteProgrammedPolicyRulesAnnotation:  listenerName + "/" + ruleName,
+				L7RouteProgrammedLoadBalancerIDAnnotation: loadBalancerID,
+			}
+			req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: route.Namespace, Name: route.Name}}
+
+			setupClientGet(t, deps.K8sClient, req.NamespacedName, route)
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  loadBalancerID,
+				listenerName:    listenerName,
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{ruleName},
+			}).Return(nil).Once()
+			ociLBModel.EXPECT().deprovisionBackendSet(t.Context(), deprovisionBackendSetParams{
+				loadBalancerID: loadBalancerID,
+				routeNamespace: route.Namespace,
+				backendRef:     backendRef.BackendRef,
+			}).Return(nil).Once()
+			k8sClient.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				updated, ok := obj.(*gatewayv1.HTTPRoute)
+				return ok &&
+					!controllerutil.ContainsFinalizer(updated, HTTPRouteProgrammedFinalizer) &&
+					updated.Annotations[HTTPRouteProgrammedPolicyRulesAnnotation] == "" &&
+					updated.Annotations[L7RouteProgrammedLoadBalancerIDAnnotation] == ""
+			})).Return(nil).Once()
+
+			got, err := model.resolveRequest(t.Context(), req)
+
+			require.NoError(t, err)
+			assert.Empty(t, got)
+		})
+
+		t.Run("wraps detached cleanup errors", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			deleteTime := metav1.Now()
+			route := makeRandomHTTPRoute()
+			route.DeletionTimestamp = &deleteTime
+			route.Finalizers = []string{HTTPRouteProgrammedFinalizer}
+			route.Annotations = map[string]string{
+				L7RouteProgrammedLoadBalancerIDAnnotation: "lb-id",
+			}
+			req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: route.Namespace, Name: route.Name}}
+			wantErr := errors.New("update failed")
+
+			setupClientGet(t, deps.K8sClient, req.NamespacedName, route)
+			k8sClient.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.HTTPRoute")).
+				Return(wantErr).
+				Once()
+
+			_, err := model.resolveRequest(t.Context(), req)
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to deprovision detached HTTPRoute")
+		})
+
 		t.Run("relevant parent", func(t *testing.T) {
 			fake := faker.New()
 			deps := newMockDeps(t)
@@ -448,6 +706,98 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				Kind:      workingRef.Kind,
 			}, receiver.matchedRef)
 			assert.Equal(t, wantListeners, receiver.matchedListeners)
+		})
+
+		t.Run("relevant ListenerSet parent with section name", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			listenerSetKind := gatewayv1.Kind("ListenerSet")
+			sectionName := gatewayv1.SectionName("https")
+			parentNamespace := gatewayv1.Namespace("infra")
+			fromAll := gatewayv1.NamespacesFromAll
+			parentRef := gatewayv1.ParentReference{
+				Kind:        &listenerSetKind,
+				Name:        "extra",
+				SectionName: &sectionName,
+			}
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithRandomParentRefOpt(parentRef),
+			)
+			route.Namespace = "apps"
+			route.Name = "api"
+			req := reconcile.Request{NamespacedName: types.NamespacedName{
+				Namespace: route.Namespace,
+				Name:      route.Name,
+			}}
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: route.Namespace, Name: string(parentRef.Name)},
+				Spec: gatewayv1.ListenerSetSpec{
+					ParentRef: gatewayv1.ParentGatewayReference{
+						Namespace: &parentNamespace,
+						Name:      "edge",
+					},
+					Listeners: []gatewayv1.ListenerEntry{
+						{Name: sectionName, Port: 443, Protocol: gatewayv1.HTTPSProtocolType},
+					},
+				},
+			}
+			gatewayData := makeRandomAcceptedGatewayDetails()
+			gatewayData.gateway.Namespace = string(parentNamespace)
+			gatewayData.gateway.Name = "edge"
+			gatewayData.gateway.Spec.AllowedListeners = &gatewayv1.AllowedListeners{
+				Namespaces: &gatewayv1.ListenerNamespaces{From: &fromAll},
+			}
+			gatewayData.gateway.Spec.Listeners = nil
+			gatewayData.effectiveListeners = nil
+
+			setupClientGet(t, deps.K8sClient, req.NamespacedName, route)
+			setupClientGet(t, deps.K8sClient, types.NamespacedName{
+				Namespace: listenerSet.Namespace,
+				Name:      listenerSet.Name,
+			}, listenerSet)
+
+			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+			gatewayModel.EXPECT().resolveReconcileRequest(
+				t.Context(),
+				reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "infra", Name: "edge"}},
+				mock.Anything,
+			).RunAndReturn(func(
+				_ context.Context,
+				_ reconcile.Request,
+				receiver *resolvedGatewayDetails,
+			) (bool, error) {
+				*receiver = *gatewayData
+				return true, nil
+			})
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockClient.EXPECT().
+				List(t.Context(), &gatewayv1.ListenerSetList{}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).
+						Elem().
+						FieldByName("Items").
+						Set(reflect.ValueOf([]gatewayv1.ListenerSet{listenerSet}))
+					return nil
+				})
+			setupClientGet(t, mockClient, types.NamespacedName{Name: listenerSet.Namespace}, corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: listenerSet.Namespace},
+			})
+
+			results, err := model.resolveRequest(t.Context(), req)
+
+			require.NoError(t, err)
+			require.Len(t, results, 1)
+			receiver := results[types.NamespacedName{Namespace: "infra", Name: "edge"}]
+			assert.Equal(t, route, receiver.httpRoute)
+			assert.Equal(t, gatewayv1.ParentReference{
+				Kind: &listenerSetKind,
+				Name: parentRef.Name,
+			}, receiver.matchedRef)
+			require.Len(t, receiver.gatewayDetails.listenerSets, 1)
+			require.Len(t, receiver.matchedListeners, 1)
+			assert.NotEqual(t, sectionName, receiver.matchedListeners[0].Name)
+			assert.Equal(t, gatewayv1.HTTPSProtocolType, receiver.matchedListeners[0].Protocol)
 		})
 
 		t.Run("relevant parent with multiple sections", func(t *testing.T) {
@@ -1514,6 +1864,78 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("removes stale backend set when backend ref port changes", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			gateway := newRandomGateway()
+			config := makeRandomGatewayConfig()
+			newPort := gatewayv1.PortNumber(9092)
+			oldPort := gatewayv1.PortNumber(9091)
+			backendRef := makeRandomBackendRef(func(ref *gatewayv1.HTTPBackendRef) {
+				ref.Port = &newPort
+			})
+			oldBackendRef := backendRef
+			oldBackendRef.Port = &oldPort
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef)),
+				),
+			)
+			oldBackendSetName := ociBackendSetNameFromBackendObjectRef(
+				httpRoute.Namespace,
+				oldBackendRef.BackendObjectReference,
+			)
+			newBackendSetName := ociBackendSetNameFromBackendObjectRef(
+				httpRoute.Namespace,
+				backendRef.BackendObjectReference,
+			)
+			require.NotEqual(t, oldBackendSetName, newBackendSetName)
+			httpRoute.Annotations = map[string]string{
+				HTTPRouteProgrammedBackendSetsAnnotation: oldBackendSetName,
+			}
+
+			service := makeRandomService(randomServiceFromBackendRef(backendRef, &httpRoute))
+			knownServicesByName := map[string]corev1.Service{
+				types.NamespacedName{Namespace: service.Namespace, Name: service.Name}.String(): service,
+			}
+			listener := makeRandomListener()
+			rule := makeRandomOCIRoutingRule()
+			rule.Name = new(ociListerPolicyRuleName(httpRoute, 0))
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+
+			ociLBModel.EXPECT().reconcileBackendSet(t.Context(), reconcileBackendSetParams{
+				loadBalancerID: config.Spec.LoadBalancerID,
+				service:        service,
+				routeNS:        httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
+			}).Return(nil).Once()
+			ociLBModel.EXPECT().makeRoutingRule(t.Context(), makeRoutingRuleParams{
+				httpRoute:          httpRoute,
+				httpRouteRuleIndex: 0,
+			}).Return(rule, nil).Once()
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID: config.Spec.LoadBalancerID,
+				listenerName:   string(listener.Name),
+				policyRules:    []loadbalancer.RoutingRule{rule},
+			}).Return(nil).Once()
+			ociLBModel.EXPECT().
+				deprovisionBackendSetByName(t.Context(), config.Spec.LoadBalancerID, oldBackendSetName).
+				Return(nil).
+				Once()
+
+			result, err := model.programRoute(t.Context(), programRouteParams{
+				gateway:          *gateway,
+				config:           config,
+				httpRoute:        httpRoute,
+				knownBackends:    knownServicesByName,
+				matchedListeners: []gatewayv1.Listener{listener},
+			})
+
+			require.NoError(t, err)
+			assert.Equal(t, []string{newBackendSetName}, result.programmedBackendSets)
+		})
+
 		t.Run("clears backend SSL config when BackendTLSPolicy no longer matches", func(t *testing.T) {
 			fake := faker.New()
 			ociLBModel := NewMockociLoadBalancerModel(t)
@@ -1547,7 +1969,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				Return(nil).
 				Once()
 
-			rules, err := programL7RoutePolicy(t.Context(), ociLBModel, programL7RoutePolicyParams{
+			rules, _, err := programL7RoutePolicy(t.Context(), ociLBModel, programL7RoutePolicyParams{
 				loadBalancerID:   config.Spec.LoadBalancerID,
 				routeName:        "http-" + fake.Lorem().Word(),
 				routeNamespace:   routeNamespace,
@@ -1953,6 +2375,108 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 	})
 
+	t.Run("removeStaleL7PolicyRules", func(t *testing.T) {
+		t.Run("removes rules for listeners that are no longer matched", func(t *testing.T) {
+			fake := faker.New()
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			loadBalancerID := "lb-" + fake.UUID().V4()
+			currentListenerName := "current-" + fake.Lorem().Word()
+			staleListenerName := "stale-" + fake.Lorem().Word()
+			staleRules := []string{
+				"rule-a-" + fake.Lorem().Word(),
+				"rule-b-" + fake.Lorem().Word(),
+			}
+
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  loadBalancerID,
+				listenerName:    staleListenerName,
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: staleRules,
+			}).Return(nil).Once()
+
+			err := removeStaleL7PolicyRules(
+				t.Context(),
+				ociLBModel,
+				loadBalancerID,
+				map[string][]string{
+					currentListenerName: {"current-rule-" + fake.Lorem().Word()},
+					staleListenerName:   staleRules,
+				},
+				map[string]struct{}{currentListenerName: {}},
+			)
+
+			require.NoError(t, err)
+		})
+
+		t.Run("returns stale rule cleanup errors", func(t *testing.T) {
+			fake := faker.New()
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			loadBalancerID := "lb-" + fake.UUID().V4()
+			staleListenerName := "stale-" + fake.Lorem().Word()
+			wantErr := errors.New("cleanup-" + fake.Lorem().Sentence(4))
+
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), mock.Anything).Return(wantErr).Once()
+
+			err := removeStaleL7PolicyRules(
+				t.Context(),
+				ociLBModel,
+				loadBalancerID,
+				map[string][]string{staleListenerName: {"rule-" + fake.Lorem().Word()}},
+				map[string]struct{}{},
+			)
+
+			require.ErrorIs(t, err, wantErr)
+		})
+	})
+
+	t.Run("deprovisionStaleL7BackendSets", func(t *testing.T) {
+		t.Run("deprovisions backend sets that are no longer desired", func(t *testing.T) {
+			fake := faker.New()
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			loadBalancerID := "lb-" + fake.UUID().V4()
+			currentBackendSetName := "current-" + fake.Lorem().Word()
+			staleBackendSetName := "stale-" + fake.Lorem().Word()
+
+			ociLBModel.EXPECT().
+				deprovisionBackendSetByName(t.Context(), loadBalancerID, staleBackendSetName).
+				Return(nil).
+				Once()
+
+			err := deprovisionStaleL7BackendSets(
+				t.Context(),
+				ociLBModel,
+				loadBalancerID,
+				map[string]struct{}{currentBackendSetName: {}},
+				map[string]struct{}{currentBackendSetName: {}, staleBackendSetName: {}},
+			)
+
+			require.NoError(t, err)
+		})
+
+		t.Run("returns stale backend set cleanup errors", func(t *testing.T) {
+			fake := faker.New()
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			loadBalancerID := "lb-" + fake.UUID().V4()
+			staleBackendSetName := "stale-" + fake.Lorem().Word()
+			wantErr := errors.New("backend-set-" + fake.Lorem().Sentence(4))
+
+			ociLBModel.EXPECT().
+				deprovisionBackendSetByName(t.Context(), loadBalancerID, staleBackendSetName).
+				Return(wantErr).
+				Once()
+
+			err := deprovisionStaleL7BackendSets(
+				t.Context(),
+				ociLBModel,
+				loadBalancerID,
+				map[string]struct{}{},
+				map[string]struct{}{staleBackendSetName: {}},
+			)
+
+			require.ErrorIs(t, err, wantErr)
+		})
+	})
+
 	t.Run("isProgrammingRequired", func(t *testing.T) {
 		// Helper to create base details for isProgrammingRequired tests
 		newIsProgrammingRequiredDetails := func() (gatewayv1.GatewayController, resolvedRouteDetails) {
@@ -2015,7 +2539,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				conditions:    details.httpRoute.Status.Parents[0].Conditions,
 				conditionType: string(gatewayv1.RouteConditionResolvedRefs),
 				annotations: map[string]string{
-					HTTPRouteProgrammingRevisionAnnotation: HTTPRouteProgrammingRevisionValue,
+					HTTPRouteProgrammingRevisionAnnotation:    HTTPRouteProgrammingRevisionValue,
+					L7RouteProgrammedLoadBalancerIDAnnotation: details.gatewayDetails.config.Spec.LoadBalancerID,
 				},
 			}).Return(checkResult)
 
@@ -2106,11 +2631,16 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				httpRoute:    route,
 				gatewayClass: gatewayData.gatewayClass,
 				gateway:      gatewayData.gateway,
+				config:       gatewayData.config,
 				matchedRef:   matchedRef,
 				programmedPolicyRules: []string{
 					"rule1-" + fake.Lorem().Word(),
 					"rule2-" + fake.Lorem().Word(),
 					"rule3-" + fake.Lorem().Word(),
+				},
+				programmedBackendSets: []string{
+					"backend-set-1-" + fake.Lorem().Word(),
+					"backend-set-2-" + fake.Lorem().Word(),
 				},
 			}
 
@@ -2123,8 +2653,10 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				reason:        string(gatewayv1.RouteReasonResolvedRefs),
 				message:       fmt.Sprintf("Route programmed by %s", params.gateway.Name),
 				annotations: map[string]string{
-					HTTPRouteProgrammingRevisionAnnotation:   HTTPRouteProgrammingRevisionValue,
-					HTTPRouteProgrammedPolicyRulesAnnotation: strings.Join(params.programmedPolicyRules, ","),
+					HTTPRouteProgrammingRevisionAnnotation:    HTTPRouteProgrammingRevisionValue,
+					HTTPRouteProgrammedPolicyRulesAnnotation:  strings.Join(params.programmedPolicyRules, ","),
+					HTTPRouteProgrammedBackendSetsAnnotation:  strings.Join(params.programmedBackendSets, ","),
+					L7RouteProgrammedLoadBalancerIDAnnotation: gatewayData.config.Spec.LoadBalancerID,
 				},
 				finalizer: HTTPRouteProgrammedFinalizer,
 			}).Return(nil)

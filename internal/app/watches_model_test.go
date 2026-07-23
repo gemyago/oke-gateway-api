@@ -145,6 +145,109 @@ func TestWatchesModel(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("registers frontend mTLS Gateway indexer when enabled", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			mockIndexer := k8sapi.NewMockFieldIndexer(t)
+
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteParentGatewayIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteParentGatewayIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.Gateway{},
+				gatewayCertificateIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.Gateway{},
+				gatewayFrontendMTLSCAConfigMapIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+
+			err := model.RegisterFieldIndexers(t.Context(), mockIndexer, RegisterFieldIndexersOptions{
+				EnableFrontendMTLS: true,
+			})
+
+			require.NoError(t, err)
+		})
+
+		t.Run("wraps frontend mTLS Gateway indexer registration errors", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			mockIndexer := k8sapi.NewMockFieldIndexer(t)
+
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteBackendServiceIndexKey,
+				mock.Anything,
+			).
+				Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteBackendServiceIndexKey,
+				mock.Anything,
+			).
+				Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteParentGatewayIndexKey,
+				mock.Anything,
+			).
+				Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteParentGatewayIndexKey,
+				mock.Anything,
+			).
+				Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.Gateway{},
+				gatewayCertificateIndexKey,
+				mock.Anything,
+			).
+				Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.Gateway{},
+				gatewayFrontendMTLSCAConfigMapIndexKey,
+				mock.Anything,
+			).Return(errors.New("frontend index failed"))
+
+			err := model.RegisterFieldIndexers(t.Context(), mockIndexer, RegisterFieldIndexersOptions{
+				EnableFrontendMTLS: true,
+			})
+
+			require.ErrorContains(t, err, "failed to index Gateway by frontend mTLS ConfigMap")
+		})
+
 		t.Run("registers TLSRoute indexer when enabled", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
@@ -197,6 +300,152 @@ func TestWatchesModel(t *testing.T) {
 				EnableTLSRoute: true,
 			})
 			require.NoError(t, err)
+		})
+
+		t.Run("registers ListenerSet indexers when enabled", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			mockIndexer := k8sapi.NewMockFieldIndexer(t)
+
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteBackendServiceIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.HTTPRoute{},
+				httpRouteParentGatewayIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.GRPCRoute{},
+				grpcRouteParentGatewayIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.Gateway{},
+				gatewayCertificateIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.ListenerSet{},
+				listenerSetParentGatewayIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+			mockIndexer.EXPECT().IndexField(
+				t.Context(),
+				&gatewayv1.ListenerSet{},
+				listenerSetCertificateIndexKey,
+				mock.AnythingOfType("client.IndexerFunc"),
+			).Return(nil)
+
+			err := model.RegisterFieldIndexers(t.Context(), mockIndexer, RegisterFieldIndexersOptions{
+				EnableListenerSet: true,
+			})
+			require.NoError(t, err)
+		})
+
+		t.Run("registered ListenerSet-enabled index callbacks handle their resource types", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			mockIndexer := k8sapi.NewMockFieldIndexer(t)
+
+			expectCallback := func(obj client.Object, field string, sample client.Object) {
+				mockIndexer.EXPECT().
+					IndexField(t.Context(), obj, field, mock.AnythingOfType("client.IndexerFunc")).
+					Run(func(_ context.Context, _ client.Object, _ string, extractValue client.IndexerFunc) {
+						_ = extractValue(sample)
+					}).
+					Return(nil)
+			}
+
+			expectCallback(&gatewayv1.HTTPRoute{}, httpRouteBackendServiceIndexKey, &gatewayv1.HTTPRoute{})
+			expectCallback(&gatewayv1.GRPCRoute{}, grpcRouteBackendServiceIndexKey, &gatewayv1.GRPCRoute{})
+			expectCallback(&gatewayv1.HTTPRoute{}, httpRouteParentGatewayIndexKey, &gatewayv1.HTTPRoute{})
+			expectCallback(&gatewayv1.GRPCRoute{}, grpcRouteParentGatewayIndexKey, &gatewayv1.GRPCRoute{})
+			expectCallback(&gatewayv1.TCPRoute{}, tcpRouteBackendServiceIndexKey, &gatewayv1.TCPRoute{})
+			expectCallback(&gatewayv1.UDPRoute{}, udpRouteBackendServiceIndexKey, &gatewayv1.UDPRoute{})
+			expectCallback(&gatewayv1.TLSRoute{}, tlsRouteBackendServiceIndexKey, &gatewayv1.TLSRoute{})
+			expectCallback(&gatewayv1.TLSRoute{}, tlsRouteParentGatewayIndexKey, &gatewayv1.TLSRoute{})
+			expectCallback(&gatewayv1.Gateway{}, gatewayCertificateIndexKey, &gatewayv1.Gateway{})
+			expectCallback(&gatewayv1.ListenerSet{}, listenerSetParentGatewayIndexKey, &gatewayv1.ListenerSet{})
+			expectCallback(&gatewayv1.ListenerSet{}, listenerSetCertificateIndexKey, &gatewayv1.ListenerSet{})
+
+			err := model.RegisterFieldIndexers(t.Context(), mockIndexer, RegisterFieldIndexersOptions{
+				EnableTCPRoute:    true,
+				EnableUDPRoute:    true,
+				EnableTLSRoute:    true,
+				EnableListenerSet: true,
+			})
+
+			require.NoError(t, err)
+		})
+
+		t.Run("returns error if ListenerSet parent Gateway indexer registration fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			mockIndexer := k8sapi.NewMockFieldIndexer(t)
+
+			mockIndexer.EXPECT().IndexField(t.Context(), &gatewayv1.HTTPRoute{},
+				httpRouteBackendServiceIndexKey, mock.AnythingOfType("client.IndexerFunc")).Return(nil)
+			mockIndexer.EXPECT().IndexField(t.Context(), &gatewayv1.GRPCRoute{},
+				grpcRouteBackendServiceIndexKey, mock.AnythingOfType("client.IndexerFunc")).Return(nil)
+			mockIndexer.EXPECT().IndexField(t.Context(), &gatewayv1.HTTPRoute{},
+				httpRouteParentGatewayIndexKey, mock.AnythingOfType("client.IndexerFunc")).Return(nil)
+			mockIndexer.EXPECT().IndexField(t.Context(), &gatewayv1.GRPCRoute{},
+				grpcRouteParentGatewayIndexKey, mock.AnythingOfType("client.IndexerFunc")).Return(nil)
+			mockIndexer.EXPECT().IndexField(t.Context(), &gatewayv1.Gateway{},
+				gatewayCertificateIndexKey, mock.AnythingOfType("client.IndexerFunc")).Return(nil)
+			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			mockIndexer.EXPECT().IndexField(t.Context(), &gatewayv1.ListenerSet{},
+				listenerSetParentGatewayIndexKey, mock.AnythingOfType("client.IndexerFunc")).Return(wantErr)
+
+			err := model.RegisterFieldIndexers(t.Context(), mockIndexer, RegisterFieldIndexersOptions{
+				EnableListenerSet: true,
+			})
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to index ListenerSet by parent Gateway")
+		})
+
+		t.Run("returns error if ListenerSet certificate indexer registration fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			mockIndexer := k8sapi.NewMockFieldIndexer(t)
+
+			mockIndexer.EXPECT().IndexField(t.Context(), &gatewayv1.HTTPRoute{},
+				httpRouteBackendServiceIndexKey, mock.AnythingOfType("client.IndexerFunc")).Return(nil)
+			mockIndexer.EXPECT().IndexField(t.Context(), &gatewayv1.GRPCRoute{},
+				grpcRouteBackendServiceIndexKey, mock.AnythingOfType("client.IndexerFunc")).Return(nil)
+			mockIndexer.EXPECT().IndexField(t.Context(), &gatewayv1.HTTPRoute{},
+				httpRouteParentGatewayIndexKey, mock.AnythingOfType("client.IndexerFunc")).Return(nil)
+			mockIndexer.EXPECT().IndexField(t.Context(), &gatewayv1.GRPCRoute{},
+				grpcRouteParentGatewayIndexKey, mock.AnythingOfType("client.IndexerFunc")).Return(nil)
+			mockIndexer.EXPECT().IndexField(t.Context(), &gatewayv1.Gateway{},
+				gatewayCertificateIndexKey, mock.AnythingOfType("client.IndexerFunc")).Return(nil)
+			mockIndexer.EXPECT().IndexField(t.Context(), &gatewayv1.ListenerSet{},
+				listenerSetParentGatewayIndexKey, mock.AnythingOfType("client.IndexerFunc")).Return(nil)
+			wantErr := errors.New(faker.New().Lorem().Sentence(10))
+			mockIndexer.EXPECT().IndexField(t.Context(), &gatewayv1.ListenerSet{},
+				listenerSetCertificateIndexKey, mock.AnythingOfType("client.IndexerFunc")).Return(wantErr)
+
+			err := model.RegisterFieldIndexers(t.Context(), mockIndexer, RegisterFieldIndexersOptions{
+				EnableListenerSet: true,
+			})
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to index ListenerSet by certificate")
 		})
 
 		t.Run("returns error if HTTPRoute indexer registration fails", func(t *testing.T) {
@@ -834,6 +1083,8 @@ func TestWatchesModel(t *testing.T) {
 			gatewayName := gatewayv1.ObjectName(faker.New().Internet().Domain())
 			otherNamespace := gatewayv1.Namespace(faker.New().Internet().Slug())
 			otherGatewayName := gatewayv1.ObjectName(faker.New().Internet().Domain())
+			listenerSetKind := gatewayv1.Kind("ListenerSet")
+			listenerSetName := gatewayv1.ObjectName("listeners-" + faker.New().Internet().Slug())
 			unsupportedKind := gatewayv1.Kind("Service")
 			unsupportedGroup := gatewayv1.Group("other.example.com")
 			route := makeRandomHTTPRoute(
@@ -842,6 +1093,7 @@ func TestWatchesModel(t *testing.T) {
 					gatewayv1.ParentReference{Name: gatewayName},
 					gatewayv1.ParentReference{Name: gatewayName},
 					gatewayv1.ParentReference{Namespace: &otherNamespace, Name: otherGatewayName},
+					gatewayv1.ParentReference{Name: listenerSetName, Kind: &listenerSetKind},
 					gatewayv1.ParentReference{Name: gatewayName, Kind: &unsupportedKind},
 					gatewayv1.ParentReference{Name: gatewayName, Group: &unsupportedGroup},
 				),
@@ -852,6 +1104,7 @@ func TestWatchesModel(t *testing.T) {
 			require.ElementsMatch(t, []string{
 				fmt.Sprintf("%s/%s", routeNamespace, gatewayName),
 				fmt.Sprintf("%s/%s", otherNamespace, otherGatewayName),
+				fmt.Sprintf("%s/%s", routeNamespace, listenerSetName),
 			}, result)
 		})
 
@@ -1389,6 +1642,106 @@ func TestWatchesModel(t *testing.T) {
 		})
 	})
 
+	t.Run("indexListenerSet", func(t *testing.T) {
+		t.Run("indexes parent Gateway", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			parentNamespace := gatewayv1.Namespace("infra-" + faker.New().Lorem().Word())
+			parentName := gatewayv1.ObjectName("edge-" + faker.New().Lorem().Word())
+			listenerSet := &gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "apps-" + faker.New().Lorem().Word(),
+					Name:      "listeners-" + faker.New().Lorem().Word(),
+				},
+				Spec: gatewayv1.ListenerSetSpec{ParentRef: gatewayv1.ParentGatewayReference{
+					Namespace: &parentNamespace,
+					Name:      parentName,
+				}},
+			}
+
+			result := model.indexListenerSetByParentGateway(t.Context(), listenerSet)
+
+			require.ElementsMatch(t, []string{fmt.Sprintf("%s/%s", parentNamespace, parentName)}, result)
+		})
+
+		t.Run("indexes certificate refs from HTTPS and TLS listeners", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			certNamespace := gatewayv1.Namespace("certs-" + faker.New().Lorem().Word())
+			listenerSet := &gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "apps-" + faker.New().Lorem().Word(),
+					Name:      "listeners-" + faker.New().Lorem().Word(),
+				},
+				Spec: gatewayv1.ListenerSetSpec{
+					ParentRef: gatewayv1.ParentGatewayReference{Name: "edge"},
+					Listeners: []gatewayv1.ListenerEntry{
+						{
+							Name:     "https",
+							Protocol: gatewayv1.HTTPSProtocolType,
+							TLS: &gatewayv1.ListenerTLSConfig{CertificateRefs: []gatewayv1.SecretObjectReference{
+								{Name: gatewayv1.ObjectName("same-ns-" + faker.New().Lorem().Word())},
+							}},
+						},
+						{
+							Name:     "tls",
+							Protocol: gatewayv1.TLSProtocolType,
+							TLS: &gatewayv1.ListenerTLSConfig{CertificateRefs: []gatewayv1.SecretObjectReference{
+								{
+									Name:      gatewayv1.ObjectName("shared-" + faker.New().Lorem().Word()),
+									Namespace: &certNamespace,
+								},
+							}},
+						},
+						{
+							Name:     "tcp",
+							Protocol: gatewayv1.TCPProtocolType,
+							TLS: &gatewayv1.ListenerTLSConfig{CertificateRefs: []gatewayv1.SecretObjectReference{
+								{Name: gatewayv1.ObjectName("ignored-" + faker.New().Lorem().Word())},
+							}},
+						},
+					},
+				},
+			}
+
+			result := model.indexListenerSetByCertificateSecrets(t.Context(), listenerSet)
+
+			require.ElementsMatch(t, []string{
+				fmt.Sprintf("%s/%s", listenerSet.Namespace, listenerSet.Spec.Listeners[0].TLS.CertificateRefs[0].Name),
+				fmt.Sprintf("%s/%s", certNamespace, listenerSet.Spec.Listeners[1].TLS.CertificateRefs[0].Name),
+			}, result)
+		})
+
+		t.Run("ignores invalid or deleting ListenerSets", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			deletionTimestamp := metav1.Now()
+			deletingListenerSet := &gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace:         "apps",
+					Name:              "deleting",
+					DeletionTimestamp: &deletionTimestamp,
+					Finalizers:        []string{"test-finalizer"},
+				},
+				Spec: gatewayv1.ListenerSetSpec{ParentRef: gatewayv1.ParentGatewayReference{Name: "edge"}},
+			}
+			invalidKind := gatewayv1.Kind("Service")
+			invalidParentRefListenerSet := &gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "invalid"},
+				Spec: gatewayv1.ListenerSetSpec{ParentRef: gatewayv1.ParentGatewayReference{
+					Kind: &invalidKind,
+					Name: "edge",
+				}},
+			}
+
+			require.Nil(t, model.indexListenerSetByParentGateway(t.Context(), &corev1.Service{}))
+			require.Nil(t, model.indexListenerSetByParentGateway(t.Context(), deletingListenerSet))
+			require.Nil(t, model.indexListenerSetByParentGateway(t.Context(), invalidParentRefListenerSet))
+			require.Nil(t, model.indexListenerSetByCertificateSecrets(t.Context(), &corev1.Service{}))
+			require.Nil(t, model.indexListenerSetByCertificateSecrets(t.Context(), deletingListenerSet))
+		})
+	})
+
 	t.Run("MapSecretToGateway", func(t *testing.T) {
 		t.Run("finds matching Gateways based on certificate index", func(t *testing.T) {
 			deps := makeMockDeps(t)
@@ -1553,6 +1906,719 @@ func TestWatchesModel(t *testing.T) {
 
 			result := model.MapSecretToGateway(t.Context(), &corev1.Service{})
 			require.Nil(t, result)
+		})
+	})
+
+	t.Run("MapSecretToGatewayWithListenerSets", func(t *testing.T) {
+		t.Run("queues parent Gateways for ListenerSets referencing the Secret", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			secret := makeRandomSecret(randomSecretWithTLSDataOpt())
+			indexKey := fmt.Sprintf("%s/%s", secret.Namespace, secret.Name)
+			parentNamespace := gatewayv1.Namespace("infra-" + faker.New().Lorem().Word())
+			parentName := gatewayv1.ObjectName("edge-" + faker.New().Lorem().Word())
+			listenerSets := []gatewayv1.ListenerSet{{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "apps-" + faker.New().Lorem().Word(),
+					Name:      "listeners-" + faker.New().Lorem().Word(),
+				},
+				Spec: gatewayv1.ListenerSetSpec{ParentRef: gatewayv1.ParentGatewayReference{
+					Namespace: &parentNamespace,
+					Name:      parentName,
+				}},
+			}}
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.GatewayList{},
+				client.MatchingFields{gatewayCertificateIndexKey: indexKey},
+			).RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.Gateway{}))
+				return nil
+			})
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.ListenerSetList{},
+				client.MatchingFields{listenerSetCertificateIndexKey: indexKey},
+			).RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(listenerSets))
+				return nil
+			})
+
+			result := model.MapSecretToGatewayWithListenerSets(t.Context(), &secret)
+
+			require.ElementsMatch(t, []reconcile.Request{{
+				NamespacedName: apitypes.NamespacedName{
+					Namespace: string(parentNamespace),
+					Name:      string(parentName),
+				},
+			}}, result)
+		})
+
+		t.Run("returns direct requests for invalid Secret inputs", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			opaqueSecret := makeRandomSecret(func(secret *corev1.Secret) {
+				secret.Type = corev1.SecretTypeOpaque
+			})
+			certOnlySecret := makeRandomSecret(func(secret *corev1.Secret) {
+				secret.Type = corev1.SecretTypeTLS
+				secret.Data = map[string][]byte{corev1.TLSCertKey: []byte("certificate")}
+			})
+			keyOnlySecret := makeRandomSecret(func(secret *corev1.Secret) {
+				secret.Type = corev1.SecretTypeTLS
+				secret.Data = map[string][]byte{corev1.TLSPrivateKeyKey: []byte("key")}
+			})
+
+			require.Nil(t, model.MapSecretToGatewayWithListenerSets(t.Context(), &corev1.Service{}))
+			require.Nil(t, model.MapSecretToGatewayWithListenerSets(t.Context(), &opaqueSecret))
+			require.Nil(t, model.MapSecretToGatewayWithListenerSets(t.Context(), &certOnlySecret))
+			require.Nil(t, model.MapSecretToGatewayWithListenerSets(t.Context(), &keyOnlySecret))
+		})
+
+		t.Run("keeps direct Gateway requests when ListenerSet lookup fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			secret := makeRandomSecret(randomSecretWithTLSDataOpt())
+			indexKey := fmt.Sprintf("%s/%s", secret.Namespace, secret.Name)
+			gateway := *newRandomGateway()
+			wantErr := errors.New("listenerset list failed")
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.GatewayList{},
+				client.MatchingFields{gatewayCertificateIndexKey: indexKey},
+			).RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.Gateway{gateway}))
+				return nil
+			})
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.ListenerSetList{},
+				client.MatchingFields{listenerSetCertificateIndexKey: indexKey},
+			).Return(wantErr)
+
+			result := model.MapSecretToGatewayWithListenerSets(t.Context(), &secret)
+
+			require.ElementsMatch(t, []reconcile.Request{{
+				NamespacedName: client.ObjectKeyFromObject(&gateway),
+			}}, result)
+		})
+	})
+
+	t.Run("MapSecretToListenerSet", func(t *testing.T) {
+		t.Run("queues ListenerSets referencing the Secret", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			secret := makeRandomSecret(randomSecretWithTLSDataOpt())
+			indexKey := fmt.Sprintf("%s/%s", secret.Namespace, secret.Name)
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"},
+			}
+			deletedAt := metav1.Now()
+			deletingListenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace:         "apps",
+					Name:              "deleting",
+					DeletionTimestamp: &deletedAt,
+				},
+			}
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.ListenerSetList{},
+				client.MatchingFields{listenerSetCertificateIndexKey: indexKey},
+			).RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.ListenerSet{
+					listenerSet,
+					deletingListenerSet,
+				}))
+				return nil
+			})
+
+			result := model.MapSecretToListenerSet(t.Context(), &secret)
+
+			require.ElementsMatch(t, []reconcile.Request{{
+				NamespacedName: client.ObjectKeyFromObject(&listenerSet),
+			}}, result)
+		})
+
+		t.Run("ignores invalid Secret inputs", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			opaqueSecret := makeRandomSecret(func(secret *corev1.Secret) {
+				secret.Type = corev1.SecretTypeOpaque
+			})
+			certOnlySecret := makeRandomSecret(func(secret *corev1.Secret) {
+				secret.Type = corev1.SecretTypeTLS
+				secret.Data = map[string][]byte{corev1.TLSCertKey: []byte("certificate")}
+			})
+			keyOnlySecret := makeRandomSecret(func(secret *corev1.Secret) {
+				secret.Type = corev1.SecretTypeTLS
+				secret.Data = map[string][]byte{corev1.TLSPrivateKeyKey: []byte("key")}
+			})
+
+			require.Nil(t, model.MapSecretToListenerSet(t.Context(), &corev1.Service{}))
+			require.Nil(t, model.MapSecretToListenerSet(t.Context(), &opaqueSecret))
+			require.Nil(t, model.MapSecretToListenerSet(t.Context(), &certOnlySecret))
+			require.Nil(t, model.MapSecretToListenerSet(t.Context(), &keyOnlySecret))
+		})
+
+		t.Run("handles list errors", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			secret := makeRandomSecret(randomSecretWithTLSDataOpt())
+			indexKey := fmt.Sprintf("%s/%s", secret.Namespace, secret.Name)
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				&gatewayv1.ListenerSetList{},
+				client.MatchingFields{listenerSetCertificateIndexKey: indexKey},
+			).Return(errors.New("listenerset list failed"))
+
+			require.Nil(t, model.MapSecretToListenerSet(t.Context(), &secret))
+		})
+	})
+
+	t.Run("MapListenerSetToGateway", func(t *testing.T) {
+		t.Run("queues parent Gateway", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			parentNamespace := gatewayv1.Namespace("infra-" + faker.New().Lorem().Word())
+			parentName := gatewayv1.ObjectName("edge-" + faker.New().Lorem().Word())
+			listenerSet := &gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"},
+				Spec: gatewayv1.ListenerSetSpec{ParentRef: gatewayv1.ParentGatewayReference{
+					Namespace: &parentNamespace,
+					Name:      parentName,
+				}},
+			}
+
+			result := model.MapListenerSetToGateway(t.Context(), listenerSet)
+
+			require.ElementsMatch(t, []reconcile.Request{{
+				NamespacedName: apitypes.NamespacedName{Namespace: string(parentNamespace), Name: string(parentName)},
+			}}, result)
+		})
+
+		t.Run("queues current and previous parent Gateways", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			parentNamespace := gatewayv1.Namespace("infra-" + faker.New().Lorem().Word())
+			parentName := gatewayv1.ObjectName("edge-" + faker.New().Lorem().Word())
+			previousParent := "old-infra/old-edge"
+			listenerSet := &gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "apps",
+					Name:      "extra",
+					Annotations: map[string]string{
+						ListenerSetParentGatewayAnnotation: previousParent,
+					},
+				},
+				Spec: gatewayv1.ListenerSetSpec{ParentRef: gatewayv1.ParentGatewayReference{
+					Namespace: &parentNamespace,
+					Name:      parentName,
+				}},
+			}
+
+			result := model.MapListenerSetToGateway(t.Context(), listenerSet)
+
+			require.ElementsMatch(t, []reconcile.Request{
+				{NamespacedName: apitypes.NamespacedName{Namespace: string(parentNamespace), Name: string(parentName)}},
+				{NamespacedName: apitypes.NamespacedName{Namespace: "old-infra", Name: "old-edge"}},
+			}, result)
+		})
+
+		t.Run("ignores invalid inputs and parent refs", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			invalidKind := gatewayv1.Kind("Service")
+			listenerSet := &gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"},
+				Spec: gatewayv1.ListenerSetSpec{ParentRef: gatewayv1.ParentGatewayReference{
+					Kind: &invalidKind,
+					Name: "edge",
+				}},
+			}
+
+			require.Nil(t, model.MapListenerSetToGateway(t.Context(), listenerSet))
+			require.Nil(t, model.MapListenerSetToGateway(t.Context(), &corev1.Service{}))
+		})
+	})
+
+	t.Run("MapGatewayToListenerSet", func(t *testing.T) {
+		t.Run("queues attached ListenerSets", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			gateway := &gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "edge"}}
+			listenerSet := gatewayv1.ListenerSet{ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"}}
+			deletedAt := metav1.Now()
+			deletingListenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace:         "apps",
+					Name:              "deleting",
+					DeletionTimestamp: &deletedAt,
+				},
+			}
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.ListenerSetList{}, client.MatchingFields{
+					listenerSetParentGatewayIndexKey: client.ObjectKeyFromObject(gateway).String(),
+				}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.ListenerSet{
+						listenerSet,
+						deletingListenerSet,
+					}))
+					return nil
+				})
+
+			result := model.MapGatewayToListenerSet(t.Context(), gateway)
+
+			require.ElementsMatch(t, []reconcile.Request{{
+				NamespacedName: client.ObjectKeyFromObject(&listenerSet),
+			}}, result)
+			require.Nil(t, model.MapGatewayToListenerSet(t.Context(), &corev1.Service{}))
+		})
+
+		t.Run("handles list errors", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			gateway := &gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "edge"}}
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.ListenerSetList{}, mock.Anything).
+				Return(errors.New("listenerset list failed"))
+
+			require.Nil(t, model.MapGatewayToListenerSet(t.Context(), gateway))
+		})
+	})
+
+	t.Run("MapNamespaceToListenerSet", func(t *testing.T) {
+		t.Run("queues ListenerSets in changed namespace", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "apps"}}
+			listenerSet := gatewayv1.ListenerSet{ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"}}
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.ListenerSetList{}, client.InNamespace("apps")).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.ListenerSet{
+						listenerSet,
+					}))
+					return nil
+				})
+
+			result := model.MapNamespaceToListenerSet(t.Context(), namespace)
+
+			require.ElementsMatch(t, []reconcile.Request{{
+				NamespacedName: client.ObjectKeyFromObject(&listenerSet),
+			}}, result)
+			require.Nil(t, model.MapNamespaceToListenerSet(t.Context(), &gatewayv1.Gateway{}))
+		})
+
+		t.Run("handles list errors", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "apps"}}
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.ListenerSetList{}, client.InNamespace("apps")).
+				Return(errors.New("listenerset list failed"))
+
+			require.Nil(t, model.MapNamespaceToListenerSet(t.Context(), namespace))
+		})
+	})
+
+	t.Run("MapReferenceGrantToGatewayWithListenerSets", func(t *testing.T) {
+		t.Run("queues parent Gateways for matching ListenerSet certificateRefs", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			certNamespace := gatewayv1.Namespace("certs")
+			parentNamespace := gatewayv1.Namespace("infra")
+			parentName := gatewayv1.ObjectName("edge")
+			grant := &gatewayv1beta1.ReferenceGrant{
+				ObjectMeta: metav1.ObjectMeta{Namespace: string(certNamespace), Name: "allow"},
+				Spec: gatewayv1beta1.ReferenceGrantSpec{
+					From: []gatewayv1beta1.ReferenceGrantFrom{{
+						Group:     gatewayv1.Group(gatewayAPIGroup),
+						Kind:      gatewayv1.Kind("ListenerSet"),
+						Namespace: gatewayv1.Namespace("apps"),
+					}},
+					To: []gatewayv1beta1.ReferenceGrantTo{{
+						Group: gatewayv1.Group(""),
+						Kind:  gatewayv1.Kind("Secret"),
+						Name:  lo.ToPtr(gatewayv1.ObjectName("tls-cert")),
+					}},
+				},
+			}
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"},
+				Spec: gatewayv1.ListenerSetSpec{
+					ParentRef: gatewayv1.ParentGatewayReference{
+						Namespace: &parentNamespace,
+						Name:      parentName,
+					},
+					Listeners: []gatewayv1.ListenerEntry{{
+						Name:     "https",
+						Protocol: gatewayv1.HTTPSProtocolType,
+						Port:     443,
+						TLS: &gatewayv1.ListenerTLSConfig{CertificateRefs: []gatewayv1.SecretObjectReference{{
+							Namespace: &certNamespace,
+							Name:      "tls-cert",
+						}}},
+					}},
+				},
+			}
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.ListenerSetList{}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.ListenerSet{
+						listenerSet,
+					}))
+					return nil
+				})
+
+			result := model.MapReferenceGrantToGatewayWithListenerSets(t.Context(), grant)
+
+			require.ElementsMatch(t, []reconcile.Request{{
+				NamespacedName: apitypes.NamespacedName{Namespace: string(parentNamespace), Name: string(parentName)},
+			}}, result)
+		})
+
+		t.Run("ignores non matching grants and handles list errors", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			serviceGrant := &gatewayv1beta1.ReferenceGrant{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "certs", Name: "allow"},
+				Spec: gatewayv1beta1.ReferenceGrantSpec{
+					From: []gatewayv1beta1.ReferenceGrantFrom{{
+						Group:     gatewayv1.Group(gatewayAPIGroup),
+						Kind:      gatewayv1.Kind("ListenerSet"),
+						Namespace: gatewayv1.Namespace("apps"),
+					}},
+					To: []gatewayv1beta1.ReferenceGrantTo{{
+						Group: gatewayv1.Group(""),
+						Kind:  gatewayv1.Kind(serviceKind),
+					}},
+				},
+			}
+			require.Nil(t, model.MapReferenceGrantToGatewayWithListenerSets(t.Context(), serviceGrant))
+			require.Nil(t, model.MapReferenceGrantToGatewayWithListenerSets(t.Context(), &corev1.Service{}))
+
+			secretGrant := serviceGrant.DeepCopy()
+			secretGrant.Spec.To[0].Kind = gatewayv1.Kind("Secret")
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.ListenerSetList{}).
+				Return(errors.New("listenerset list failed"))
+
+			require.Nil(t, model.MapReferenceGrantToGatewayWithListenerSets(t.Context(), secretGrant))
+		})
+	})
+
+	t.Run("MapReferenceGrantToListenerSet", func(t *testing.T) {
+		t.Run("queues ListenerSets for matching certificateRefs", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			certNamespace := gatewayv1.Namespace("certs")
+			grant := &gatewayv1beta1.ReferenceGrant{
+				ObjectMeta: metav1.ObjectMeta{Namespace: string(certNamespace), Name: "allow"},
+				Spec: gatewayv1beta1.ReferenceGrantSpec{
+					From: []gatewayv1beta1.ReferenceGrantFrom{{
+						Group:     gatewayv1.Group(gatewayAPIGroup),
+						Kind:      gatewayv1.Kind("ListenerSet"),
+						Namespace: gatewayv1.Namespace("apps"),
+					}},
+					To: []gatewayv1beta1.ReferenceGrantTo{{
+						Group: gatewayv1.Group(""),
+						Kind:  gatewayv1.Kind("Secret"),
+						Name:  lo.ToPtr(gatewayv1.ObjectName("tls-cert")),
+					}},
+				},
+			}
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"},
+				Spec: gatewayv1.ListenerSetSpec{
+					Listeners: []gatewayv1.ListenerEntry{{
+						Name:     "https",
+						Protocol: gatewayv1.HTTPSProtocolType,
+						Port:     443,
+						TLS: &gatewayv1.ListenerTLSConfig{CertificateRefs: []gatewayv1.SecretObjectReference{{
+							Namespace: &certNamespace,
+							Name:      "tls-cert",
+						}}},
+					}},
+				},
+			}
+			deletedAt := metav1.Now()
+			deletingListenerSet := listenerSet
+			deletingListenerSet.Name = "deleting"
+			deletingListenerSet.DeletionTimestamp = &deletedAt
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.ListenerSetList{}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.ListenerSet{
+						listenerSet,
+						deletingListenerSet,
+					}))
+					return nil
+				})
+
+			result := model.MapReferenceGrantToListenerSet(t.Context(), grant)
+
+			require.ElementsMatch(t, []reconcile.Request{{
+				NamespacedName: client.ObjectKeyFromObject(&listenerSet),
+			}}, result)
+		})
+
+		t.Run("ignores non matching grants and handles list errors", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			serviceGrant := &gatewayv1beta1.ReferenceGrant{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "certs", Name: "allow"},
+				Spec: gatewayv1beta1.ReferenceGrantSpec{
+					From: []gatewayv1beta1.ReferenceGrantFrom{{
+						Group:     gatewayv1.Group(gatewayAPIGroup),
+						Kind:      gatewayv1.Kind("ListenerSet"),
+						Namespace: gatewayv1.Namespace("apps"),
+					}},
+					To: []gatewayv1beta1.ReferenceGrantTo{{
+						Group: gatewayv1.Group(""),
+						Kind:  gatewayv1.Kind(serviceKind),
+					}},
+				},
+			}
+			require.Nil(t, model.MapReferenceGrantToListenerSet(t.Context(), serviceGrant))
+			require.Nil(t, model.MapReferenceGrantToListenerSet(t.Context(), &corev1.Service{}))
+
+			secretGrant := serviceGrant.DeepCopy()
+			secretGrant.Spec.To[0].Kind = gatewayv1.Kind("Secret")
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.ListenerSetList{}).
+				Return(errors.New("listenerset list failed"))
+
+			require.Nil(t, model.MapReferenceGrantToListenerSet(t.Context(), secretGrant))
+		})
+	})
+
+	t.Run("MapListenerSetToRoutes", func(t *testing.T) {
+		makeListenerSet := func() *gatewayv1.ListenerSet {
+			return &gatewayv1.ListenerSet{ObjectMeta: metav1.ObjectMeta{
+				Namespace: "apps-" + faker.New().Lorem().Word(),
+				Name:      "listeners-" + faker.New().Lorem().Word(),
+			}}
+		}
+		listenerSetKind := gatewayv1.Kind("ListenerSet")
+
+		t.Run("queues indexed L7 and TLS routes", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			listenerSet := makeListenerSet()
+			listenerSetKey := client.ObjectKeyFromObject(listenerSet).String()
+			httpRoute := makeRandomHTTPRoute()
+			grpcRoute := makeRandomGRPCRoute()
+			tlsRoute := gatewayv1.TLSRoute{ObjectMeta: metav1.ObjectMeta{Namespace: "routes", Name: "tls"}}
+			deletedAt := metav1.Now()
+			deletedHTTPRoute := makeRandomHTTPRoute(func(route *gatewayv1.HTTPRoute) {
+				route.DeletionTimestamp = &deletedAt
+			})
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.HTTPRouteList{},
+					client.MatchingFields{httpRouteParentGatewayIndexKey: listenerSetKey}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.HTTPRoute{
+						httpRoute,
+						deletedHTTPRoute,
+					}))
+					return nil
+				})
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.GRPCRouteList{},
+					client.MatchingFields{grpcRouteParentGatewayIndexKey: listenerSetKey}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).
+						Elem().
+						FieldByName("Items").
+						Set(reflect.ValueOf([]gatewayv1.GRPCRoute{grpcRoute}))
+					return nil
+				})
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.TLSRouteList{},
+					client.MatchingFields{tlsRouteParentGatewayIndexKey: listenerSetKey}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).
+						Elem().
+						FieldByName("Items").
+						Set(reflect.ValueOf([]gatewayv1.TLSRoute{tlsRoute}))
+					return nil
+				})
+
+			require.ElementsMatch(t,
+				[]reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(&httpRoute)}},
+				model.MapListenerSetToHTTPRoute(t.Context(), listenerSet),
+			)
+			require.ElementsMatch(t,
+				[]reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(&grpcRoute)}},
+				model.MapListenerSetToGRPCRoute(t.Context(), listenerSet),
+			)
+			require.ElementsMatch(t,
+				[]reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(&tlsRoute)}},
+				model.MapListenerSetToTLSRoute(t.Context(), listenerSet),
+			)
+			require.Nil(t, model.MapListenerSetToHTTPRoute(t.Context(), &corev1.Service{}))
+		})
+
+		t.Run("queues L4 routes with ListenerSet parent refs", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			listenerSet := makeListenerSet()
+			otherName := gatewayv1.ObjectName("other-" + faker.New().Lorem().Word())
+			tcpRoute := gatewayv1.TCPRoute{
+				ObjectMeta: metav1.ObjectMeta{Namespace: listenerSet.Namespace, Name: "tcp"},
+				Spec: gatewayv1.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{{
+						Kind: &listenerSetKind,
+						Name: gatewayv1.ObjectName(listenerSet.Name),
+					}},
+				}},
+			}
+			udpRoute := gatewayv1.UDPRoute{
+				ObjectMeta: metav1.ObjectMeta{Namespace: listenerSet.Namespace, Name: "udp"},
+				Spec: gatewayv1.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{{
+						Kind: &listenerSetKind,
+						Name: gatewayv1.ObjectName(listenerSet.Name),
+					}},
+				}},
+			}
+			otherTCPRoute := gatewayv1.TCPRoute{
+				ObjectMeta: metav1.ObjectMeta{Namespace: listenerSet.Namespace, Name: "other"},
+				Spec: gatewayv1.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{{Kind: &listenerSetKind, Name: otherName}},
+				}},
+			}
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.TCPRouteList{}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.TCPRoute{
+						tcpRoute,
+						otherTCPRoute,
+					}))
+					return nil
+				})
+			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.UDPRouteList{}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).
+						Elem().
+						FieldByName("Items").
+						Set(reflect.ValueOf([]gatewayv1.UDPRoute{udpRoute}))
+					return nil
+				})
+
+			require.ElementsMatch(t,
+				[]reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(&tcpRoute)}},
+				model.MapListenerSetToTCPRoute(t.Context(), listenerSet),
+			)
+			require.ElementsMatch(t,
+				[]reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(&udpRoute)}},
+				model.MapListenerSetToUDPRoute(t.Context(), listenerSet),
+			)
+			require.Nil(t, model.MapListenerSetToTCPRoute(t.Context(), &corev1.Service{}))
+		})
+
+		t.Run("returns nil when route list fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			listenerSet := makeListenerSet()
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.HTTPRouteList{},
+					client.MatchingFields{
+						httpRouteParentGatewayIndexKey: client.ObjectKeyFromObject(listenerSet).String(),
+					}).
+				Return(errors.New(faker.New().Lorem().Sentence(10)))
+
+			require.Nil(t, model.MapListenerSetToHTTPRoute(t.Context(), listenerSet))
+		})
+	})
+
+	t.Run("MapNamespaceToGateway", func(t *testing.T) {
+		t.Run("detects Gateways using namespace selectors", func(t *testing.T) {
+			selectedFrom := gatewayv1.NamespacesFromSelector
+			require.False(t, gatewayAllowedListenersUsesNamespaceSelector(gatewayv1.Gateway{}))
+			require.True(t, gatewayAllowedListenersUsesNamespaceSelector(gatewayv1.Gateway{
+				Spec: gatewayv1.GatewaySpec{
+					AllowedListeners: &gatewayv1.AllowedListeners{
+						Namespaces: &gatewayv1.ListenerNamespaces{From: &selectedFrom},
+					},
+				},
+			}))
+		})
+
+		t.Run("returns nil for non Namespace objects", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+
+			require.Nil(t, model.MapNamespaceToGateway(t.Context(), &corev1.Service{}))
+		})
+
+		t.Run("returns nil when Gateway list fails", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.GatewayList{}).
+				Return(errors.New("gateway list failed"))
+
+			require.Nil(t, model.MapNamespaceToGateway(t.Context(), &corev1.Namespace{}))
+		})
+
+		t.Run("queues Gateways using allowedListeners namespace selectors", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			selectedFrom := gatewayv1.NamespacesFromSelector
+			sameFrom := gatewayv1.NamespacesFromSame
+			wantGateway := *newRandomGateway(func(gateway *gatewayv1.Gateway) {
+				gateway.Spec.AllowedListeners = &gatewayv1.AllowedListeners{
+					Namespaces: &gatewayv1.ListenerNamespaces{
+						From:     &selectedFrom,
+						Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"team": "media"}},
+					},
+				}
+			})
+			otherGateway := *newRandomGateway(func(gateway *gatewayv1.Gateway) {
+				gateway.Spec.AllowedListeners = &gatewayv1.AllowedListeners{
+					Namespaces: &gatewayv1.ListenerNamespaces{From: &sameFrom},
+				}
+			})
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().List(t.Context(), &gatewayv1.GatewayList{}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().FieldByName("Items").
+						Set(reflect.ValueOf([]gatewayv1.Gateway{wantGateway, otherGateway}))
+					return nil
+				})
+
+			result := model.MapNamespaceToGateway(t.Context(), &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: "apps", Labels: map[string]string{"team": "media"}},
+			})
+
+			require.ElementsMatch(t, []reconcile.Request{{
+				NamespacedName: client.ObjectKeyFromObject(&wantGateway),
+			}}, result)
 		})
 	})
 
@@ -2402,5 +3468,194 @@ func TestWatchesModel(t *testing.T) {
 			t.Context(),
 			&corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "backend"}},
 		))
+	})
+
+	t.Run("Gateway frontend mTLS ConfigMap watches", func(t *testing.T) {
+		fakeData := faker.New()
+		namespace := "ns-" + fakeData.Lorem().Word()
+		configMapName := "ca-" + fakeData.Lorem().Word()
+		otherConfigMapName := "ca-other-" + fakeData.Lorem().Word()
+		crossNamespace := "cross-" + fakeData.Lorem().Word()
+		crossNamespaceRef := gatewayv1.Namespace(crossNamespace)
+		mode := gatewayv1.TLSModeTerminate
+		gateway := &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: namespace,
+				Name:      "gw-" + fakeData.Lorem().Word(),
+				Annotations: map[string]string{
+					ControllerClassName: "true",
+				},
+			},
+			Spec: gatewayv1.GatewaySpec{
+				Listeners: []gatewayv1.Listener{{
+					Name:     "https",
+					Protocol: gatewayv1.HTTPSProtocolType,
+					Port:     443,
+					TLS:      &gatewayv1.ListenerTLSConfig{Mode: &mode},
+				}},
+				TLS: &gatewayv1.GatewayTLSConfig{
+					Frontend: &gatewayv1.FrontendTLSConfig{
+						Default: gatewayv1.TLSConfig{Validation: &gatewayv1.FrontendTLSValidation{
+							CACertificateRefs: []gatewayv1.ObjectReference{{
+								Group: "",
+								Kind:  "ConfigMap",
+								Name:  gatewayv1.ObjectName(configMapName),
+							}},
+						}},
+						PerPort: []gatewayv1.TLSPortConfig{{
+							Port: 8443,
+							TLS: gatewayv1.TLSConfig{Validation: &gatewayv1.FrontendTLSValidation{
+								CACertificateRefs: []gatewayv1.ObjectReference{{
+									Group:     "",
+									Kind:      "ConfigMap",
+									Name:      gatewayv1.ObjectName(otherConfigMapName),
+									Namespace: &crossNamespaceRef,
+								}},
+							}},
+						}},
+					},
+				},
+			},
+		}
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithObjects(gateway).
+			WithIndex(&gatewayv1.Gateway{}, gatewayFrontendMTLSCAConfigMapIndexKey, func(obj client.Object) []string {
+				return NewWatchesModel(WatchesModelDeps{
+					K8sClient: fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).Build(),
+					Logger:    diag.RootTestLogger(),
+				}).indexGatewayByFrontendMTLSConfigMaps(t.Context(), obj)
+			}).
+			Build()
+		model := NewWatchesModel(WatchesModelDeps{
+			K8sClient: k8sClient,
+			Logger:    diag.RootTestLogger(),
+		})
+
+		require.ElementsMatch(t, []string{
+			namespace + "/" + configMapName,
+			crossNamespace + "/" + otherConfigMapName,
+		}, model.indexGatewayByFrontendMTLSConfigMaps(t.Context(), gateway))
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: gateway.Name},
+		}}, model.MapConfigMapToGateway(t.Context(), &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: configMapName},
+		}))
+		require.Nil(t, model.MapConfigMapToGateway(t.Context(), &corev1.Service{}))
+
+		deletingGateway := gateway.DeepCopy()
+		deleteTime := metav1.Now()
+		deletingGateway.DeletionTimestamp = &deleteTime
+		require.Nil(t, model.indexGatewayByFrontendMTLSConfigMaps(t.Context(), deletingGateway))
+
+		noTLSGateway := gateway.DeepCopy()
+		noTLSGateway.Spec.TLS = nil
+		require.Nil(t, model.indexGatewayByFrontendMTLSConfigMaps(t.Context(), noTLSGateway))
+
+		unownedGateway := gateway.DeepCopy()
+		unownedGateway.Annotations = nil
+		require.Nil(t, model.indexGatewayByFrontendMTLSConfigMaps(t.Context(), unownedGateway))
+
+		invalidRefGateway := gateway.DeepCopy()
+		invalidRefGateway.Spec.TLS.Frontend.Default.Validation.CACertificateRefs = []gatewayv1.ObjectReference{{
+			Group: "example.com",
+			Kind:  "Secret",
+			Name:  gatewayv1.ObjectName("ignored-" + fakeData.Lorem().Word()),
+		}}
+		invalidRefGateway.Spec.TLS.Frontend.PerPort = nil
+		require.Empty(t, model.indexGatewayByFrontendMTLSConfigMaps(t.Context(), invalidRefGateway))
+		require.Nil(t, model.indexGatewayByFrontendMTLSConfigMaps(t.Context(), &corev1.ConfigMap{}))
+	})
+
+	t.Run("Gateway frontend mTLS ConfigMap watch list errors", func(t *testing.T) {
+		deps := makeMockDeps(t)
+		model := NewWatchesModel(deps)
+		mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+		namespace := "ns-" + faker.New().Lorem().Word()
+		name := "ca-" + faker.New().Lorem().Word()
+		mockK8sClient.EXPECT().
+			List(t.Context(), &gatewayv1.GatewayList{}, client.MatchingFields{
+				gatewayFrontendMTLSCAConfigMapIndexKey: namespace + "/" + name,
+			}).
+			Return(errors.New("gateway list failed"))
+
+		require.Nil(t, model.MapConfigMapToGateway(t.Context(), &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+		}))
+	})
+
+	t.Run("Gateway frontend mTLS ReferenceGrant watches", func(t *testing.T) {
+		fakeData := faker.New()
+		namespace := "ns-" + fakeData.Lorem().Word()
+		crossNamespace := "cross-" + fakeData.Lorem().Word()
+		crossNamespaceRef := gatewayv1.Namespace(crossNamespace)
+		configMapName := "ca-" + fakeData.Lorem().Word()
+		gateway := &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "gw-" + fakeData.Lorem().Word()},
+			Spec: gatewayv1.GatewaySpec{TLS: &gatewayv1.GatewayTLSConfig{
+				Frontend: &gatewayv1.FrontendTLSConfig{
+					Default: gatewayv1.TLSConfig{Validation: &gatewayv1.FrontendTLSValidation{
+						CACertificateRefs: []gatewayv1.ObjectReference{{
+							Group:     "",
+							Kind:      "ConfigMap",
+							Name:      gatewayv1.ObjectName(configMapName),
+							Namespace: &crossNamespaceRef,
+						}},
+					}},
+				},
+			}},
+		}
+		grant := &gatewayv1beta1.ReferenceGrant{
+			ObjectMeta: metav1.ObjectMeta{Namespace: crossNamespace, Name: "grant-" + fakeData.Lorem().Word()},
+			Spec: gatewayv1beta1.ReferenceGrantSpec{
+				From: []gatewayv1beta1.ReferenceGrantFrom{{
+					Group:     gatewayv1.Group(gatewayAPIGroup),
+					Kind:      gatewayv1.Kind("Gateway"),
+					Namespace: gatewayv1.Namespace(namespace),
+				}},
+				To: []gatewayv1beta1.ReferenceGrantTo{{
+					Group: "",
+					Kind:  gatewayv1.Kind("ConfigMap"),
+				}},
+			},
+		}
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithObjects(gateway).
+			Build()
+		model := NewWatchesModel(WatchesModelDeps{
+			K8sClient: k8sClient,
+			Logger:    diag.RootTestLogger(),
+		})
+
+		require.True(t, gatewayFrontendMTLSReferencesGrantedConfigMap(*gateway, *grant))
+		require.ElementsMatch(t, []reconcile.Request{{
+			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: gateway.Name},
+		}}, model.MapReferenceGrantToGatewayFrontendMTLS(t.Context(), grant))
+		require.Nil(t, model.MapReferenceGrantToGatewayFrontendMTLS(t.Context(), &corev1.Service{}))
+		require.False(t, gatewayFrontendMTLSReferencesGrantedConfigMap(gatewayv1.Gateway{}, *grant))
+
+		wrongFromGrant := grant.DeepCopy()
+		wrongFromGrant.Spec.From[0].Namespace = gatewayv1.Namespace("other-" + fakeData.Lorem().Word())
+		require.False(t, gatewayFrontendMTLSReferencesGrantedConfigMap(*gateway, *wrongFromGrant))
+
+		wrongToGrant := grant.DeepCopy()
+		wrongToGrant.Spec.To[0].Kind = gatewayv1.Kind("Secret")
+		require.False(t, gatewayFrontendMTLSReferencesGrantedConfigMap(*gateway, *wrongToGrant))
+
+		perPortGateway := gateway.DeepCopy()
+		perPortGateway.Spec.TLS.Frontend.Default.Validation = nil
+		perPortGateway.Spec.TLS.Frontend.PerPort = []gatewayv1.TLSPortConfig{{
+			Port: 8443,
+			TLS: gatewayv1.TLSConfig{Validation: &gatewayv1.FrontendTLSValidation{
+				CACertificateRefs: []gatewayv1.ObjectReference{{
+					Group:     "",
+					Kind:      "ConfigMap",
+					Name:      gatewayv1.ObjectName(configMapName),
+					Namespace: &crossNamespaceRef,
+				}},
+			}},
+		}}
+		require.True(t, gatewayFrontendMTLSReferencesGrantedConfigMap(*perPortGateway, *grant))
 	})
 }
