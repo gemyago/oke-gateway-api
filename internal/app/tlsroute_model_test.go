@@ -988,6 +988,34 @@ func TestTLSRouteModelLoadBalancerListener(t *testing.T) {
 	}
 	sslConfig := &loadbalancer.SslConfigurationDetails{CertificateIds: []string{"ocid1.certificate.oc1..cert"}}
 
+	t.Run("builds ssl config with listener TLS options", func(t *testing.T) {
+		cipherSuiteName := "oci-tls-12-13-ssl-cipher-suite-v3"
+		model := newTLSRouteModel(tlsRouteModelDeps{RootLogger: diag.RootTestLogger()})
+		listenerWithOptions := listener
+		listenerWithOptions.TLS = &gatewayv1.ListenerTLSConfig{
+			Mode: &mode,
+			Options: map[gatewayv1.AnnotationKey]gatewayv1.AnnotationValue{
+				ListenerTLSOptionCipherSuiteName: gatewayv1.AnnotationValue(cipherSuiteName),
+				ListenerTLSOptionProtocols:       "TLSv1.2,TLSv1.3",
+			},
+		}
+
+		got, err := model.tlsListenerSSLConfig(
+			resolvedTLSRouteDetails{matchedListener: listenerWithOptions},
+			reconcileListenersCertificatesResult{
+				certificateIDsByListener: map[string]string{
+					"rtmps": "ocid1.certificate.oc1..cert",
+				},
+			},
+		)
+
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Equal(t, []string{"ocid1.certificate.oc1..cert"}, got.CertificateIds)
+		assert.Equal(t, cipherSuiteName, lo.FromPtr(got.CipherSuiteName))
+		assert.Equal(t, []string{"TLSv1.2", "TLSv1.3"}, got.Protocols)
+	})
+
 	t.Run("updates changed listener", func(t *testing.T) {
 		ociClient := NewMockociLoadBalancerClient(t)
 		watcher := NewMockworkRequestsWatcher(t)
@@ -1018,12 +1046,33 @@ func TestTLSRouteModelLoadBalancerListener(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("skips matching listener", func(t *testing.T) {
+	t.Run("updates changed listener ssl cipher suite and protocols", func(t *testing.T) {
 		ociClient := NewMockociLoadBalancerClient(t)
+		watcher := NewMockworkRequestsWatcher(t)
 		model := newTLSRouteModel(tlsRouteModelDeps{
-			RootLogger:         diag.RootTestLogger(),
-			OciLoadBalancerAPI: ociClient,
+			RootLogger:          diag.RootTestLogger(),
+			OciLoadBalancerAPI:  ociClient,
+			WorkRequestsWatcher: watcher,
 		})
+		oldCipherSuiteName := "oci-default-ssl-cipher-suite-v1"
+		newCipherSuiteName := "oci-tls-12-13-ssl-cipher-suite-v3"
+		desiredSSLConfig := &loadbalancer.SslConfigurationDetails{
+			CertificateIds:  []string{"ocid1.certificate.oc1..cert"},
+			CipherSuiteName: &newCipherSuiteName,
+			Protocols:       []string{"TLSv1.2", "TLSv1.3"},
+		}
+		workRequestID := "wr-update-listener-ssl"
+		ociClient.EXPECT().
+			UpdateListener(t.Context(), mock.MatchedBy(func(request loadbalancer.UpdateListenerRequest) bool {
+				requestSSLConfig := request.UpdateListenerDetails.SslConfiguration
+				return lo.FromPtr(request.LoadBalancerId) == "lb-id" &&
+					lo.FromPtr(request.ListenerName) == "rtmps" &&
+					requestSSLConfig != nil &&
+					lo.FromPtr(requestSSLConfig.CipherSuiteName) == newCipherSuiteName &&
+					stringSlicesEqual(requestSSLConfig.Protocols, []string{"TLSv1.2", "TLSv1.3"})
+			})).
+			Return(loadbalancer.UpdateListenerResponse{OpcWorkRequestId: &workRequestID}, nil)
+		watcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
 
 		err := model.reconcileLoadBalancerTLSListener(t.Context(), "lb-id", "bs", loadbalancer.Listener{
 			Name:                  new("rtmps"),
@@ -1031,9 +1080,70 @@ func TestTLSRouteModelLoadBalancerListener(t *testing.T) {
 			Port:                  new(443),
 			DefaultBackendSetName: new("bs"),
 			SslConfiguration: &loadbalancer.SslConfiguration{
-				CertificateIds: []string{"ocid1.certificate.oc1..cert"},
+				CertificateIds:  []string{"ocid1.certificate.oc1..cert"},
+				CipherSuiteName: &oldCipherSuiteName,
+				Protocols:       []string{"TLSv1.2"},
 			},
-		}, listener, sslConfig)
+		}, listener, desiredSSLConfig)
+
+		require.NoError(t, err)
+	})
+
+	t.Run("skips matching listener", func(t *testing.T) {
+		ociClient := NewMockociLoadBalancerClient(t)
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger:         diag.RootTestLogger(),
+			OciLoadBalancerAPI: ociClient,
+		})
+		cipherSuite := "oci-tls-12-13-ssl-cipher-suite-v3"
+		verifyDepth := 1
+		verifyPeerCertificate := false
+		desiredSSLConfig := &loadbalancer.SslConfigurationDetails{
+			CertificateIds:  []string{"ocid1.certificate.oc1..cert"},
+			CipherSuiteName: &cipherSuite,
+			Protocols:       []string{"TLSv1.2", "TLSv1.3"},
+		}
+
+		err := model.reconcileLoadBalancerTLSListener(t.Context(), "lb-id", "bs", loadbalancer.Listener{
+			Name:                  new("rtmps"),
+			Protocol:              new(tlsRouteLoadBalancerProtocol),
+			Port:                  new(443),
+			DefaultBackendSetName: new("bs"),
+			SslConfiguration: &loadbalancer.SslConfiguration{
+				CertificateIds:        []string{"ocid1.certificate.oc1..cert"},
+				CipherSuiteName:       &cipherSuite,
+				Protocols:             []string{"TLSv1.2", "TLSv1.3"},
+				ServerOrderPreference: loadbalancer.SslConfigurationServerOrderPreferenceEnabled,
+				VerifyDepth:           &verifyDepth,
+				VerifyPeerCertificate: &verifyPeerCertificate,
+			},
+		}, listener, desiredSSLConfig)
+
+		require.NoError(t, err)
+	})
+
+	t.Run("skips matching listener with OCI default cipher suite and protocols", func(t *testing.T) {
+		ociClient := NewMockociLoadBalancerClient(t)
+		model := newTLSRouteModel(tlsRouteModelDeps{
+			RootLogger:         diag.RootTestLogger(),
+			OciLoadBalancerAPI: ociClient,
+		})
+		cipherSuite := "oci-default-ssl-cipher-suite-v1"
+		desiredSSLConfig := &loadbalancer.SslConfigurationDetails{
+			CertificateIds: []string{"ocid1.certificate.oc1..cert"},
+		}
+
+		err := model.reconcileLoadBalancerTLSListener(t.Context(), "lb-id", "bs", loadbalancer.Listener{
+			Name:                  new("rtmps"),
+			Protocol:              new(tlsRouteLoadBalancerProtocol),
+			Port:                  new(443),
+			DefaultBackendSetName: new("bs"),
+			SslConfiguration: &loadbalancer.SslConfiguration{
+				CertificateIds:  []string{"ocid1.certificate.oc1..cert"},
+				CipherSuiteName: &cipherSuite,
+				Protocols:       []string{"TLSv1.2"},
+			},
+		}, listener, desiredSSLConfig)
 
 		require.NoError(t, err)
 	})

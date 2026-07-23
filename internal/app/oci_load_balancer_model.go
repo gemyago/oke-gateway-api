@@ -252,6 +252,26 @@ func loadBalancerSSLConfigurationsEqual(
 		stringSlicesEqual(current.TrustedCertificateAuthorityIds, desired.TrustedCertificateAuthorityIds)
 }
 
+func loadBalancerListenerSSLConfigurationsEqual(
+	current *loadbalancer.SslConfigurationDetails,
+	desired *loadbalancer.SslConfigurationDetails,
+) bool {
+	if current == nil || desired == nil {
+		return current == nil && desired == nil
+	}
+	if lo.FromPtr(current.CertificateName) != lo.FromPtr(desired.CertificateName) ||
+		!stringSlicesEqual(current.CertificateIds, desired.CertificateIds) {
+		return false
+	}
+	if desired.CipherSuiteName != nil && lo.FromPtr(current.CipherSuiteName) != lo.FromPtr(desired.CipherSuiteName) {
+		return false
+	}
+	if len(desired.Protocols) > 0 && !stringSlicesEqual(current.Protocols, desired.Protocols) {
+		return false
+	}
+	return true
+}
+
 func stringSlicesEqual(left []string, right []string) bool {
 	left = append([]string(nil), left...)
 	right = append([]string(nil), right...)
@@ -823,6 +843,7 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 		sslConfig = &loadbalancer.SslConfigurationDetails{
 			CertificateIds: []string{params.listenerCertificateID},
 		}
+		applyListenerTLSOptions(sslConfig, params.listenerSpec.TLS)
 	} else if params.listenerSpec.TLS != nil {
 		if len(params.listenerCertificates) == 0 {
 			return &resourceStatusError{
@@ -840,6 +861,7 @@ func (m *ociLoadBalancerModelImpl) reconcileHTTPListener(
 		sslConfig = &loadbalancer.SslConfigurationDetails{
 			CertificateName: cert.CertificateName,
 		}
+		applyListenerTLSOptions(sslConfig, params.listenerSpec.TLS)
 	}
 
 	if existingListener, ok := params.knownListeners[listenerName]; ok {
@@ -1744,26 +1766,10 @@ func makeOciListenerUpdateDetails(
 		hasChanges = true
 	}
 
-	existingCertName := ""
-	if params.existingListenerData.SslConfiguration != nil &&
-		params.existingListenerData.SslConfiguration.CertificateName != nil {
-		existingCertName = *params.existingListenerData.SslConfiguration.CertificateName
-	}
-	existingCertIDs := normalizeCertificateIDs(nil)
-	if params.existingListenerData.SslConfiguration != nil {
-		existingCertIDs = normalizeCertificateIDs(params.existingListenerData.SslConfiguration.CertificateIds)
-	}
-
-	newCertName := ""
-	if params.sslConfig != nil && params.sslConfig.CertificateName != nil {
-		newCertName = *params.sslConfig.CertificateName
-	}
-	newCertIDs := normalizeCertificateIDs(nil)
-	if params.sslConfig != nil {
-		newCertIDs = normalizeCertificateIDs(params.sslConfig.CertificateIds)
-	}
-
-	if existingCertName != newCertName || !slices.Equal(existingCertIDs, newCertIDs) {
+	if !loadBalancerListenerSSLConfigurationsEqual(
+		sslConfigurationDetailsFromBackendSet(params.existingListenerData.SslConfiguration),
+		params.sslConfig,
+	) {
 		hasChanges = true
 	}
 
@@ -1787,11 +1793,20 @@ func expectedHTTPListenerProtocol(existingListener loadbalancer.Listener) string
 	return ociListenerProtocolHTTP
 }
 
-func normalizeCertificateIDs(certificateIDs []string) []string {
-	if len(certificateIDs) == 0 {
-		return nil
+func applyListenerTLSOptions(
+	sslConfig *loadbalancer.SslConfigurationDetails,
+	tlsConfig *gatewayv1.ListenerTLSConfig,
+) {
+	if sslConfig == nil || tlsConfig == nil {
+		return
 	}
-	return certificateIDs
+	if protocols := splitCSVOption(tlsConfig.Options[ListenerTLSOptionProtocols]); len(protocols) > 0 {
+		sslConfig.Protocols = protocols
+	}
+	cipherSuite := strings.TrimSpace(string(tlsConfig.Options[ListenerTLSOptionCipherSuiteName]))
+	if cipherSuite != "" {
+		sslConfig.CipherSuiteName = &cipherSuite
+	}
 }
 
 type ociLoadBalancerModelDeps struct {

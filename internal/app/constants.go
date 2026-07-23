@@ -22,6 +22,12 @@ const (
 	// ListenerTLSOptionOCICertificateOCID configures an existing OCI Certificates Service certificate for a listener.
 	ListenerTLSOptionOCICertificateOCID = "oci.oraclecloud.com/certificate-ocid"
 
+	// ListenerTLSOptionProtocols configures OCI listener SSL protocols as a comma-separated list.
+	ListenerTLSOptionProtocols = "oci.oraclecloud.com/tls-protocols"
+
+	// ListenerTLSOptionCipherSuiteName configures OCI listener SSL cipher suite name.
+	ListenerTLSOptionCipherSuiteName = "oci.oraclecloud.com/cipher-suite-name"
+
 	// BackendTLSPolicyProgrammedFinalizer is used to clean up controller-managed OCI CA bundles.
 	BackendTLSPolicyProgrammedFinalizer = "oke-gateway-api.gemyago.github.io/backend-tls-policy-programmed"
 

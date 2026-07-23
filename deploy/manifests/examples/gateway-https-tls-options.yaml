@@ -1,0 +1,23 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: oke-gateway
+spec:
+  gatewayClassName: oke-gateway-api
+  infrastructure:
+    parametersRef:
+      group: oke-gateway-api.gemyago.github.io
+      kind: GatewayConfig
+      name: oke-gateway-config
+  listeners:
+    - name: https
+      port: 443
+      protocol: HTTPS
+      tls:
+        certificateRefs:
+          - name: oke-gw-example-https-cert
+        options:
+          # OCI Load Balancer predefined or custom SSL cipher suite name.
+          oci.oraclecloud.com/cipher-suite-name: oci-tls-12-13-ssl-cipher-suite-v3
+          # Comma-separated OCI Load Balancer TLS protocol list.
+          oci.oraclecloud.com/tls-protocols: TLSv1.2,TLSv1.3
