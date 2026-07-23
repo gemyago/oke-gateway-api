@@ -42,28 +42,58 @@ func TestL7RouteObjectPredicate(t *testing.T) {
 }
 
 func TestListenerSetRouteObjectPredicate(t *testing.T) {
-	oldListenerSet := &gatewayv1.ListenerSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace:       "demo",
-			Name:            "extra-listeners",
-			ResourceVersion: "1",
-		},
-	}
-	newListenerSet := oldListenerSet.DeepCopy()
-	newListenerSet.ResourceVersion = "2"
-	newListenerSet.Status.Conditions = []metav1.Condition{{
-		Type:               string(gatewayv1.ListenerSetConditionAccepted),
-		Status:             metav1.ConditionTrue,
-		Reason:             string(gatewayv1.ListenerSetReasonAccepted),
-		ObservedGeneration: 1,
-	}}
+	fake := faker.New()
+	predicate := listenerSetRouteObjectPredicate()
 
-	result := listenerSetRouteObjectPredicate().Update(event.UpdateEvent{
-		ObjectOld: oldListenerSet,
-		ObjectNew: newListenerSet,
+	t.Run("accepts resource version changes", func(t *testing.T) {
+		oldListenerSet := &gatewayv1.ListenerSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:       "demo",
+				Name:            "extra-listeners",
+				ResourceVersion: "1",
+			},
+		}
+		newListenerSet := oldListenerSet.DeepCopy()
+		newListenerSet.ResourceVersion = "2"
+		newListenerSet.Status.Conditions = []metav1.Condition{{
+			Type:               string(gatewayv1.ListenerSetConditionAccepted),
+			Status:             metav1.ConditionTrue,
+			Reason:             string(gatewayv1.ListenerSetReasonAccepted),
+			ObservedGeneration: 1,
+		}}
+
+		result := predicate.Update(event.UpdateEvent{
+			ObjectOld: oldListenerSet,
+			ObjectNew: newListenerSet,
+		})
+
+		assert.True(t, result)
 	})
 
-	assert.True(t, result)
+	t.Run("accepts status only updates", func(t *testing.T) {
+		oldObj := &gatewayv1.ListenerSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            "listeners-" + fake.UUID().V4(),
+				Namespace:       "ns-" + fake.UUID().V4(),
+				Generation:      1,
+				ResourceVersion: fake.UUID().V4(),
+			},
+		}
+		newObj := oldObj.DeepCopy()
+		newObj.ResourceVersion = fake.UUID().V4()
+		newObj.Status.Conditions = []metav1.Condition{{
+			Type:               string(gatewayv1.ListenerSetConditionAccepted),
+			Status:             metav1.ConditionFalse,
+			Reason:             string(gatewayv1.ListenerSetReasonNotAllowed),
+			ObservedGeneration: oldObj.Generation,
+			Message:            "parent gateway no longer allows this ListenerSet",
+		}}
+
+		assert.True(t, predicate.Update(event.UpdateEvent{
+			ObjectOld: oldObj,
+			ObjectNew: newObj,
+		}))
+	})
 }
 
 func TestStartManager(t *testing.T) {
@@ -139,6 +169,31 @@ func TestL4RouteObjectPredicate(t *testing.T) {
 		newObj.ResourceVersion = fake.UUID().V4()
 
 		assert.False(t, predicate.Update(updateEvent(oldObj, newObj)))
+	})
+
+	t.Run("ignores ListenerSet status only updates", func(t *testing.T) {
+		oldObj := &gatewayv1.ListenerSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            "listeners-" + fake.UUID().V4(),
+				Namespace:       "ns-" + fake.UUID().V4(),
+				Generation:      1,
+				ResourceVersion: fake.UUID().V4(),
+			},
+		}
+		newObj := oldObj.DeepCopy()
+		newObj.ResourceVersion = fake.UUID().V4()
+		newObj.Status.Conditions = []metav1.Condition{{
+			Type:               string(gatewayv1.ListenerSetConditionAccepted),
+			Status:             metav1.ConditionFalse,
+			Reason:             string(gatewayv1.ListenerSetReasonNotAllowed),
+			ObservedGeneration: oldObj.Generation,
+			Message:            "parent gateway no longer allows this ListenerSet",
+		}}
+
+		assert.False(t, predicate.Update(event.UpdateEvent{
+			ObjectOld: oldObj,
+			ObjectNew: newObj,
+		}))
 	})
 }
 

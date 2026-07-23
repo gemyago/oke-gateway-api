@@ -256,7 +256,7 @@ func setupL4RouteController(
 		controllerBuilder = controllerBuilder.Watches(
 			&gatewayv1.ListenerSet{},
 			handler.EnqueueRequestsFromMapFunc(params.mapListenerSet),
-			builder.WithPredicates(l4RouteObjectPredicate()),
+			builder.WithPredicates(listenerSetRouteObjectPredicate()),
 		)
 	}
 	if enableBackendTLSPolicy && params.name == "tlsroute" {
