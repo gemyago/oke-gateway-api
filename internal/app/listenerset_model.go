@@ -335,6 +335,25 @@ func effectiveListenersForParentRef(
 	return results
 }
 
+func effectiveListenerSourceNamespaceForOCIListener(
+	gatewayDetails resolvedGatewayDetails,
+	listener v1.Listener,
+) string {
+	effectiveListeners := gatewayDetails.effectiveListeners
+	if len(effectiveListeners) == 0 {
+		effectiveListeners = effectiveListenersForGateway(gatewayDetails.gateway, nil)
+	}
+	for _, effective := range effectiveListeners {
+		if effective.conflicted || effective.unsupported {
+			continue
+		}
+		if effectiveListenerOCIListener(effective).Name == listener.Name {
+			return effective.sourceNamespace
+		}
+	}
+	return gatewayDetails.gateway.Namespace
+}
+
 func parentRefTargetsEffectiveListener(
 	parentRef v1.ParentReference,
 	routeNamespace string,
@@ -430,6 +449,7 @@ func listenerSetStatusForGateway(
 	listenerSet v1.ListenerSet,
 	effectiveListeners []effectiveListener,
 	controllerName v1.GatewayController,
+	attachedRoutes map[v1.SectionName]int32,
 ) v1.ListenerSetStatus {
 	listenersByKey := make(map[string]effectiveListener, len(effectiveListeners))
 	for _, listener := range effectiveListeners {
@@ -443,20 +463,21 @@ func listenerSetStatusForGateway(
 		entryStatus := v1.ListenerEntryStatus{
 			Name:           listener.Name,
 			SupportedKinds: supportedRouteKindsForListener(listenerFromListenerSetEntry(listener)),
+			AttachedRoutes: attachedRoutes[listener.Name],
 		}
 		if effective.conflicted || effective.unsupported {
-			reason := effective.conflictReason
+			reason := listenerEntryReasonFromListenerReason(effective.conflictReason)
 			message := fmt.Sprintf(
 				"listener %s conflicts with an earlier Gateway or ListenerSet listener",
 				listener.Name,
 			)
 			if effective.unsupported {
-				reason = effective.unsupportedReason
+				reason = listenerEntryReasonFromListenerReason(effective.unsupportedReason)
 				message = effective.unsupportedMessage
 			}
 			setListenerEntryCondition(
 				&entryStatus,
-				v1.ListenerConditionAccepted,
+				v1.ListenerEntryConditionAccepted,
 				metav1.ConditionFalse,
 				reason,
 				listenerSet.Generation,
@@ -464,28 +485,60 @@ func listenerSetStatusForGateway(
 			)
 			setListenerEntryCondition(
 				&entryStatus,
-				v1.ListenerConditionProgrammed,
+				v1.ListenerEntryConditionProgrammed,
 				metav1.ConditionFalse,
 				reason,
+				listenerSet.Generation,
+				message,
+			)
+			setListenerEntryCondition(
+				&entryStatus,
+				v1.ListenerEntryConditionResolvedRefs,
+				listenerEntryResolvedRefsStatus(reason),
+				listenerEntryResolvedRefsReason(reason),
+				listenerSet.Generation,
+				message,
+			)
+			setListenerEntryCondition(
+				&entryStatus,
+				v1.ListenerEntryConditionConflicted,
+				listenerEntryConflictedStatus(effective),
+				listenerEntryConflictedReason(effective),
 				listenerSet.Generation,
 				message,
 			)
 		} else {
 			setListenerEntryCondition(
 				&entryStatus,
-				v1.ListenerConditionAccepted,
+				v1.ListenerEntryConditionAccepted,
 				metav1.ConditionTrue,
-				v1.ListenerReasonAccepted,
+				v1.ListenerEntryReasonAccepted,
 				listenerSet.Generation,
 				fmt.Sprintf("listener %s accepted", listener.Name),
 			)
 			setListenerEntryCondition(
 				&entryStatus,
-				v1.ListenerConditionProgrammed,
+				v1.ListenerEntryConditionProgrammed,
 				metav1.ConditionTrue,
-				v1.ListenerReasonProgrammed,
+				v1.ListenerEntryReasonProgrammed,
 				listenerSet.Generation,
 				fmt.Sprintf("listener %s programmed", listener.Name),
+			)
+			setListenerEntryCondition(
+				&entryStatus,
+				v1.ListenerEntryConditionResolvedRefs,
+				metav1.ConditionTrue,
+				v1.ListenerEntryReasonResolvedRefs,
+				listenerSet.Generation,
+				fmt.Sprintf("listener %s references resolved", listener.Name),
+			)
+			setListenerEntryCondition(
+				&entryStatus,
+				v1.ListenerEntryConditionConflicted,
+				metav1.ConditionFalse,
+				v1.ListenerReasonNoConflicts,
+				listenerSet.Generation,
+				fmt.Sprintf("listener %s has no conflicts", listener.Name),
 			)
 		}
 		status.Listeners = append(status.Listeners, entryStatus)
@@ -516,7 +569,7 @@ func listenerSetTopLevelStatusForGateway(
 		listenerSet.Name,
 		controllerName,
 	)
-	if !listenerSetListenersValid(listenerSet, listenersByKey) {
+	if !listenerSetHasAcceptedListener(listenerSet, listenersByKey) {
 		acceptedStatus = metav1.ConditionFalse
 		acceptedReason = string(v1.ListenerSetReasonListenersNotValid)
 		acceptedMessage = fmt.Sprintf(
@@ -549,21 +602,74 @@ func listenerSetTopLevelStatusForGateway(
 	return status
 }
 
-func listenerSetListenersValid(listenerSet v1.ListenerSet, listenersByKey map[string]effectiveListener) bool {
+func listenerSetHasAcceptedListener(listenerSet v1.ListenerSet, listenersByKey map[string]effectiveListener) bool {
 	for _, listener := range listenerSet.Spec.Listeners {
 		effective := listenersByKey[path.Join(listenerSet.Namespace, listenerSet.Name, string(listener.Name))]
-		if effective.conflicted || effective.unsupported {
-			return false
+		if !effective.conflicted && !effective.unsupported {
+			return true
 		}
 	}
-	return true
+	return false
 }
 
-func setListenerEntryCondition(
+func listenerEntryReasonFromListenerReason(reason v1.ListenerConditionReason) v1.ListenerEntryConditionReason {
+	switch string(reason) {
+	case string(v1.ListenerReasonHostnameConflict):
+		return v1.ListenerEntryReasonHostnameConflict
+	case string(v1.ListenerReasonProtocolConflict):
+		return v1.ListenerEntryReasonProtocolConflict
+	case string(v1.ListenerReasonInvalidCertificateRef):
+		return v1.ListenerEntryReasonInvalidCertificateRef
+	case string(v1.ListenerReasonInvalidRouteKinds):
+		return v1.ListenerEntryReasonInvalidRouteKinds
+	case string(v1.ListenerReasonRefNotPermitted):
+		return v1.ListenerEntryReasonRefNotPermitted
+	case string(v1.ListenerReasonUnsupportedProtocol):
+		return v1.ListenerEntryReasonUnsupportedProtocol
+	case string(v1.ListenerReasonPortUnavailable):
+		return v1.ListenerEntryReasonPortUnavailable
+	default:
+		return v1.ListenerEntryReasonInvalid
+	}
+}
+
+func listenerEntryResolvedRefsStatus(reason v1.ListenerEntryConditionReason) metav1.ConditionStatus {
+	switch string(reason) {
+	case string(v1.ListenerEntryReasonInvalidCertificateRef),
+		string(v1.ListenerEntryReasonInvalidRouteKinds),
+		string(v1.ListenerEntryReasonRefNotPermitted):
+		return metav1.ConditionFalse
+	default:
+		return metav1.ConditionTrue
+	}
+}
+
+func listenerEntryResolvedRefsReason(reason v1.ListenerEntryConditionReason) v1.ListenerEntryConditionReason {
+	if listenerEntryResolvedRefsStatus(reason) == metav1.ConditionFalse {
+		return reason
+	}
+	return v1.ListenerEntryReasonResolvedRefs
+}
+
+func listenerEntryConflictedStatus(listener effectiveListener) metav1.ConditionStatus {
+	if listener.conflicted {
+		return metav1.ConditionTrue
+	}
+	return metav1.ConditionFalse
+}
+
+func listenerEntryConflictedReason(listener effectiveListener) v1.ListenerEntryConditionReason {
+	if listener.conflicted {
+		return listenerEntryReasonFromListenerReason(listener.conflictReason)
+	}
+	return v1.ListenerEntryConditionReason(v1.ListenerReasonNoConflicts)
+}
+
+func setListenerEntryCondition[CT ~string, CR ~string](
 	status *v1.ListenerEntryStatus,
-	conditionType v1.ListenerConditionType,
+	conditionType CT,
 	conditionStatus metav1.ConditionStatus,
-	reason v1.ListenerConditionReason,
+	reason CR,
 	generation int64,
 	message string,
 ) {
@@ -640,11 +746,26 @@ func listenerSetStatusSemanticallyEqual(left v1.ListenerSetStatus, right v1.List
 	return true
 }
 
-func attachedListenerSetCount(listenerSets []v1.ListenerSet) *int32 {
+func attachedListenerSetCount(listenerSets []v1.ListenerSet, effectiveListeners []effectiveListener) *int32 {
 	const maxInt32 = int32(1<<31 - 1)
 
+	acceptedListenerSetKeys := map[string]struct{}{}
+	for _, listener := range effectiveListeners {
+		if listener.sourceKind != effectiveListenerSourceListenerSet ||
+			listener.conflicted ||
+			listener.unsupported {
+			continue
+		}
+		acceptedListenerSetKeys[path.Join(listener.sourceNamespace, listener.sourceName)] = struct{}{}
+	}
+
 	var count int32
-	for range listenerSets {
+	for _, listenerSet := range listenerSets {
+		if len(effectiveListeners) > 0 {
+			if _, accepted := acceptedListenerSetKeys[path.Join(listenerSet.Namespace, listenerSet.Name)]; !accepted {
+				continue
+			}
+		}
 		if count == maxInt32 {
 			break
 		}

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
@@ -16,19 +17,12 @@ const gatewayAPIGroup = "gateway.networking.k8s.io"
 const serviceKind = "Service"
 
 func l4RouteKindAllowed(listener gatewayv1.Listener, routeKind gatewayv1.Kind) bool {
+	return routeKindAllowedForListener(listener, routeKind)
+}
+
+func routeKindAllowedForListener(listener gatewayv1.Listener, routeKind gatewayv1.Kind) bool {
 	if listener.AllowedRoutes == nil || len(listener.AllowedRoutes.Kinds) == 0 {
-		switch listener.Protocol {
-		case gatewayv1.TCPProtocolType:
-			return routeKind == "TCPRoute"
-		case gatewayv1.UDPProtocolType:
-			return routeKind == "UDPRoute"
-		case gatewayv1.TLSProtocolType:
-			return routeKind == "TLSRoute"
-		case gatewayv1.HTTPProtocolType, gatewayv1.HTTPSProtocolType:
-			return false
-		default:
-			return false
-		}
+		return slices.Contains(supportedRouteKindNamesForProtocol(listener.Protocol), routeKind)
 	}
 
 	for _, allowedKind := range listener.AllowedRoutes.Kinds {
@@ -41,6 +35,38 @@ func l4RouteKindAllowed(listener gatewayv1.Listener, routeKind gatewayv1.Kind) b
 		}
 	}
 	return false
+}
+
+func allowedRouteListeners(
+	ctx context.Context,
+	k8sClient k8sClient,
+	gatewayDetails resolvedGatewayDetails,
+	routeNamespace string,
+	matchedListeners []gatewayv1.Listener,
+	routeKind gatewayv1.Kind,
+) ([]gatewayv1.Listener, error) {
+	allowed := make([]gatewayv1.Listener, 0, len(matchedListeners))
+	for _, listener := range matchedListeners {
+		if listener.AllowedRoutes == nil {
+			allowed = append(allowed, listener)
+			continue
+		}
+		if len(listener.AllowedRoutes.Kinds) > 0 && !routeKindAllowedForListener(listener, routeKind) {
+			continue
+		}
+		if listener.AllowedRoutes.Namespaces != nil {
+			ownerNamespace := effectiveListenerSourceNamespaceForOCIListener(gatewayDetails, listener)
+			namespaceAllowed, err := l4RouteNamespaceAllowed(ctx, k8sClient, ownerNamespace, routeNamespace, listener)
+			if err != nil {
+				return nil, err
+			}
+			if !namespaceAllowed {
+				continue
+			}
+		}
+		allowed = append(allowed, listener)
+	}
+	return allowed, nil
 }
 
 func l4RouteNamespaceAllowed(

@@ -13,8 +13,6 @@ import (
 
 	reconcile "sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	types "k8s.io/apimachinery/pkg/types"
-
 	v1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -321,23 +319,23 @@ func (_c *MockhttpRouteModel_resolveBackendRefs_Call) RunAndReturn(run func(cont
 }
 
 // resolveRequest provides a mock function with given fields: ctx, req
-func (_m *MockhttpRouteModel) resolveRequest(ctx context.Context, req reconcile.Request) (map[types.NamespacedName]resolvedRouteDetails, error) {
+func (_m *MockhttpRouteModel) resolveRequest(ctx context.Context, req reconcile.Request) (map[routeParentResultKey]resolvedRouteDetails, error) {
 	ret := _m.Called(ctx, req)
 
 	if len(ret) == 0 {
 		panic("no return value specified for resolveRequest")
 	}
 
-	var r0 map[types.NamespacedName]resolvedRouteDetails
+	var r0 map[routeParentResultKey]resolvedRouteDetails
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, reconcile.Request) (map[types.NamespacedName]resolvedRouteDetails, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, reconcile.Request) (map[routeParentResultKey]resolvedRouteDetails, error)); ok {
 		return rf(ctx, req)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, reconcile.Request) map[types.NamespacedName]resolvedRouteDetails); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, reconcile.Request) map[routeParentResultKey]resolvedRouteDetails); ok {
 		r0 = rf(ctx, req)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(map[types.NamespacedName]resolvedRouteDetails)
+			r0 = ret.Get(0).(map[routeParentResultKey]resolvedRouteDetails)
 		}
 	}
 
@@ -369,12 +367,12 @@ func (_c *MockhttpRouteModel_resolveRequest_Call) Run(run func(ctx context.Conte
 	return _c
 }
 
-func (_c *MockhttpRouteModel_resolveRequest_Call) Return(_a0 map[types.NamespacedName]resolvedRouteDetails, _a1 error) *MockhttpRouteModel_resolveRequest_Call {
+func (_c *MockhttpRouteModel_resolveRequest_Call) Return(_a0 map[routeParentResultKey]resolvedRouteDetails, _a1 error) *MockhttpRouteModel_resolveRequest_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockhttpRouteModel_resolveRequest_Call) RunAndReturn(run func(context.Context, reconcile.Request) (map[types.NamespacedName]resolvedRouteDetails, error)) *MockhttpRouteModel_resolveRequest_Call {
+func (_c *MockhttpRouteModel_resolveRequest_Call) RunAndReturn(run func(context.Context, reconcile.Request) (map[routeParentResultKey]resolvedRouteDetails, error)) *MockhttpRouteModel_resolveRequest_Call {
 	_c.Call.Return(run)
 	return _c
 }

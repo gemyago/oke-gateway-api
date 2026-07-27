@@ -731,7 +731,7 @@ func (m *networkLoadBalancerGatewayModelImpl) setProgrammed(
 	}
 
 	data.gateway.Status.Addresses = gatewayStatusAddressesFromNetworkLoadBalancer(nlb)
-	data.gateway.Status.AttachedListenerSets = attachedListenerSetCount(data.listenerSets)
+	data.gateway.Status.AttachedListenerSets = attachedListenerSetCount(data.listenerSets, data.effectiveListeners)
 	annotations := map[string]string{
 		NetworkLoadBalancerGatewayProgrammingRevisionAnnotation: NetworkLoadBalancerGatewayProgrammingRevisionValue,
 	}

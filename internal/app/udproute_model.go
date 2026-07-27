@@ -376,14 +376,13 @@ func (m *udpRouteModelImpl) matchingRoutesForListener(
 ) ([]l4RouteListenerMatch[gatewayv1.UDPRoute], error) {
 	var routeList gatewayv1.UDPRouteList
 	params := listMatchingL4RoutesForListenerParams[gatewayv1.UDPRoute]{
-		k8sClient:    m.client,
-		routeList:    &routeList,
-		listError:    listError,
-		items:        func() []gatewayv1.UDPRoute { return routeList.Items },
-		routeKey:     udpRouteKey,
-		parentTarget: udpParentRefTarget,
+		k8sClient: m.client,
+		routeList: &routeList,
+		listError: listError,
+		items:     func() []gatewayv1.UDPRoute { return routeList.Items },
+		routeKey:  udpRouteKey,
 	}
-	params.gatewayName = client.ObjectKeyFromObject(&details.gatewayDetails.gateway)
+	params.gatewayDetails = details.gatewayDetails
 	params.listener = details.matchedListener
 	params.excludeRouteKey = excludeRouteKey
 	params.routeNamespace = func(route gatewayv1.UDPRoute) string { return route.Namespace }
@@ -583,7 +582,10 @@ func (m *udpRouteModelImpl) programRouteParams(
 			return m.endpointBackendsForRoute(ctx, details.udpRoute)
 		},
 	}
-	input.gatewayNamespace = details.gatewayDetails.gateway.Namespace
+	input.listenerNamespace = effectiveListenerSourceNamespaceForOCIListener(
+		details.gatewayDetails,
+		details.matchedListener,
+	)
 	input.clearBackendSet = func() error { return m.clearBackendSet(ctx, details) }
 	input.isResolvedRefsErr = func(err error) bool {
 		var statusErr udpRouteStatusError

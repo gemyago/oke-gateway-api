@@ -116,7 +116,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 					return true, nil
 				})
 
-			gotGatewayData, gotListeners, err := model.resolveRouteParentRefData(
+			gotGatewayData, gotListeners, _, err := model.resolveRouteParentRefData(
 				t.Context(),
 				route,
 				parentRef,
@@ -148,7 +148,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 					return true, nil
 				})
 
-			_, gotListeners, err := model.resolveRouteParentRefData(t.Context(), route, parentRef, route.Namespace)
+			_, gotListeners, _, err := model.resolveRouteParentRefData(t.Context(), route, parentRef, route.Namespace)
 
 			require.NoError(t, err)
 			assert.Equal(t, []gatewayv1.Listener{grpcListener}, gotListeners)
@@ -217,7 +217,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: listenerSet.Namespace},
 			})
 
-			gotGatewayData, gotListeners, err := model.resolveRouteParentRefData(
+			gotGatewayData, gotListeners, _, err := model.resolveRouteParentRefData(
 				t.Context(),
 				route,
 				parentRef,
@@ -253,7 +253,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 					return true, nil
 				})
 
-			gotGatewayData, gotListeners, err := model.resolveRouteParentRefData(
+			gotGatewayData, gotListeners, _, err := model.resolveRouteParentRefData(
 				t.Context(),
 				route,
 				parentRef,
@@ -280,7 +280,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 					return false, nil
 				})
 
-			gotGatewayData, gotListeners, err := model.resolveRouteParentRefData(
+			gotGatewayData, gotListeners, _, err := model.resolveRouteParentRefData(
 				t.Context(),
 				route,
 				parentRef,
@@ -301,7 +301,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 				resolveReconcileRequest(t.Context(), mock.Anything, mock.Anything).
 				Return(false, nil)
 
-			gotGatewayData, gotListeners, err := model.resolveRouteParentRefData(
+			gotGatewayData, gotListeners, _, err := model.resolveRouteParentRefData(
 				t.Context(),
 				makeGRPCRoute(),
 				gatewayv1.ParentReference{Name: "gw"},
@@ -323,7 +323,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 				resolveReconcileRequest(t.Context(), mock.Anything, mock.Anything).
 				Return(false, wantErr)
 
-			_, _, err := model.resolveRouteParentRefData(
+			_, _, _, err := model.resolveRouteParentRefData(
 				t.Context(),
 				makeGRPCRoute(),
 				gatewayv1.ParentReference{Name: "gw"},
@@ -491,7 +491,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			got, err := model.resolveRequest(t.Context(), req)
 
 			require.NoError(t, err)
-			result := got[client.ObjectKeyFromObject(&gatewayData.gateway)]
+			result := got[gatewayParentResultKey(client.ObjectKeyFromObject(&gatewayData.gateway))]
 			assert.Len(t, result.matchedListeners, 2)
 		})
 

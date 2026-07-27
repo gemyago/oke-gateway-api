@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"go.uber.org/dig"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -231,8 +233,9 @@ func (m *gatewayModelImpl) populateGatewaySecrets(
 		return nil
 	}
 
-	for _, listener := range receiver.effectiveListeners {
-		if listener.conflicted || listenerOCICertificateOCID(listener.listener) != "" {
+	for i := range receiver.effectiveListeners {
+		listener := receiver.effectiveListeners[i]
+		if listener.conflicted || listener.unsupported || listenerOCICertificateOCID(listener.listener) != "" {
 			continue
 		}
 		if populateErr := m.populateGatewayListenerSecrets(
@@ -242,11 +245,31 @@ func (m *gatewayModelImpl) populateGatewaySecrets(
 			listener.sourceNamespace,
 			listener.listener,
 		); populateErr != nil {
+			if markListenerSetSecretError(&receiver.effectiveListeners[i], populateErr) {
+				continue
+			}
 			return populateErr
 		}
 	}
 
 	return nil
+}
+
+func markListenerSetSecretError(listener *effectiveListener, err error) bool {
+	if listener.sourceKind != effectiveListenerSourceListenerSet {
+		return false
+	}
+	listener.unsupported = true
+	listener.unsupportedReason = gatewayv1.ListenerReasonInvalidCertificateRef
+	listener.unsupportedMessage = err.Error()
+
+	var statusErr *resourceStatusError
+	if errors.As(err, &statusErr) &&
+		statusErr.reason == string(gatewayv1.GatewayReasonInvalidParameters) &&
+		strings.Contains(statusErr.message, "not permitted") {
+		listener.unsupportedReason = gatewayv1.ListenerReasonRefNotPermitted
+	}
+	return true
 }
 
 func populateAttachedListenerSets(ctx context.Context, k8sClient k8sClient, receiver *resolvedGatewayDetails) error {
@@ -584,7 +607,7 @@ func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGate
 	}
 
 	data.gateway.Status.Addresses = gatewayStatusAddressesFromLoadBalancer(data.loadBalancer)
-	data.gateway.Status.AttachedListenerSets = attachedListenerSetCount(data.listenerSets)
+	data.gateway.Status.AttachedListenerSets = attachedListenerSetCount(data.listenerSets, data.effectiveListeners)
 	if err := m.resourcesModel.setCondition(ctx, setConditionParams{
 		resource:      &data.gateway,
 		conditions:    &data.gateway.Status.Conditions,
@@ -614,21 +637,250 @@ func setListenerSetsProgrammed(
 	controllerName gatewayv1.GatewayController,
 ) error {
 	for _, listenerSet := range data.listenerSets {
-		desiredStatus := listenerSetStatusForGateway(data.gateway, listenerSet, data.effectiveListeners, controllerName)
+		attachedRoutes, err := listenerSetAttachedRouteCounts(ctx, k8sClient, data, listenerSet)
+		if err != nil {
+			return err
+		}
+		desiredStatus := listenerSetStatusForGateway(
+			data.gateway,
+			listenerSet,
+			data.effectiveListeners,
+			controllerName,
+			attachedRoutes,
+		)
 		if listenerSetStatusSemanticallyEqual(listenerSet.Status, desiredStatus) {
 			continue
 		}
 		listenerSetToUpdate := listenerSet.DeepCopy()
 		listenerSetToUpdate.Status = desiredStatus
-		if err := k8sClient.Status().Update(ctx, listenerSetToUpdate); err != nil {
+		if updateErr := k8sClient.Status().Update(ctx, listenerSetToUpdate); updateErr != nil {
 			return fmt.Errorf("failed to update ListenerSet %s/%s status: %w",
 				listenerSet.Namespace,
 				listenerSet.Name,
-				err,
+				updateErr,
 			)
 		}
 	}
 	return nil
+}
+
+func listenerSetAttachedRouteCounts(
+	ctx context.Context,
+	k8sClient k8sClient,
+	data *resolvedGatewayDetails,
+	listenerSet gatewayv1.ListenerSet,
+) (map[gatewayv1.SectionName]int32, error) {
+	counts := map[gatewayv1.SectionName]int32{}
+	if err := addListenerSetHTTPRouteCounts(ctx, k8sClient, data, listenerSet, counts); err != nil {
+		return nil, err
+	}
+	if err := addListenerSetGRPCRouteCounts(ctx, k8sClient, data, listenerSet, counts); err != nil {
+		return nil, err
+	}
+	if err := addListenerSetTCPRouteCounts(ctx, k8sClient, data, listenerSet, counts); err != nil {
+		return nil, err
+	}
+	if err := addListenerSetUDPRouteCounts(ctx, k8sClient, data, listenerSet, counts); err != nil {
+		return nil, err
+	}
+	if err := addListenerSetTLSRouteCounts(ctx, k8sClient, data, listenerSet, counts); err != nil {
+		return nil, err
+	}
+	return counts, nil
+}
+
+func addListenerSetHTTPRouteCounts(
+	ctx context.Context,
+	k8sClient k8sClient,
+	data *resolvedGatewayDetails,
+	listenerSet gatewayv1.ListenerSet,
+	counts map[gatewayv1.SectionName]int32,
+) error {
+	var routeList gatewayv1.HTTPRouteList
+	if err := k8sClient.List(ctx, &routeList); err != nil {
+		return fmt.Errorf("failed to list HTTPRoutes for ListenerSet attached route counts: %w", err)
+	}
+	for _, route := range routeList.Items {
+		addListenerSetRouteCounts(
+			data,
+			listenerSet,
+			counts,
+			route.Namespace,
+			route.Status.Parents,
+			route.Spec.ParentRefs,
+			func(ref gatewayv1.ParentReference, listener gatewayv1.Listener) bool {
+				if ref.SectionName != nil && listener.Name != *ref.SectionName {
+					return false
+				}
+				return listener.Protocol == gatewayv1.HTTPProtocolType ||
+					listener.Protocol == gatewayv1.HTTPSProtocolType
+			},
+		)
+	}
+	return nil
+}
+
+func addListenerSetGRPCRouteCounts(
+	ctx context.Context,
+	k8sClient k8sClient,
+	data *resolvedGatewayDetails,
+	listenerSet gatewayv1.ListenerSet,
+	counts map[gatewayv1.SectionName]int32,
+) error {
+	var routeList gatewayv1.GRPCRouteList
+	if err := k8sClient.List(ctx, &routeList); err != nil {
+		return fmt.Errorf("failed to list GRPCRoutes for ListenerSet attached route counts: %w", err)
+	}
+	for _, route := range routeList.Items {
+		addListenerSetRouteCounts(
+			data,
+			listenerSet,
+			counts,
+			route.Namespace,
+			route.Status.Parents,
+			route.Spec.ParentRefs,
+			func(ref gatewayv1.ParentReference, listener gatewayv1.Listener) bool {
+				if ref.SectionName != nil && listener.Name != *ref.SectionName {
+					return false
+				}
+				return grpcRouteListenerProtocolSupported(listener.Protocol)
+			},
+		)
+	}
+	return nil
+}
+
+func addListenerSetTCPRouteCounts(
+	ctx context.Context,
+	k8sClient k8sClient,
+	data *resolvedGatewayDetails,
+	listenerSet gatewayv1.ListenerSet,
+	counts map[gatewayv1.SectionName]int32,
+) error {
+	var routeList gatewayv1.TCPRouteList
+	if err := k8sClient.List(ctx, &routeList); err != nil {
+		return fmt.Errorf("failed to list TCPRoutes for ListenerSet attached route counts: %w", err)
+	}
+	for _, route := range routeList.Items {
+		addListenerSetRouteCounts(data, listenerSet, counts, route.Namespace,
+			route.Status.Parents, route.Spec.ParentRefs, tcpRouteMatchesListener)
+	}
+	return nil
+}
+
+func addListenerSetUDPRouteCounts(
+	ctx context.Context,
+	k8sClient k8sClient,
+	data *resolvedGatewayDetails,
+	listenerSet gatewayv1.ListenerSet,
+	counts map[gatewayv1.SectionName]int32,
+) error {
+	var routeList gatewayv1.UDPRouteList
+	if err := k8sClient.List(ctx, &routeList); err != nil {
+		return fmt.Errorf("failed to list UDPRoutes for ListenerSet attached route counts: %w", err)
+	}
+	for _, route := range routeList.Items {
+		addListenerSetRouteCounts(data, listenerSet, counts, route.Namespace,
+			route.Status.Parents, route.Spec.ParentRefs, udpRouteMatchesListener)
+	}
+	return nil
+}
+
+func addListenerSetTLSRouteCounts(
+	ctx context.Context,
+	k8sClient k8sClient,
+	data *resolvedGatewayDetails,
+	listenerSet gatewayv1.ListenerSet,
+	counts map[gatewayv1.SectionName]int32,
+) error {
+	var routeList gatewayv1.TLSRouteList
+	if err := k8sClient.List(ctx, &routeList); err != nil {
+		return fmt.Errorf("failed to list TLSRoutes for ListenerSet attached route counts: %w", err)
+	}
+	for _, route := range routeList.Items {
+		addListenerSetRouteCounts(data, listenerSet, counts, route.Namespace,
+			route.Status.Parents, route.Spec.ParentRefs, tlsRouteMatchesListener)
+	}
+	return nil
+}
+
+func addListenerSetRouteCounts(
+	data *resolvedGatewayDetails,
+	listenerSet gatewayv1.ListenerSet,
+	counts map[gatewayv1.SectionName]int32,
+	routeNamespace string,
+	parentStatuses []gatewayv1.RouteParentStatus,
+	parentRefs []gatewayv1.ParentReference,
+	matchesListener func(gatewayv1.ParentReference, gatewayv1.Listener) bool,
+) {
+	for _, parentStatus := range parentStatuses {
+		if !listenerSetRouteParentStatusAccepted(data, listenerSet, routeNamespace, parentStatus) {
+			continue
+		}
+		for _, parentRef := range parentRefs {
+			addListenerSetRouteCountForParentRef(
+				data,
+				listenerSet,
+				counts,
+				routeNamespace,
+				parentStatus.ParentRef,
+				parentRef,
+				matchesListener,
+			)
+		}
+	}
+}
+
+func listenerSetRouteParentStatusAccepted(
+	data *resolvedGatewayDetails,
+	listenerSet gatewayv1.ListenerSet,
+	routeNamespace string,
+	parentStatus gatewayv1.RouteParentStatus,
+) bool {
+	return parentStatus.ControllerName == data.gatewayClass.Spec.ControllerName &&
+		meta.IsStatusConditionTrue(parentStatus.Conditions, string(gatewayv1.RouteConditionAccepted)) &&
+		parentRefTargetsListenerSet(parentStatus.ParentRef) &&
+		parentRefTargetName(parentStatus.ParentRef, routeNamespace) == client.ObjectKeyFromObject(&listenerSet)
+}
+
+func addListenerSetRouteCountForParentRef(
+	data *resolvedGatewayDetails,
+	listenerSet gatewayv1.ListenerSet,
+	counts map[gatewayv1.SectionName]int32,
+	routeNamespace string,
+	statusParentRef gatewayv1.ParentReference,
+	parentRef gatewayv1.ParentReference,
+	matchesListener func(gatewayv1.ParentReference, gatewayv1.Listener) bool,
+) {
+	if !parentRefSameTarget(parentRef, statusParentRef) {
+		return
+	}
+	for _, listener := range effectiveListenersForParentRef(*data, parentRef, routeNamespace, matchesListener) {
+		if entry, found := listenerSetEntryForEffectiveListener(data.gateway, listenerSet, listener.Name); found {
+			counts[entry.Name]++
+		}
+	}
+}
+
+func listenerSetEntryForEffectiveListener(
+	gateway gatewayv1.Gateway,
+	listenerSet gatewayv1.ListenerSet,
+	effectiveName gatewayv1.SectionName,
+) (gatewayv1.ListenerEntry, bool) {
+	for _, entry := range listenerSet.Spec.Listeners {
+		listener := listenerFromListenerSetEntry(entry)
+		ociListener := effectiveListenerOCIListener(effectiveListener{
+			listener:        listener,
+			sourceKind:      effectiveListenerSourceListenerSet,
+			sourceNamespace: listenerSet.Namespace,
+			sourceName:      listenerSet.Name,
+			ociName:         listenerSetOCIListenerName(gateway, listenerSet, listener),
+		})
+		if ociListener.Name == effectiveName {
+			return entry, true
+		}
+	}
+	return gatewayv1.ListenerEntry{}, false
 }
 
 type gatewayModelDeps struct {

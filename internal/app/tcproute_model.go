@@ -616,7 +616,7 @@ func (m *tcpRouteModelImpl) matchingRoutesForListener(
 		routeList:       &routeList,
 		listError:       listError,
 		items:           func() []gatewayv1.TCPRoute { return routeList.Items },
-		gatewayName:     client.ObjectKeyFromObject(&details.gatewayDetails.gateway),
+		gatewayDetails:  details.gatewayDetails,
 		listener:        details.matchedListener,
 		excludeRouteKey: excludeRouteKey,
 		routeKey:        tcpRouteKey,
@@ -624,7 +624,6 @@ func (m *tcpRouteModelImpl) matchingRoutesForListener(
 		routeCreatedAt:  func(route gatewayv1.TCPRoute) metav1.Time { return route.CreationTimestamp },
 		parentRefs:      func(route gatewayv1.TCPRoute) []gatewayv1.ParentReference { return route.Spec.ParentRefs },
 		routeDeleted:    func(route gatewayv1.TCPRoute) bool { return route.DeletionTimestamp != nil },
-		parentTarget:    tcpParentRefTarget,
 		matchesListener: tcpRouteMatchesListener,
 	})
 }
@@ -657,7 +656,7 @@ type l4RouteListenerMatch[T any] struct {
 
 func matchingL4RoutesForListener[T any](
 	routes []T,
-	gatewayName apitypes.NamespacedName,
+	gatewayDetails resolvedGatewayDetails,
 	listener gatewayv1.Listener,
 	excludeRouteKey string,
 	routeKey func(T) string,
@@ -665,7 +664,6 @@ func matchingL4RoutesForListener[T any](
 	routeCreatedAt func(T) metav1.Time,
 	parentRefs func(T) []gatewayv1.ParentReference,
 	routeDeleted func(T) bool,
-	parentTarget func(gatewayv1.ParentReference, string) apitypes.NamespacedName,
 	matchesListener func(gatewayv1.ParentReference, gatewayv1.Listener) bool,
 ) []l4RouteListenerMatch[T] {
 	matches := make([]l4RouteListenerMatch[T], 0)
@@ -675,13 +673,13 @@ func matchingL4RoutesForListener[T any](
 			continue
 		}
 		for _, parentRef := range parentRefs(route) {
-			if !parentRefTargetsGateway(parentRef) {
-				continue
-			}
-			if parentTarget(parentRef, routeNamespace(route)) != gatewayName {
-				continue
-			}
-			if matchesListener(parentRef, listener) {
+			if l4ParentRefMatchesListener(
+				gatewayDetails,
+				parentRef,
+				routeNamespace(route),
+				listener,
+				matchesListener,
+			) {
 				matches = append(matches, l4RouteListenerMatch[T]{
 					route:      route,
 					key:        key,
@@ -702,12 +700,39 @@ func matchingL4RoutesForListener[T any](
 	return matches
 }
 
+func l4ParentRefMatchesListener(
+	gatewayDetails resolvedGatewayDetails,
+	parentRef gatewayv1.ParentReference,
+	routeNamespace string,
+	listener gatewayv1.Listener,
+	matchesListener func(gatewayv1.ParentReference, gatewayv1.Listener) bool,
+) bool {
+	if !parentRefTargetsGateway(parentRef) && !parentRefTargetsListenerSet(parentRef) {
+		return false
+	}
+	matchedListeners := effectiveListenersForParentRef(
+		gatewayDetails,
+		parentRef,
+		routeNamespace,
+		matchesListener,
+	)
+	if parentRefTargetsGateway(parentRef) &&
+		len(matchedListeners) == 0 &&
+		parentRefTargetName(parentRef, routeNamespace) == client.ObjectKeyFromObject(&gatewayDetails.gateway) &&
+		matchesListener(parentRef, listener) {
+		matchedListeners = []gatewayv1.Listener{listener}
+	}
+	return lo.ContainsBy(matchedListeners, func(matched gatewayv1.Listener) bool {
+		return matched.Name == listener.Name
+	})
+}
+
 type listMatchingL4RoutesForListenerParams[T any] struct {
 	k8sClient       k8sClient
 	routeList       client.ObjectList
 	listError       string
 	items           func() []T
-	gatewayName     apitypes.NamespacedName
+	gatewayDetails  resolvedGatewayDetails
 	listener        gatewayv1.Listener
 	excludeRouteKey string
 	routeKey        func(T) string
@@ -715,7 +740,6 @@ type listMatchingL4RoutesForListenerParams[T any] struct {
 	routeCreatedAt  func(T) metav1.Time
 	parentRefs      func(T) []gatewayv1.ParentReference
 	routeDeleted    func(T) bool
-	parentTarget    func(gatewayv1.ParentReference, string) apitypes.NamespacedName
 	matchesListener func(gatewayv1.ParentReference, gatewayv1.Listener) bool
 }
 
@@ -728,7 +752,7 @@ func listMatchingL4RoutesForListener[T any](
 	}
 	return matchingL4RoutesForListener(
 		params.items(),
-		params.gatewayName,
+		params.gatewayDetails,
 		params.listener,
 		params.excludeRouteKey,
 		params.routeKey,
@@ -736,7 +760,6 @@ func listMatchingL4RoutesForListener[T any](
 		params.routeCreatedAt,
 		params.parentRefs,
 		params.routeDeleted,
-		params.parentTarget,
 		params.matchesListener,
 	), nil
 }
@@ -872,15 +895,18 @@ func (m *tcpRouteModelImpl) programRouteParams(
 	details resolvedTCPRouteDetails,
 ) programL4RouteParams {
 	return newProgramL4RouteParams(newProgramL4RouteParamsInput{
-		k8sClient:        m.client,
-		routeKind:        "TCPRoute",
-		route:            &details.tcpRoute,
-		gatewayNamespace: details.gatewayDetails.gateway.Namespace,
-		listener:         details.matchedListener,
-		finalizer:        NetworkLoadBalancerTCPRouteProgrammedFinalizer,
-		clearBackendSet:  func() error { return m.clearBackendSet(ctx, details) },
-		ensureOwner:      func() error { return m.ensureExclusiveListenerOwner(ctx, details) },
-		clearStale:       func() error { return m.clearStaleBackendSets(ctx, details) },
+		k8sClient: m.client,
+		routeKind: "TCPRoute",
+		route:     &details.tcpRoute,
+		listenerNamespace: effectiveListenerSourceNamespaceForOCIListener(
+			details.gatewayDetails,
+			details.matchedListener,
+		),
+		listener:        details.matchedListener,
+		finalizer:       NetworkLoadBalancerTCPRouteProgrammedFinalizer,
+		clearBackendSet: func() error { return m.clearBackendSet(ctx, details) },
+		ensureOwner:     func() error { return m.ensureExclusiveListenerOwner(ctx, details) },
+		clearStale:      func() error { return m.clearStaleBackendSets(ctx, details) },
 		resolveBackends: func() ([]networkloadbalancer.BackendDetails, error) {
 			return m.endpointBackendsForRoute(ctx, details.tcpRoute)
 		},
@@ -901,7 +927,7 @@ type newProgramL4RouteParamsInput struct {
 	k8sClient           k8sClient
 	routeKind           gatewayv1.Kind
 	route               client.Object
-	gatewayNamespace    string
+	listenerNamespace   string
 	listener            gatewayv1.Listener
 	finalizer           string
 	clearBackendSet     func() error
@@ -918,7 +944,7 @@ func newProgramL4RouteParams(input newProgramL4RouteParamsInput) programL4RouteP
 		k8sClient:                    input.k8sClient,
 		routeKind:                    input.routeKind,
 		route:                        input.route,
-		gatewayNamespace:             input.gatewayNamespace,
+		listenerNamespace:            input.listenerNamespace,
 		listener:                     input.listener,
 		finalizer:                    input.finalizer,
 		clearBackendSet:              input.clearBackendSet,
@@ -935,7 +961,7 @@ type programL4RouteParams struct {
 	k8sClient                    k8sClient
 	routeKind                    gatewayv1.Kind
 	route                        client.Object
-	gatewayNamespace             string
+	listenerNamespace            string
 	listener                     gatewayv1.Listener
 	finalizer                    string
 	clearBackendSet              func() error
@@ -951,7 +977,7 @@ func programL4Route(ctx context.Context, params programL4RouteParams) error {
 	allowed, err := l4ListenerAllowsRoute(
 		ctx,
 		params.k8sClient,
-		params.gatewayNamespace,
+		params.listenerNamespace,
 		params.route.GetNamespace(),
 		params.listener,
 		params.routeKind,

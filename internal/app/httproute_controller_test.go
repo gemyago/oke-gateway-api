@@ -77,8 +77,8 @@ func TestHTTPRouteController(t *testing.T) {
 			mockModel.EXPECT().resolveRequest(
 				t.Context(),
 				req,
-			).Return(map[types.NamespacedName]resolvedRouteDetails{
-				req.NamespacedName: wantResolvedData,
+			).Return(map[routeParentResultKey]resolvedRouteDetails{
+				gatewayParentResultKey(req.NamespacedName): wantResolvedData,
 			}, (error)(nil))
 
 			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
@@ -158,7 +158,7 @@ func TestHTTPRouteController(t *testing.T) {
 			mockModel.EXPECT().resolveRequest(
 				t.Context(),
 				req,
-			).Return(map[types.NamespacedName]resolvedRouteDetails{}, (error)(nil))
+			).Return(map[routeParentResultKey]resolvedRouteDetails{}, (error)(nil))
 
 			result, err := controller.Reconcile(t.Context(), req)
 
@@ -188,8 +188,8 @@ func TestHTTPRouteController(t *testing.T) {
 			mockModel.EXPECT().resolveRequest(
 				t.Context(),
 				req,
-			).Return(map[types.NamespacedName]resolvedRouteDetails{
-				req.NamespacedName: resolvedData,
+			).Return(map[routeParentResultKey]resolvedRouteDetails{
+				gatewayParentResultKey(req.NamespacedName): resolvedData,
 			}, (error)(nil))
 			mockModel.EXPECT().acceptRoute(t.Context(), resolvedData).Return(nil, nil)
 
@@ -229,8 +229,8 @@ func TestHTTPRouteController(t *testing.T) {
 			mockModel.EXPECT().resolveRequest(
 				t.Context(),
 				req,
-			).Return(map[types.NamespacedName]resolvedRouteDetails{
-				req.NamespacedName: wantResolvedData,
+			).Return(map[routeParentResultKey]resolvedRouteDetails{
+				gatewayParentResultKey(req.NamespacedName): wantResolvedData,
 			}, (error)(nil))
 
 			mockModel.EXPECT().deprovisionRoute(
@@ -273,7 +273,7 @@ func TestHTTPRouteController(t *testing.T) {
 			mockModel.EXPECT().resolveRequest(
 				t.Context(),
 				req,
-			).Return((map[types.NamespacedName]resolvedRouteDetails)(nil), wantErr)
+			).Return((map[routeParentResultKey]resolvedRouteDetails)(nil), wantErr)
 
 			result, err := controller.Reconcile(t.Context(), req)
 
@@ -305,8 +305,8 @@ func TestHTTPRouteController(t *testing.T) {
 			mockModel.EXPECT().resolveRequest(
 				t.Context(),
 				req,
-			).Return(map[types.NamespacedName]resolvedRouteDetails{
-				req.NamespacedName: wantResolvedData,
+			).Return(map[routeParentResultKey]resolvedRouteDetails{
+				gatewayParentResultKey(req.NamespacedName): wantResolvedData,
 			}, (error)(nil))
 
 			wantErr := fmt.Errorf("accept error: %s", fake.Lorem().Sentence(10))
@@ -345,8 +345,8 @@ func TestHTTPRouteController(t *testing.T) {
 			mockModel.EXPECT().resolveRequest(
 				t.Context(),
 				req,
-			).Return(map[types.NamespacedName]resolvedRouteDetails{
-				req.NamespacedName: wantResolvedData,
+			).Return(map[routeParentResultKey]resolvedRouteDetails{
+				gatewayParentResultKey(req.NamespacedName): wantResolvedData,
 			}, (error)(nil))
 
 			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
@@ -405,8 +405,8 @@ func TestHTTPRouteController(t *testing.T) {
 			mockModel.EXPECT().resolveRequest(
 				t.Context(),
 				req,
-			).Return(map[types.NamespacedName]resolvedRouteDetails{
-				req.NamespacedName: wantResolvedData,
+			).Return(map[routeParentResultKey]resolvedRouteDetails{
+				gatewayParentResultKey(req.NamespacedName): wantResolvedData,
 			}, (error)(nil))
 
 			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
@@ -465,8 +465,8 @@ func TestHTTPRouteController(t *testing.T) {
 			mockModel.EXPECT().resolveRequest(
 				t.Context(),
 				req,
-			).Return(map[types.NamespacedName]resolvedRouteDetails{
-				req.NamespacedName: wantResolvedData,
+			).Return(map[routeParentResultKey]resolvedRouteDetails{
+				gatewayParentResultKey(req.NamespacedName): wantResolvedData,
 			}, (error)(nil))
 
 			wantAcceptedRoute := makeRandomHTTPRoute()
@@ -521,8 +521,8 @@ func TestHTTPRouteController(t *testing.T) {
 			mockModel.EXPECT().resolveRequest(
 				t.Context(),
 				req,
-			).Return(map[types.NamespacedName]resolvedRouteDetails{
-				req.NamespacedName: wantResolvedData,
+			).Return(map[routeParentResultKey]resolvedRouteDetails{
+				gatewayParentResultKey(req.NamespacedName): wantResolvedData,
 			}, (error)(nil))
 
 			wantAcceptedRoute := makeRandomHTTPRoute()
@@ -626,8 +626,8 @@ func TestHTTPRouteController(t *testing.T) {
 			mockModel.EXPECT().resolveRequest(
 				t.Context(),
 				req,
-			).Return(map[types.NamespacedName]resolvedRouteDetails{
-				req.NamespacedName: wantResolvedData,
+			).Return(map[routeParentResultKey]resolvedRouteDetails{
+				gatewayParentResultKey(req.NamespacedName): wantResolvedData,
 			}, (error)(nil))
 
 			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
@@ -698,8 +698,8 @@ func TestHTTPRouteController(t *testing.T) {
 			mockModel.EXPECT().resolveRequest(
 				t.Context(),
 				req,
-			).Return(map[types.NamespacedName]resolvedRouteDetails{
-				req.NamespacedName: wantResolvedData,
+			).Return(map[routeParentResultKey]resolvedRouteDetails{
+				gatewayParentResultKey(req.NamespacedName): wantResolvedData,
 			}, (error)(nil))
 
 			wantErr := fmt.Errorf("is programming required error: %s", fake.Lorem().Sentence(10))
@@ -735,8 +735,8 @@ func TestHTTPRouteController(t *testing.T) {
 			mockModel.EXPECT().resolveRequest(
 				t.Context(),
 				req,
-			).Return(map[types.NamespacedName]resolvedRouteDetails{
-				req.NamespacedName: wantResolvedData,
+			).Return(map[routeParentResultKey]resolvedRouteDetails{
+				gatewayParentResultKey(req.NamespacedName): wantResolvedData,
 			}, (error)(nil))
 
 			// Assume programming is not required to isolate the sync error
@@ -786,8 +786,8 @@ func TestHTTPRouteController(t *testing.T) {
 			mockModel.EXPECT().resolveRequest(
 				t.Context(),
 				req,
-			).Return(map[types.NamespacedName]resolvedRouteDetails{
-				req.NamespacedName: wantResolvedData,
+			).Return(map[routeParentResultKey]resolvedRouteDetails{
+				gatewayParentResultKey(req.NamespacedName): wantResolvedData,
 			}, (error)(nil))
 
 			wantErr := fmt.Errorf("deprovision error: %s", fake.Lorem().Sentence(10))

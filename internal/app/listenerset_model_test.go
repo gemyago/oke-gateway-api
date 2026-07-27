@@ -380,6 +380,7 @@ func TestListenerSetModel(t *testing.T) {
 			listenerSet,
 			effectiveListeners,
 			v1.GatewayController(ControllerClassName),
+			nil,
 		)
 
 		require.Len(t, got.Conditions, 2)
@@ -439,6 +440,7 @@ func TestListenerSetModel(t *testing.T) {
 			acceptedListenerSet,
 			effectiveListenersForGateway(gateway, []v1.ListenerSet{acceptedListenerSet}),
 			v1.GatewayController(ControllerClassName),
+			nil,
 		)
 		require.Len(t, status.Listeners, 5)
 		assert.ElementsMatch(t, []v1.RouteGroupKind{{
@@ -469,8 +471,9 @@ func TestListenerSetModel(t *testing.T) {
 			acceptedListenerSet,
 			unsupportedListeners,
 			v1.GatewayController(ControllerClassName),
+			nil,
 		)
-		assert.False(t, meta.IsStatusConditionTrue(status.Conditions, string(v1.ListenerSetConditionAccepted)))
+		assert.True(t, meta.IsStatusConditionTrue(status.Conditions, string(v1.ListenerSetConditionAccepted)))
 		listenerSetAccepted := lo.FindOrElse(
 			status.Conditions,
 			metav1.Condition{},
@@ -478,7 +481,7 @@ func TestListenerSetModel(t *testing.T) {
 				return condition.Type == string(v1.ListenerSetConditionAccepted)
 			},
 		)
-		assert.Equal(t, string(v1.ListenerSetReasonListenersNotValid), listenerSetAccepted.Reason)
+		assert.Equal(t, string(v1.ListenerSetReasonAccepted), listenerSetAccepted.Reason)
 		tcpAccepted := lo.FindOrElse(status.Listeners[1].Conditions, metav1.Condition{},
 			func(condition metav1.Condition) bool {
 				return condition.Type == string(v1.ListenerConditionAccepted)
@@ -505,6 +508,7 @@ func TestListenerSetModel(t *testing.T) {
 			acceptedListenerSet,
 			nlbUnsupportedListeners,
 			v1.GatewayController(NetworkLoadBalancerControllerClassName),
+			nil,
 		)
 		httpAccepted := lo.FindOrElse(status.Listeners[0].Conditions, metav1.Condition{},
 			func(condition metav1.Condition) bool {
@@ -523,5 +527,109 @@ func TestListenerSetModel(t *testing.T) {
 			Kind:  "GRPCRoute",
 		}}))
 		assert.False(t, conditionsSemanticallyEqual(got.Conditions, nil))
+	})
+
+	t.Run("listener entry reason helpers map Gateway listener reasons", func(t *testing.T) {
+		assert.Equal(
+			t,
+			v1.ListenerEntryReasonHostnameConflict,
+			listenerEntryReasonFromListenerReason(v1.ListenerReasonHostnameConflict),
+		)
+		assert.Equal(
+			t,
+			v1.ListenerEntryReasonProtocolConflict,
+			listenerEntryReasonFromListenerReason(v1.ListenerReasonProtocolConflict),
+		)
+		assert.Equal(
+			t,
+			v1.ListenerEntryReasonInvalidCertificateRef,
+			listenerEntryReasonFromListenerReason(v1.ListenerReasonInvalidCertificateRef),
+		)
+		assert.Equal(
+			t,
+			v1.ListenerEntryReasonInvalidRouteKinds,
+			listenerEntryReasonFromListenerReason(v1.ListenerReasonInvalidRouteKinds),
+		)
+		assert.Equal(
+			t,
+			v1.ListenerEntryReasonRefNotPermitted,
+			listenerEntryReasonFromListenerReason(v1.ListenerReasonRefNotPermitted),
+		)
+		assert.Equal(
+			t,
+			v1.ListenerEntryReasonUnsupportedProtocol,
+			listenerEntryReasonFromListenerReason(v1.ListenerReasonUnsupportedProtocol),
+		)
+		assert.Equal(
+			t,
+			v1.ListenerEntryReasonPortUnavailable,
+			listenerEntryReasonFromListenerReason(v1.ListenerReasonPortUnavailable),
+		)
+		assert.Equal(
+			t,
+			v1.ListenerEntryReasonInvalid,
+			listenerEntryReasonFromListenerReason(v1.ListenerReasonPending),
+		)
+	})
+
+	t.Run("listener entry condition helper statuses", func(t *testing.T) {
+		assert.Equal(
+			t,
+			metav1.ConditionFalse,
+			listenerEntryResolvedRefsStatus(v1.ListenerEntryReasonRefNotPermitted),
+		)
+		assert.Equal(
+			t,
+			metav1.ConditionTrue,
+			listenerEntryResolvedRefsStatus(v1.ListenerEntryReasonAccepted),
+		)
+		assert.Equal(
+			t,
+			v1.ListenerEntryReasonInvalidCertificateRef,
+			listenerEntryResolvedRefsReason(v1.ListenerEntryReasonInvalidCertificateRef),
+		)
+		assert.Equal(
+			t,
+			v1.ListenerEntryReasonResolvedRefs,
+			listenerEntryResolvedRefsReason(v1.ListenerEntryReasonAccepted),
+		)
+		assert.Equal(t, metav1.ConditionTrue, listenerEntryConflictedStatus(effectiveListener{conflicted: true}))
+		assert.Equal(t, metav1.ConditionFalse, listenerEntryConflictedStatus(effectiveListener{}))
+		assert.Equal(
+			t,
+			v1.ListenerEntryReasonProtocolConflict,
+			listenerEntryConflictedReason(effectiveListener{
+				conflicted:     true,
+				conflictReason: v1.ListenerReasonProtocolConflict,
+			}),
+		)
+		assert.Equal(
+			t,
+			v1.ListenerEntryConditionReason(v1.ListenerReasonNoConflicts),
+			listenerEntryConflictedReason(effectiveListener{}),
+		)
+	})
+
+	t.Run("attachedListenerSetCount only counts sets with accepted effective listeners", func(t *testing.T) {
+		listenerSets := []v1.ListenerSet{
+			{ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "accepted"}},
+			{ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "rejected"}},
+		}
+		count := attachedListenerSetCount(listenerSets, []effectiveListener{
+			{
+				sourceKind:      effectiveListenerSourceListenerSet,
+				sourceNamespace: "apps",
+				sourceName:      "accepted",
+			},
+			{
+				sourceKind:      effectiveListenerSourceListenerSet,
+				sourceNamespace: "apps",
+				sourceName:      "rejected",
+				unsupported:     true,
+			},
+		})
+
+		require.NotNil(t, count)
+		assert.Equal(t, int32(1), *count)
 	})
 }

@@ -20,7 +20,7 @@ import (
 )
 
 type fakeGRPCRouteModel struct {
-	resolveRequestFunc      func(context.Context, reconcile.Request) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error)
+	resolveRequestFunc      func(context.Context, reconcile.Request) (map[routeParentResultKey]resolvedGRPCRouteDetails, error)
 	acceptRouteFunc         func(context.Context, resolvedGRPCRouteDetails) (*gatewayv1.GRPCRoute, error)
 	resolveBackendRefsFunc  func(context.Context, resolveGRPCBackendRefsParams) (map[string]corev1.Service, error)
 	isProgrammingRequiredFn func(resolvedGRPCRouteDetails) bool
@@ -34,7 +34,7 @@ type fakeGRPCRouteModel struct {
 func (m fakeGRPCRouteModel) resolveRequest(
 	ctx context.Context,
 	req reconcile.Request,
-) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
 	return m.resolveRequestFunc(ctx, req)
 }
 
@@ -145,9 +145,9 @@ func TestGRPCRouteController(t *testing.T) {
 	newController := func(routeModel grpcRouteModel, backendModel httpBackendModel) *GRPCRouteController {
 		return newControllerWithDriftInterval(routeModel, backendModel, 2*time.Minute)
 	}
-	resolvedMap := func(route gatewayv1.GRPCRoute, resolved resolvedGRPCRouteDetails) map[apitypes.NamespacedName]resolvedGRPCRouteDetails {
-		return map[apitypes.NamespacedName]resolvedGRPCRouteDetails{
-			{Namespace: route.Namespace, Name: "gw"}: resolved,
+	resolvedMap := func(route gatewayv1.GRPCRoute, resolved resolvedGRPCRouteDetails) map[routeParentResultKey]resolvedGRPCRouteDetails {
+		return map[routeParentResultKey]resolvedGRPCRouteDetails{
+			gatewayParentResultKey(apitypes.NamespacedName{Namespace: route.Namespace, Name: "gw"}): resolved,
 		}
 	}
 
@@ -175,7 +175,7 @@ func TestGRPCRouteController(t *testing.T) {
 			resolveRequestFunc: func(
 				_ context.Context,
 				_ reconcile.Request,
-			) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+			) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
 				return resolvedMap(route, resolved), nil
 			},
 			isProgrammingRequiredFn: func(resolvedGRPCRouteDetails) bool { return true },
@@ -218,7 +218,7 @@ func TestGRPCRouteController(t *testing.T) {
 			resolveRequestFunc: func(
 				_ context.Context,
 				_ reconcile.Request,
-			) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+			) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
 				return resolvedMap(route, resolved), nil
 			},
 			isProgrammingRequiredFn: func(resolvedGRPCRouteDetails) bool { return false },
@@ -250,7 +250,7 @@ func TestGRPCRouteController(t *testing.T) {
 			resolveRequestFunc: func(
 				_ context.Context,
 				_ reconcile.Request,
-			) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+			) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
 				return resolvedMap(route, resolved), nil
 			},
 			isProgrammingRequiredFn: func(resolvedGRPCRouteDetails) bool { return false },
@@ -295,7 +295,7 @@ func TestGRPCRouteController(t *testing.T) {
 			resolveRequestFunc: func(
 				_ context.Context,
 				_ reconcile.Request,
-			) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+			) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
 				return resolvedMap(route, resolved), nil
 			},
 			acceptRouteFunc: func(_ context.Context, details resolvedGRPCRouteDetails) (*gatewayv1.GRPCRoute, error) {
@@ -319,7 +319,7 @@ func TestGRPCRouteController(t *testing.T) {
 			resolveRequestFunc: func(
 				_ context.Context,
 				_ reconcile.Request,
-			) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+			) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
 				return resolvedMap(route, resolved), nil
 			},
 			isProgrammingRequiredFn: func(resolvedGRPCRouteDetails) bool { return true },
@@ -347,7 +347,7 @@ func TestGRPCRouteController(t *testing.T) {
 			resolveRequestFunc: func(
 				_ context.Context,
 				_ reconcile.Request,
-			) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+			) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
 				return resolvedMap(route, resolved), nil
 			},
 			acceptRouteFunc: func(context.Context, resolvedGRPCRouteDetails) (*gatewayv1.GRPCRoute, error) {
@@ -367,7 +367,7 @@ func TestGRPCRouteController(t *testing.T) {
 			resolveRequestFunc: func(
 				_ context.Context,
 				_ reconcile.Request,
-			) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+			) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
 				return resolvedMap(route, resolved), nil
 			},
 			acceptRouteFunc: func(context.Context, resolvedGRPCRouteDetails) (*gatewayv1.GRPCRoute, error) {
@@ -391,7 +391,7 @@ func TestGRPCRouteController(t *testing.T) {
 			resolveRequestFunc: func(
 				_ context.Context,
 				_ reconcile.Request,
-			) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+			) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
 				return resolvedMap(route, resolved), nil
 			},
 			isProgrammingRequiredFn: func(resolvedGRPCRouteDetails) bool { return true },
@@ -416,7 +416,7 @@ func TestGRPCRouteController(t *testing.T) {
 			resolveRequestFunc: func(
 				_ context.Context,
 				_ reconcile.Request,
-			) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+			) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
 				return resolvedMap(route, resolved), nil
 			},
 			isProgrammingRequiredFn: func(resolvedGRPCRouteDetails) bool { return true },
@@ -448,7 +448,7 @@ func TestGRPCRouteController(t *testing.T) {
 			resolveRequestFunc: func(
 				_ context.Context,
 				_ reconcile.Request,
-			) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+			) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
 				return resolvedMap(route, resolved), nil
 			},
 			isProgrammingRequiredFn: func(resolvedGRPCRouteDetails) bool { return true },
@@ -475,7 +475,7 @@ func TestGRPCRouteController(t *testing.T) {
 		route.DeletionTimestamp = &now
 		resolved := makeResolved(route)
 		routeModel := fakeGRPCRouteModel{
-			resolveRequestFunc: func(context.Context, reconcile.Request) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+			resolveRequestFunc: func(context.Context, reconcile.Request) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
 				return resolvedMap(route, resolved), nil
 			},
 			deprovisionRouteFunc: func(_ context.Context, params deprovisionGRPCRouteParams) error {
@@ -497,7 +497,7 @@ func TestGRPCRouteController(t *testing.T) {
 		resolved := makeResolved(route)
 		wantErr := errors.New(faker.New().Lorem().Sentence(10))
 		routeModel := fakeGRPCRouteModel{
-			resolveRequestFunc: func(context.Context, reconcile.Request) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+			resolveRequestFunc: func(context.Context, reconcile.Request) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
 				return resolvedMap(route, resolved), nil
 			},
 			deprovisionRouteFunc: func(context.Context, deprovisionGRPCRouteParams) error {
@@ -513,7 +513,7 @@ func TestGRPCRouteController(t *testing.T) {
 	t.Run("returns resolve request errors", func(t *testing.T) {
 		wantErr := errors.New(faker.New().Lorem().Sentence(10))
 		routeModel := fakeGRPCRouteModel{
-			resolveRequestFunc: func(context.Context, reconcile.Request) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+			resolveRequestFunc: func(context.Context, reconcile.Request) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
 				return nil, wantErr
 			},
 		}
@@ -525,8 +525,8 @@ func TestGRPCRouteController(t *testing.T) {
 
 	t.Run("returns no requeue when no routes resolve", func(t *testing.T) {
 		routeModel := fakeGRPCRouteModel{
-			resolveRequestFunc: func(context.Context, reconcile.Request) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
-				return map[apitypes.NamespacedName]resolvedGRPCRouteDetails{}, nil
+			resolveRequestFunc: func(context.Context, reconcile.Request) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
+				return map[routeParentResultKey]resolvedGRPCRouteDetails{}, nil
 			},
 		}
 
@@ -542,7 +542,7 @@ func TestGRPCRouteController(t *testing.T) {
 		wantErr := errors.New(faker.New().Lorem().Sentence(10))
 		backendModel := NewMockhttpBackendModel(t)
 		routeModel := fakeGRPCRouteModel{
-			resolveRequestFunc: func(context.Context, reconcile.Request) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+			resolveRequestFunc: func(context.Context, reconcile.Request) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
 				return resolvedMap(route, resolved), nil
 			},
 			isProgrammingRequiredFn: func(resolvedGRPCRouteDetails) bool { return false },
@@ -565,7 +565,7 @@ func TestGRPCRouteController(t *testing.T) {
 		resolved := makeResolved(route)
 		wantErr := errors.New(faker.New().Lorem().Sentence(10))
 		routeModel := fakeGRPCRouteModel{
-			resolveRequestFunc: func(context.Context, reconcile.Request) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+			resolveRequestFunc: func(context.Context, reconcile.Request) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
 				return resolvedMap(route, resolved), nil
 			},
 			isProgrammingRequiredFn: func(resolvedGRPCRouteDetails) bool { return true },

@@ -646,6 +646,67 @@ func TestTCPRouteModel(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("listener ownership includes ListenerSet parent refs", func(t *testing.T) {
+		listenerSetKind := gatewayv1.Kind("ListenerSet")
+		listenerSetNamespace := gatewayv1.Namespace("apps")
+		listenerSet := gatewayv1.ListenerSet{
+			ObjectMeta: metav1.ObjectMeta{Namespace: string(listenerSetNamespace), Name: "extra"},
+			Spec: gatewayv1.ListenerSetSpec{Listeners: []gatewayv1.ListenerEntry{{
+				Name:     "rtmp",
+				Protocol: gatewayv1.TCPProtocolType,
+				Port:     1935,
+			}}},
+		}
+		gateway := gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "edge"}}
+		effectiveListeners := effectiveListenersForGateway(gateway, []gatewayv1.ListenerSet{listenerSet})
+		matchedListener := effectiveListenerOCIListener(effectiveListeners[0])
+		currentRoute := gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:         "apps",
+				Name:              "current",
+				CreationTimestamp: metav1.Unix(2, 0),
+			},
+			Spec: gatewayv1.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+				ParentRefs: []gatewayv1.ParentReference{{
+					Kind:        &listenerSetKind,
+					Namespace:   &listenerSetNamespace,
+					Name:        gatewayv1.ObjectName(listenerSet.Name),
+					SectionName: lo.ToPtr(gatewayv1.SectionName("rtmp")),
+				}},
+			}},
+		}
+		olderRoute := currentRoute.DeepCopy()
+		olderRoute.Name = "older"
+		olderRoute.CreationTimestamp = metav1.Unix(1, 0)
+
+		mockClient := NewMockk8sClient(t)
+		mockClient.EXPECT().
+			List(t.Context(), mock.AnythingOfType("*v1.TCPRouteList")).
+			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1.TCPRouteList{
+					Items: []gatewayv1.TCPRoute{currentRoute, *olderRoute},
+				}))
+				return nil
+			})
+		model := newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
+		modelImpl := mustTCPRouteModelImpl(t, model)
+
+		err := modelImpl.ensureExclusiveListenerOwner(t.Context(), resolvedTCPRouteDetails{
+			gatewayDetails:  resolvedGatewayDetails{gateway: gateway, effectiveListeners: effectiveListeners},
+			tcpRoute:        currentRoute,
+			matchedListener: matchedListener,
+		})
+
+		var statusErr tcpRouteStatusError
+		require.ErrorAs(t, err, &statusErr)
+		assert.Equal(t, gatewayv1.RouteReasonNotAllowedByListeners, statusErr.reason)
+		assert.Equal(
+			t,
+			"listener "+string(matchedListener.Name)+" already has an attached TCPRoute apps/older",
+			statusErr.message,
+		)
+	})
+
 	t.Run("deprovisionRoute clears backend set and removes finalizer when no successor exists", func(t *testing.T) {
 		currentRoute := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{

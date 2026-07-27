@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
@@ -39,6 +40,16 @@ func TestGatewayModelImpl(t *testing.T) {
 			OciClient:            NewMockociLoadBalancerClient(t),
 			OciLoadBalancerModel: NewMockociLoadBalancerModel(t),
 		}
+	}
+	expectEmptyListenerSetRouteCountLists := func(t *testing.T, mockClient *Mockk8sClient, listenerSetCount int) {
+		t.Helper()
+		mockClient.EXPECT().
+			List(t.Context(), mock.Anything).
+			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				reflect.ValueOf(list).Elem().Set(reflect.Zero(reflect.ValueOf(list).Elem().Type()))
+				return nil
+			}).
+			Times(5 * listenerSetCount)
 	}
 
 	t.Run("resolveReconcileRequest", func(t *testing.T) {
@@ -1887,6 +1898,46 @@ func TestGatewayModelImpl(t *testing.T) {
 			assert.Equal(t, attachedListenerSet.Name, data.listenerSets[0].Name)
 			require.Len(t, data.effectiveListeners, len(data.gateway.Spec.Listeners)+1)
 		})
+
+		t.Run("unindexed list returns namespace lookup errors", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			data := makeRandomAcceptedGatewayDetails()
+			fromAll := gatewayv1.NamespacesFromAll
+			data.gateway.Spec.AllowedListeners = &gatewayv1.AllowedListeners{
+				Namespaces: &gatewayv1.ListenerNamespaces{From: &fromAll},
+			}
+			parentNamespace := gatewayv1.Namespace(data.gateway.Namespace)
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"},
+				Spec: gatewayv1.ListenerSetSpec{
+					ParentRef: gatewayv1.ParentGatewayReference{
+						Namespace: &parentNamespace,
+						Name:      gatewayv1.ObjectName(data.gateway.Name),
+					},
+				},
+			}
+			wantErr := errors.New("namespace failed")
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockClient.EXPECT().
+				List(t.Context(), &gatewayv1.ListenerSetList{}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).
+						Elem().
+						FieldByName("Items").
+						Set(reflect.ValueOf([]gatewayv1.ListenerSet{listenerSet}))
+					return nil
+				})
+			mockClient.EXPECT().
+				Get(t.Context(), apitypes.NamespacedName{Name: listenerSet.Namespace}, mock.AnythingOfType("*v1.Namespace")).
+				Return(wantErr)
+
+			err := populateAttachedListenerSetsUnindexed(t.Context(), model.client, data)
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to get ListenerSet namespace")
+		})
 	})
 
 	t.Run("setListenerSetsProgrammed", func(t *testing.T) {
@@ -1923,9 +1974,11 @@ func TestGatewayModelImpl(t *testing.T) {
 				data.listenerSets[0],
 				data.effectiveListeners,
 				gatewayv1.GatewayController(ControllerClassName),
+				nil,
 			)
 
 			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			expectEmptyListenerSetRouteCountLists(t, mockClient, len(data.listenerSets))
 			mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
 			mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
 			mockStatusWriter.EXPECT().
@@ -1972,6 +2025,7 @@ func TestGatewayModelImpl(t *testing.T) {
 			wantErr := errors.New("status failed")
 
 			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			expectEmptyListenerSetRouteCountLists(t, mockClient, len(data.listenerSets))
 			mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
 			mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
 			mockStatusWriter.EXPECT().Update(t.Context(), mock.Anything).Return(wantErr).Once()
@@ -1985,6 +2039,311 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			require.ErrorIs(t, err, wantErr)
 			require.ErrorContains(t, err, "failed to update ListenerSet apps/extra status")
+		})
+
+		t.Run("returns attached route count errors", func(t *testing.T) {
+			deps := newMockDeps(t)
+			wantErr := errors.New("list failed")
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"},
+				Spec: gatewayv1.ListenerSetSpec{
+					ParentRef: gatewayv1.ParentGatewayReference{Name: "edge"},
+					Listeners: []gatewayv1.ListenerEntry{{
+						Name:     "http",
+						Port:     80,
+						Protocol: gatewayv1.HTTPProtocolType,
+					}},
+				},
+			}
+			gateway := gatewayv1.Gateway{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "edge"},
+			}
+			effectiveListeners := effectiveListenersForGateway(gateway, []gatewayv1.ListenerSet{listenerSet})
+			data := &resolvedGatewayDetails{
+				gateway:            gateway,
+				listenerSets:       []gatewayv1.ListenerSet{listenerSet},
+				effectiveListeners: effectiveListeners,
+			}
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockClient.EXPECT().List(t.Context(), mock.Anything).Return(wantErr)
+
+			err := setListenerSetsProgrammed(
+				t.Context(),
+				mockClient,
+				data,
+				gatewayv1.GatewayController(ControllerClassName),
+			)
+
+			require.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("counts accepted direct ListenerSet route parents", func(t *testing.T) {
+			httpListener := gatewayv1.SectionName("http")
+			grpcListener := gatewayv1.SectionName("grpc")
+			tcpListener := gatewayv1.SectionName("tcp")
+			udpListener := gatewayv1.SectionName("udp")
+			tlsListener := gatewayv1.SectionName("tls")
+			listenerSetKind := gatewayv1.Kind("ListenerSet")
+			httpParentRef := gatewayv1.ParentReference{
+				Kind:        &listenerSetKind,
+				Name:        "extra",
+				SectionName: &httpListener,
+			}
+			grpcParentRef := httpParentRef
+			grpcParentRef.SectionName = &grpcListener
+			tcpParentRef := httpParentRef
+			tcpParentRef.SectionName = &tcpListener
+			udpParentRef := httpParentRef
+			udpParentRef.SectionName = &udpListener
+			tlsParentRef := httpParentRef
+			tlsParentRef.SectionName = &tlsListener
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: string(httpParentRef.Name)},
+				Spec: gatewayv1.ListenerSetSpec{
+					ParentRef: gatewayv1.ParentGatewayReference{Name: "edge"},
+					Listeners: []gatewayv1.ListenerEntry{
+						{Name: httpListener, Port: 8080, Protocol: gatewayv1.HTTPProtocolType},
+						{Name: grpcListener, Port: 8081, Protocol: gatewayv1.HTTPSProtocolType},
+						{Name: tcpListener, Port: 8082, Protocol: gatewayv1.TCPProtocolType},
+						{Name: udpListener, Port: 8083, Protocol: gatewayv1.UDPProtocolType},
+						{Name: tlsListener, Port: 8084, Protocol: gatewayv1.TLSProtocolType},
+					},
+				},
+			}
+			acceptedParentStatus := func(parentRef gatewayv1.ParentReference) []gatewayv1.RouteParentStatus {
+				return []gatewayv1.RouteParentStatus{{
+					ParentRef:      parentRef,
+					ControllerName: gatewayv1.GatewayController(ControllerClassName),
+					Conditions: []metav1.Condition{{
+						Type:               string(gatewayv1.RouteConditionAccepted),
+						Status:             metav1.ConditionTrue,
+						Reason:             string(gatewayv1.RouteReasonAccepted),
+						ObservedGeneration: 4,
+					}},
+				}}
+			}
+			route := gatewayv1.HTTPRoute{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "api", Generation: 4},
+				Spec: gatewayv1.HTTPRouteSpec{
+					CommonRouteSpec: gatewayv1.CommonRouteSpec{ParentRefs: []gatewayv1.ParentReference{httpParentRef}},
+				},
+				Status: gatewayv1.HTTPRouteStatus{
+					RouteStatus: gatewayv1.RouteStatus{Parents: acceptedParentStatus(httpParentRef)},
+				},
+			}
+			grpcRoute := gatewayv1.GRPCRoute{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "grpc", Generation: 4},
+				Spec: gatewayv1.GRPCRouteSpec{
+					CommonRouteSpec: gatewayv1.CommonRouteSpec{ParentRefs: []gatewayv1.ParentReference{grpcParentRef}},
+				},
+				Status: gatewayv1.GRPCRouteStatus{
+					RouteStatus: gatewayv1.RouteStatus{Parents: acceptedParentStatus(grpcParentRef)},
+				},
+			}
+			tcpRoute := gatewayv1.TCPRoute{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "tcp", Generation: 4},
+				Spec: gatewayv1.TCPRouteSpec{
+					CommonRouteSpec: gatewayv1.CommonRouteSpec{ParentRefs: []gatewayv1.ParentReference{tcpParentRef}},
+				},
+				Status: gatewayv1.TCPRouteStatus{
+					RouteStatus: gatewayv1.RouteStatus{Parents: acceptedParentStatus(tcpParentRef)},
+				},
+			}
+			udpRoute := gatewayv1.UDPRoute{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "udp", Generation: 4},
+				Spec: gatewayv1.UDPRouteSpec{
+					CommonRouteSpec: gatewayv1.CommonRouteSpec{ParentRefs: []gatewayv1.ParentReference{udpParentRef}},
+				},
+				Status: gatewayv1.UDPRouteStatus{
+					RouteStatus: gatewayv1.RouteStatus{Parents: acceptedParentStatus(udpParentRef)},
+				},
+			}
+			tlsRoute := gatewayv1.TLSRoute{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "tls", Generation: 4},
+				Spec: gatewayv1.TLSRouteSpec{
+					CommonRouteSpec: gatewayv1.CommonRouteSpec{ParentRefs: []gatewayv1.ParentReference{tlsParentRef}},
+				},
+				Status: gatewayv1.TLSRouteStatus{
+					RouteStatus: gatewayv1.RouteStatus{Parents: acceptedParentStatus(tlsParentRef)},
+				},
+			}
+			data := &resolvedGatewayDetails{
+				gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "edge"}},
+				gatewayClass: gatewayv1.GatewayClass{
+					Spec: gatewayv1.GatewayClassSpec{ControllerName: gatewayv1.GatewayController(ControllerClassName)},
+				},
+				listenerSets: []gatewayv1.ListenerSet{listenerSet},
+			}
+			data.effectiveListeners = effectiveListenersForGateway(data.gateway, data.listenerSets)
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(newL4TestScheme(t)).
+				WithObjects(&route, &grpcRoute, &tcpRoute, &udpRoute, &tlsRoute).
+				Build()
+
+			counts, err := listenerSetAttachedRouteCounts(t.Context(), k8sClient, data, listenerSet)
+
+			require.NoError(t, err)
+			assert.Equal(t, int32(1), counts[httpListener])
+			assert.Equal(t, int32(1), counts[grpcListener])
+			assert.Equal(t, int32(1), counts[tcpListener])
+			assert.Equal(t, int32(1), counts[udpListener])
+			assert.Equal(t, int32(1), counts[tlsListener])
+		})
+
+		t.Run("returns attached route count list errors", func(t *testing.T) {
+			wantErr := errors.New("list failed")
+			data := &resolvedGatewayDetails{}
+			listenerSet := gatewayv1.ListenerSet{}
+			testCases := []struct {
+				name string
+				run  func(context.Context, k8sClient, *resolvedGatewayDetails, gatewayv1.ListenerSet) error
+			}{
+				{
+					name: "HTTPRoute",
+					run: func(ctx context.Context,
+						k8sClient k8sClient,
+						data *resolvedGatewayDetails,
+						listenerSet gatewayv1.ListenerSet,
+					) error {
+						counts := map[gatewayv1.SectionName]int32{}
+						return addListenerSetHTTPRouteCounts(ctx, k8sClient, data, listenerSet, counts)
+					},
+				},
+				{
+					name: "GRPCRoute",
+					run: func(ctx context.Context,
+						k8sClient k8sClient,
+						data *resolvedGatewayDetails,
+						listenerSet gatewayv1.ListenerSet,
+					) error {
+						counts := map[gatewayv1.SectionName]int32{}
+						return addListenerSetGRPCRouteCounts(ctx, k8sClient, data, listenerSet, counts)
+					},
+				},
+				{
+					name: "TCPRoute",
+					run: func(ctx context.Context,
+						k8sClient k8sClient,
+						data *resolvedGatewayDetails,
+						listenerSet gatewayv1.ListenerSet,
+					) error {
+						counts := map[gatewayv1.SectionName]int32{}
+						return addListenerSetTCPRouteCounts(ctx, k8sClient, data, listenerSet, counts)
+					},
+				},
+				{
+					name: "UDPRoute",
+					run: func(ctx context.Context,
+						k8sClient k8sClient,
+						data *resolvedGatewayDetails,
+						listenerSet gatewayv1.ListenerSet,
+					) error {
+						counts := map[gatewayv1.SectionName]int32{}
+						return addListenerSetUDPRouteCounts(ctx, k8sClient, data, listenerSet, counts)
+					},
+				},
+				{
+					name: "TLSRoute",
+					run: func(ctx context.Context,
+						k8sClient k8sClient,
+						data *resolvedGatewayDetails,
+						listenerSet gatewayv1.ListenerSet,
+					) error {
+						counts := map[gatewayv1.SectionName]int32{}
+						return addListenerSetTLSRouteCounts(ctx, k8sClient, data, listenerSet, counts)
+					},
+				},
+			}
+
+			for _, tc := range testCases {
+				t.Run(tc.name, func(t *testing.T) {
+					mockClient := NewMockk8sClient(t)
+					mockClient.EXPECT().List(t.Context(), mock.Anything).Return(wantErr)
+
+					err := tc.run(t.Context(), mockClient, data, listenerSet)
+
+					require.ErrorIs(t, err, wantErr)
+				})
+			}
+		})
+
+		t.Run("listenerSetAttachedRouteCounts returns staged list errors", func(t *testing.T) {
+			wantErr := errors.New("list failed")
+			data := &resolvedGatewayDetails{}
+			listenerSet := gatewayv1.ListenerSet{}
+			for _, failAtCall := range []int{1, 2, 3, 4, 5} {
+				t.Run(fmt.Sprintf("call %d", failAtCall), func(t *testing.T) {
+					mockClient := NewMockk8sClient(t)
+					call := 0
+					mockClient.EXPECT().
+						List(t.Context(), mock.Anything).
+						RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+							call++
+							if call == failAtCall {
+								return wantErr
+							}
+							reflect.ValueOf(list).Elem().Set(reflect.Zero(reflect.ValueOf(list).Elem().Type()))
+							return nil
+						}).
+						Times(failAtCall)
+
+					counts, err := listenerSetAttachedRouteCounts(t.Context(), mockClient, data, listenerSet)
+
+					require.ErrorIs(t, err, wantErr)
+					assert.Nil(t, counts)
+				})
+			}
+		})
+
+		t.Run("ignores attached route counts for nonmatching parent refs", func(t *testing.T) {
+			listenerSetKind := gatewayv1.Kind("ListenerSet")
+			listenerName := gatewayv1.SectionName("http")
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"},
+				Spec: gatewayv1.ListenerSetSpec{
+					Listeners: []gatewayv1.ListenerEntry{{
+						Name:     listenerName,
+						Port:     80,
+						Protocol: gatewayv1.HTTPProtocolType,
+					}},
+				},
+			}
+			data := &resolvedGatewayDetails{
+				gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "edge"}},
+				effectiveListeners: effectiveListenersForGateway(
+					gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "edge"}},
+					[]gatewayv1.ListenerSet{listenerSet},
+				),
+			}
+			counts := map[gatewayv1.SectionName]int32{}
+			statusParentRef := gatewayv1.ParentReference{Kind: &listenerSetKind, Name: "extra"}
+			otherParentRef := gatewayv1.ParentReference{Kind: &listenerSetKind, Name: "other"}
+
+			addListenerSetRouteCountForParentRef(
+				data,
+				listenerSet,
+				counts,
+				"apps",
+				statusParentRef,
+				otherParentRef,
+				func(gatewayv1.ParentReference, gatewayv1.Listener) bool { return true },
+			)
+
+			assert.Zero(t, counts[listenerName])
+			_, found := listenerSetEntryForEffectiveListener(data.gateway, listenerSet, "missing")
+			assert.False(t, found)
+
+			addListenerSetRouteCounts(
+				data,
+				listenerSet,
+				counts,
+				"apps",
+				[]gatewayv1.RouteParentStatus{{ParentRef: statusParentRef}},
+				[]gatewayv1.ParentReference{statusParentRef},
+				func(gatewayv1.ParentReference, gatewayv1.Listener) bool { return true },
+			)
+			assert.Zero(t, counts[listenerName])
 		})
 	})
 
@@ -2016,6 +2375,7 @@ func TestGatewayModelImpl(t *testing.T) {
 			Return(nil).
 			Once()
 		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+		expectEmptyListenerSetRouteCountLists(t, mockClient, len(data.listenerSets))
 		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
 		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
 		mockStatusWriter.EXPECT().Update(t.Context(), mock.Anything).Return(wantErr).Once()
@@ -2090,7 +2450,7 @@ func TestGatewayModelImpl(t *testing.T) {
 	})
 
 	t.Run(
-		"populateGatewaySecrets rejects cross namespace ListenerSet certificate without ReferenceGrant",
+		"populateGatewaySecrets isolates cross namespace ListenerSet certificate without ReferenceGrant",
 		func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)
@@ -2123,12 +2483,92 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			err := model.populateGatewaySecrets(t.Context(), data)
 
-			var statusErr *resourceStatusError
-			require.ErrorAs(t, err, &statusErr)
-			assert.Equal(t, string(gatewayv1.GatewayReasonInvalidParameters), statusErr.reason)
-			assert.Contains(t, statusErr.message, "certificateRef certs/tls-cert is not permitted by a ReferenceGrant")
+			require.NoError(t, err)
+			require.Len(t, data.effectiveListeners, 1)
+			assert.True(t, data.effectiveListeners[0].unsupported)
+			assert.Equal(t, gatewayv1.ListenerReasonRefNotPermitted, data.effectiveListeners[0].unsupportedReason)
+			assert.Contains(
+				t,
+				data.effectiveListeners[0].unsupportedMessage,
+				"certificateRef certs/tls-cert is not permitted by a ReferenceGrant",
+			)
 		},
 	)
+
+	t.Run("populateGatewaySecrets returns Gateway effective listener secret errors", func(t *testing.T) {
+		deps := newMockDeps(t)
+		model := newGatewayModel(deps)
+		data := &resolvedGatewayDetails{
+			gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "edge"}},
+			effectiveListeners: []effectiveListener{{
+				sourceKind:      effectiveListenerSourceGateway,
+				sourceNamespace: "infra",
+				listener: gatewayv1.Listener{
+					Name:     "https",
+					Protocol: gatewayv1.HTTPSProtocolType,
+					TLS: &gatewayv1.ListenerTLSConfig{
+						CertificateRefs: []gatewayv1.SecretObjectReference{{Name: "tls-cert"}},
+					},
+				},
+			}},
+		}
+		wantErr := errors.New("secret lookup failed")
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Namespace: "infra", Name: "tls-cert"}, mock.Anything).
+			Return(wantErr)
+
+		err := model.populateGatewaySecrets(t.Context(), data)
+
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("populateGatewayListenerSecrets returns ReferenceGrant lookup errors", func(t *testing.T) {
+		deps := newMockDeps(t)
+		model := newGatewayModel(deps)
+		certNamespace := gatewayv1.Namespace("certs")
+		wantErr := errors.New("referencegrant list failed")
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockClient.EXPECT().
+			List(t.Context(), mock.AnythingOfType("*v1beta1.ReferenceGrantList"), mock.Anything).
+			Return(wantErr)
+
+		err := model.populateGatewayListenerSecrets(
+			t.Context(),
+			&resolvedGatewayDetails{},
+			gatewayv1.Kind(effectiveListenerSourceListenerSet),
+			"apps",
+			gatewayv1.Listener{
+				Name:     "https",
+				Protocol: gatewayv1.HTTPSProtocolType,
+				TLS: &gatewayv1.ListenerTLSConfig{
+					CertificateRefs: []gatewayv1.SecretObjectReference{{
+						Namespace: &certNamespace,
+						Name:      "tls-cert",
+					}},
+				},
+			},
+		)
+
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("markListenerSetSecretError only isolates ListenerSet listener errors", func(t *testing.T) {
+		gatewayListener := effectiveListener{sourceKind: effectiveListenerSourceGateway}
+		assert.False(t, markListenerSetSecretError(&gatewayListener, errors.New("gateway failed")))
+		assert.False(t, gatewayListener.unsupported)
+
+		listenerSetListener := effectiveListener{sourceKind: effectiveListenerSourceListenerSet}
+		handled := markListenerSetSecretError(&listenerSetListener, &resourceStatusError{
+			reason:  string(gatewayv1.GatewayReasonInvalidParameters),
+			message: "certificateRef certs/tls-cert is not permitted by a ReferenceGrant",
+		})
+
+		assert.True(t, handled)
+		assert.True(t, listenerSetListener.unsupported)
+		assert.Equal(t, gatewayv1.ListenerReasonRefNotPermitted, listenerSetListener.unsupportedReason)
+		assert.Contains(t, listenerSetListener.unsupportedMessage, "not permitted")
+	})
 }
 
 func TestProgrammedGatewayCertificatesAnnotation(t *testing.T) {

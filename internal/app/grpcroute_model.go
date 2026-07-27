@@ -26,6 +26,7 @@ type resolvedGRPCRouteDetails struct {
 	grpcRoute        gatewayv1.GRPCRoute
 	matchedRef       gatewayv1.ParentReference
 	matchedListeners []gatewayv1.Listener
+	attachmentDenied bool
 }
 
 type resolveGRPCBackendRefsParams struct {
@@ -68,7 +69,7 @@ type grpcRouteModel interface {
 	resolveRequest(
 		ctx context.Context,
 		req reconcile.Request,
-	) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error)
+	) (map[routeParentResultKey]resolvedGRPCRouteDetails, error)
 
 	acceptRoute(
 		ctx context.Context,
@@ -142,7 +143,7 @@ func (m *grpcRouteModelImpl) resolveRouteParentRefData(
 	grpcRoute gatewayv1.GRPCRoute,
 	parentRef gatewayv1.ParentReference,
 	defaultNamespace string,
-) (*resolvedGatewayDetails, []gatewayv1.Listener, error) {
+) (*resolvedGatewayDetails, []gatewayv1.Listener, bool, error) {
 	parentName := parentRefTargetName(parentRef, defaultNamespace)
 	m.logger.DebugContext(ctx, "Resolving parent for GRPCRoute",
 		slog.String("parentName", parentName.String()),
@@ -161,11 +162,11 @@ func (m *grpcRouteModelImpl) resolveRouteParentRefData(
 		defaultNamespace,
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to resolve gateway %s for route %s/%s: %w",
+		return nil, nil, false, fmt.Errorf("failed to resolve gateway %s for route %s/%s: %w",
 			parentName.String(), grpcRoute.Namespace, grpcRoute.Name, err)
 	}
 	if !gatewayResolved {
-		return nil, nil, nil
+		return nil, nil, false, nil
 	}
 
 	if parentRef.SectionName != nil {
@@ -181,9 +182,20 @@ func (m *grpcRouteModelImpl) resolveRouteParentRefData(
 			},
 		)
 		if len(matchingListeners) == 0 {
-			return nil, nil, nil
+			return nil, nil, false, nil
 		}
-		return &resolvedGatewayData, matchingListeners, nil
+		allowedListeners, allowErr := allowedRouteListeners(
+			ctx,
+			m.client,
+			resolvedGatewayData,
+			grpcRoute.Namespace,
+			matchingListeners,
+			"GRPCRoute",
+		)
+		if allowErr != nil {
+			return nil, nil, false, allowErr
+		}
+		return &resolvedGatewayData, allowedListeners, len(allowedListeners) == 0, nil
 	}
 
 	matchingListeners := effectiveListenersForParentRef(
@@ -194,7 +206,21 @@ func (m *grpcRouteModelImpl) resolveRouteParentRefData(
 			return grpcRouteListenerProtocolSupported(listener.Protocol)
 		},
 	)
-	return &resolvedGatewayData, matchingListeners, nil
+	if len(matchingListeners) == 0 {
+		return nil, nil, false, nil
+	}
+	allowedListeners, allowErr := allowedRouteListeners(
+		ctx,
+		m.client,
+		resolvedGatewayData,
+		grpcRoute.Namespace,
+		matchingListeners,
+		"GRPCRoute",
+	)
+	if allowErr != nil {
+		return nil, nil, false, allowErr
+	}
+	return &resolvedGatewayData, allowedListeners, len(allowedListeners) == 0, nil
 }
 
 func grpcRouteListenerProtocolSupported(protocol gatewayv1.ProtocolType) bool {
@@ -203,16 +229,14 @@ func grpcRouteListenerProtocolSupported(protocol gatewayv1.ProtocolType) bool {
 
 func (m *grpcRouteModelImpl) aggregateRouteParentRefData(
 	ctx context.Context,
-	results map[apitypes.NamespacedName]resolvedGRPCRouteDetails,
+	results map[routeParentResultKey]resolvedGRPCRouteDetails,
 	grpcRoute gatewayv1.GRPCRoute,
 	gatewayDetails resolvedGatewayDetails,
 	matchedRef gatewayv1.ParentReference,
 	matchedListeners []gatewayv1.Listener,
+	attachmentDenied bool,
 ) {
-	parentName := apitypes.NamespacedName{
-		Namespace: gatewayDetails.gateway.Namespace,
-		Name:      gatewayDetails.gateway.Name,
-	}
+	parentName := directParentResultKey(matchedRef, grpcRoute.Namespace)
 
 	if existingResult, found := results[parentName]; found {
 		existingResult.matchedListeners = lo.UniqBy(
@@ -221,6 +245,7 @@ func (m *grpcRouteModelImpl) aggregateRouteParentRefData(
 				return listener.Name
 			},
 		)
+		existingResult.attachmentDenied = existingResult.attachmentDenied && attachmentDenied
 		results[parentName] = existingResult
 		m.logger.DebugContext(ctx, "Appended/merged listeners for existing GRPCRoute gateway result",
 			slog.String("parentName", parentName.String()),
@@ -234,24 +259,25 @@ func (m *grpcRouteModelImpl) aggregateRouteParentRefData(
 		gatewayDetails:   gatewayDetails,
 		matchedRef:       matchedRef,
 		matchedListeners: matchedListeners,
+		attachmentDenied: attachmentDenied,
 	}
 }
 
 func (m *grpcRouteModelImpl) resolveRequest(
 	ctx context.Context,
 	req reconcile.Request,
-) (map[apitypes.NamespacedName]resolvedGRPCRouteDetails, error) {
+) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
 	var grpcRoute gatewayv1.GRPCRoute
 	if err := m.client.Get(ctx, req.NamespacedName, &grpcRoute); err != nil {
 		if apierrors.IsNotFound(err) {
-			return map[apitypes.NamespacedName]resolvedGRPCRouteDetails{}, nil
+			return map[routeParentResultKey]resolvedGRPCRouteDetails{}, nil
 		}
 		return nil, fmt.Errorf("failed to get GRPCRoute %s: %w", req.NamespacedName.String(), err)
 	}
 
-	results := make(map[apitypes.NamespacedName]resolvedGRPCRouteDetails)
+	results := make(map[routeParentResultKey]resolvedGRPCRouteDetails)
 	for _, parentRef := range grpcRoute.Spec.ParentRefs {
-		resolvedGatewayData, matchedListeners, err := m.resolveRouteParentRefData(
+		resolvedGatewayData, matchedListeners, attachmentDenied, err := m.resolveRouteParentRefData(
 			ctx,
 			grpcRoute,
 			parentRef,
@@ -268,6 +294,7 @@ func (m *grpcRouteModelImpl) resolveRequest(
 				*resolvedGatewayData,
 				makeTargetOnlyParentRef(parentRef),
 				matchedListeners,
+				attachmentDenied,
 			)
 		}
 	}
@@ -286,6 +313,14 @@ func (m *grpcRouteModelImpl) acceptRoute(
 	ctx context.Context,
 	routeDetails resolvedGRPCRouteDetails,
 ) (*gatewayv1.GRPCRoute, error) {
+	if routeDetails.attachmentDenied {
+		return nil, m.rejectRoute(ctx, routeDetails, fmt.Sprintf(
+			"matched listeners do not allow GRPCRoute %s/%s",
+			routeDetails.grpcRoute.Namespace,
+			routeDetails.grpcRoute.Name,
+		))
+	}
+
 	winner, conflicted, err := checkL7RouteConflict(ctx, checkL7RouteConflictParams{
 		gateway:            routeDetails.gatewayDetails.gateway,
 		effectiveListeners: routeDetails.gatewayDetails.effectiveListeners,

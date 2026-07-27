@@ -128,7 +128,9 @@ func TestL4RouteModelHelpers(t *testing.T) {
 
 		matches := matchingL4RoutesForListener(
 			routes,
-			apitypes.NamespacedName{Namespace: "media", Name: "edge"},
+			resolvedGatewayDetails{
+				gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "edge"}},
+			},
 			listener,
 			"",
 			tlsRouteKey,
@@ -136,7 +138,6 @@ func TestL4RouteModelHelpers(t *testing.T) {
 			func(route gatewayv1.TLSRoute) metav1.Time { return route.CreationTimestamp },
 			func(route gatewayv1.TLSRoute) []gatewayv1.ParentReference { return route.Spec.ParentRefs },
 			func(route gatewayv1.TLSRoute) bool { return route.DeletionTimestamp != nil },
-			tlsRouteParentRefTarget,
 			tlsRouteMatchesListener,
 		)
 

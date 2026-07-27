@@ -457,7 +457,7 @@ func (m *tlsRouteModelImpl) matchingRoutesForListener(
 		routeList:       &routeList,
 		listError:       "failed to list TLSRoutes for listener ownership check",
 		items:           func() []gatewayv1.TLSRoute { return routeList.Items },
-		gatewayName:     client.ObjectKeyFromObject(&details.gatewayDetails.gateway),
+		gatewayDetails:  details.gatewayDetails,
 		listener:        details.matchedListener,
 		excludeRouteKey: excludeRouteKey,
 		routeKey:        tlsRouteKey,
@@ -465,7 +465,6 @@ func (m *tlsRouteModelImpl) matchingRoutesForListener(
 		routeCreatedAt:  func(route gatewayv1.TLSRoute) metav1.Time { return route.CreationTimestamp },
 		parentRefs:      func(route gatewayv1.TLSRoute) []gatewayv1.ParentReference { return route.Spec.ParentRefs },
 		routeDeleted:    func(route gatewayv1.TLSRoute) bool { return route.DeletionTimestamp != nil },
-		parentTarget:    tlsRouteParentRefTarget,
 		matchesListener: tlsRouteMatchesListener,
 	})
 }
@@ -516,15 +515,18 @@ func (m *tlsRouteModelImpl) programNetworkLoadBalancerPassthroughRoute(
 	details resolvedTLSRouteDetails,
 ) error {
 	return programL4Route(ctx, newProgramL4RouteParams(newProgramL4RouteParamsInput{
-		k8sClient:        m.client,
-		routeKind:        "TLSRoute",
-		route:            &details.tlsRoute,
-		gatewayNamespace: details.gatewayDetails.gateway.Namespace,
-		listener:         details.matchedListener,
-		finalizer:        NetworkLoadBalancerTLSRouteProgrammedFinalizer,
-		clearBackendSet:  func() error { return m.clearNLBBackendSet(ctx, details) },
-		ensureOwner:      func() error { return nil },
-		clearStale:       func() error { return nil },
+		k8sClient: m.client,
+		routeKind: "TLSRoute",
+		route:     &details.tlsRoute,
+		listenerNamespace: effectiveListenerSourceNamespaceForOCIListener(
+			details.gatewayDetails,
+			details.matchedListener,
+		),
+		listener:        details.matchedListener,
+		finalizer:       NetworkLoadBalancerTLSRouteProgrammedFinalizer,
+		clearBackendSet: func() error { return m.clearNLBBackendSet(ctx, details) },
+		ensureOwner:     func() error { return nil },
+		clearStale:      func() error { return nil },
 		resolveBackends: func() ([]networkloadbalancer.BackendDetails, error) {
 			return m.endpointBackendsForRoute(ctx, details.tlsRoute)
 		},

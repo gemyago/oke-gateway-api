@@ -617,8 +617,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				Namespace: string(lo.FromPtr(workingRef.Namespace)),
 				Name:      string(workingRef.Name),
 			}
-			require.Contains(t, results, parentKey)
-			receiver := results[parentKey]
+			require.Contains(t, results, gatewayParentResultKey(parentKey))
+			receiver := results[gatewayParentResultKey(parentKey)]
 
 			assert.Equal(t, route, receiver.httpRoute)
 			assert.Equal(t, *gatewayData, receiver.gatewayDetails)
@@ -694,8 +694,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				Namespace: string(lo.FromPtr(workingRef.Namespace)),
 				Name:      string(workingRef.Name),
 			}
-			require.Contains(t, results, parentKey)
-			receiver := results[parentKey]
+			require.Contains(t, results, gatewayParentResultKey(parentKey))
+			receiver := results[gatewayParentResultKey(parentKey)]
 
 			assert.Equal(t, route, receiver.httpRoute)
 			assert.Equal(t, *gatewayData, receiver.gatewayDetails)
@@ -788,7 +788,11 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Len(t, results, 1)
-			receiver := results[types.NamespacedName{Namespace: "infra", Name: "edge"}]
+			receiver := results[routeParentResultKey{
+				kind:      listenerSetKind,
+				namespace: route.Namespace,
+				name:      "extra",
+			}]
 			assert.Equal(t, route, receiver.httpRoute)
 			assert.Equal(t, gatewayv1.ParentReference{
 				Kind: &listenerSetKind,
@@ -798,6 +802,60 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			require.Len(t, receiver.matchedListeners, 1)
 			assert.NotEqual(t, sectionName, receiver.matchedListeners[0].Name)
 			assert.Equal(t, gatewayv1.HTTPSProtocolType, receiver.matchedListeners[0].Protocol)
+		})
+
+		t.Run("Gateway and ListenerSet parents keep independent results", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			listenerSetKind := gatewayv1.Kind("ListenerSet")
+			gatewayNamespace := gatewayv1.Namespace("infra")
+			route := makeRandomHTTPRoute(randomHTTPRouteWithNamespaceOpt("apps"))
+			gatewayParentRef := gatewayv1.ParentReference{
+				Namespace: &gatewayNamespace,
+				Name:      "edge",
+			}
+			listenerSetParentRef := gatewayv1.ParentReference{
+				Kind: &listenerSetKind,
+				Name: "extra",
+			}
+			gatewayDetails := resolvedGatewayDetails{
+				gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{
+					Namespace: string(gatewayNamespace),
+					Name:      string(gatewayParentRef.Name),
+				}},
+			}
+			results := map[routeParentResultKey]resolvedRouteDetails{}
+
+			model.aggregateRouteParentRefData(
+				t.Context(),
+				results,
+				route,
+				gatewayDetails,
+				gatewayParentRef,
+				[]gatewayv1.Listener{{Name: "https"}},
+				false,
+			)
+			model.aggregateRouteParentRefData(
+				t.Context(),
+				results,
+				route,
+				gatewayDetails,
+				listenerSetParentRef,
+				[]gatewayv1.Listener{{Name: "extra-https"}},
+				false,
+			)
+
+			require.Len(t, results, 2)
+			assert.Contains(t, results, routeParentResultKey{
+				kind:      "Gateway",
+				namespace: "infra",
+				name:      "edge",
+			})
+			assert.Contains(t, results, routeParentResultKey{
+				kind:      listenerSetKind,
+				namespace: "apps",
+				name:      "extra",
+			})
 		})
 
 		t.Run("relevant parent with multiple sections", func(t *testing.T) {
@@ -892,8 +950,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				Namespace: string(lo.FromPtr(workingRef1.Namespace)),
 				Name:      string(workingRef1.Name),
 			}
-			require.Contains(t, results, parentKey)
-			receiver := results[parentKey]
+			require.Contains(t, results, gatewayParentResultKey(parentKey))
+			receiver := results[gatewayParentResultKey(parentKey)]
 
 			assert.Equal(t, route, receiver.httpRoute)
 			assert.Equal(t, *gatewayData, receiver.gatewayDetails)
@@ -990,8 +1048,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				Namespace: string(lo.FromPtr(refWithoutSection.Namespace)),
 				Name:      string(refWithoutSection.Name),
 			}
-			require.Contains(t, results, parentKey)
-			res := results[parentKey]
+			require.Contains(t, results, gatewayParentResultKey(parentKey))
+			res := results[gatewayParentResultKey(parentKey)]
 
 			assert.Equal(t, *gatewayData2, res.gatewayDetails)
 			assert.Equal(t, gatewayv1.ParentReference{

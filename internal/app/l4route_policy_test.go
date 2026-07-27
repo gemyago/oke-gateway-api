@@ -150,6 +150,80 @@ func TestL4RoutePolicy(t *testing.T) {
 		assert.False(t, allowed)
 	})
 
+	t.Run("allowedRouteListeners filters by kind and namespace policy", func(t *testing.T) {
+		same := gatewayv1.NamespacesFromSame
+		all := gatewayv1.NamespacesFromAll
+		listeners, err := allowedRouteListeners(
+			t.Context(),
+			NewMockk8sClient(t),
+			resolvedGatewayDetails{
+				gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "infra"}},
+			},
+			"apps",
+			[]gatewayv1.Listener{
+				{Name: "no-policy", Protocol: gatewayv1.TCPProtocolType},
+				{
+					Name:     "wrong-kind",
+					Protocol: gatewayv1.TCPProtocolType,
+					AllowedRoutes: &gatewayv1.AllowedRoutes{
+						Kinds: []gatewayv1.RouteGroupKind{{Kind: "UDPRoute"}},
+					},
+				},
+				{
+					Name:     "same-namespace-only",
+					Protocol: gatewayv1.TCPProtocolType,
+					AllowedRoutes: &gatewayv1.AllowedRoutes{
+						Namespaces: &gatewayv1.RouteNamespaces{From: &same},
+					},
+				},
+				{
+					Name:     "all-namespaces",
+					Protocol: gatewayv1.TCPProtocolType,
+					AllowedRoutes: &gatewayv1.AllowedRoutes{
+						Namespaces: &gatewayv1.RouteNamespaces{From: &all},
+					},
+				},
+			},
+			"TCPRoute",
+		)
+
+		require.NoError(t, err)
+		assert.Equal(t, []gatewayv1.SectionName{"no-policy", "all-namespaces"}, lo.Map(
+			listeners,
+			func(listener gatewayv1.Listener, _ int) gatewayv1.SectionName {
+				return listener.Name
+			},
+		))
+	})
+
+	t.Run("allowedRouteListeners returns namespace selector errors", func(t *testing.T) {
+		selector := gatewayv1.NamespacesFromSelector
+		listeners, err := allowedRouteListeners(
+			t.Context(),
+			NewMockk8sClient(t),
+			resolvedGatewayDetails{
+				gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "infra"}},
+			},
+			"apps",
+			[]gatewayv1.Listener{{
+				Name:     "bad-selector",
+				Protocol: gatewayv1.TCPProtocolType,
+				AllowedRoutes: &gatewayv1.AllowedRoutes{
+					Namespaces: &gatewayv1.RouteNamespaces{
+						From: &selector,
+						Selector: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+							Operator: "bad",
+						}}},
+					},
+				},
+			}},
+			"TCPRoute",
+		)
+
+		require.Error(t, err)
+		assert.Nil(t, listeners)
+	})
+
 	t.Run("validates backend refs and weights", func(t *testing.T) {
 		require.NoError(t, l4ValidateServiceBackendRef(gatewayv1.BackendRef{}))
 		require.Error(t, l4ValidateServiceBackendRef(gatewayv1.BackendRef{

@@ -29,6 +29,7 @@ type resolvedRouteDetails struct {
 	httpRoute        gatewayv1.HTTPRoute
 	matchedRef       gatewayv1.ParentReference
 	matchedListeners []gatewayv1.Listener
+	attachmentDenied bool
 }
 
 type resolveBackendRefsParams struct {
@@ -170,14 +171,45 @@ type setL7RouteProgrammedParams struct {
 	finalizer             string
 }
 
+type routeParentResultKey struct {
+	kind      gatewayv1.Kind
+	namespace string
+	name      string
+}
+
+func directParentResultKey(parentRef gatewayv1.ParentReference, routeNamespace string) routeParentResultKey {
+	key := parentRefTargetName(parentRef, routeNamespace)
+	kind := gatewayv1.Kind("Gateway")
+	if parentRef.Kind != nil {
+		kind = *parentRef.Kind
+	}
+	return routeParentResultKey{
+		kind:      kind,
+		namespace: key.Namespace,
+		name:      key.Name,
+	}
+}
+
+func gatewayParentResultKey(key apitypes.NamespacedName) routeParentResultKey {
+	return routeParentResultKey{
+		kind:      gatewayv1.Kind("Gateway"),
+		namespace: key.Namespace,
+		name:      key.Name,
+	}
+}
+
+func (k routeParentResultKey) String() string {
+	return fmt.Sprintf("%s/%s/%s", k.kind, k.namespace, k.name)
+}
+
 // httpRouteModel defines the interface for managing HTTPRoute resources.
 type httpRouteModel interface {
 	// resolveRequest resolves the parent details for a given HTTPRoute.
-	// It returns a map of parent names (gateway names) to resolved route details.
+	// It returns resolved route details keyed by the direct parent reference.
 	resolveRequest(
 		ctx context.Context,
 		req reconcile.Request,
-	) (map[apitypes.NamespacedName]resolvedRouteDetails, error)
+	) (map[routeParentResultKey]resolvedRouteDetails, error)
 
 	// acceptRoute accepts a reconcile request for a given HTTPRoute.
 	// It returns updated HTTPRoute with status parents updated.
@@ -616,7 +648,7 @@ func (m *httpRouteModelImpl) resolveRouteParentRefData(
 	httpRoute gatewayv1.HTTPRoute,
 	parentRef gatewayv1.ParentReference,
 	defaultNamespace string,
-) (*resolvedGatewayDetails, []gatewayv1.Listener, error) {
+) (*resolvedGatewayDetails, []gatewayv1.Listener, bool, error) {
 	parentName := parentRefTargetName(parentRef, defaultNamespace)
 	m.logger.DebugContext(ctx, "Resolving parent for HTTProute",
 		slog.String("parentName", parentName.String()),
@@ -635,14 +667,14 @@ func (m *httpRouteModelImpl) resolveRouteParentRefData(
 		defaultNamespace,
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to resolve gateway %s for route %s/%s: %w",
+		return nil, nil, false, fmt.Errorf("failed to resolve gateway %s for route %s/%s: %w",
 			parentName.String(), httpRoute.Namespace, httpRoute.Name, err)
 	}
 	if !gatewayResolved {
 		m.logger.DebugContext(ctx, "Gateway not resolved or not relevant",
 			slog.String("parentName", parentName.String()),
 		)
-		return nil, nil, nil
+		return nil, nil, false, nil
 	}
 
 	if parentRef.SectionName != nil {
@@ -661,27 +693,53 @@ func (m *httpRouteModelImpl) resolveRouteParentRefData(
 				slog.String("parentName", parentName.String()),
 				slog.String("sectionName", string(sectionName)),
 			)
-			return nil, nil, nil
+			return nil, nil, false, nil
+		}
+		allowedListeners, allowErr := allowedRouteListeners(
+			ctx,
+			m.client,
+			resolvedGatewayData,
+			httpRoute.Namespace,
+			matchingListeners,
+			"HTTPRoute",
+		)
+		if allowErr != nil {
+			return nil, nil, false, allowErr
 		}
 
 		m.logger.DebugContext(ctx, "Gateway resolved with matching section name listener(s)",
 			slog.String("parentName", parentName.String()),
 			slog.String("sectionName", string(sectionName)),
-			slog.Int("matchedListenersCount", len(matchingListeners)),
+			slog.Int("matchedListenersCount", len(allowedListeners)),
 		)
-		return &resolvedGatewayData, matchingListeners, nil
+		return &resolvedGatewayData, allowedListeners, len(allowedListeners) == 0, nil
 	}
 
 	// If no SectionName, all listeners are considered matched
 	m.logger.DebugContext(ctx, "Gateway resolved without section name, all listeners match",
 		slog.String("parentName", parentName.String()),
 	)
-	return &resolvedGatewayData, effectiveListenersForParentRef(
+	matchingListeners := effectiveListenersForParentRef(
 		resolvedGatewayData,
 		parentRef,
 		defaultNamespace,
 		func(gatewayv1.ParentReference, gatewayv1.Listener) bool { return true },
-	), nil
+	)
+	if len(matchingListeners) == 0 {
+		return nil, nil, false, nil
+	}
+	allowedListeners, allowErr := allowedRouteListeners(
+		ctx,
+		m.client,
+		resolvedGatewayData,
+		httpRoute.Namespace,
+		matchingListeners,
+		"HTTPRoute",
+	)
+	if allowErr != nil {
+		return nil, nil, false, allowErr
+	}
+	return &resolvedGatewayData, allowedListeners, len(allowedListeners) == 0, nil
 }
 
 func resolveL7ParentGateway(
@@ -721,16 +779,14 @@ func resolveL7ParentGateway(
 // It handles merging listeners if the same gateway is referenced multiple times (e.g., by different sections).
 func (m *httpRouteModelImpl) aggregateRouteParentRefData(
 	ctx context.Context,
-	results map[apitypes.NamespacedName]resolvedRouteDetails,
+	results map[routeParentResultKey]resolvedRouteDetails,
 	httpRoute gatewayv1.HTTPRoute,
 	gatewayDetails resolvedGatewayDetails,
 	matchedRef gatewayv1.ParentReference, // Should be target-only ref
 	matchedListeners []gatewayv1.Listener,
+	attachmentDenied bool,
 ) {
-	parentName := apitypes.NamespacedName{
-		Namespace: gatewayDetails.gateway.Namespace,
-		Name:      gatewayDetails.gateway.Name,
-	}
+	parentName := directParentResultKey(matchedRef, httpRoute.Namespace)
 
 	if existingResult, found := results[parentName]; found {
 		newListeners := lo.UniqBy(
@@ -740,6 +796,7 @@ func (m *httpRouteModelImpl) aggregateRouteParentRefData(
 			},
 		)
 		existingResult.matchedListeners = newListeners
+		existingResult.attachmentDenied = existingResult.attachmentDenied && attachmentDenied
 		results[parentName] = existingResult
 		m.logger.DebugContext(ctx, "Appended/merged listeners for existing gateway result",
 			slog.String("parentName", parentName.String()),
@@ -751,6 +808,7 @@ func (m *httpRouteModelImpl) aggregateRouteParentRefData(
 			gatewayDetails:   gatewayDetails,
 			matchedRef:       matchedRef, // Use the target-only ref
 			matchedListeners: matchedListeners,
+			attachmentDenied: attachmentDenied,
 		}
 		m.logger.DebugContext(ctx, "Added new gateway result",
 			slog.String("parentName", parentName.String()),
@@ -762,22 +820,22 @@ func (m *httpRouteModelImpl) aggregateRouteParentRefData(
 func (m *httpRouteModelImpl) resolveRequest(
 	ctx context.Context,
 	req reconcile.Request,
-) (map[apitypes.NamespacedName]resolvedRouteDetails, error) {
+) (map[routeParentResultKey]resolvedRouteDetails, error) {
 	var httpRoute gatewayv1.HTTPRoute
 	if err := m.client.Get(ctx, req.NamespacedName, &httpRoute); err != nil {
 		if apierrors.IsNotFound(err) {
 			m.logger.DebugContext(ctx, "HTTProute not found during resolution",
 				slog.String("route", req.NamespacedName.String()),
 			)
-			return map[apitypes.NamespacedName]resolvedRouteDetails{}, nil
+			return map[routeParentResultKey]resolvedRouteDetails{}, nil
 		}
 		return nil, fmt.Errorf("failed to get HTTPRoute %s: %w", req.NamespacedName.String(), err)
 	}
 
-	results := make(map[apitypes.NamespacedName]resolvedRouteDetails)
+	results := make(map[routeParentResultKey]resolvedRouteDetails)
 
 	for _, parentRef := range httpRoute.Spec.ParentRefs {
-		resolvedGatewayData, matchedListeners, err := m.resolveRouteParentRefData(
+		resolvedGatewayData, matchedListeners, attachmentDenied, err := m.resolveRouteParentRefData(
 			ctx,
 			httpRoute,
 			parentRef,
@@ -794,6 +852,7 @@ func (m *httpRouteModelImpl) resolveRequest(
 				*resolvedGatewayData,
 				makeTargetOnlyParentRef(parentRef),
 				matchedListeners,
+				attachmentDenied,
 			)
 		}
 	}
@@ -822,6 +881,14 @@ func (m *httpRouteModelImpl) acceptRoute(
 	ctx context.Context,
 	routeDetails resolvedRouteDetails,
 ) (*gatewayv1.HTTPRoute, error) {
+	if routeDetails.attachmentDenied {
+		return nil, m.rejectRoute(ctx, routeDetails, fmt.Sprintf(
+			"matched listeners do not allow HTTPRoute %s/%s",
+			routeDetails.httpRoute.Namespace,
+			routeDetails.httpRoute.Name,
+		))
+	}
+
 	winner, conflicted, err := checkL7RouteConflict(ctx, checkL7RouteConflictParams{
 		gateway:            routeDetails.gatewayDetails.gateway,
 		effectiveListeners: routeDetails.gatewayDetails.effectiveListeners,
