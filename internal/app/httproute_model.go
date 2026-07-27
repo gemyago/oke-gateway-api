@@ -382,6 +382,41 @@ func removeL7RoutePolicyRules(
 	return nil
 }
 
+func mergeL7ProgrammedPolicyRules(
+	existingAnnotation string,
+	programmedPolicyRules []string,
+) []string {
+	if existingAnnotation == "" {
+		return programmedPolicyRules
+	}
+
+	newRules := parseProgrammedHTTPRoutePolicyRules(strings.Join(programmedPolicyRules, ","))
+	newListenerNames := map[string]struct{}{}
+	for _, rule := range newRules {
+		if rule.listenerName == "" {
+			continue
+		}
+		newListenerNames[rule.listenerName] = struct{}{}
+	}
+	if len(newListenerNames) == 0 {
+		return programmedPolicyRules
+	}
+
+	merged := make([]string, 0, len(programmedPolicyRules))
+	for _, rule := range parseProgrammedHTTPRoutePolicyRules(existingAnnotation) {
+		if rule.listenerName == "" {
+			continue
+		}
+		if _, replaced := newListenerNames[rule.listenerName]; replaced {
+			continue
+		}
+		merged = append(merged, fmt.Sprintf("%s/%s", rule.listenerName, rule.ruleName))
+	}
+	merged = append(merged, programmedPolicyRules...)
+
+	return merged
+}
+
 func l7RoutesShareListenerHostname(
 	gateway gatewayv1.Gateway,
 	effectiveListeners []effectiveListener,
@@ -1541,8 +1576,11 @@ func setL7RouteProgrammed(
 		reason:        string(gatewayv1.RouteReasonResolvedRefs),
 		message:       fmt.Sprintf("Route programmed by %s", params.gateway.Name),
 		annotations: map[string]string{
-			params.programmingAnnotation:              params.programmingRevision,
-			params.policyRulesAnnotation:              strings.Join(params.programmedPolicyRules, ","),
+			params.programmingAnnotation: params.programmingRevision,
+			params.policyRulesAnnotation: strings.Join(mergeL7ProgrammedPolicyRules(
+				params.resource.GetAnnotations()[params.policyRulesAnnotation],
+				params.programmedPolicyRules,
+			), ","),
 			params.backendSetsAnnotation:              strings.Join(params.programmedBackendSets, ","),
 			L7RouteProgrammedLoadBalancerIDAnnotation: params.loadBalancerID,
 		},

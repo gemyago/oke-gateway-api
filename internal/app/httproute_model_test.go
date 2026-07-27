@@ -82,6 +82,46 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 	})
 
+	t.Run("mergeL7ProgrammedPolicyRules", func(t *testing.T) {
+		t.Run("returns current rules when previous annotation is empty", func(t *testing.T) {
+			rules := []string{"listener-" + faker.New().Lorem().Word() + "/rule"}
+
+			assert.Equal(t, rules, mergeL7ProgrammedPolicyRules("", rules))
+		})
+
+		t.Run("returns current rules when current rules are legacy unscoped entries", func(t *testing.T) {
+			fake := faker.New()
+			rules := []string{"rule-" + fake.Lorem().Word()}
+
+			assert.Equal(t, rules, mergeL7ProgrammedPolicyRules(
+				"listener-"+fake.Lorem().Word()+"/old-rule",
+				rules,
+			))
+		})
+
+		t.Run("preserves other listener rules and replaces current listener rules", func(t *testing.T) {
+			fake := faker.New()
+			gatewayListenerName := "gateway-" + fake.Lorem().Word()
+			listenerSetListenerName := "listenerset-" + fake.Lorem().Word()
+			gatewayRule := "gateway-rule-" + fake.Lorem().Word()
+			oldListenerSetRule := "old-listenerset-rule-" + fake.Lorem().Word()
+			newListenerSetRule := "new-listenerset-rule-" + fake.Lorem().Word()
+
+			assert.Equal(t, []string{
+				fmt.Sprintf("%s/%s", gatewayListenerName, gatewayRule),
+				fmt.Sprintf("%s/%s", listenerSetListenerName, newListenerSetRule),
+			}, mergeL7ProgrammedPolicyRules(
+				strings.Join([]string{
+					"legacy-" + fake.Lorem().Word(),
+					"",
+					fmt.Sprintf("%s/%s", gatewayListenerName, gatewayRule),
+					fmt.Sprintf("%s/%s", listenerSetListenerName, oldListenerSetRule),
+				}, ","),
+				[]string{fmt.Sprintf("%s/%s", listenerSetListenerName, newListenerSetRule)},
+			))
+		})
+	})
+
 	t.Run("removeL7RoutePolicyRules", func(t *testing.T) {
 		t.Run("removes previous policy rules per listener", func(t *testing.T) {
 			fake := faker.New()
@@ -2720,6 +2760,67 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			}).Return(nil)
 
 			// The model receives details by value, so it works on a copy of httpRoute.
+			err := model.setProgrammed(t.Context(), params)
+			require.NoError(t, err)
+		})
+
+		t.Run("preserves other listener policy rules when route has multiple parents", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			route := makeRandomHTTPRoute()
+			route.Generation = rand.Int64N(1000) + 1
+			gatewayData := makeRandomAcceptedGatewayDetails()
+			gatewayParentRef := makeRandomParentRef()
+			listenerSetParentRef := makeRandomParentRef()
+			listenerSetKind := gatewayv1.Kind("ListenerSet")
+			listenerSetParentRef.Kind = &listenerSetKind
+
+			route.Status.Parents = []gatewayv1.RouteParentStatus{
+				{
+					ParentRef:      gatewayParentRef,
+					ControllerName: gatewayData.gatewayClass.Spec.ControllerName,
+					Conditions:     []metav1.Condition{{Type: string(gatewayv1.RouteConditionResolvedRefs)}},
+				},
+				{
+					ParentRef:      listenerSetParentRef,
+					ControllerName: gatewayData.gatewayClass.Spec.ControllerName,
+					Conditions:     []metav1.Condition{{Type: string(gatewayv1.RouteConditionResolvedRefs)}},
+				},
+			}
+
+			gatewayListenerName := "https-" + fake.Lorem().Word()
+			listenerSetListenerName := "ls-" + fake.Lorem().Word()
+			oldGatewayRule := "gateway-rule-" + fake.Lorem().Word()
+			oldListenerSetRule := "old-listenerset-rule-" + fake.Lorem().Word()
+			newListenerSetRule := "new-listenerset-rule-" + fake.Lorem().Word()
+			route.Annotations = map[string]string{
+				HTTPRouteProgrammedPolicyRulesAnnotation: strings.Join([]string{
+					fmt.Sprintf("%s/%s", gatewayListenerName, oldGatewayRule),
+					fmt.Sprintf("%s/%s", listenerSetListenerName, oldListenerSetRule),
+				}, ","),
+			}
+
+			params := setProgrammedParams{
+				httpRoute:             route,
+				gatewayClass:          gatewayData.gatewayClass,
+				gateway:               gatewayData.gateway,
+				config:                gatewayData.config,
+				matchedRef:            listenerSetParentRef,
+				programmedPolicyRules: []string{fmt.Sprintf("%s/%s", listenerSetListenerName, newListenerSetRule)},
+				programmedBackendSets: []string{"backend-set-" + fake.Lorem().Word()},
+			}
+
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+			mockResourcesModel.EXPECT().setCondition(t.Context(), mock.MatchedBy(func(params setConditionParams) bool {
+				policyRules := params.annotations[HTTPRouteProgrammedPolicyRulesAnnotation]
+				return assert.Equal(t, strings.Join([]string{
+					fmt.Sprintf("%s/%s", gatewayListenerName, oldGatewayRule),
+					fmt.Sprintf("%s/%s", listenerSetListenerName, newListenerSetRule),
+				}, ","), policyRules)
+			})).Return(nil)
+
 			err := model.setProgrammed(t.Context(), params)
 			require.NoError(t, err)
 		})
