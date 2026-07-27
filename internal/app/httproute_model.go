@@ -1433,6 +1433,9 @@ func (m *httpRouteModelImpl) deprovisionRoute(
 	controllerutil.RemoveFinalizer(routeToUpdate, HTTPRouteProgrammedFinalizer)
 
 	if err := m.client.Update(ctx, routeToUpdate); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
 		return fmt.Errorf("failed to update HTTPRoute %s/%s after deprovisioning: %w",
 			routeToUpdate.Namespace, routeToUpdate.Name, err)
 	}
@@ -1513,6 +1516,9 @@ func (m *httpRouteModelImpl) removeDetachedHTTPRouteFinalizer(
 		delete(routeToUpdate.Annotations, L7RouteProgrammedLoadBalancerIDAnnotation)
 	}
 	if err := m.client.Update(ctx, routeToUpdate); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
 		return fmt.Errorf("failed to update detached HTTPRoute %s/%s after cleanup: %w",
 			routeToUpdate.Namespace, routeToUpdate.Name, err)
 	}

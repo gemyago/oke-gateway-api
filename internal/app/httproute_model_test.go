@@ -244,6 +244,23 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			require.ErrorIs(t, err, wantErr)
 		})
+
+		t.Run("detached finalizer removal ignores not found", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			httpRoute := makeRandomHTTPRoute()
+			httpRoute.Finalizers = []string{HTTPRouteProgrammedFinalizer}
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().Update(t.Context(), mock.Anything).
+				Return(apierrors.NewNotFound(schema.GroupResource{
+					Group:    gatewayv1.GroupName,
+					Resource: "httproutes",
+				}, httpRoute.Name))
+
+			err := model.removeDetachedHTTPRouteFinalizer(t.Context(), httpRoute)
+			require.NoError(t, err)
+		})
 	})
 
 	t.Run("l7 route conflict helpers", func(t *testing.T) {
@@ -3067,6 +3084,56 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				updatedRoute, ok := obj.(*gatewayv1.HTTPRoute)
 				return ok && assert.NotContains(t, updatedRoute.Finalizers, HTTPRouteProgrammedFinalizer)
 			})).Return(nil)
+
+			err := model.deprovisionRoute(t.Context(), params)
+			require.NoError(t, err)
+		})
+
+		t.Run("ignores not found when removing finalizer after cleanup", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			config := makeRandomGatewayConfig()
+			backendRef := makeRandomBackendRef()
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(makeRandomHTTPRouteRule(
+					randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef),
+				)),
+			)
+			httpRoute.Finalizers = []string{HTTPRouteProgrammedFinalizer}
+			listener := makeRandomListener()
+			previousRule := "rule-" + fake.Lorem().Word()
+			httpRoute.Annotations = map[string]string{
+				HTTPRouteProgrammedPolicyRulesAnnotation: fmt.Sprintf("%s/%s", listener.Name, previousRule),
+			}
+
+			params := deprovisionRouteParams{
+				gateway:          *newRandomGateway(),
+				config:           config,
+				httpRoute:        httpRoute,
+				matchedListeners: []gatewayv1.Listener{listener},
+			}
+
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			commitCall := ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  config.Spec.LoadBalancerID,
+				listenerName:    string(listener.Name),
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{previousRule},
+			}).Return(nil).Once()
+			ociLBModel.EXPECT().deprovisionBackendSet(t.Context(), deprovisionBackendSetParams{
+				loadBalancerID: config.Spec.LoadBalancerID,
+				routeNamespace: httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
+			}).Return(nil).Once().NotBefore(commitCall)
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().Update(t.Context(), mock.Anything).
+				Return(apierrors.NewNotFound(schema.GroupResource{
+					Group:    gatewayv1.GroupName,
+					Resource: "httproutes",
+				}, httpRoute.Name))
 
 			err := model.deprovisionRoute(t.Context(), params)
 			require.NoError(t, err)
