@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/jaswdr/faker/v2"
@@ -12,6 +13,52 @@ import (
 
 	"github.com/gemyago/oke-gateway-api/e2e/internal/e2ek8s"
 )
+
+func TestProgrammedPolicyRuleNames(t *testing.T) {
+	t.Run("extracts rule names from listener scoped and legacy annotations", func(t *testing.T) {
+		fake := faker.New()
+		listenerName := "listener-" + fake.Lorem().Word()
+		scopedRuleName := "scoped-" + fake.Lorem().Word()
+		legacyRuleName := "legacy-" + fake.Lorem().Word()
+		route := &gatewayv1.HTTPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "route-" + fake.UUID().V4(),
+				Namespace: "namespace-" + fake.UUID().V4(),
+				Annotations: map[string]string{
+					httpRouteProgrammedPolicyRulesAnnotation: fmt.Sprintf(
+						" %s/%s , %s ",
+						listenerName,
+						scopedRuleName,
+						legacyRuleName,
+					),
+				},
+			},
+		}
+
+		got, err := programmedPolicyRuleNames(route)
+
+		require.NoError(t, err)
+		require.Equal(t, []string{scopedRuleName, legacyRuleName}, got)
+	})
+
+	t.Run("ignores malformed listener scoped annotations", func(t *testing.T) {
+		fake := faker.New()
+		route := &gatewayv1.HTTPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "route-" + fake.UUID().V4(),
+				Namespace: "namespace-" + fake.UUID().V4(),
+				Annotations: map[string]string{
+					httpRouteProgrammedPolicyRulesAnnotation: "/,listener/",
+				},
+			},
+		}
+
+		got, err := programmedPolicyRuleNames(route)
+
+		require.Error(t, err)
+		require.Empty(t, got)
+	})
+}
 
 func TestDeleteNamespaceHTTPRoutes(t *testing.T) {
 	t.Run("deletes only routes in the target namespace", func(t *testing.T) {

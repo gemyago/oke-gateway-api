@@ -417,7 +417,7 @@ func NewHTTPRoute(opts HTTPRouteOptions) *gatewayv1.HTTPRoute {
 		servicePort = DefaultEchoPort
 	}
 
-	portNumber := gatewayv1.PortNumber(servicePort)
+	portNumber := servicePort
 	pathMatch := cloneHTTPPathMatch(opts.PathMatch)
 	if pathMatch == nil && !opts.OmitPathMatch {
 		pathPrefix := opts.PathPrefix

@@ -118,26 +118,24 @@ func TestL4RouteObjectPredicate(t *testing.T) {
 }
 
 func TestDetectExperimentalRouteCapabilities(t *testing.T) {
-	t.Run("detects TCPRoute and UDPRoute", func(t *testing.T) {
+	t.Run("detects TCPRoute, UDPRoute, and TLSRoute", func(t *testing.T) {
 		mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{
 			{Group: gatewayv1.GroupName, Version: "v1"},
 		})
-		mapper.Add(schema.GroupVersionKind{
-			Group:   gatewayv1.GroupName,
-			Version: "v1",
-			Kind:    "TCPRoute",
-		}, meta.RESTScopeNamespace)
-		mapper.Add(schema.GroupVersionKind{
-			Group:   gatewayv1.GroupName,
-			Version: "v1",
-			Kind:    "UDPRoute",
-		}, meta.RESTScopeNamespace)
+		for _, kind := range []string{"TCPRoute", "UDPRoute", "TLSRoute"} {
+			mapper.Add(schema.GroupVersionKind{
+				Group:   gatewayv1.GroupName,
+				Version: "v1",
+				Kind:    kind,
+			}, meta.RESTScopeNamespace)
+		}
 
 		got, err := detectExperimentalRouteCapabilities(mapper)
 
 		require.NoError(t, err)
 		assert.True(t, got.TCPRoute)
 		assert.True(t, got.UDPRoute)
+		assert.True(t, got.TLSRoute)
 	})
 
 	t.Run("treats missing routes as unavailable", func(t *testing.T) {
@@ -150,6 +148,7 @@ func TestDetectExperimentalRouteCapabilities(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, got.TCPRoute)
 		assert.False(t, got.UDPRoute)
+		assert.False(t, got.TLSRoute)
 	})
 
 	t.Run("returns non discovery errors", func(t *testing.T) {
@@ -160,6 +159,7 @@ func TestDetectExperimentalRouteCapabilities(t *testing.T) {
 		require.ErrorIs(t, err, wantErr)
 		assert.False(t, got.TCPRoute)
 		assert.False(t, got.UDPRoute)
+		assert.False(t, got.TLSRoute)
 	})
 }
 
@@ -189,12 +189,35 @@ func TestResolveExperimentalRouteCapabilities(t *testing.T) {
 			StartManagerDeps{
 				ReconcileTCPRoute: true,
 				ReconcileUDPRoute: true,
+				ReconcileTLSRoute: true,
 			},
 		)
 
 		require.NoError(t, err)
 		assert.False(t, got.reconcileTCPRoute)
 		assert.False(t, got.reconcileUDPRoute)
+		assert.False(t, got.reconcileTLSRoute)
+	})
+
+	t.Run("enables TLSRoute only when configured and installed", func(t *testing.T) {
+		mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{
+			{Group: gatewayv1.GroupName, Version: "v1"},
+		})
+		mapper.Add(schema.GroupVersionKind{
+			Group:   gatewayv1.GroupName,
+			Version: "v1",
+			Kind:    "TLSRoute",
+		}, meta.RESTScopeNamespace)
+
+		got, err := resolveExperimentalRouteCapabilities(
+			t.Context(),
+			diag.RootTestLogger(),
+			mapper,
+			StartManagerDeps{ReconcileTLSRoute: true},
+		)
+
+		require.NoError(t, err)
+		assert.True(t, got.reconcileTLSRoute)
 	})
 
 	t.Run("keeps BackendTLSPolicy controller available for cleanup when feature is disabled", func(t *testing.T) {

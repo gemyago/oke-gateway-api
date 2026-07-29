@@ -509,6 +509,14 @@ func programmedPolicyRuleNames(route *gatewayv1.HTTPRoute) ([]string, error) {
 			continue
 		}
 
+		listenerName, scopedRuleName, scoped := strings.Cut(part, "/")
+		if scoped {
+			if listenerName == "" || scopedRuleName == "" {
+				continue
+			}
+			part = scopedRuleName
+		}
+
 		ruleNames = append(ruleNames, part)
 	}
 
