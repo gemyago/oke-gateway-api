@@ -19,7 +19,7 @@ preflight:
 	go run ./internal/cmd/e2e-check
 
 run-e2e-tests:
-	@$(MAKE) -C .. dist/bin
+	@$(MAKE) -B -C .. dist/bin
 	@$(MAKE) preflight
 	go test -v -count=1 -timeout 30m .
 

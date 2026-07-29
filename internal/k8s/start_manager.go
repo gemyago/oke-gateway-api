@@ -61,6 +61,7 @@ type StartManagerDeps struct {
 type experimentalRouteCapabilities struct {
 	TCPRoute         bool
 	UDPRoute         bool
+	TLSRoute         bool
 	BackendTLSPolicy bool
 	ListenerSet      bool
 }
@@ -68,6 +69,7 @@ type experimentalRouteCapabilities struct {
 type resolvedExperimentalRouteCapabilities struct {
 	reconcileTCPRoute         bool
 	reconcileUDPRoute         bool
+	reconcileTLSRoute         bool
 	reconcileBackendTLSPolicy bool
 	backendTLSPolicyAvailable bool
 	listenerSetAvailable      bool
@@ -140,6 +142,13 @@ func detectExperimentalRouteCapabilities(mapper meta.RESTMapper) (experimentalRo
 	if err != nil {
 		return experimentalRouteCapabilities{}, fmt.Errorf("failed to detect UDPRoute availability: %w", err)
 	}
+	tlsRouteAvailable, err := resourceKindAvailable(
+		mapper,
+		schema.GroupKind{Group: gatewayv1.GroupName, Kind: "TLSRoute"},
+	)
+	if err != nil {
+		return experimentalRouteCapabilities{}, fmt.Errorf("failed to detect TLSRoute availability: %w", err)
+	}
 	backendTLSPolicyAvailable, err := resourceKindAvailable(
 		mapper,
 		schema.GroupKind{Group: gatewayv1.GroupName, Kind: "BackendTLSPolicy"},
@@ -158,13 +167,14 @@ func detectExperimentalRouteCapabilities(mapper meta.RESTMapper) (experimentalRo
 	return experimentalRouteCapabilities{
 		TCPRoute:         tcpRouteAvailable,
 		UDPRoute:         udpRouteAvailable,
+		TLSRoute:         tlsRouteAvailable,
 		BackendTLSPolicy: backendTLSPolicyAvailable,
 		ListenerSet:      listenerSetAvailable,
 	}, nil
 }
 
 func resourceKindAvailable(mapper meta.RESTMapper, groupKind schema.GroupKind) (bool, error) {
-	if _, err := mapper.RESTMapping(groupKind, "v1"); err != nil {
+	if _, err := mapper.RESTMapping(groupKind, gatewayv1.GroupVersion.Version); err != nil {
 		if meta.IsNoMatchError(err) {
 			return false, nil
 		}
@@ -202,6 +212,9 @@ func resolveExperimentalRouteCapabilities(
 	if deps.ReconcileUDPRoute && !experimentalRouteCRDs.UDPRoute {
 		logger.InfoContext(ctx, "UDPRoute CRD is not installed; UDPRoute support is disabled")
 	}
+	if deps.ReconcileTLSRoute && !experimentalRouteCRDs.TLSRoute {
+		logger.InfoContext(ctx, "TLSRoute CRD is not installed; TLSRoute support is disabled")
+	}
 	if deps.ReconcileBackendTLSPolicy && !experimentalRouteCRDs.BackendTLSPolicy {
 		logger.InfoContext(ctx, "BackendTLSPolicy CRD is not installed; BackendTLSPolicy support is disabled")
 	}
@@ -212,6 +225,7 @@ func resolveExperimentalRouteCapabilities(
 	return resolvedExperimentalRouteCapabilities{
 		reconcileTCPRoute:         deps.ReconcileTCPRoute && experimentalRouteCRDs.TCPRoute,
 		reconcileUDPRoute:         deps.ReconcileUDPRoute && experimentalRouteCRDs.UDPRoute,
+		reconcileTLSRoute:         deps.ReconcileTLSRoute && experimentalRouteCRDs.TLSRoute,
 		reconcileBackendTLSPolicy: deps.ReconcileBackendTLSPolicy && experimentalRouteCRDs.BackendTLSPolicy,
 		backendTLSPolicyAvailable: experimentalRouteCRDs.BackendTLSPolicy,
 		listenerSetAvailable:      experimentalRouteCRDs.ListenerSet,
@@ -482,7 +496,7 @@ func l7AndTLSControllerSetupTasks(
 			},
 		},
 		{
-			enabled:     deps.ReconcileTLSRoute,
+			enabled:     experimentalRoutes.reconcileTLSRoute,
 			disabledLog: "TLSRoute controller is disabled",
 			setupErr:    "failed to setup TLSRoute controller: %w",
 			setup: func() error {
@@ -702,7 +716,7 @@ func StartManager(ctx context.Context, deps StartManagerDeps) error {
 	if err := deps.WatchesModel.RegisterFieldIndexers(ctx, mgr.GetFieldIndexer(), app.RegisterFieldIndexersOptions{
 		EnableTCPRoute:    experimentalRoutes.reconcileTCPRoute,
 		EnableUDPRoute:    experimentalRoutes.reconcileUDPRoute,
-		EnableTLSRoute:    deps.ReconcileTLSRoute,
+		EnableTLSRoute:    experimentalRoutes.reconcileTLSRoute,
 		EnableListenerSet: experimentalRoutes.listenerSetAvailable,
 	}); err != nil {
 		return fmt.Errorf("failed to register field indexers: %w", err)
