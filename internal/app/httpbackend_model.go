@@ -324,9 +324,12 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 	)
 
 	ociUpdateResp, err := m.ociClient.UpdateBackendSet(ctx, loadbalancer.UpdateBackendSetRequest{
-		LoadBalancerId:          &params.config.Spec.LoadBalancerID,
-		BackendSetName:          &backendSetName,
-		UpdateBackendSetDetails: makeUpdateOciBackendSetDetails(existingBackendSet, backendsToUpdate.updatedBackends),
+		LoadBalancerId: &params.config.Spec.LoadBalancerID,
+		BackendSetName: &backendSetName,
+		UpdateBackendSetDetails: makeUpdateOciBackendSetDetails(
+			existingBackendSet,
+			backendsToUpdate.updatedBackends,
+		),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to update backend set %s: %w", backendSetName, err)
@@ -374,10 +377,14 @@ func makeUpdateOciBackendSetDetails(
 	}
 
 	if existingBackendSet.HealthChecker != nil {
+		healthCheckerPort := existingBackendSet.HealthChecker.Port
+		if len(newBackends) > 0 {
+			healthCheckerPort = newBackends[0].Port
+		}
 		updateDetails.HealthChecker = &loadbalancer.HealthCheckerDetails{
 			Protocol:          existingBackendSet.HealthChecker.Protocol,
 			UrlPath:           existingBackendSet.HealthChecker.UrlPath,
-			Port:              existingBackendSet.HealthChecker.Port,
+			Port:              healthCheckerPort,
 			ReturnCode:        existingBackendSet.HealthChecker.ReturnCode,
 			Retries:           existingBackendSet.HealthChecker.Retries,
 			TimeoutInMillis:   existingBackendSet.HealthChecker.TimeoutInMillis,

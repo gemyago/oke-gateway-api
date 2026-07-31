@@ -1792,7 +1792,29 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 	})
 
 	t.Run("reconcileBackendSet", func(t *testing.T) {
+		t.Run("resolves health checker port from backend target port", func(t *testing.T) {
+			service := makeRandomService()
+			servicePort := service.Spec.Ports[0].Port
+			targetPort := servicePort%65535 + 1
+			service.Spec.Ports[0].TargetPort = intstr.FromInt(int(targetPort))
+			backendRef := gatewayv1.BackendRef{BackendObjectReference: gatewayv1.BackendObjectReference{
+				Name: gatewayv1.ObjectName(service.Name),
+				Port: &servicePort,
+			}}
+
+			assert.Equal(t, int(targetPort), healthCheckerPortForBackendRef(service, backendRef))
+
+			service.Spec.Ports[0].TargetPort = intstr.FromInt(0)
+			assert.Equal(t, int(servicePort), healthCheckerPortForBackendRef(service, backendRef))
+
+			backendRef.Port = nil
+			service.Spec.Ports[0].TargetPort = intstr.FromInt(int(targetPort))
+			assert.Equal(t, int(targetPort), healthCheckerPortForBackendRef(service, backendRef))
+			assert.Equal(t, 0, healthCheckerPortForBackendRef(corev1.Service{}, gatewayv1.BackendRef{}))
+		})
+
 		makeParams := func(service corev1.Service, loadBalancerID string) reconcileBackendSetParams {
+			service.Spec.Ports[0].TargetPort = intstr.FromInt(int(service.Spec.Ports[0].Port))
 			namespace := gatewayv1.Namespace(service.Namespace)
 			return reconcileBackendSetParams{
 				loadBalancerID: loadBalancerID,
@@ -1814,13 +1836,16 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			)
 		}
 
-		t.Run("create new backend set", func(t *testing.T) {
+		t.Run("create new backend set uses service target port", func(t *testing.T) {
 			fake := faker.New()
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
 			service := makeRandomService()
 
 			params := makeParams(service, fake.UUID().V4())
+			params.service.Spec.Ports[0].TargetPort = intstr.FromInt(
+				int(params.service.Spec.Ports[0].Port%65535 + 1),
+			)
 
 			wantBsName := backendSetNameFromParams(params)
 
@@ -1843,7 +1868,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					Name: &wantBsName,
 					HealthChecker: &loadbalancer.HealthCheckerDetails{
 						Protocol: new("TCP"),
-						Port:     new(int(lo.FromPtr(params.backendRef.Port))),
+						Port:     new(healthCheckerPortForBackendRef(params.service, params.backendRef)),
 					},
 					Policy: new("ROUND_ROBIN"),
 				},
@@ -1917,7 +1942,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				bs.Policy = new("ROUND_ROBIN")
 				bs.HealthChecker = &loadbalancer.HealthChecker{
 					Protocol: new("TCP"),
-					Port:     new(int(lo.FromPtr(params.backendRef.Port))),
+					Port:     new(healthCheckerPortForBackendRef(params.service, params.backendRef)),
 				}
 			})
 
@@ -1962,7 +1987,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 						assert.Equal(t, wantBsName, *req.BackendSetName) &&
 						assert.Equal(t, "ROUND_ROBIN", *req.Policy) &&
 						assert.Equal(t, "TCP", *req.HealthChecker.Protocol) &&
-						assert.Equal(t, int(lo.FromPtr(params.backendRef.Port)), *req.HealthChecker.Port)
+						assert.Equal(t, healthCheckerPortForBackendRef(params.service, params.backendRef), *req.HealthChecker.Port)
 				}),
 			).Return(loadbalancer.UpdateBackendSetResponse{
 				OpcWorkRequestId: &workRequestID,
@@ -1992,7 +2017,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				bs.Policy = new("ROUND_ROBIN")
 				bs.HealthChecker = &loadbalancer.HealthChecker{
 					Protocol: new("TCP"),
-					Port:     new(int(lo.FromPtr(params.backendRef.Port))),
+					Port:     new(healthCheckerPortForBackendRef(params.service, params.backendRef)),
 				}
 				bs.SslConfiguration = nil
 			})
@@ -2011,7 +2036,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				t.Context(),
 				mock.MatchedBy(func(req loadbalancer.UpdateBackendSetRequest) bool {
 					return assert.Equal(t, "TCP", lo.FromPtr(req.HealthChecker.Protocol)) &&
-						assert.Equal(t, int(lo.FromPtr(params.backendRef.Port)), lo.FromPtr(req.HealthChecker.Port)) &&
+						assert.Equal(t, healthCheckerPortForBackendRef(params.service, params.backendRef), lo.FromPtr(req.HealthChecker.Port)) &&
 						assert.Equal(t, verifyDepth, lo.FromPtr(req.SslConfiguration.VerifyDepth))
 				}),
 			).Return(loadbalancer.UpdateBackendSetResponse{
@@ -2086,7 +2111,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					Name: &wantBsName,
 					HealthChecker: &loadbalancer.HealthCheckerDetails{
 						Protocol: new("TCP"),
-						Port:     new(int(lo.FromPtr(params.backendRef.Port))),
+						Port:     new(healthCheckerPortForBackendRef(params.service, params.backendRef)),
 					},
 					Policy: new("ROUND_ROBIN"),
 				},
@@ -2119,7 +2144,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					Name: &wantBsName,
 					HealthChecker: &loadbalancer.HealthCheckerDetails{
 						Protocol: new("TCP"),
-						Port:     new(int(lo.FromPtr(params.backendRef.Port))),
+						Port:     new(healthCheckerPortForBackendRef(params.service, params.backendRef)),
 					},
 					Policy: new("ROUND_ROBIN"),
 				},
@@ -2155,7 +2180,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					Name: &wantBsName,
 					HealthChecker: &loadbalancer.HealthCheckerDetails{
 						Protocol: new("TCP"),
-						Port:     new(int(lo.FromPtr(params.backendRef.Port))),
+						Port:     new(healthCheckerPortForBackendRef(params.service, params.backendRef)),
 					},
 					Policy: new("ROUND_ROBIN"),
 				},

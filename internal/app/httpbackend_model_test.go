@@ -394,7 +394,7 @@ func TestHTTPBackendModel(t *testing.T) {
 							assert.ElementsMatch(t, wantUpdatedBackends, req.Backends),
 							assert.Equal(t, sampleBackendSet.Policy, req.Policy),
 							assert.Equal(t, sampleBackendSet.HealthChecker.Protocol, req.HealthChecker.Protocol),
-							assert.Equal(t, sampleBackendSet.HealthChecker.Port, req.HealthChecker.Port),
+							assert.Equal(t, wantUpdatedBackends[0].Port, req.HealthChecker.Port),
 							assert.Equal(t, sampleBackendSet.HealthChecker.UrlPath, req.HealthChecker.UrlPath),
 							assert.Equal(t, sampleBackendSet.HealthChecker.ReturnCode, req.HealthChecker.ReturnCode),
 							assert.Equal(

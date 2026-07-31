@@ -1025,15 +1025,7 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 	params reconcileBackendSetParams,
 ) error {
 	backendSetName := ociBackendSetNameFromBackendObjectRef(params.routeNS, params.backendRef.BackendObjectReference)
-	healthCheckerPort := int(lo.FromPtr(params.backendRef.BackendObjectReference.Port))
-	if healthCheckerPort == 0 && len(params.service.Spec.Ports) > 0 {
-		healthCheckerPort = params.service.Spec.Ports[0].TargetPort.IntValue()
-	}
-	if healthCheckerPort == 0 {
-		// Not the best option. Potentially have to be refactored to use
-		// port from the backend ref. Some research is needed.
-		healthCheckerPort = int(params.service.Spec.Ports[0].Port)
-	}
+	healthCheckerPort := healthCheckerPortForBackendRef(params.service, params.backendRef)
 	desiredPolicy := "ROUND_ROBIN"
 	desiredHealthChecker := loadBalancerBackendSetHealthChecker(healthCheckerPort)
 
@@ -1087,6 +1079,27 @@ func (m *ociLoadBalancerModelImpl) reconcileBackendSet(
 	}
 
 	return nil
+}
+
+func healthCheckerPortForBackendRef(
+	service corev1.Service,
+	backendRef gatewayv1.BackendRef,
+) int {
+	servicePort, err := servicePortForBackendRef(service, backendRef)
+	if err == nil {
+		if targetPort := servicePort.TargetPort.IntValue(); targetPort != 0 {
+			return targetPort
+		}
+		return int(servicePort.Port)
+	}
+
+	if len(service.Spec.Ports) == 0 {
+		return 0
+	}
+	if targetPort := service.Spec.Ports[0].TargetPort.IntValue(); targetPort != 0 {
+		return targetPort
+	}
+	return int(service.Spec.Ports[0].Port)
 }
 
 func (m *ociLoadBalancerModelImpl) deprovisionBackendSet(
