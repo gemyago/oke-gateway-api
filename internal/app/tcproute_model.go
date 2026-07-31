@@ -483,7 +483,7 @@ func resolveL4BackendRefServicePort(
 		return apitypes.NamespacedName{}, nil, fmt.Errorf("failed to get service %s: %w", fullName.String(), getErr)
 	}
 
-	servicePort, err := l4ServicePortForBackendRef(service, backendRef)
+	servicePort, err := servicePortForBackendRef(service, backendRef)
 	if err != nil {
 		return apitypes.NamespacedName{}, nil, statusErr(
 			gatewayv1.RouteReasonInvalidKind,
@@ -500,7 +500,7 @@ func endpointBackendsForSlices(
 ) []networkloadbalancer.BackendDetails {
 	backends := make([]networkloadbalancer.BackendDetails, 0)
 	for _, slice := range endpointSlices {
-		port, ok := l4EndpointPortForServicePort(servicePort, slice)
+		port, ok := endpointPortForServicePort(servicePort, slice)
 		if !ok {
 			continue
 		}

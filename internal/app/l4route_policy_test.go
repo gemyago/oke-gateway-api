@@ -9,11 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
-	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
@@ -235,67 +232,6 @@ func TestL4RoutePolicy(t *testing.T) {
 		}))
 		assert.Equal(t, 1, l4BackendRefWeight(gatewayv1.BackendRef{}))
 		assert.Equal(t, 5, l4BackendRefWeight(gatewayv1.BackendRef{Weight: new(int32(5))}))
-	})
-
-	t.Run("resolves service backend ports to endpoint target ports", func(t *testing.T) {
-		service := corev1.Service{Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{
-			{Name: "rtmp", Port: 1935},
-			{Name: "api", Port: 8443, TargetPort: intstr.FromInt(9443)},
-			{Name: "named", Port: 9000, TargetPort: intstr.FromString("traffic")},
-		}}}
-
-		servicePort, err := l4ServicePortForBackendRef(service, gatewayv1.BackendRef{
-			BackendObjectReference: gatewayv1.BackendObjectReference{
-				Name: "backend",
-				Port: lo.ToPtr(gatewayv1.PortNumber(1935)),
-			},
-		})
-		require.NoError(t, err)
-		port, ok := l4EndpointPortForServicePort(*servicePort, discoveryv1.EndpointSlice{})
-		assert.True(t, ok)
-		assert.Equal(t, 1935, port)
-
-		servicePort, err = l4ServicePortForBackendRef(service, gatewayv1.BackendRef{
-			BackendObjectReference: gatewayv1.BackendObjectReference{
-				Name: "backend",
-				Port: lo.ToPtr(gatewayv1.PortNumber(8443)),
-			},
-		})
-		require.NoError(t, err)
-		port, ok = l4EndpointPortForServicePort(*servicePort, discoveryv1.EndpointSlice{})
-		assert.True(t, ok)
-		assert.Equal(t, 9443, port)
-
-		servicePort, err = l4ServicePortForBackendRef(service, gatewayv1.BackendRef{
-			BackendObjectReference: gatewayv1.BackendObjectReference{
-				Name: "backend",
-				Port: lo.ToPtr(gatewayv1.PortNumber(9000)),
-			},
-		})
-		require.NoError(t, err)
-		port, ok = l4EndpointPortForServicePort(*servicePort, discoveryv1.EndpointSlice{
-			Ports: []discoveryv1.EndpointPort{
-				{Name: new("other"), Port: new(int32(1111))},
-				{Name: new("named"), Port: nil},
-				{Name: new("named"), Port: new(int32(10000))},
-			},
-		})
-		assert.True(t, ok)
-		assert.Equal(t, 10000, port)
-
-		_, err = l4ServicePortForBackendRef(service, gatewayv1.BackendRef{
-			BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend"},
-		})
-		require.ErrorContains(t, err, "missing port")
-		_, err = l4ServicePortForBackendRef(service, gatewayv1.BackendRef{
-			BackendObjectReference: gatewayv1.BackendObjectReference{
-				Name: "backend",
-				Port: lo.ToPtr(gatewayv1.PortNumber(1234)),
-			},
-		})
-		require.ErrorContains(t, err, "has no port")
-		_, ok = l4EndpointPortForServicePort(*servicePort, discoveryv1.EndpointSlice{})
-		assert.False(t, ok)
 	})
 
 	t.Run("parentRefTargetsGateway applies Gateway API defaults", func(t *testing.T) {

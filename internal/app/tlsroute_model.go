@@ -834,7 +834,7 @@ func (m *tlsRouteModelImpl) backendRefHealthCheckPort(
 		return 0, fmt.Errorf("failed to list endpoint slices for backend %s: %w", fullName.String(), err)
 	}
 	for _, slice := range endpointSlices.Items {
-		if port, ok := l4EndpointPortForServicePort(*servicePort, slice); ok {
+		if port, ok := endpointPortForServicePort(*servicePort, slice); ok {
 			return port, nil
 		}
 	}

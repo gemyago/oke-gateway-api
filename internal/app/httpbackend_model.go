@@ -8,6 +8,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
 	"go.uber.org/dig"
+	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	client "sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -43,7 +44,7 @@ type syncRouteBackendRefEndpointsParams struct {
 }
 
 type identifyBackendsToUpdateParams struct {
-	endpointPort    int32
+	servicePort     corev1.ServicePort
 	currentBackends []loadbalancer.Backend
 	endpointSlices  []discoveryv1.EndpointSlice
 }
@@ -170,30 +171,17 @@ func (m *httpBackendModelImpl) identifyBackendsToUpdate(
 	var drainingCount int
 
 	for _, slice := range params.endpointSlices {
-		for _, endpoint := range slice.Endpoints {
-			if endpoint.Conditions.Ready != nil && !*endpoint.Conditions.Ready {
-				continue
-			}
-			if len(endpoint.Addresses) == 0 {
-				m.logger.WarnContext(ctx, "Endpoint has no addresses", slog.Any("endpoint", endpoint))
-				continue
-			}
-			ipAddress := endpoint.Addresses[0]
-			isDraining := endpoint.Conditions.Terminating != nil && *endpoint.Conditions.Terminating
-
-			if isDraining {
-				drainingCount++
-			}
-
+		endpointPort, ok := endpointPortForServicePort(params.servicePort, slice)
+		if !ok {
+			continue
+		}
+		sliceBackends, sliceDrainingCount := m.l7BackendsForSlice(ctx, slice, endpointPort)
+		drainingCount += sliceDrainingCount
+		for _, backend := range sliceBackends {
 			desiredBackendsMap[httpBackendAddressKey{
-				ipAddress: ipAddress,
-				port:      int(params.endpointPort),
-			}] = loadbalancer.BackendDetails{
-				Port:      new(int(params.endpointPort)),
-				IpAddress: &ipAddress,
-				Drain:     new(isDraining),
-				// Weight, MaxConnections, Backup, Offline are not managed here
-			}
+				ipAddress: *backend.IpAddress,
+				port:      endpointPort,
+			}] = backend
 		}
 	}
 
@@ -231,6 +219,35 @@ func (m *httpBackendModelImpl) identifyBackendsToUpdate(
 	}, nil
 }
 
+func (m *httpBackendModelImpl) l7BackendsForSlice(
+	ctx context.Context,
+	slice discoveryv1.EndpointSlice,
+	endpointPort int,
+) ([]loadbalancer.BackendDetails, int) {
+	backends := make([]loadbalancer.BackendDetails, 0, len(slice.Endpoints))
+	drainingCount := 0
+	for _, endpoint := range slice.Endpoints {
+		if endpoint.Conditions.Ready != nil && !*endpoint.Conditions.Ready {
+			continue
+		}
+		if len(endpoint.Addresses) == 0 {
+			m.logger.WarnContext(ctx, "Endpoint has no addresses", slog.Any("endpoint", endpoint))
+			continue
+		}
+		isDraining := endpoint.Conditions.Terminating != nil && *endpoint.Conditions.Terminating
+		if isDraining {
+			drainingCount++
+		}
+		backends = append(backends, loadbalancer.BackendDetails{
+			Port:      new(endpointPort),
+			IpAddress: new(endpoint.Addresses[0]),
+			Drain:     new(isDraining),
+			// Weight, MaxConnections, Backup, Offline are not managed here
+		})
+	}
+	return backends, drainingCount
+}
+
 func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 	ctx context.Context,
 	params syncRouteBackendRefEndpointsParams,
@@ -255,8 +272,6 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 	}
 	existingBackendSet := getResp.BackendSet
 
-	backendPort := lo.FromPtr(params.backendRef.BackendObjectReference.Port)
-
 	var endpointSlices discoveryv1.EndpointSliceList
 
 	if err = m.k8sClient.List(ctx, &endpointSlices,
@@ -272,8 +287,13 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 		)
 	}
 
+	servicePort, err := m.resolveL7ServicePort(ctx, backendRefNamespace, backendRef)
+	if err != nil {
+		return err
+	}
+
 	backendsToUpdate, err := m.self.identifyBackendsToUpdate(ctx, identifyBackendsToUpdateParams{
-		endpointPort:    backendPort,
+		servicePort:     *servicePort,
 		currentBackends: existingBackendSet.Backends,
 		endpointSlices:  endpointSlices.Items,
 	})
@@ -320,6 +340,25 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 		return fmt.Errorf("failed to wait for backend set %s to be updated: %w", backendSetName, err)
 	}
 	return nil
+}
+
+func (m *httpBackendModelImpl) resolveL7ServicePort(
+	ctx context.Context,
+	namespace string,
+	backendRef gatewayv1.BackendRef,
+) (*corev1.ServicePort, error) {
+	var service corev1.Service
+	if err := m.k8sClient.Get(ctx, client.ObjectKey{
+		Name:      string(backendRef.Name),
+		Namespace: namespace,
+	}, &service); err != nil {
+		return nil, fmt.Errorf("failed to get service for backend %s: %w", backendRef.Name, err)
+	}
+	servicePort, err := servicePortForBackendRef(service, backendRef)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve service port for backend %s: %w", backendRef.Name, err)
+	}
+	return servicePort, nil
 }
 
 func makeUpdateOciBackendSetDetails(

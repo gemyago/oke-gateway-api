@@ -13,8 +13,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
@@ -31,6 +33,38 @@ func TestHTTPBackendModel(t *testing.T) {
 			WorkRequestsWatcher:   NewMockworkRequestsWatcher(t),
 			self:                  NewMockhttpBackendModel(t),
 		}
+	}
+	expectBackendService := func(
+		t *testing.T,
+		deps httpBackendModelDeps,
+		routeNamespace string,
+		backendRef gatewayv1.BackendRef,
+		targetPort int32,
+	) {
+		namespace := routeNamespace
+		if backendRef.Namespace != nil {
+			namespace = string(*backendRef.Namespace)
+		}
+		servicePort := lo.FromPtr(backendRef.Port)
+		mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockK8sClient.EXPECT().Get(
+			t.Context(),
+			client.ObjectKey{Name: string(backendRef.Name), Namespace: namespace},
+			mock.AnythingOfType("*v1.Service"),
+		).RunAndReturn(func(
+			_ context.Context,
+			_ client.ObjectKey,
+			obj client.Object,
+			_ ...client.GetOption,
+		) error {
+			service, ok := obj.(*corev1.Service)
+			require.True(t, ok)
+			service.Spec.Ports = []corev1.ServicePort{{
+				Port:       servicePort,
+				TargetPort: intstr.FromInt32(targetPort),
+			}}
+			return nil
+		}).Once()
 	}
 
 	t.Run("syncRouteBackendRefsEndpoints", func(t *testing.T) {
@@ -321,12 +355,15 @@ func TestHTTPBackendModel(t *testing.T) {
 			)
 
 			backendRefPort := *backendRef.BackendObjectReference.Port
+			expectBackendService(t, deps, httpRoute.Namespace, backendRef.BackendRef, backendRefPort)
 
 			mockSelf, _ := deps.self.(*MockhttpBackendModel)
 			mockSelf.EXPECT().identifyBackendsToUpdate(
 				t.Context(),
 				mock.MatchedBy(func(params identifyBackendsToUpdateParams) bool {
-					return assert.Equal(t, backendRefPort, params.endpointPort) &&
+					resolvedPort, ok := endpointPortForServicePort(params.servicePort, endpointSlice)
+					return assert.True(t, ok) &&
+						assert.Equal(t, int(backendRefPort), resolvedPort) &&
 						assert.ElementsMatch(t, currentBackends, params.currentBackends) &&
 						assert.ElementsMatch(t, []discoveryv1.EndpointSlice{endpointSlice}, params.endpointSlices)
 				}),
@@ -466,6 +503,13 @@ func TestHTTPBackendModel(t *testing.T) {
 
 			mockWorkRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
 			mockWorkRequestsWatcher.EXPECT().WaitFor(t.Context(), wantOperationID).Return(nil).Once()
+			expectBackendService(
+				t,
+				deps,
+				httpRoute.Namespace,
+				backendRef.BackendRef,
+				*backendRef.BackendObjectReference.Port,
+			)
 
 			err := model.syncRouteBackendRefEndpoints(t.Context(), syncRouteBackendRefEndpointsParams{
 				routeKind:  "HTTPRoute",
@@ -522,12 +566,16 @@ func TestHTTPBackendModel(t *testing.T) {
 			).Return(loadbalancer.GetBackendSetResponse{BackendSet: sampleBackendSet}, nil).Once()
 
 			backendRefPort := *backendRef.BackendObjectReference.Port
+			expectBackendService(t, deps, httpRoute.Namespace, backendRef.BackendRef, backendRefPort)
 
 			mockSelf, _ := deps.self.(*MockhttpBackendModel)
 			mockSelf.EXPECT().identifyBackendsToUpdate(
 				t.Context(),
 				identifyBackendsToUpdateParams{
-					endpointPort:    backendRefPort,
+					servicePort: corev1.ServicePort{
+						Port:       backendRefPort,
+						TargetPort: intstr.FromInt32(backendRefPort),
+					},
 					currentBackends: currentBackends,
 					endpointSlices:  []discoveryv1.EndpointSlice{endpointSlice},
 				},
@@ -594,6 +642,22 @@ func TestHTTPBackendModel(t *testing.T) {
 						},
 						client.InNamespace(string(lo.FromPtr(backendRef.BackendObjectReference.Namespace))),
 					).Return(wantErr)
+				},
+				"get service": func(
+					deps httpBackendModelDeps,
+					_ types.GatewayConfig,
+					_ gatewayv1.HTTPRoute,
+					_ gatewayv1.HTTPBackendRef,
+					backendSet loadbalancer.BackendSet,
+					wantErr error,
+				) {
+					mockOciClient, _ := deps.OciLoadBalancerClient.(*MockociLoadBalancerClient)
+					mockOciClient.EXPECT().GetBackendSet(t.Context(), mock.Anything).
+						Return(loadbalancer.GetBackendSetResponse{BackendSet: backendSet}, nil)
+					mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+					mockK8sClient.EXPECT().List(t.Context(), mock.Anything, mock.Anything, mock.Anything).
+						Return(nil)
+					mockK8sClient.EXPECT().Get(t.Context(), mock.Anything, mock.Anything).Return(wantErr)
 				},
 				"identify updates": func(
 					deps httpBackendModelDeps,
@@ -721,6 +785,15 @@ func TestHTTPBackendModel(t *testing.T) {
 					)
 					wantErr := errors.New(faker.New().Lorem().Sentence(10))
 					setup(deps, config, httpRoute, backendRef, backendSet, wantErr)
+					if name != "get backend set" && name != "list endpoint slices" && name != "get service" {
+						expectBackendService(
+							t,
+							deps,
+							httpRoute.Namespace,
+							backendRef.BackendRef,
+							*backendRef.Port,
+						)
+					}
 
 					err := model.syncRouteBackendRefEndpoints(t.Context(), syncRouteBackendRefEndpointsParams{
 						routeKind:  "HTTPRoute",
@@ -741,6 +814,49 @@ func TestHTTPBackendModel(t *testing.T) {
 	})
 
 	t.Run("identifyBackendsToUpdate", func(t *testing.T) {
+		t.Run("resolves named service target ports per endpoint slice", func(t *testing.T) {
+			model := newHTTPBackendModel(newMockDeps(t))
+			portName := "backend-" + faker.New().Lorem().Word()
+			firstPort := rand.Int32N(65534) + 1
+			secondPort := rand.Int32N(65534) + 1
+			firstEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(new(true), new(false)))
+			secondEndpoint := makeRandomEndpoint(randomEndpointWithConditionsOpt(new(true), new(false)))
+
+			result, err := model.identifyBackendsToUpdate(t.Context(), identifyBackendsToUpdateParams{
+				servicePort: corev1.ServicePort{
+					Name:       portName,
+					Port:       rand.Int32N(65534) + 1,
+					TargetPort: intstr.FromString(portName),
+				},
+				endpointSlices: []discoveryv1.EndpointSlice{
+					{
+						Ports:     []discoveryv1.EndpointPort{{Name: &portName, Port: &firstPort}},
+						Endpoints: []discoveryv1.Endpoint{firstEndpoint},
+					},
+					{
+						Ports:     []discoveryv1.EndpointPort{{Name: &portName, Port: &secondPort}},
+						Endpoints: []discoveryv1.Endpoint{secondEndpoint},
+					},
+					{
+						Ports: []discoveryv1.EndpointPort{{
+							Name: new("other-" + faker.New().Lorem().Word()),
+							Port: new(rand.Int32N(65534) + 1),
+						}},
+						Endpoints: []discoveryv1.Endpoint{
+							makeRandomEndpoint(randomEndpointWithConditionsOpt(new(true), new(false))),
+						},
+					},
+				},
+			})
+
+			require.NoError(t, err)
+			assert.ElementsMatch(t, []loadbalancer.BackendDetails{
+				{IpAddress: &firstEndpoint.Addresses[0], Port: new(int(firstPort)), Drain: new(false)},
+				{IpAddress: &secondEndpoint.Addresses[0], Port: new(int(secondPort)), Drain: new(false)},
+			}, result.updatedBackends)
+			assert.True(t, result.updateRequired)
+		})
+
 		t.Run("happy path - add new backends", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPBackendModel(deps)
@@ -768,7 +884,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			endpointSlices := []discoveryv1.EndpointSlice{slice1, slice2}
 
 			params := identifyBackendsToUpdateParams{
-				endpointPort:    refPort,
+				servicePort:     corev1.ServicePort{TargetPort: intstr.FromInt32(refPort)},
 				currentBackends: currentBackends,
 				endpointSlices:  endpointSlices,
 			}
@@ -824,7 +940,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			}
 
 			params := identifyBackendsToUpdateParams{
-				endpointPort:    refPort,
+				servicePort:     corev1.ServicePort{TargetPort: intstr.FromInt32(refPort)},
 				currentBackends: currentBackends,
 				endpointSlices:  endpointSlices,
 			}
@@ -872,7 +988,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			}
 
 			params := identifyBackendsToUpdateParams{
-				endpointPort:    refPort,
+				servicePort:     corev1.ServicePort{TargetPort: intstr.FromInt32(refPort)},
 				currentBackends: currentBackends,
 				endpointSlices:  endpointSlices,
 			}
@@ -916,7 +1032,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			}
 
 			result, err := model.identifyBackendsToUpdate(t.Context(), identifyBackendsToUpdateParams{
-				endpointPort:    desiredPort,
+				servicePort:     corev1.ServicePort{TargetPort: intstr.FromInt32(desiredPort)},
 				currentBackends: currentBackends,
 				endpointSlices:  endpointSlices,
 			})
@@ -954,7 +1070,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			}
 
 			params := identifyBackendsToUpdateParams{
-				endpointPort:    refPort,
+				servicePort:     corev1.ServicePort{TargetPort: intstr.FromInt32(refPort)},
 				currentBackends: currentBackends,
 				endpointSlices:  endpointSlices,
 			}
@@ -1000,7 +1116,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			}
 
 			params := identifyBackendsToUpdateParams{
-				endpointPort:    refPort,
+				servicePort:     corev1.ServicePort{TargetPort: intstr.FromInt32(refPort)},
 				currentBackends: currentBackends,
 				endpointSlices:  endpointSlices,
 			}
@@ -1047,7 +1163,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			endpointSlices := []discoveryv1.EndpointSlice{}
 
 			params := identifyBackendsToUpdateParams{
-				endpointPort:    refPort,
+				servicePort:     corev1.ServicePort{TargetPort: intstr.FromInt32(refPort)},
 				currentBackends: currentBackends,
 				endpointSlices:  endpointSlices,
 			}
@@ -1088,7 +1204,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			}
 
 			params := identifyBackendsToUpdateParams{
-				endpointPort:    refPort,
+				servicePort:     corev1.ServicePort{TargetPort: intstr.FromInt32(refPort)},
 				currentBackends: currentBackends,
 				endpointSlices:  endpointSlices,
 			}
@@ -1114,7 +1230,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			endpointSlices := []discoveryv1.EndpointSlice{}
 
 			params := identifyBackendsToUpdateParams{
-				endpointPort:    refPort,
+				servicePort:     corev1.ServicePort{TargetPort: intstr.FromInt32(refPort)},
 				currentBackends: currentBackends,
 				endpointSlices:  endpointSlices,
 			}
@@ -1147,7 +1263,7 @@ func TestHTTPBackendModel(t *testing.T) {
 			}
 
 			params := identifyBackendsToUpdateParams{
-				endpointPort:    refPort,
+				servicePort:     corev1.ServicePort{TargetPort: intstr.FromInt32(refPort)},
 				currentBackends: currentBackends,
 				endpointSlices:  endpointSlices,
 			}

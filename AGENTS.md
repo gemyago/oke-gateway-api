@@ -105,6 +105,8 @@ The rules are:
 - Store temp files in a project scoped tmp directory (e.g ${PWD}/tmp/...)
 - Update project rules and conventions when user corrects the behavior of AI.
 - Each rule must aim to be a simple and clear one line (50-80 characters)
+- Randomize non-constant test data and test one behavior per case.
+- Reuse one faker instance throughout each top-level test function.
 - Avoid markdown tables, prefer lists or other formatting. Tables are hard to read by humans. Use tables only when user explicitly requests it.
 - Do not run `git diff --check` as a routine verification step.
 
