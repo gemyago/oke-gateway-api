@@ -111,6 +111,11 @@ The rules are:
 - Avoid markdown tables, prefer lists or other formatting. Tables are hard to read by humans. Use tables only when user explicitly requests it.
 - Do not run `git diff --check` as a routine verification step.
 
+## Skills
+
+- Store canonical skills in `.agents/skills` without harness-specific files.
+- Run `.agents/skills/link-vendor-harnesses.sh` after skill changes.
+
 ## Golang
 
 - **Always** load and use gopher skill when working with Go code. Gopher skill must be used prior to **writing** any Go code, or **planning** go code changes.
