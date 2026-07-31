@@ -1987,7 +1987,11 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 						assert.Equal(t, wantBsName, *req.BackendSetName) &&
 						assert.Equal(t, "ROUND_ROBIN", *req.Policy) &&
 						assert.Equal(t, "TCP", *req.HealthChecker.Protocol) &&
-						assert.Equal(t, healthCheckerPortForBackendRef(params.service, params.backendRef), *req.HealthChecker.Port)
+						assert.Equal(
+							t,
+							healthCheckerPortForBackendRef(params.service, params.backendRef),
+							*req.HealthChecker.Port,
+						)
 				}),
 			).Return(loadbalancer.UpdateBackendSetResponse{
 				OpcWorkRequestId: &workRequestID,
@@ -2036,7 +2040,11 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				t.Context(),
 				mock.MatchedBy(func(req loadbalancer.UpdateBackendSetRequest) bool {
 					return assert.Equal(t, "TCP", lo.FromPtr(req.HealthChecker.Protocol)) &&
-						assert.Equal(t, healthCheckerPortForBackendRef(params.service, params.backendRef), lo.FromPtr(req.HealthChecker.Port)) &&
+						assert.Equal(
+							t,
+							healthCheckerPortForBackendRef(params.service, params.backendRef),
+							lo.FromPtr(req.HealthChecker.Port),
+						) &&
 						assert.Equal(t, verifyDepth, lo.FromPtr(req.SslConfiguration.VerifyDepth))
 				}),
 			).Return(loadbalancer.UpdateBackendSetResponse{
