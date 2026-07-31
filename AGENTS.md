@@ -95,8 +95,26 @@ Examples:
 - `deploy`: Helm chart and example manifests
 - `docs/https.md`: HTTPS-specific behavior
 
-## Coding Conventions
+## Project Rules and Conventions
 
+AI must always follow the rules and conventions defined in this section. This section defines a project specific rules and conventions. Module level rules and conventions must also be followed.
+
+The rules are:
+- **DO NOT** over engineer or over-complicate. Address problems present now or explicitly requested.
+- Never go outside of the project root
+- Store temp files in a project scoped tmp directory (e.g ${PWD}/tmp/...)
+- Update project rules and conventions when user corrects the behavior of AI.
+- Each rule must aim to be a simple and clear one line (50-80 characters)
+- Avoid markdown tables, prefer lists or other formatting. Tables are hard to read by humans. Use tables only when user explicitly requests it.
+- Do not run `git diff --check` as a routine verification step.
+
+## Golang
+
+- **Always** load and use gopher skill when working with Go code. Gopher skill must be used prior to **writing** any Go code, or **planning** go code changes.
+- viper should only be used for config wireup, it should never leak into the codebase outside of the entrypoints or wireup paths.
+- system must have reasonable logging that allows to troubleshoot problems and understand the flow of the system.
+- when logging attributes, use camelCase for keys
+- required component dependencies must be enforced in constructor, not in methods that use them
 - Keep changes idiomatic and gofmt-compatible
 - Linting is strict; avoid adding `//nolint` unless it is justified
 - Wrap errors with context, usually `fmt.Errorf("...: %w", err)`
