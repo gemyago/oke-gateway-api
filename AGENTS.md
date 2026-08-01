@@ -108,6 +108,7 @@ The rules are:
 - Randomize non-constant test data and test one behavior per case.
 - Reuse one faker instance throughout each top-level test function.
 - Run lint with a fresh project-scoped cache before pushing changes.
+- Wait for image promotion after release PR merge before publishing.
 - Avoid markdown tables, prefer lists or other formatting. Tables are hard to read by humans. Use tables only when user explicitly requests it.
 - Do not run `git diff --check` as a routine verification step.
 

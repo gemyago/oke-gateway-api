@@ -54,6 +54,26 @@ If a check fails, do not merge or publish. Once all checks pass, squash-merge th
 gh pr merge <pr-number> --squash
 ```
 
+## Wait for image promotion
+
+The merged release PR triggers `promote-docker-images.yml`, which promotes the
+release-branch images to `main`. Wait for that workflow to succeed before
+publishing the release; otherwise `release-flow.yml` cannot tag the release
+images.
+
+```sh
+run_id=""
+while [ -z "$run_id" ]; do
+  run_id=$(gh run list --workflow promote-docker-images.yml --event pull_request \
+    --limit 20 --json databaseId,headBranch \
+    --jq '[.[] | select(.headBranch == "release/vMAJOR.MINOR.PATCH")][0].databaseId // empty')
+  [ -n "$run_id" ] || sleep 5
+done
+gh run watch "$run_id" --exit-status
+```
+
+Stop if image promotion fails. Do not publish the draft release.
+
 ## Publish from main
 
 The draft release created by the workflow initially targets `release/vMAJOR.MINOR.PATCH`. After the squash merge, retarget the draft release to `main` before publishing:
