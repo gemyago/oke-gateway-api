@@ -238,8 +238,10 @@ func frontendMTLSVerifyDepth(gateway gatewayv1.Gateway, port gatewayv1.PortNumbe
 	if gateway.Annotations == nil {
 		return defaultFrontendMTLSVerifyDepth, nil
 	}
-	value := strings.TrimSpace(gateway.Annotations[frontendMTLSPortVerifyDepthAnnotation(port)])
+	annotationKey := frontendMTLSPortVerifyDepthAnnotation(port)
+	value := strings.TrimSpace(gateway.Annotations[annotationKey])
 	if value == "" {
+		annotationKey = FrontendMTLSVerifyDepthAnnotation
 		value = strings.TrimSpace(gateway.Annotations[FrontendMTLSVerifyDepthAnnotation])
 	}
 	if value == "" {
@@ -248,7 +250,7 @@ func frontendMTLSVerifyDepth(gateway gatewayv1.Gateway, port gatewayv1.PortNumbe
 	parsed, err := strconv.Atoi(value)
 	if err != nil || parsed < 1 {
 		return 0, frontendMTLSStatusError(string(gatewayv1.GatewayReasonInvalidParameters),
-			fmt.Sprintf("annotation %s must be a positive integer", FrontendMTLSVerifyDepthAnnotation),
+			fmt.Sprintf("annotation %s must be a positive integer", annotationKey),
 		)
 	}
 	return parsed, nil

@@ -3591,7 +3591,13 @@ func TestWatchesModel(t *testing.T) {
 		crossNamespaceRef := gatewayv1.Namespace(crossNamespace)
 		configMapName := "ca-" + fakeData.Lorem().Word()
 		gateway := &gatewayv1.Gateway{
-			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "gw-" + fakeData.Lorem().Word()},
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: namespace,
+				Name:      "gw-" + fakeData.Lorem().Word(),
+				Annotations: map[string]string{
+					ControllerClassName: "true",
+				},
+			},
 			Spec: gatewayv1.GatewaySpec{TLS: &gatewayv1.GatewayTLSConfig{
 				Frontend: &gatewayv1.FrontendTLSConfig{
 					Default: gatewayv1.TLSConfig{Validation: &gatewayv1.FrontendTLSValidation{
@@ -3605,6 +3611,9 @@ func TestWatchesModel(t *testing.T) {
 				},
 			}},
 		}
+		unownedGateway := gateway.DeepCopy()
+		unownedGateway.Name = "unowned-" + fakeData.Lorem().Word()
+		unownedGateway.Annotations = nil
 		grant := &gatewayv1beta1.ReferenceGrant{
 			ObjectMeta: metav1.ObjectMeta{Namespace: crossNamespace, Name: "grant-" + fakeData.Lorem().Word()},
 			Spec: gatewayv1beta1.ReferenceGrantSpec{
@@ -3621,7 +3630,7 @@ func TestWatchesModel(t *testing.T) {
 		}
 		k8sClient := fake.NewClientBuilder().
 			WithScheme(newL4TestScheme(t)).
-			WithObjects(gateway).
+			WithObjects(gateway, unownedGateway).
 			Build()
 		model := NewWatchesModel(WatchesModelDeps{
 			K8sClient: k8sClient,

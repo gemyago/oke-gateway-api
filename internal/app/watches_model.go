@@ -1677,7 +1677,9 @@ func (m *WatchesModel) MapReferenceGrantToGatewayFrontendMTLS(
 
 	requests := make([]reconcile.Request, 0)
 	for _, gateway := range gatewayList.Items {
-		if gateway.DeletionTimestamp != nil || !gatewayFrontendMTLSReferencesGrantedConfigMap(gateway, *grant) {
+		if gateway.DeletionTimestamp != nil ||
+			gateway.Annotations[ControllerClassName] != "true" ||
+			!gatewayFrontendMTLSReferencesGrantedConfigMap(gateway, *grant) {
 			continue
 		}
 		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&gateway)})

@@ -983,6 +983,16 @@ func TestFrontendMTLSModel(t *testing.T) {
 		noTimestampGateway.Generation = 17
 		assert.Equal(t, "17", frontendMTLSGatewayIdentity(noTimestampGateway))
 		assert.Equal(t, defaultFrontendMTLSVerifyDepth, lo.Must(frontendMTLSVerifyDepth(gatewayv1.Gateway{}, 8443)))
+
+		port := gatewayv1.PortNumber(8443)
+		portAnnotation := frontendMTLSPortVerifyDepthAnnotation(port)
+		gateway.Annotations = map[string]string{
+			FrontendMTLSVerifyDepthAnnotation: "4",
+			portAnnotation:                    "invalid",
+		}
+		_, err := frontendMTLSVerifyDepth(gateway, port)
+		require.ErrorContains(t, err, portAnnotation)
+		require.NotContains(t, err.Error(), FrontendMTLSVerifyDepthAnnotation)
 	})
 
 	t.Run("Gateway frontend mTLS configured helper handles spec and annotations", func(t *testing.T) {
