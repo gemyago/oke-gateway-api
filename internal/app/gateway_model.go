@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	"github.com/gemyago/oke-gateway-api/internal/types"
 )
@@ -98,6 +99,9 @@ type resolvedGatewayDetails struct {
 	// Map of secret full name to the secret object
 	// holds all secrets that are used by the gateway (mostly listeners certificates)
 	gatewaySecrets map[string]corev1.Secret
+
+	gatewayFrontendMTLSConfigMaps      map[string]corev1.ConfigMap
+	gatewayFrontendMTLSReferenceGrants map[string]gatewayv1beta1.ReferenceGrant
 
 	config types.GatewayConfig
 
@@ -205,10 +209,146 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
 	if err := m.populateGatewaySecrets(ctx, receiver); err != nil {
 		return false, err
 	}
+	if err := m.populateGatewayFrontendMTLSDependencies(ctx, receiver); err != nil {
+		return false, err
+	}
 
 	// TODO: Make sure config is complete
 
 	return true, nil
+}
+
+func (m *gatewayModelImpl) populateGatewayFrontendMTLSDependencies(
+	ctx context.Context,
+	receiver *resolvedGatewayDetails,
+) error {
+	receiver.gatewayFrontendMTLSConfigMaps = make(map[string]corev1.ConfigMap)
+	receiver.gatewayFrontendMTLSReferenceGrants = make(map[string]gatewayv1beta1.ReferenceGrant)
+	refs := frontendMTLSConfigMapRefs(receiver.gateway)
+	if len(refs) == 0 {
+		return nil
+	}
+
+	listedGrantNamespaces := make(map[string]struct{})
+	for _, fullName := range refs {
+		if err := m.populateGatewayFrontendMTLSConfigMapDependency(ctx, receiver, fullName); err != nil {
+			return err
+		}
+		if frontendMTLSReferenceGrantsAlreadyListed(receiver.gateway, fullName, listedGrantNamespaces) {
+			continue
+		}
+		listedGrantNamespaces[fullName.Namespace] = struct{}{}
+		if err := m.populateGatewayFrontendMTLSReferenceGrantDependencies(
+			ctx,
+			receiver,
+			refs,
+			fullName.Namespace,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *gatewayModelImpl) populateGatewayFrontendMTLSConfigMapDependency(
+	ctx context.Context,
+	receiver *resolvedGatewayDetails,
+	fullName apitypes.NamespacedName,
+) error {
+	var configMap corev1.ConfigMap
+	if err := m.client.Get(ctx, fullName, &configMap); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to get frontend mTLS ConfigMap %s: %w", fullName.String(), err)
+	}
+	receiver.gatewayFrontendMTLSConfigMaps[fullName.String()] = configMap
+	return nil
+}
+
+func frontendMTLSReferenceGrantsAlreadyListed(
+	gateway gatewayv1.Gateway,
+	fullName apitypes.NamespacedName,
+	listedGrantNamespaces map[string]struct{},
+) bool {
+	if fullName.Namespace == gateway.Namespace {
+		return true
+	}
+	_, listed := listedGrantNamespaces[fullName.Namespace]
+	return listed
+}
+
+func (m *gatewayModelImpl) populateGatewayFrontendMTLSReferenceGrantDependencies(
+	ctx context.Context,
+	receiver *resolvedGatewayDetails,
+	refs []apitypes.NamespacedName,
+	namespace string,
+) error {
+	var grants gatewayv1beta1.ReferenceGrantList
+	if err := m.client.List(ctx, &grants, client.InNamespace(namespace)); err != nil {
+		return fmt.Errorf(
+			"failed to list frontend mTLS ReferenceGrants in namespace %s: %w",
+			namespace,
+			err,
+		)
+	}
+	for _, grant := range grants.Items {
+		m.addGatewayFrontendMTLSReferenceGrantDependency(receiver, refs, grant)
+	}
+	return nil
+}
+
+func (m *gatewayModelImpl) addGatewayFrontendMTLSReferenceGrantDependency(
+	receiver *resolvedGatewayDetails,
+	refs []apitypes.NamespacedName,
+	grant gatewayv1beta1.ReferenceGrant,
+) {
+	if !referenceGrantHasMatchingFrom(grant, gatewayv1.Kind("Gateway"), receiver.gateway.Namespace) {
+		return
+	}
+	for _, ref := range refs {
+		if ref.Namespace != grant.Namespace {
+			continue
+		}
+		if referenceGrantHasMatchingCoreTo(grant, "ConfigMap", ref.Name) {
+			receiver.gatewayFrontendMTLSReferenceGrants[client.ObjectKeyFromObject(&grant).String()] = grant
+			return
+		}
+	}
+}
+
+func frontendMTLSConfigMapRefs(gateway gatewayv1.Gateway) []apitypes.NamespacedName {
+	if gateway.Spec.TLS == nil || gateway.Spec.TLS.Frontend == nil {
+		return nil
+	}
+	refsByKey := make(map[apitypes.NamespacedName]struct{})
+	addRefs := func(validation *gatewayv1.FrontendTLSValidation) {
+		if validation == nil {
+			return
+		}
+		for _, ref := range validation.CACertificateRefs {
+			if ref.Group != "" || ref.Kind != "ConfigMap" {
+				continue
+			}
+			refNamespace := gateway.Namespace
+			if ref.Namespace != nil {
+				refNamespace = string(*ref.Namespace)
+			}
+			refsByKey[apitypes.NamespacedName{
+				Namespace: refNamespace,
+				Name:      string(ref.Name),
+			}] = struct{}{}
+		}
+	}
+	addRefs(gateway.Spec.TLS.Frontend.Default.Validation)
+	for _, portConfig := range gateway.Spec.TLS.Frontend.PerPort {
+		addRefs(portConfig.TLS.Validation)
+	}
+	refs := lo.Keys(refsByKey)
+	sort.Slice(refs, func(i, j int) bool {
+		return refs[i].String() < refs[j].String()
+	})
+	return refs
 }
 
 func (m *gatewayModelImpl) populateGatewaySecrets(
@@ -531,10 +671,6 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 		}
 	}
 
-	if err = m.cleanupFrontendMTLSCABundles(ctx, data, gatewayManagedListeners, response.LoadBalancer); err != nil {
-		return err
-	}
-
 	if err = m.ociLoadBalancerModel.removeMissingListeners(ctx, removeMissingListenersParams{
 		loadBalancerID:       loadBalancerID,
 		knownListeners:       response.LoadBalancer.Listeners,
@@ -542,6 +678,10 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 		gatewayListeners:     gatewayListeners,
 	}); err != nil {
 		return fmt.Errorf("failed to remove missing listeners: %w", err)
+	}
+
+	if err = m.cleanupFrontendMTLSCABundles(ctx, data, gatewayManagedListeners, response.LoadBalancer); err != nil {
+		return err
 	}
 
 	if err = m.ociLoadBalancerModel.removeUnusedCertificates(ctx, removeUnusedCertificatesParams{
@@ -648,45 +788,16 @@ func gatewayStatusAddressesFromLoadBalancer(lb *loadbalancer.LoadBalancer) []gat
 }
 
 func (m *gatewayModelImpl) isProgrammed(_ context.Context, data *resolvedGatewayDetails) bool {
-	annotations := map[string]string{
-		GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
-		GatewayProgrammedCertificatesAnnotation: programmedGatewayCertificatesAnnotation(
-			programmedCertificateNamesFromSecrets(data.gatewaySecrets),
-		),
-	}
-
-	// Include secrets annotations in the check
-	if len(data.gatewaySecrets) > 0 {
-		for _, secret := range data.gatewaySecrets {
-			secretUID := string(secret.UID)
-			annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + secretUID
-			annotations[annotationKey] = secret.ResourceVersion
-		}
-	}
-
 	return m.resourcesModel.isConditionSet(isConditionSetParams{
 		resource:      &data.gateway,
 		conditions:    data.gateway.Status.Conditions,
 		conditionType: string(gatewayv1.GatewayConditionProgrammed),
-		annotations:   annotations,
+		annotations:   programmedGatewayAnnotations(data),
 	})
 }
 
 func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGatewayDetails) error {
-	annotations := map[string]string{
-		GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
-		GatewayProgrammedCertificatesAnnotation: programmedGatewayCertificatesAnnotation(
-			programmedCertificateNamesFromSecrets(data.gatewaySecrets),
-		),
-	}
-
-	if len(data.gatewaySecrets) > 0 {
-		for _, secret := range data.gatewaySecrets {
-			secretUID := string(secret.UID)
-			annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + secretUID
-			annotations[annotationKey] = secret.ResourceVersion
-		}
-	}
+	annotations := programmedGatewayAnnotations(data)
 
 	data.gateway.Status.Addresses = gatewayStatusAddressesFromLoadBalancer(data.loadBalancer)
 	data.gateway.Status.AttachedListenerSets = attachedListenerSetCount(data.listenerSets, data.effectiveListeners)
@@ -710,6 +821,67 @@ func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGate
 		return err
 	}
 	return nil
+}
+
+func programmedGatewayAnnotations(data *resolvedGatewayDetails) map[string]string {
+	annotations := map[string]string{
+		GatewayProgrammingRevisionAnnotation: GatewayProgrammingRevisionValue,
+		GatewayProgrammedCertificatesAnnotation: programmedGatewayCertificatesAnnotation(
+			programmedCertificateNamesFromSecrets(data.gatewaySecrets),
+		),
+	}
+
+	if len(data.gatewaySecrets) > 0 {
+		for _, secret := range data.gatewaySecrets {
+			secretUID := string(secret.UID)
+			annotationKey := GatewayUsedSecretsAnnotationPrefix + "/" + secretUID
+			annotations[annotationKey] = secret.ResourceVersion
+		}
+	}
+
+	if len(frontendMTLSConfigMapRefs(data.gateway)) > 0 {
+		annotations[GatewayFrontendMTLSConfigMapsAnnotation] = configMapRevisionsAnnotation(
+			data.gatewayFrontendMTLSConfigMaps,
+		)
+	}
+	if len(data.gatewayFrontendMTLSReferenceGrants) > 0 ||
+		gatewayHasCrossNamespaceFrontendMTLSConfigMapRefs(data.gateway) {
+		annotations[GatewayFrontendMTLSReferenceGrantsAnnotation] = referenceGrantRevisionsAnnotation(
+			data.gatewayFrontendMTLSReferenceGrants,
+		)
+	}
+	return annotations
+}
+
+func gatewayHasCrossNamespaceFrontendMTLSConfigMapRefs(gateway gatewayv1.Gateway) bool {
+	for _, ref := range frontendMTLSConfigMapRefs(gateway) {
+		if ref.Namespace != gateway.Namespace {
+			return true
+		}
+	}
+	return false
+}
+
+func configMapRevisionsAnnotation(objects map[string]corev1.ConfigMap) string {
+	keys := lo.Keys(objects)
+	sort.Strings(keys)
+	revisions := make([]string, 0, len(keys))
+	for _, key := range keys {
+		object := objects[key]
+		revisions = append(revisions, fmt.Sprintf("%s=%s/%s", key, object.UID, object.ResourceVersion))
+	}
+	return strings.Join(revisions, ",")
+}
+
+func referenceGrantRevisionsAnnotation(objects map[string]gatewayv1beta1.ReferenceGrant) string {
+	keys := lo.Keys(objects)
+	sort.Strings(keys)
+	revisions := make([]string, 0, len(keys))
+	for _, key := range keys {
+		object := objects[key]
+		revisions = append(revisions, fmt.Sprintf("%s=%s/%s", key, object.UID, object.ResourceVersion))
+	}
+	return strings.Join(revisions, ",")
 }
 
 func setListenerSetsProgrammed(

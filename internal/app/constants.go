@@ -19,6 +19,12 @@ const (
 	// GatewayProgrammedCertificatesAnnotation stores OCI certificate names programmed by the controller.
 	GatewayProgrammedCertificatesAnnotation = "oke-gateway-api.gemyago.github.io/gateway-programmed-certificates"
 
+	// GatewayFrontendMTLSConfigMapsAnnotation stores frontend mTLS CA ConfigMap revisions.
+	GatewayFrontendMTLSConfigMapsAnnotation = "frontend-mtls-configmaps.oke-gateway-api.gemyago.github.io"
+
+	// GatewayFrontendMTLSReferenceGrantsAnnotation stores frontend mTLS ReferenceGrant revisions.
+	GatewayFrontendMTLSReferenceGrantsAnnotation = "frontend-mtls-referencegrants.oke-gateway-api.gemyago.github.io"
+
 	// ListenerTLSOptionOCICertificateOCID configures an existing OCI Certificates Service certificate for a listener.
 	ListenerTLSOptionOCICertificateOCID = "oci.oraclecloud.com/certificate-ocid"
 

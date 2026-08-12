@@ -1244,9 +1244,13 @@ func TestGatewayModelImpl(t *testing.T) {
 				reconcileHTTPListener(t.Context(), mock.Anything).
 				Return(nil).
 				NotBefore(reconcileCertificatesCall.Call)
+			removeCall := loadBalancerModel.EXPECT().
+				removeMissingListeners(t.Context(), mock.Anything).
+				Return(nil)
 			loadBalancerModel.EXPECT().
 				cleanupFrontendMTLSCABundles(t.Context(), mock.Anything).
-				Return(errors.New("cleanup failed"))
+				Return(errors.New("cleanup failed")).
+				NotBefore(removeCall.Call)
 
 			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
 				gateway: *gateway,
@@ -1254,6 +1258,61 @@ func TestGatewayModelImpl(t *testing.T) {
 			})
 
 			require.ErrorContains(t, err, "failed to clean up frontend mTLS CA bundles")
+		})
+		t.Run("removes missing listeners before cleaning up frontend mTLS CA bundles", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			fakeData := faker.New()
+
+			config := makeRandomGatewayConfig()
+			httpsListener := makeRandomListener(randomListenerWithHTTPSParamsOpt())
+			gateway := newRandomGateway()
+			gateway.Spec.Listeners = []gatewayv1.Listener{httpsListener}
+			gateway.Annotations = map[string]string{
+				GatewayFrontendMTLSCABundleCompartmentsAnnotation: "ocid1.compartment.oc1.." + fakeData.UUID().V4(),
+			}
+			loadBalancer := makeRandomOCILoadBalancer(
+				randomOCILoadBalancerWithRandomBackendSetsOpt(),
+				randomOCILoadBalancerWithRandomPoliciesOpt(),
+				randomOCILoadBalancerWithRandomCertificatesOpt(),
+			)
+			defaultBackendSet := makeRandomOCIBackendSet()
+
+			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+				}).
+				Return(loadbalancer.GetLoadBalancerResponse{LoadBalancer: loadBalancer}, nil)
+
+			loadBalancerModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			loadBalancerModel.EXPECT().
+				reconcileDefaultBackendSet(t.Context(), mock.Anything).
+				Return(defaultBackendSet, nil)
+			reconcileCertificatesCall := loadBalancerModel.EXPECT().
+				reconcileListenersCertificates(t.Context(), mock.Anything).
+				Return(reconcileListenersCertificatesResult{}, nil)
+			loadBalancerModel.EXPECT().
+				reconcileHTTPListener(t.Context(), mock.Anything).
+				Return(nil).
+				NotBefore(reconcileCertificatesCall.Call)
+			removeCall := loadBalancerModel.EXPECT().
+				removeMissingListeners(t.Context(), mock.Anything).
+				Return(nil)
+			cleanupCall := loadBalancerModel.EXPECT().
+				cleanupFrontendMTLSCABundles(t.Context(), mock.Anything)
+			cleanupCall.Return(nil).NotBefore(removeCall.Call)
+			loadBalancerModel.EXPECT().
+				removeUnusedCertificates(t.Context(), mock.Anything).
+				Return(nil).
+				NotBefore(cleanupCall.Call)
+
+			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
+				gateway: *gateway,
+				config:  config,
+			})
+
+			require.NoError(t, err)
 		})
 		t.Run("programs ListenerSet listeners with derived OCI listener names", func(t *testing.T) {
 			deps := newMockDeps(t)
@@ -1892,6 +1951,144 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			mockResourcesModel.AssertExpectations(t)
 		})
+
+		t.Run(
+			"should check frontend mTLS dependency annotations when gateway references CA config maps",
+			func(t *testing.T) {
+				deps := newMockDeps(t)
+				model := newGatewayModel(deps)
+				fakeData := faker.New()
+
+				configMapName := "ca-" + fakeData.Lorem().Word()
+				configMapUID := apitypes.UID(fakeData.UUID().V4())
+				configMapResourceVersion := fakeData.UUID().V4()
+				gateway := newRandomGateway()
+				gateway.Spec.TLS = &gatewayv1.GatewayTLSConfig{
+					Frontend: &gatewayv1.FrontendTLSConfig{
+						Default: gatewayv1.TLSConfig{
+							Validation: &gatewayv1.FrontendTLSValidation{
+								CACertificateRefs: []gatewayv1.ObjectReference{{
+									Group: "",
+									Kind:  "ConfigMap",
+									Name:  gatewayv1.ObjectName(configMapName),
+								}},
+							},
+						},
+					},
+				}
+				data := &resolvedGatewayDetails{
+					gateway: *gateway,
+					gatewayFrontendMTLSConfigMaps: map[string]corev1.ConfigMap{
+						gateway.Namespace + "/" + configMapName: {
+							ObjectMeta: metav1.ObjectMeta{
+								Namespace:       gateway.Namespace,
+								Name:            configMapName,
+								UID:             configMapUID,
+								ResourceVersion: configMapResourceVersion,
+							},
+						},
+					},
+				}
+
+				mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+				mockResourcesModel.EXPECT().isConditionSet(
+					isConditionSetParams{
+						resource:      &data.gateway,
+						conditions:    data.gateway.Status.Conditions,
+						conditionType: string(gatewayv1.GatewayConditionProgrammed),
+						annotations: map[string]string{
+							GatewayProgrammingRevisionAnnotation:    GatewayProgrammingRevisionValue,
+							GatewayProgrammedCertificatesAnnotation: "",
+							GatewayFrontendMTLSConfigMapsAnnotation: gateway.Namespace + "/" + configMapName +
+								"=" + string(configMapUID) + "/" + configMapResourceVersion,
+						},
+					},
+				).Return(false)
+
+				result := model.isProgrammed(t.Context(), data)
+
+				require.False(t, result)
+				mockResourcesModel.AssertExpectations(t)
+			},
+		)
+
+		t.Run(
+			"should check frontend mTLS ReferenceGrant annotations for cross namespace CA config maps",
+			func(t *testing.T) {
+				deps := newMockDeps(t)
+				model := newGatewayModel(deps)
+				fakeData := faker.New()
+
+				configMapNamespace := "ca-" + fakeData.Lorem().Word()
+				configMapName := "ca-" + fakeData.Lorem().Word()
+				configMapNamespaceRef := gatewayv1.Namespace(configMapNamespace)
+				configMapUID := apitypes.UID(fakeData.UUID().V4())
+				configMapResourceVersion := fakeData.UUID().V4()
+				grantName := "allow-" + fakeData.Lorem().Word()
+				grantUID := apitypes.UID(fakeData.UUID().V4())
+				grantResourceVersion := fakeData.UUID().V4()
+				gateway := newRandomGateway()
+				gateway.Spec.TLS = &gatewayv1.GatewayTLSConfig{
+					Frontend: &gatewayv1.FrontendTLSConfig{
+						Default: gatewayv1.TLSConfig{
+							Validation: &gatewayv1.FrontendTLSValidation{
+								CACertificateRefs: []gatewayv1.ObjectReference{{
+									Group:     "",
+									Kind:      "ConfigMap",
+									Name:      gatewayv1.ObjectName(configMapName),
+									Namespace: &configMapNamespaceRef,
+								}},
+							},
+						},
+					},
+				}
+				data := &resolvedGatewayDetails{
+					gateway: *gateway,
+					gatewayFrontendMTLSConfigMaps: map[string]corev1.ConfigMap{
+						configMapNamespace + "/" + configMapName: {
+							ObjectMeta: metav1.ObjectMeta{
+								Namespace:       configMapNamespace,
+								Name:            configMapName,
+								UID:             configMapUID,
+								ResourceVersion: configMapResourceVersion,
+							},
+						},
+					},
+					gatewayFrontendMTLSReferenceGrants: map[string]gatewayv1beta1.ReferenceGrant{
+						configMapNamespace + "/" + grantName: {
+							ObjectMeta: metav1.ObjectMeta{
+								Namespace:       configMapNamespace,
+								Name:            grantName,
+								UID:             grantUID,
+								ResourceVersion: grantResourceVersion,
+							},
+						},
+					},
+				}
+
+				mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+				mockResourcesModel.EXPECT().isConditionSet(
+					isConditionSetParams{
+						resource:      &data.gateway,
+						conditions:    data.gateway.Status.Conditions,
+						conditionType: string(gatewayv1.GatewayConditionProgrammed),
+						annotations: map[string]string{
+							GatewayProgrammingRevisionAnnotation:    GatewayProgrammingRevisionValue,
+							GatewayProgrammedCertificatesAnnotation: "",
+							GatewayFrontendMTLSConfigMapsAnnotation: configMapNamespace + "/" + configMapName +
+								"=" + string(configMapUID) + "/" + configMapResourceVersion,
+							GatewayFrontendMTLSReferenceGrantsAnnotation: configMapNamespace + "/" + grantName +
+								"=" + string(grantUID) + "/" + grantResourceVersion,
+						},
+					},
+				).Return(false)
+
+				result := model.isProgrammed(t.Context(), data)
+
+				require.False(t, result)
+				mockResourcesModel.AssertExpectations(t)
+			},
+		)
 	})
 
 	t.Run("populateAttachedListenerSets", func(t *testing.T) {
@@ -2505,6 +2702,231 @@ func TestGatewayModelImpl(t *testing.T) {
 		err := model.setProgrammed(t.Context(), data)
 
 		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("populateGatewayFrontendMTLSDependencies", func(t *testing.T) {
+		t.Run("initializes empty dependency maps when gateway has no frontend mTLS refs", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			data := &resolvedGatewayDetails{gateway: *newRandomGateway()}
+
+			err := model.populateGatewayFrontendMTLSDependencies(t.Context(), data)
+
+			require.NoError(t, err)
+			assert.Empty(t, data.gatewayFrontendMTLSConfigMaps)
+			assert.Empty(t, data.gatewayFrontendMTLSReferenceGrants)
+		})
+
+		t.Run("collects local and cross namespace CA ConfigMaps and ReferenceGrants", func(t *testing.T) {
+			fakeData := faker.New()
+			gateway := newRandomGateway()
+			localRefName := gatewayv1.ObjectName("local-" + fakeData.Lorem().Word())
+			crossNamespace := "security-" + fakeData.Lorem().Word()
+			crossNamespaceRef := gatewayv1.Namespace(crossNamespace)
+			crossRefName := gatewayv1.ObjectName("cross-" + fakeData.Lorem().Word())
+			perPortRefName := gatewayv1.ObjectName("per-port-" + fakeData.Lorem().Word())
+			gateway.Spec.TLS = &gatewayv1.GatewayTLSConfig{
+				Frontend: &gatewayv1.FrontendTLSConfig{
+					Default: gatewayv1.TLSConfig{
+						Validation: &gatewayv1.FrontendTLSValidation{
+							CACertificateRefs: []gatewayv1.ObjectReference{
+								{Group: "", Kind: "ConfigMap", Name: localRefName},
+								{Group: "", Kind: "ConfigMap", Name: crossRefName, Namespace: &crossNamespaceRef},
+								{Group: "example.com", Kind: "Other", Name: "ignored"},
+							},
+						},
+					},
+					PerPort: []gatewayv1.TLSPortConfig{{
+						Port: 8443,
+						TLS: gatewayv1.TLSConfig{
+							Validation: &gatewayv1.FrontendTLSValidation{
+								CACertificateRefs: []gatewayv1.ObjectReference{
+									{Group: "", Kind: "ConfigMap", Name: perPortRefName, Namespace: &crossNamespaceRef},
+								},
+							},
+						},
+					}},
+				},
+			}
+			localConfigMap := corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: gateway.Namespace,
+					Name:      string(localRefName),
+				},
+			}
+			crossConfigMap := corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: crossNamespace,
+					Name:      string(crossRefName),
+				},
+			}
+			perPortConfigMap := corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: crossNamespace,
+					Name:      string(perPortRefName),
+				},
+			}
+			grantName := "allow-" + fakeData.Lorem().Word()
+			grantToName := crossRefName
+			grant := gatewayv1beta1.ReferenceGrant{
+				ObjectMeta: metav1.ObjectMeta{Namespace: crossNamespace, Name: grantName},
+				Spec: gatewayv1beta1.ReferenceGrantSpec{
+					From: []gatewayv1beta1.ReferenceGrantFrom{{
+						Group:     gatewayv1.Group(gatewayAPIGroup),
+						Kind:      gatewayv1.Kind("Gateway"),
+						Namespace: gatewayv1.Namespace(gateway.Namespace),
+					}},
+					To: []gatewayv1beta1.ReferenceGrantTo{{
+						Group: "",
+						Kind:  gatewayv1.Kind("ConfigMap"),
+						Name:  &grantToName,
+					}},
+				},
+			}
+			irrelevantGrant := *grant.DeepCopy()
+			irrelevantGrant.Name = "ignore-" + fakeData.Lorem().Word()
+			irrelevantGrant.Spec.From[0].Namespace = gatewayv1.Namespace("other-" + fakeData.Lorem().Word())
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(newL4TestScheme(t)).
+				WithObjects(&localConfigMap, &crossConfigMap, &perPortConfigMap, &grant, &irrelevantGrant).
+				Build()
+			model := newGatewayModel(gatewayModelDeps{
+				K8sClient:            k8sClient,
+				ResourcesModel:       NewMockresourcesModel(t),
+				RootLogger:           diag.RootTestLogger(),
+				OciClient:            NewMockociLoadBalancerClient(t),
+				OciLoadBalancerModel: NewMockociLoadBalancerModel(t),
+			})
+			data := &resolvedGatewayDetails{gateway: *gateway}
+
+			err := model.populateGatewayFrontendMTLSDependencies(t.Context(), data)
+
+			require.NoError(t, err)
+			assert.Contains(t, data.gatewayFrontendMTLSConfigMaps, gateway.Namespace+"/"+string(localRefName))
+			assert.Contains(t, data.gatewayFrontendMTLSConfigMaps, crossNamespace+"/"+string(crossRefName))
+			assert.Contains(t, data.gatewayFrontendMTLSConfigMaps, crossNamespace+"/"+string(perPortRefName))
+			assert.Contains(t, data.gatewayFrontendMTLSReferenceGrants, crossNamespace+"/"+grantName)
+			assert.NotContains(t, data.gatewayFrontendMTLSReferenceGrants, crossNamespace+"/"+irrelevantGrant.Name)
+
+			refs := frontendMTLSConfigMapRefs(*gateway)
+			assert.ElementsMatch(t, []apitypes.NamespacedName{
+				{Namespace: gateway.Namespace, Name: string(localRefName)},
+				{Namespace: crossNamespace, Name: string(crossRefName)},
+				{Namespace: crossNamespace, Name: string(perPortRefName)},
+			}, refs)
+			assert.True(t, gatewayHasCrossNamespaceFrontendMTLSConfigMapRefs(*gateway))
+		})
+
+		t.Run("tracks missing ConfigMaps by omitting their revision", func(t *testing.T) {
+			fakeData := faker.New()
+			gateway := newRandomGateway()
+			gateway.Spec.TLS = &gatewayv1.GatewayTLSConfig{
+				Frontend: &gatewayv1.FrontendTLSConfig{
+					Default: gatewayv1.TLSConfig{
+						Validation: &gatewayv1.FrontendTLSValidation{
+							CACertificateRefs: []gatewayv1.ObjectReference{{
+								Group: "",
+								Kind:  "ConfigMap",
+								Name:  gatewayv1.ObjectName("missing-" + fakeData.Lorem().Word()),
+							}},
+						},
+					},
+				},
+			}
+			k8sClient := fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).Build()
+			model := newGatewayModel(gatewayModelDeps{
+				K8sClient:            k8sClient,
+				ResourcesModel:       NewMockresourcesModel(t),
+				RootLogger:           diag.RootTestLogger(),
+				OciClient:            NewMockociLoadBalancerClient(t),
+				OciLoadBalancerModel: NewMockociLoadBalancerModel(t),
+			})
+			data := &resolvedGatewayDetails{gateway: *gateway}
+
+			err := model.populateGatewayFrontendMTLSDependencies(t.Context(), data)
+
+			require.NoError(t, err)
+			assert.Empty(t, data.gatewayFrontendMTLSConfigMaps)
+			assert.Empty(t, data.gatewayFrontendMTLSReferenceGrants)
+		})
+
+		t.Run("returns ConfigMap lookup errors", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			fakeData := faker.New()
+			refName := gatewayv1.ObjectName("ca-" + fakeData.Lorem().Word())
+			gateway := newRandomGateway()
+			gateway.Spec.TLS = &gatewayv1.GatewayTLSConfig{
+				Frontend: &gatewayv1.FrontendTLSConfig{
+					Default: gatewayv1.TLSConfig{
+						Validation: &gatewayv1.FrontendTLSValidation{
+							CACertificateRefs: []gatewayv1.ObjectReference{{
+								Group: "",
+								Kind:  "ConfigMap",
+								Name:  refName,
+							}},
+						},
+					},
+				},
+			}
+			wantErr := errors.New("get failed")
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockClient.EXPECT().
+				Get(t.Context(), apitypes.NamespacedName{
+					Namespace: gateway.Namespace,
+					Name:      string(refName),
+				}, mock.AnythingOfType("*v1.ConfigMap")).
+				Return(wantErr)
+
+			err := model.populateGatewayFrontendMTLSDependencies(
+				t.Context(),
+				&resolvedGatewayDetails{gateway: *gateway},
+			)
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to get frontend mTLS ConfigMap")
+		})
+
+		t.Run("returns ReferenceGrant list errors", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			fakeData := faker.New()
+			refNamespace := "security-" + fakeData.Lorem().Word()
+			refNamespaceValue := gatewayv1.Namespace(refNamespace)
+			refName := gatewayv1.ObjectName("ca-" + fakeData.Lorem().Word())
+			gateway := newRandomGateway()
+			gateway.Spec.TLS = &gatewayv1.GatewayTLSConfig{
+				Frontend: &gatewayv1.FrontendTLSConfig{
+					Default: gatewayv1.TLSConfig{
+						Validation: &gatewayv1.FrontendTLSValidation{
+							CACertificateRefs: []gatewayv1.ObjectReference{{
+								Group:     "",
+								Kind:      "ConfigMap",
+								Name:      refName,
+								Namespace: &refNamespaceValue,
+							}},
+						},
+					},
+				},
+			}
+			wantErr := errors.New("list failed")
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			setupClientGet(t, mockClient, apitypes.NamespacedName{
+				Namespace: refNamespace,
+				Name:      string(refName),
+			}, corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: refNamespace, Name: string(refName)}})
+			mockClient.EXPECT().
+				List(t.Context(), mock.AnythingOfType("*v1beta1.ReferenceGrantList"), mock.Anything).
+				Return(wantErr)
+
+			err := model.populateGatewayFrontendMTLSDependencies(
+				t.Context(),
+				&resolvedGatewayDetails{gateway: *gateway},
+			)
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to list frontend mTLS ReferenceGrants")
+		})
 	})
 
 	t.Run("populateGatewaySecrets with effective listeners", func(t *testing.T) {
