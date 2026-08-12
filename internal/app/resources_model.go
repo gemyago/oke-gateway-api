@@ -14,14 +14,15 @@ import (
 )
 
 type setConditionParams struct {
-	resource      client.Object
-	conditions    *[]metav1.Condition
-	conditionType string
-	status        metav1.ConditionStatus
-	reason        string
-	message       string
-	annotations   map[string]string
-	finalizer     string
+	resource          client.Object
+	conditions        *[]metav1.Condition
+	conditionType     string
+	status            metav1.ConditionStatus
+	reason            string
+	message           string
+	annotations       map[string]string
+	removeAnnotations []string
+	finalizer         string
 }
 
 type isConditionSetParams struct {
@@ -78,10 +79,13 @@ func (m *resourcesModelImpl) setCondition(ctx context.Context, params setConditi
 		needsResourceUpdate = controllerutil.AddFinalizer(params.resource, params.finalizer)
 	}
 
-	if len(params.annotations) > 0 {
+	if len(params.annotations) > 0 || len(params.removeAnnotations) > 0 {
 		currentAnnotations := params.resource.GetAnnotations()
 		if currentAnnotations == nil {
 			currentAnnotations = make(map[string]string)
+		}
+		for _, key := range params.removeAnnotations {
+			delete(currentAnnotations, key)
 		}
 		maps.Copy(currentAnnotations, params.annotations)
 		params.resource.SetAnnotations(currentAnnotations)

@@ -802,13 +802,14 @@ func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGate
 	data.gateway.Status.Addresses = gatewayStatusAddressesFromLoadBalancer(data.loadBalancer)
 	data.gateway.Status.AttachedListenerSets = attachedListenerSetCount(data.listenerSets, data.effectiveListeners)
 	if err := m.resourcesModel.setCondition(ctx, setConditionParams{
-		resource:      &data.gateway,
-		conditions:    &data.gateway.Status.Conditions,
-		conditionType: string(gatewayv1.GatewayConditionProgrammed),
-		status:        metav1.ConditionTrue,
-		reason:        string(gatewayv1.GatewayReasonProgrammed),
-		message:       fmt.Sprintf("Gateway %s programmed by %s", data.gateway.Name, ControllerClassName),
-		annotations:   annotations,
+		resource:          &data.gateway,
+		conditions:        &data.gateway.Status.Conditions,
+		conditionType:     string(gatewayv1.GatewayConditionProgrammed),
+		status:            metav1.ConditionTrue,
+		reason:            string(gatewayv1.GatewayReasonProgrammed),
+		message:           fmt.Sprintf("Gateway %s programmed by %s", data.gateway.Name, ControllerClassName),
+		annotations:       annotations,
+		removeAnnotations: staleProgrammedGatewayAnnotations(annotations),
 	}); err != nil {
 		return fmt.Errorf("failed to set programmed condition for Gateway %s: %w", data.gateway.Name, err)
 	}
@@ -851,6 +852,20 @@ func programmedGatewayAnnotations(data *resolvedGatewayDetails) map[string]strin
 		)
 	}
 	return annotations
+}
+
+func staleProgrammedGatewayAnnotations(annotations map[string]string) []string {
+	keys := []string{
+		GatewayFrontendMTLSConfigMapsAnnotation,
+		GatewayFrontendMTLSReferenceGrantsAnnotation,
+	}
+	stale := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if _, found := annotations[key]; !found {
+			stale = append(stale, key)
+		}
+	}
+	return stale
 }
 
 func gatewayHasCrossNamespaceFrontendMTLSConfigMapRefs(gateway gatewayv1.Gateway) bool {

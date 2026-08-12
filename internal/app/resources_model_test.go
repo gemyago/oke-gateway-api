@@ -222,6 +222,71 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("RemovesStaleFrontendMTLSDependencyAnnotation", func(t *testing.T) {
+		fake := faker.New()
+		deps := newMockDeps(t)
+		model := newResourcesModel(deps)
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+
+		keepKey := "keep-" + fake.Lorem().Word()
+		keepValue := fake.UUID().V4()
+		newRevision := fake.UUID().V4()
+		gateway := &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "ns-" + fake.Lorem().Word(),
+				Name:       "gateway-" + fake.Lorem().Word(),
+				Generation: rand.Int64(),
+				Annotations: map[string]string{
+					keepKey:                                 keepValue,
+					GatewayFrontendMTLSConfigMapsAnnotation: "old-ns/old-ca=" + fake.UUID().V4(),
+					GatewayFrontendMTLSReferenceGrantsAnnotation: "old-ns/old-grant=" + fake.UUID().V4(),
+				},
+			},
+			Status: gatewayv1.GatewayStatus{Conditions: []metav1.Condition{}},
+		}
+		wantAnnotations := map[string]string{
+			keepKey:                              keepValue,
+			GatewayProgrammingRevisionAnnotation: newRevision,
+		}
+
+		params := setConditionParams{
+			resource:      gateway,
+			conditions:    &gateway.Status.Conditions,
+			conditionType: string(gatewayv1.GatewayConditionProgrammed),
+			status:        metav1.ConditionTrue,
+			reason:        string(gatewayv1.GatewayReasonProgrammed),
+			message:       fake.Lorem().Sentence(10),
+			annotations: map[string]string{
+				GatewayProgrammingRevisionAnnotation: newRevision,
+			},
+			removeAnnotations: []string{
+				GatewayFrontendMTLSConfigMapsAnnotation,
+				GatewayFrontendMTLSReferenceGrantsAnnotation,
+			},
+		}
+
+		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
+		statusUpdateCall := mockStatusWriter.EXPECT().
+			Update(t.Context(), gateway, mock.Anything).
+			Return(nil).
+			Once()
+
+		mockClient.EXPECT().
+			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				gotGateway, ok := obj.(*gatewayv1.Gateway)
+				require.True(t, ok)
+				assert.Equal(t, wantAnnotations, gotGateway.GetAnnotations())
+				return true
+			}), mock.Anything).
+			Return(nil).
+			Once().
+			NotBefore(statusUpdateCall)
+
+		err := model.setCondition(t.Context(), params)
+		require.NoError(t, err)
+	})
+
 	t.Run("HappyPath_AddsAnnotations_NoInitial", func(t *testing.T) {
 		fake := faker.New()
 		deps := newMockDeps(t)

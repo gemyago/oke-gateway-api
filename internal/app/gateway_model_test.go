@@ -1767,6 +1767,10 @@ func TestGatewayModelImpl(t *testing.T) {
 						GatewayProgrammingRevisionAnnotation:    GatewayProgrammingRevisionValue,
 						GatewayProgrammedCertificatesAnnotation: "",
 					},
+					removeAnnotations: []string{
+						GatewayFrontendMTLSConfigMapsAnnotation,
+						GatewayFrontendMTLSReferenceGrantsAnnotation,
+					},
 				},
 			).Return(nil)
 
@@ -1818,6 +1822,10 @@ func TestGatewayModelImpl(t *testing.T) {
 					reason:        string(gatewayv1.GatewayReasonProgrammed),
 					message:       fmt.Sprintf("Gateway %s programmed by %s", data.gateway.Name, ControllerClassName),
 					annotations:   expectedAnnotations,
+					removeAnnotations: []string{
+						GatewayFrontendMTLSConfigMapsAnnotation,
+						GatewayFrontendMTLSReferenceGrantsAnnotation,
+					},
 				},
 			).Return(nil)
 
