@@ -19,6 +19,15 @@ const (
 	// GatewayProgrammedCertificatesAnnotation stores OCI certificate names programmed by the controller.
 	GatewayProgrammedCertificatesAnnotation = "oke-gateway-api.gemyago.github.io/gateway-programmed-certificates"
 
+	// LoadBalancerGatewayProgrammedListenersAnnotation tracks ALB listeners programmed by a Gateway.
+	LoadBalancerGatewayProgrammedListenersAnnotation = "oke-gateway-api.gemyago.github.io/alb-gateway-listeners"
+
+	// LoadBalancerGatewayProgrammedFinalizer indicates the Gateway has provisioned OCI ALB resources.
+	LoadBalancerGatewayProgrammedFinalizer = "oke-gateway-api.gemyago.github.io/alb-gateway-programmed"
+
+	// LoadBalancerGatewayIDAnnotation stores the OCI Load Balancer OCID programmed by the controller.
+	LoadBalancerGatewayIDAnnotation = "oke-gateway-api.gemyago.github.io/alb-id"
+
 	// GatewayFrontendMTLSConfigMapsAnnotation stores frontend mTLS CA ConfigMap revisions.
 	GatewayFrontendMTLSConfigMapsAnnotation = "frontend-mtls-configmaps.oke-gateway-api.gemyago.github.io"
 
@@ -113,13 +122,21 @@ const (
 
 	// NetworkLoadBalancerGatewayProgrammingRevisionValue is the value for the L4 gateway programming revision.
 	// Incremented when the NLB controller programming steps are changed.
-	NetworkLoadBalancerGatewayProgrammingRevisionValue = "1"
+	NetworkLoadBalancerGatewayProgrammingRevisionValue = "2"
 
 	// NetworkLoadBalancerGatewayProgrammedFinalizer indicates the L4 Gateway has provisioned OCI NLB resources.
 	NetworkLoadBalancerGatewayProgrammedFinalizer = "oke-gateway-api.gemyago.github.io/nlb-gateway-programmed"
 
 	// NetworkLoadBalancerGatewayIDAnnotation stores the OCI NLB OCID programmed by the controller.
 	NetworkLoadBalancerGatewayIDAnnotation = "oke-gateway-api.gemyago.github.io/nlb-id"
+
+	// NetworkLoadBalancerGatewayProgrammedListenersAnnotation tracks NLB listeners programmed by a Gateway.
+	NetworkLoadBalancerGatewayProgrammedListenersAnnotation = "oke-gateway-api.gemyago.github.io/" +
+		"nlb-gateway-listeners"
+
+	// NetworkLoadBalancerGatewayProgrammedBackendSetsAnnotation tracks NLB backend sets programmed by a Gateway.
+	NetworkLoadBalancerGatewayProgrammedBackendSetsAnnotation = "oke-gateway-api.gemyago.github.io/" +
+		"nlb-gateway-backendsets"
 
 	// L4RouteProgrammedNetworkLoadBalancerIDAnnotation tracks the OCI Network Load Balancer used by L4 routes.
 	L4RouteProgrammedNetworkLoadBalancerIDAnnotation = "oke-gateway-api.gemyago.github.io/" +

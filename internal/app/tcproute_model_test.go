@@ -1811,6 +1811,58 @@ func TestTCPRouteModel(t *testing.T) {
 		require.ErrorAs(t, err, &busyErr)
 	})
 
+	t.Run("programRoute returns busy error when backend set is not created yet", func(t *testing.T) {
+		port := gatewayv1.PortNumber(1935)
+		route := gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
+			Spec: gatewayv1.TCPRouteSpec{
+				CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
+				},
+				Rules: []gatewayv1.TCPRouteRule{{
+					BackendRefs: []gatewayv1.BackendRef{{
+						BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
+					}},
+				}},
+			},
+		}
+		listener := gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: port}
+		objects := append(l4GatewayObjects(listener), &route)
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithRuntimeObjects(objects...).
+			Build()
+		model := newTCPRouteModel(tcpRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  k8sClient,
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{
+				networkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id:          new("nlb-id"),
+					BackendSets: map[string]networkloadbalancer.BackendSet{},
+				},
+			},
+			OciNetworkLoadBalancerAPI: &stubNetworkLoadBalancerClient{
+				updateBackendSetErr: ociapi.NewRandomServiceError(
+					ociapi.RandomServiceErrorWithStatusCode(http.StatusNotFound),
+					ociapi.RandomServiceErrorWithCode("NotAuthorizedOrNotFound"),
+					ociapi.RandomServiceErrorWithMessage("Unknown resource BackendSet bs_rtmp"),
+				),
+			},
+			WorkRequestsWatcher: &stubWorkRequestsWatcher{},
+		})
+
+		err := model.programRoute(t.Context(), resolvedTCPRouteDetails{
+			tcpRoute: route,
+			gatewayDetails: resolvedGatewayDetails{
+				gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "edge"}},
+			},
+			matchedListener: listener,
+		})
+
+		var busyErr *networkLoadBalancerBusyError
+		require.ErrorAs(t, err, &busyErr)
+	})
+
 	t.Run("programRoute returns busy error when NLB is already updating", func(t *testing.T) {
 		port := gatewayv1.PortNumber(1935)
 		listener := gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: port}

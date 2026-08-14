@@ -31,11 +31,15 @@ func setAnnotatedBackendSetNames(route client.Object, annotation string, names m
 		return
 	}
 
+	annotations[annotation] = joinedAnnotationNames(names)
+	route.SetAnnotations(annotations)
+}
+
+func joinedAnnotationNames(names map[string]struct{}) string {
 	sortedNames := make([]string, 0, len(names))
 	for name := range names {
 		sortedNames = append(sortedNames, name)
 	}
 	sort.Strings(sortedNames)
-	annotations[annotation] = strings.Join(sortedNames, ",")
-	route.SetAnnotations(annotations)
+	return strings.Join(sortedNames, ",")
 }

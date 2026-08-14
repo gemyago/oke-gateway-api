@@ -154,11 +154,14 @@ func TestTCPRouteModelResolveAndProgram(t *testing.T) {
 	require.Len(t, nlbClient.updateBackendSetRequests, 1)
 	update := nlbClient.updateBackendSetRequests[0]
 	assert.Equal(t, "bs_rtmp", lo.FromPtr(update.BackendSetName))
-	require.Len(t, update.UpdateBackendSetDetails.Backends, 1)
+	assert.Empty(t, update.UpdateBackendSetDetails.Backends)
 	assert.False(t, lo.FromPtr(update.UpdateBackendSetDetails.IsPreserveSource))
-	assert.Equal(t, "10.0.0.10", lo.FromPtr(update.UpdateBackendSetDetails.Backends[0].IpAddress))
-	assert.Equal(t, 1935, lo.FromPtr(update.UpdateBackendSetDetails.Backends[0].Port))
 	assert.Nil(t, update.UpdateBackendSetDetails.HealthChecker.Port)
+	require.Len(t, nlbClient.createBackendRequests, 1)
+	createBackend := nlbClient.createBackendRequests[0]
+	assert.Equal(t, "bs_rtmp", lo.FromPtr(createBackend.BackendSetName))
+	assert.Equal(t, "10.0.0.10", lo.FromPtr(createBackend.IpAddress))
+	assert.Equal(t, 1935, lo.FromPtr(createBackend.Port))
 
 	err = model.setProgrammed(t.Context(), resolved[0])
 	require.NoError(t, err)
@@ -240,11 +243,14 @@ func TestUDPRouteModelResolveAndProgram(t *testing.T) {
 	require.Len(t, nlbClient.updateBackendSetRequests, 1)
 	update := nlbClient.updateBackendSetRequests[0]
 	assert.Equal(t, "bs_coap", lo.FromPtr(update.BackendSetName))
-	require.Len(t, update.UpdateBackendSetDetails.Backends, 1)
+	assert.Empty(t, update.UpdateBackendSetDetails.Backends)
 	assert.False(t, lo.FromPtr(update.UpdateBackendSetDetails.IsPreserveSource))
-	assert.Equal(t, "10.0.0.10", lo.FromPtr(update.UpdateBackendSetDetails.Backends[0].IpAddress))
-	assert.Equal(t, 5684, lo.FromPtr(update.UpdateBackendSetDetails.Backends[0].Port))
 	assert.Equal(t, 9000, lo.FromPtr(update.UpdateBackendSetDetails.HealthChecker.Port))
+	require.Len(t, nlbClient.createBackendRequests, 1)
+	createBackend := nlbClient.createBackendRequests[0]
+	assert.Equal(t, "bs_coap", lo.FromPtr(createBackend.BackendSetName))
+	assert.Equal(t, "10.0.0.10", lo.FromPtr(createBackend.IpAddress))
+	assert.Equal(t, 5684, lo.FromPtr(createBackend.Port))
 
 	err = model.setProgrammed(t.Context(), resolved[0])
 	require.NoError(t, err)
@@ -323,11 +329,14 @@ func TestTLSRouteModelResolveAndProgramNLBPassthrough(t *testing.T) {
 	require.Len(t, nlbClient.updateBackendSetRequests, 1)
 	update := nlbClient.updateBackendSetRequests[0]
 	assert.Equal(t, "bs_tls", lo.FromPtr(update.BackendSetName))
-	require.Len(t, update.UpdateBackendSetDetails.Backends, 1)
+	assert.Empty(t, update.UpdateBackendSetDetails.Backends)
 	assert.False(t, lo.FromPtr(update.UpdateBackendSetDetails.IsPreserveSource))
-	assert.Equal(t, "10.0.0.10", lo.FromPtr(update.UpdateBackendSetDetails.Backends[0].IpAddress))
-	assert.Equal(t, 443, lo.FromPtr(update.UpdateBackendSetDetails.Backends[0].Port))
 	assert.Equal(t, 443, lo.FromPtr(update.UpdateBackendSetDetails.HealthChecker.Port))
+	require.Len(t, nlbClient.createBackendRequests, 1)
+	createBackend := nlbClient.createBackendRequests[0]
+	assert.Equal(t, "bs_tls", lo.FromPtr(createBackend.BackendSetName))
+	assert.Equal(t, "10.0.0.10", lo.FromPtr(createBackend.IpAddress))
+	assert.Equal(t, 443, lo.FromPtr(createBackend.Port))
 
 	err = model.setProgrammed(t.Context(), resolved[0])
 	require.NoError(t, err)

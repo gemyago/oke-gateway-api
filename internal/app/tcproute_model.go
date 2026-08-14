@@ -527,12 +527,17 @@ func mergeNetworkLoadBalancerBackend(
 	desired map[string]networkloadbalancer.BackendDetails,
 	backend networkloadbalancer.BackendDetails,
 ) {
-	key := fmt.Sprintf("%s:%d", lo.FromPtr(backend.IpAddress), lo.FromPtr(backend.Port))
+	key := networkLoadBalancerBackendKey(backend)
+	backend.Name = new(key)
 	if existing, found := desired[key]; found {
 		backend.Weight = new(lo.FromPtr(existing.Weight) + lo.FromPtr(backend.Weight))
 		backend.IsDrain = new(lo.FromPtr(existing.IsDrain) && lo.FromPtr(backend.IsDrain))
 	}
 	desired[key] = backend
+}
+
+func networkLoadBalancerBackendKey(backend networkloadbalancer.BackendDetails) string {
+	return fmt.Sprintf("%s:%d", lo.FromPtr(backend.IpAddress), lo.FromPtr(backend.Port))
 }
 
 func tcpBackendsEqual(current []networkloadbalancer.Backend, desired []networkloadbalancer.BackendDetails) bool {

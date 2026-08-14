@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
@@ -124,6 +125,8 @@ type gatewayModel interface {
 
 	programGateway(ctx context.Context, data *resolvedGatewayDetails) error
 
+	deprovisionGateway(ctx context.Context, data *resolvedGatewayDetails) error
+
 	isProgrammed(ctx context.Context, data *resolvedGatewayDetails) bool
 
 	setProgrammed(ctx context.Context, data *resolvedGatewayDetails) error
@@ -173,7 +176,47 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
 		return false, nil
 	}
 
+	configResolved, configErr := m.resolveGatewayConfig(ctx, receiver)
+	if configErr != nil || !configResolved {
+		return false, configErr
+	}
+
+	if m.listenerSetEnabled {
+		if err := populateAttachedListenerSets(ctx, m.client, receiver); err != nil {
+			return false, err
+		}
+	}
+
+	if receiver.gateway.DeletionTimestamp != nil &&
+		controllerutil.ContainsFinalizer(&receiver.gateway, LoadBalancerGatewayProgrammedFinalizer) {
+		return true, nil
+	}
+
+	if err := validateGatewayCertificateOptions(receiver.gateway); err != nil {
+		return false, err
+	}
+
+	if err := m.populateGatewaySecrets(ctx, receiver); err != nil {
+		return false, err
+	}
+	if err := m.populateGatewayFrontendMTLSDependencies(ctx, receiver); err != nil {
+		return false, err
+	}
+
+	// TODO: Make sure config is complete
+
+	return true, nil
+}
+
+func (m *gatewayModelImpl) resolveGatewayConfig(
+	ctx context.Context,
+	receiver *resolvedGatewayDetails,
+) (bool, error) {
 	if receiver.gateway.Spec.Infrastructure == nil || receiver.gateway.Spec.Infrastructure.ParametersRef == nil {
+		if loadBalancerGatewayCanFinalizeWithoutConfig(receiver.gateway) {
+			receiver.config.Spec.LoadBalancerID = receiver.gateway.Annotations[LoadBalancerGatewayIDAnnotation]
+			return true, nil
+		}
 		return false, &resourceStatusError{
 			conditionType: string(gatewayv1.GatewayConditionAccepted),
 			reason:        string(gatewayv1.GatewayReasonInvalidParameters),
@@ -188,6 +231,10 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
 
 	if err := m.client.Get(ctx, configName, &receiver.config); err != nil {
 		if apierrors.IsNotFound(err) {
+			if loadBalancerGatewayCanFinalizeWithoutConfig(receiver.gateway) {
+				receiver.config.Spec.LoadBalancerID = receiver.gateway.Annotations[LoadBalancerGatewayIDAnnotation]
+				return true, nil
+			}
 			return false, &resourceStatusError{
 				conditionType: string(gatewayv1.GatewayConditionAccepted),
 				reason:        string(gatewayv1.GatewayReasonInvalidParameters),
@@ -196,26 +243,13 @@ func (m *gatewayModelImpl) resolveReconcileRequest(
 		}
 		return false, fmt.Errorf("failed to get GatewayConfig %s: %w", configName, err)
 	}
-
-	if err := validateGatewayCertificateOptions(receiver.gateway); err != nil {
-		return false, err
-	}
-
-	if m.listenerSetEnabled {
-		if err := populateAttachedListenerSets(ctx, m.client, receiver); err != nil {
-			return false, err
-		}
-	}
-	if err := m.populateGatewaySecrets(ctx, receiver); err != nil {
-		return false, err
-	}
-	if err := m.populateGatewayFrontendMTLSDependencies(ctx, receiver); err != nil {
-		return false, err
-	}
-
-	// TODO: Make sure config is complete
-
 	return true, nil
+}
+
+func loadBalancerGatewayCanFinalizeWithoutConfig(gateway gatewayv1.Gateway) bool {
+	return gateway.DeletionTimestamp != nil &&
+		controllerutil.ContainsFinalizer(&gateway, LoadBalancerGatewayProgrammedFinalizer) &&
+		gateway.Annotations[LoadBalancerGatewayIDAnnotation] != ""
 }
 
 func (m *gatewayModelImpl) populateGatewayFrontendMTLSDependencies(
@@ -571,6 +605,15 @@ func programmedGatewayCertificatesAnnotation(certNames []string) string {
 	return strings.Join(normalizeProgrammedCertificateNames(certNames), ",")
 }
 
+func programmedGatewayListenersAnnotation(listeners []gatewayv1.Listener) string {
+	listenerNames := make([]string, 0, len(listeners))
+	for _, listener := range listeners {
+		listenerNames = append(listenerNames, string(listener.Name))
+	}
+	sort.Strings(listenerNames)
+	return strings.Join(listenerNames, ",")
+}
+
 func parseProgrammedGatewayCertificatesAnnotation(annotationValue string) []string {
 	if annotationValue == "" {
 		return nil
@@ -670,7 +713,13 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 		}
 	}
 
-	if err = m.removeMissingGatewayListeners(ctx, loadBalancerID, response.LoadBalancer, gatewayListeners); err != nil {
+	if err = m.removeMissingGatewayListeners(
+		ctx,
+		data,
+		gatewayManagedListeners,
+		response.LoadBalancer,
+		gatewayListeners,
+	); err != nil {
 		return err
 	}
 
@@ -692,6 +741,123 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 	}
 
 	return nil
+}
+
+func (m *gatewayModelImpl) deprovisionGateway(ctx context.Context, data *resolvedGatewayDetails) error {
+	loadBalancerID := data.config.Spec.LoadBalancerID
+	if loadBalancerID == "" {
+		loadBalancerID = data.gateway.Annotations[LoadBalancerGatewayIDAnnotation]
+	}
+	if loadBalancerID != "" {
+		if err := m.deprovisionGatewayLoadBalancerResources(ctx, data, loadBalancerID); err != nil {
+			return err
+		}
+	}
+
+	gatewayToUpdate := data.gateway.DeepCopy()
+	controllerutil.RemoveFinalizer(gatewayToUpdate, LoadBalancerGatewayProgrammedFinalizer)
+	annotations := gatewayToUpdate.GetAnnotations()
+	delete(annotations, LoadBalancerGatewayIDAnnotation)
+	delete(annotations, GatewayProgrammingRevisionAnnotation)
+	delete(annotations, GatewayProgrammedCertificatesAnnotation)
+	delete(annotations, LoadBalancerGatewayProgrammedListenersAnnotation)
+	delete(annotations, GatewayFrontendMTLSCABundleCompartmentsAnnotation)
+	for key := range annotations {
+		if strings.HasPrefix(key, GatewayUsedSecretsAnnotationPrefix+"/") {
+			delete(annotations, key)
+		}
+	}
+	gatewayToUpdate.SetAnnotations(annotations)
+	if updateErr := m.client.Update(ctx, gatewayToUpdate); updateErr != nil {
+		if apierrors.IsNotFound(updateErr) {
+			m.logger.InfoContext(ctx, "Gateway already deleted while removing finalizer",
+				slog.String("gateway", client.ObjectKeyFromObject(gatewayToUpdate).String()),
+			)
+			return nil
+		}
+		return fmt.Errorf("failed to remove finalizer from Gateway %s/%s: %w",
+			gatewayToUpdate.Namespace,
+			gatewayToUpdate.Name,
+			updateErr,
+		)
+	}
+	return nil
+}
+
+func (m *gatewayModelImpl) deprovisionGatewayLoadBalancerResources(
+	ctx context.Context,
+	data *resolvedGatewayDetails,
+	loadBalancerID string,
+) error {
+	response, err := m.ociClient.GetLoadBalancer(ctx, loadbalancer.GetLoadBalancerRequest{
+		LoadBalancerId: &loadBalancerID,
+	})
+	if err != nil {
+		if serviceErr, ok := common.IsServiceError(err); ok &&
+			serviceErr.GetHTTPStatusCode() == http.StatusNotFound {
+			return nil
+		}
+		return fmt.Errorf("failed to get OCI Load Balancer %s for Gateway deprovision: %w", loadBalancerID, err)
+	}
+
+	data.loadBalancer = &response.LoadBalancer
+	if err = m.ociLoadBalancerModel.removeMissingListeners(ctx, removeMissingListenersParams{
+		loadBalancerID:       loadBalancerID,
+		knownListeners:       response.LoadBalancer.Listeners,
+		knownRoutingPolicies: response.LoadBalancer.RoutingPolicies,
+		cleanupListenerNames: gatewayCleanupListenerNames(data.gateway, nil),
+		gatewayListeners:     nil,
+	}); err != nil {
+		return fmt.Errorf("failed to remove Gateway listeners: %w", err)
+	}
+
+	if err = m.ociLoadBalancerModel.removeUnusedCertificates(ctx, removeUnusedCertificatesParams{
+		loadBalancerID: loadBalancerID,
+		previouslyProgrammedCertificates: parseProgrammedGatewayCertificatesAnnotation(
+			data.gateway.Annotations[GatewayProgrammedCertificatesAnnotation],
+		),
+		desiredCertificates: nil,
+		knownCertificates:   response.LoadBalancer.Certificates,
+	}); err != nil {
+		return fmt.Errorf("failed to remove Gateway certificates: %w", err)
+	}
+
+	if err = m.ociLoadBalancerModel.cleanupFrontendMTLSCABundles(ctx, cleanupFrontendMTLSCABundlesParams{
+		gateway:            &data.gateway,
+		compartmentID:      lo.FromPtr(response.LoadBalancer.CompartmentId),
+		desiredBundleNames: map[string]struct{}{},
+	}); err != nil {
+		return fmt.Errorf("failed to clean up frontend mTLS CA bundles: %w", err)
+	}
+
+	if err = m.ociLoadBalancerModel.deprovisionBackendSetByName(
+		ctx,
+		loadBalancerID,
+		gatewayDefaultBackendSetName(data.gateway),
+	); err != nil {
+		return fmt.Errorf("failed to remove Gateway default backend set: %w", err)
+	}
+
+	return nil
+}
+
+func gatewayCleanupListenerNames(gateway gatewayv1.Gateway, desiredListeners []gatewayv1.Listener) map[string]struct{} {
+	return mergeNameSets(
+		annotatedResourceNames(gateway, LoadBalancerGatewayProgrammedListenersAnnotation),
+		listenerNamesSet(desiredListeners),
+	)
+}
+
+func listenerNamesSet(listeners []gatewayv1.Listener) map[string]struct{} {
+	listenerNames := make(map[string]struct{}, len(listeners))
+	for _, listener := range listeners {
+		listenerNames[string(listener.Name)] = struct{}{}
+	}
+	return listenerNames
+}
+
+func gatewayDefaultBackendSetName(gateway gatewayv1.Gateway) string {
+	return gateway.Name + "-default"
 }
 
 func (m *gatewayModelImpl) reconcileGatewayListenerCertificates(
@@ -724,14 +890,16 @@ func (m *gatewayModelImpl) reconcileGatewayListenerCertificates(
 
 func (m *gatewayModelImpl) removeMissingGatewayListeners(
 	ctx context.Context,
-	loadBalancerID string,
+	data *resolvedGatewayDetails,
+	gatewayManagedListeners []gatewayv1.Listener,
 	loadBalancer loadbalancer.LoadBalancer,
 	gatewayListeners []gatewayv1.Listener,
 ) error {
 	if err := m.ociLoadBalancerModel.removeMissingListeners(ctx, removeMissingListenersParams{
-		loadBalancerID:       loadBalancerID,
+		loadBalancerID:       data.config.Spec.LoadBalancerID,
 		knownListeners:       loadBalancer.Listeners,
 		knownRoutingPolicies: loadBalancer.RoutingPolicies,
+		cleanupListenerNames: gatewayCleanupListenerNames(data.gateway, gatewayManagedListeners),
 		gatewayListeners:     gatewayListeners,
 	}); err != nil {
 		return fmt.Errorf("failed to remove missing listeners: %w", err)
@@ -749,7 +917,11 @@ func (m *gatewayModelImpl) failClosedFrontendMTLSListeners(
 		loadBalancerID:       data.config.Spec.LoadBalancerID,
 		knownListeners:       loadBalancer.Listeners,
 		knownRoutingPolicies: loadBalancer.RoutingPolicies,
-		gatewayListeners:     gatewayListenersWithoutFrontendMTLS(data.gateway, gatewayListeners),
+		cleanupListenerNames: gatewayCleanupListenerNames(
+			data.gateway,
+			gatewayListenersWithoutFrontendMTLS(data.gateway, gatewayListeners),
+		),
+		gatewayListeners: gatewayListenersWithoutFrontendMTLS(data.gateway, gatewayListeners),
 	}); err != nil {
 		return fmt.Errorf("failed to fail closed frontend mTLS listeners: %w", err)
 	}
@@ -890,6 +1062,7 @@ func (m *gatewayModelImpl) setProgrammed(ctx context.Context, data *resolvedGate
 		message:           fmt.Sprintf("Gateway %s programmed by %s", data.gateway.Name, ControllerClassName),
 		annotations:       annotations,
 		removeAnnotations: staleProgrammedGatewayAnnotations(annotations),
+		finalizer:         LoadBalancerGatewayProgrammedFinalizer,
 	}); err != nil {
 		return fmt.Errorf("failed to set programmed condition for Gateway %s: %w", data.gateway.Name, err)
 	}
@@ -910,6 +1083,12 @@ func programmedGatewayAnnotations(data *resolvedGatewayDetails) map[string]strin
 		GatewayProgrammedCertificatesAnnotation: programmedGatewayCertificatesAnnotation(
 			programmedCertificateNamesFromSecrets(data.gatewaySecrets),
 		),
+		LoadBalancerGatewayProgrammedListenersAnnotation: programmedGatewayListenersAnnotation(
+			gatewayManagedOCIListenersForLoadBalancer(data),
+		),
+	}
+	if data.config.Spec.LoadBalancerID != "" {
+		annotations[LoadBalancerGatewayIDAnnotation] = data.config.Spec.LoadBalancerID
 	}
 
 	if len(data.gatewaySecrets) > 0 {

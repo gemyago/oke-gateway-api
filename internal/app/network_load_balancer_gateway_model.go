@@ -15,6 +15,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -333,12 +334,30 @@ func (m *networkLoadBalancerGatewayModelImpl) deprovisionGateway(
 	ctx context.Context,
 	data *resolvedGatewayDetails,
 ) error {
+	nlbID := data.config.Spec.LoadBalancerID
+	if nlbID == "" {
+		nlbID = data.gateway.Annotations[NetworkLoadBalancerGatewayIDAnnotation]
+	}
+	if nlbID != "" {
+		if err := m.deprovisionNetworkLoadBalancerGatewayResources(ctx, data, nlbID); err != nil {
+			return err
+		}
+	}
+
 	gatewayToUpdate := data.gateway.DeepCopy()
 	controllerutil.RemoveFinalizer(gatewayToUpdate, NetworkLoadBalancerGatewayProgrammedFinalizer)
 	annotations := gatewayToUpdate.GetAnnotations()
 	delete(annotations, NetworkLoadBalancerGatewayIDAnnotation)
+	delete(annotations, NetworkLoadBalancerGatewayProgrammedListenersAnnotation)
+	delete(annotations, NetworkLoadBalancerGatewayProgrammedBackendSetsAnnotation)
 	gatewayToUpdate.SetAnnotations(annotations)
 	if updateErr := m.client.Update(ctx, gatewayToUpdate); updateErr != nil {
+		if apierrors.IsNotFound(updateErr) {
+			m.logger.InfoContext(ctx, "Gateway already deleted while removing finalizer",
+				slog.String("gateway", client.ObjectKeyFromObject(gatewayToUpdate).String()),
+			)
+			return nil
+		}
 		return fmt.Errorf("failed to remove finalizer from Gateway %s/%s: %w",
 			gatewayToUpdate.Namespace,
 			gatewayToUpdate.Name,
@@ -346,6 +365,97 @@ func (m *networkLoadBalancerGatewayModelImpl) deprovisionGateway(
 		)
 	}
 	return nil
+}
+
+func (m *networkLoadBalancerGatewayModelImpl) deprovisionNetworkLoadBalancerGatewayResources(
+	ctx context.Context,
+	data *resolvedGatewayDetails,
+	nlbID string,
+) error {
+	nlb, err := m.getNetworkLoadBalancerByID(ctx, nlbID)
+	if err != nil {
+		var statusErr *resourceStatusError
+		if errors.As(err, &statusErr) &&
+			statusErr.reason == string(gatewayv1.GatewayReasonPending) {
+			return nil
+		}
+		return err
+	}
+	if nlb.Id == nil {
+		return errors.New("OCI Network Load Balancer id is empty")
+	}
+	if busyErr := networkLoadBalancerBusyErrorFromState(nlb); busyErr != nil {
+		return busyErr
+	}
+
+	return m.operationLocks.withLock(nlb.Id, func() error {
+		gatewayListeners := effectiveOCIListenersForGateway(data)
+		ownedListenerNames := mergeNameSets(
+			annotatedResourceNames(data.gateway, NetworkLoadBalancerGatewayProgrammedListenersAnnotation),
+			desiredNetworkLoadBalancerListenerNames(gatewayListeners),
+		)
+		ownedBackendSetNames := mergeNameSets(
+			annotatedResourceNames(data.gateway, NetworkLoadBalancerGatewayProgrammedBackendSetsAnnotation),
+			desiredNetworkLoadBalancerBackendSetNames(gatewayListeners),
+		)
+		scopedNLB := *nlb
+		scopedNLB.Listeners = namedNetworkLoadBalancerListeners(ownedListenerNames, nlb.Listeners)
+		scopedNLB.BackendSets = namedNetworkLoadBalancerBackendSets(ownedBackendSetNames, nlb.BackendSets)
+		if err = m.removeMissingListeners(ctx, scopedNLB, nil, nil); err != nil {
+			return err
+		}
+		if err = m.removeMissingBackendSets(ctx, scopedNLB, nil, nil); err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func namedNetworkLoadBalancerListeners(
+	ownedNames map[string]struct{},
+	knownListeners map[string]networkloadbalancer.Listener,
+) map[string]networkloadbalancer.Listener {
+	ownedListeners := make(map[string]networkloadbalancer.Listener, len(ownedNames))
+	for listenerName, listener := range knownListeners {
+		if _, owned := ownedNames[listenerName]; owned {
+			ownedListeners[listenerName] = listener
+		}
+	}
+	return ownedListeners
+}
+
+func namedNetworkLoadBalancerBackendSets(
+	ownedNames map[string]struct{},
+	knownBackendSets map[string]networkloadbalancer.BackendSet,
+) map[string]networkloadbalancer.BackendSet {
+	ownedBackendSets := make(map[string]networkloadbalancer.BackendSet, len(ownedNames))
+	for backendSetName, backendSet := range knownBackendSets {
+		if _, owned := ownedNames[backendSetName]; owned {
+			ownedBackendSets[backendSetName] = backendSet
+		}
+	}
+	return ownedBackendSets
+}
+
+func annotatedResourceNames(gateway gatewayv1.Gateway, annotation string) map[string]struct{} {
+	names := make(map[string]struct{})
+	for name := range strings.SplitSeq(gateway.Annotations[annotation], ",") {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			names[name] = struct{}{}
+		}
+	}
+	return names
+}
+
+func mergeNameSets(nameSets ...map[string]struct{}) map[string]struct{} {
+	merged := make(map[string]struct{})
+	for _, nameSet := range nameSets {
+		for name := range nameSet {
+			merged[name] = struct{}{}
+		}
+	}
+	return merged
 }
 
 func (m *networkLoadBalancerGatewayModelImpl) reconcileListenerBackendSet(
@@ -518,6 +628,7 @@ func (m *networkLoadBalancerGatewayModelImpl) removeMissingListeners(
 	ctx context.Context,
 	nlb networkloadbalancer.NetworkLoadBalancer,
 	gatewayListeners []gatewayv1.Listener,
+	cleanupCandidates map[string]struct{},
 ) error {
 	desiredListeners := desiredNetworkLoadBalancerListenerNames(gatewayListeners)
 	return removeMissingNetworkLoadBalancerResources(
@@ -527,6 +638,7 @@ func (m *networkLoadBalancerGatewayModelImpl) removeMissingListeners(
 		nlb.Id,
 		nlb.Listeners,
 		desiredListeners,
+		cleanupCandidates,
 		nlbResourceCleanup{
 			kind:       "listener",
 			logMessage: "Deleting stale OCI Network Load Balancer listener",
@@ -548,6 +660,7 @@ func (m *networkLoadBalancerGatewayModelImpl) removeMissingBackendSets(
 	ctx context.Context,
 	nlb networkloadbalancer.NetworkLoadBalancer,
 	gatewayListeners []gatewayv1.Listener,
+	cleanupCandidates map[string]struct{},
 ) error {
 	desiredBackendSets := desiredNetworkLoadBalancerBackendSetNames(gatewayListeners)
 	return removeMissingNetworkLoadBalancerResources(
@@ -557,6 +670,7 @@ func (m *networkLoadBalancerGatewayModelImpl) removeMissingBackendSets(
 		nlb.Id,
 		nlb.BackendSets,
 		desiredBackendSets,
+		cleanupCandidates,
 		nlbResourceCleanup{
 			kind:       "backend set",
 			logMessage: "Deleting stale OCI Network Load Balancer backend set",
@@ -587,11 +701,17 @@ func removeMissingNetworkLoadBalancerResources[T any](
 	networkLoadBalancerID *string,
 	current map[string]T,
 	desired map[string]struct{},
+	cleanupCandidates map[string]struct{},
 	cleanup nlbResourceCleanup,
 ) error {
 	for resourceName := range current {
 		if _, found := desired[resourceName]; found {
 			continue
+		}
+		if cleanupCandidates != nil {
+			if _, canCleanUp := cleanupCandidates[resourceName]; !canCleanUp {
+				continue
+			}
 		}
 
 		logger.InfoContext(ctx, cleanup.logMessage,
@@ -659,10 +779,20 @@ func (m *networkLoadBalancerGatewayModelImpl) programGateway(
 				return fmt.Errorf("failed to reconcile Network Load Balancer listener %s: %w", listener.Name, err)
 			}
 		}
-		if err = m.removeMissingListeners(ctx, *nlb, gatewayListeners); err != nil {
+		if err = m.removeMissingListeners(
+			ctx,
+			*nlb,
+			gatewayListeners,
+			annotatedResourceNames(data.gateway, NetworkLoadBalancerGatewayProgrammedListenersAnnotation),
+		); err != nil {
 			return err
 		}
-		if err = m.removeMissingBackendSets(ctx, *nlb, gatewayListeners); err != nil {
+		if err = m.removeMissingBackendSets(
+			ctx,
+			*nlb,
+			gatewayListeners,
+			annotatedResourceNames(data.gateway, NetworkLoadBalancerGatewayProgrammedBackendSetsAnnotation),
+		); err != nil {
 			return err
 		}
 		return nil
@@ -711,6 +841,11 @@ func (m *networkLoadBalancerGatewayModelImpl) isProgrammed(_ context.Context, da
 	if data.config.Spec.LoadBalancerID != "" {
 		annotations[NetworkLoadBalancerGatewayIDAnnotation] = data.config.Spec.LoadBalancerID
 	}
+	gatewayListeners := effectiveOCIListenersForGateway(data)
+	annotations[NetworkLoadBalancerGatewayProgrammedListenersAnnotation] =
+		joinedAnnotationNames(desiredNetworkLoadBalancerListenerNames(gatewayListeners))
+	annotations[NetworkLoadBalancerGatewayProgrammedBackendSetsAnnotation] =
+		joinedAnnotationNames(desiredNetworkLoadBalancerBackendSetNames(gatewayListeners))
 
 	return m.resourcesModel.isConditionSet(isConditionSetParams{
 		resource:      &data.gateway,
@@ -746,6 +881,11 @@ func (m *networkLoadBalancerGatewayModelImpl) setProgrammed(
 	if nlb != nil && nlb.Id != nil {
 		annotations[NetworkLoadBalancerGatewayIDAnnotation] = *nlb.Id
 	}
+	gatewayListeners := effectiveOCIListenersForGateway(data)
+	annotations[NetworkLoadBalancerGatewayProgrammedListenersAnnotation] =
+		joinedAnnotationNames(desiredNetworkLoadBalancerListenerNames(gatewayListeners))
+	annotations[NetworkLoadBalancerGatewayProgrammedBackendSetsAnnotation] =
+		joinedAnnotationNames(desiredNetworkLoadBalancerBackendSetNames(gatewayListeners))
 	if err := m.resourcesModel.setCondition(ctx, setConditionParams{
 		resource:      &data.gateway,
 		conditions:    &data.gateway.Status.Conditions,

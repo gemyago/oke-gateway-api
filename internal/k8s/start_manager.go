@@ -394,7 +394,7 @@ func setupGatewayController(
 		Named("gateway").
 		For(
 			&gatewayv1.Gateway{},
-			builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})),
+			builder.WithPredicates(gatewayObjectPredicate()),
 		).
 		Watches(
 			&corev1.Secret{},
@@ -419,6 +419,40 @@ func setupGatewayController(
 	return controllerBuilder.Complete(wireupReconciler(deps.GatewayCtrl, middlewares...))
 }
 
+func gatewayObjectPredicate() predicate.Funcs {
+	generationChanged := predicate.GenerationChangedPredicate{}
+	labelChanged := predicate.LabelChangedPredicate{}
+	return predicate.Funcs{
+		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
+			return generationChanged.Update(updateEvent) ||
+				labelChanged.Update(updateEvent) ||
+				gatewayControllerAnnotationChanged(updateEvent)
+		},
+	}
+}
+
+func gatewayControllerAnnotationChanged(updateEvent event.UpdateEvent) bool {
+	if updateEvent.ObjectOld == nil || updateEvent.ObjectNew == nil {
+		return false
+	}
+	oldAnnotations := updateEvent.ObjectOld.GetAnnotations()
+	newAnnotations := updateEvent.ObjectNew.GetAnnotations()
+	for _, annotation := range gatewayControllerWatchedAnnotations() {
+		if oldAnnotations[annotation] != newAnnotations[annotation] {
+			return true
+		}
+	}
+	return false
+}
+
+func gatewayControllerWatchedAnnotations() []string {
+	return []string{
+		app.LoadBalancerGatewayProgrammedListenersAnnotation,
+		app.NetworkLoadBalancerGatewayProgrammedListenersAnnotation,
+		app.NetworkLoadBalancerGatewayProgrammedBackendSetsAnnotation,
+	}
+}
+
 func setupNetworkLoadBalancerGatewayController(
 	mgr manager.Manager,
 	deps StartManagerDeps,
@@ -430,7 +464,7 @@ func setupNetworkLoadBalancerGatewayController(
 		Named("networkloadbalancer-gateway").
 		For(
 			&gatewayv1.Gateway{},
-			builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})),
+			builder.WithPredicates(gatewayObjectPredicate()),
 		).
 		Watches(
 			&configtypes.GatewayConfig{},

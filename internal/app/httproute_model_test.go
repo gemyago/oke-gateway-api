@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -29,6 +30,7 @@ import (
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	k8sapi "github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
+	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
 )
 
 func TestHTTPRouteModelImpl(t *testing.T) {
@@ -171,6 +173,28 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			require.ErrorIs(t, err, wantErr)
 			require.ErrorContains(t, err, "failed to remove route policy rules for listener https")
+		})
+
+		t.Run("ignores missing routing policies during cleanup", func(t *testing.T) {
+			fake := faker.New()
+			loadBalancerID := "ocid1.loadbalancer.oc1.." + fake.UUID().V4()
+			listeners := []gatewayv1.Listener{{Name: "https"}}
+			notFoundErr := ociapi.NewRandomServiceError(
+				ociapi.RandomServiceErrorWithStatusCode(http.StatusNotFound),
+				ociapi.RandomServiceErrorWithCode("NotFound"),
+				ociapi.RandomServiceErrorWithMessage(fake.Lorem().Sentence(10)),
+			)
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  loadBalancerID,
+				listenerName:    "https",
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{"old-rule"},
+			}).Return(notFoundErr).Once()
+
+			err := removeL7RoutePolicyRules(t.Context(), ociLBModel, loadBalancerID, listeners, "https/old-rule")
+
+			require.NoError(t, err)
 		})
 	})
 
@@ -3086,6 +3110,46 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			})).Return(nil)
 
 			err := model.deprovisionRoute(t.Context(), params)
+			require.NoError(t, err)
+		})
+
+		t.Run("removes finalizer after last policy rule cleanup succeeds", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			config := makeRandomGatewayConfig()
+			listener := makeRandomListener()
+			previousRule := "rule-" + fake.Lorem().Word()
+			httpRoute := makeRandomHTTPRoute()
+			httpRoute.Finalizers = []string{HTTPRouteProgrammedFinalizer}
+			httpRoute.Annotations = map[string]string{
+				HTTPRouteProgrammedPolicyRulesAnnotation: fmt.Sprintf("%s/%s", listener.Name, previousRule),
+			}
+
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  config.Spec.LoadBalancerID,
+				listenerName:    string(listener.Name),
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{previousRule},
+			}).Return(nil).Once()
+
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			k8sClient.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				updatedRoute, ok := obj.(*gatewayv1.HTTPRoute)
+				return ok &&
+					updatedRoute.Name == httpRoute.Name &&
+					!controllerutil.ContainsFinalizer(updatedRoute, HTTPRouteProgrammedFinalizer)
+			})).Return(nil).Once()
+
+			err := model.deprovisionRoute(t.Context(), deprovisionRouteParams{
+				gateway:          *newRandomGateway(),
+				config:           config,
+				httpRoute:        httpRoute,
+				matchedListeners: []gatewayv1.Listener{listener},
+			})
+
 			require.NoError(t, err)
 		})
 

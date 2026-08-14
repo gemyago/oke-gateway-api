@@ -125,6 +125,7 @@ type removeMissingListenersParams struct {
 	loadBalancerID       string
 	knownListeners       map[string]loadbalancer.Listener
 	knownRoutingPolicies map[string]loadbalancer.RoutingPolicy
+	cleanupListenerNames map[string]struct{}
 	gatewayListeners     []gatewayv1.Listener
 }
 
@@ -210,6 +211,7 @@ type ociLoadBalancerModelImpl struct {
 	workRequestsWatcher workRequestsWatcher
 	routingRulesMapper  ociLoadBalancerRoutingRulesMapper
 	routingPolicyLocks  routingPolicyLocks
+	certificateLocks    loadBalancerCertificateLocks
 }
 
 type ensureHTTP2ListenerProtocolParams struct {
@@ -405,7 +407,7 @@ func (m *ociLoadBalancerModelImpl) reconcileDefaultBackendSet(
 	ctx context.Context,
 	params reconcileDefaultBackendParams,
 ) (loadbalancer.BackendSet, error) {
-	defaultBackendSetName := params.gateway.Name + "-default"
+	defaultBackendSetName := gatewayDefaultBackendSetName(*params.gateway)
 	desiredPolicy := "ROUND_ROBIN"
 	desiredHealthChecker := loadBalancerBackendSetHealthChecker(defaultBackendSetPort)
 	if existingBackendSet, ok := params.knownBackendSets[defaultBackendSetName]; ok {
@@ -584,17 +586,36 @@ func (m *ociLoadBalancerModelImpl) reconcileListenerSecretCertificate(
 		return cert, nil
 	}
 
-	cert, err := m.createListenerCertificate(ctx, createListenerCertificateParams{
-		loadBalancerID: params.loadBalancerID,
-		listenerName:   params.listenerSpec.Name,
-		certName:       certName,
-		secret:         secret,
-		caPEM:          caPEM,
-	})
+	cert, err := m.certificateLocks.withLock(
+		loadBalancerCertificateLockKey(params.loadBalancerID, certName),
+		func(cachedCert *loadbalancer.Certificate) (loadbalancer.Certificate, error) {
+			if cachedCert != nil {
+				m.logCertificateAlreadyExists(ctx, params.loadBalancerID, params.listenerSpec.Name, certName, secret)
+				params.resultingCertificates[certName] = *cachedCert
+				return *cachedCert, nil
+			}
+			if cert, ok := params.resultingCertificates[certName]; ok {
+				m.logCertificateAlreadyExists(ctx, params.loadBalancerID, params.listenerSpec.Name, certName, secret)
+				return cert, nil
+			}
+
+			cert, createErr := m.createListenerCertificate(ctx, createListenerCertificateParams{
+				loadBalancerID: params.loadBalancerID,
+				listenerName:   params.listenerSpec.Name,
+				certName:       certName,
+				secret:         secret,
+				caPEM:          caPEM,
+			})
+			if createErr != nil {
+				return loadbalancer.Certificate{}, createErr
+			}
+			params.resultingCertificates[certName] = cert
+			return cert, nil
+		},
+	)
 	if err != nil {
 		return loadbalancer.Certificate{}, err
 	}
-	params.resultingCertificates[certName] = cert
 	return cert, nil
 }
 
@@ -786,7 +807,31 @@ func (m *ociLoadBalancerModelImpl) reconcileListenerRoutingPolicy(
 ) error {
 	listenerName := string(params.listenerSpec.Name)
 	routingPolicyName := listenerPolicyName(listenerName)
+	return m.routingPolicyLocks.withLock(
+		routingPolicyLockKey(params.loadBalancerID, routingPolicyName),
+		func() error {
+			return m.reconcileListenerRoutingPolicyLocked(ctx, params, routingPolicyName, listenerName)
+		},
+	)
+}
+
+func (m *ociLoadBalancerModelImpl) reconcileListenerRoutingPolicyLocked(
+	ctx context.Context,
+	params reconcileHTTPListenerParams,
+	routingPolicyName string,
+	listenerName string,
+) error {
 	policy, ok := params.knownRoutingPolicies[routingPolicyName]
+	if !ok || routingPolicyDefaultRuleDrifted(policy, params.defaultBackendSetName) {
+		refreshedPolicy, found, err := m.getListenerRoutingPolicy(ctx, params.loadBalancerID, routingPolicyName)
+		if err != nil {
+			return err
+		}
+		if found {
+			policy = refreshedPolicy
+			ok = true
+		}
+	}
 
 	if !ok {
 		return m.createListenerRoutingPolicy(ctx, params, routingPolicyName, listenerName)
@@ -802,6 +847,28 @@ func (m *ociLoadBalancerModelImpl) reconcileListenerRoutingPolicy(
 	)
 
 	return nil
+}
+
+func (m *ociLoadBalancerModelImpl) getListenerRoutingPolicy(
+	ctx context.Context,
+	loadBalancerID string,
+	routingPolicyName string,
+) (loadbalancer.RoutingPolicy, bool, error) {
+	routingPolicyRes, err := m.ociClient.GetRoutingPolicy(ctx, loadbalancer.GetRoutingPolicyRequest{
+		LoadBalancerId:    &loadBalancerID,
+		RoutingPolicyName: &routingPolicyName,
+	})
+	if err != nil {
+		if routingPolicyNotFound(err) {
+			return loadbalancer.RoutingPolicy{}, false, nil
+		}
+		return loadbalancer.RoutingPolicy{}, false, fmt.Errorf(
+			"failed to get routing policy %s: %w",
+			routingPolicyName,
+			err,
+		)
+	}
+	return routingPolicyRes.RoutingPolicy, true, nil
 }
 
 func (m *ociLoadBalancerModelImpl) createListenerRoutingPolicy(
@@ -1440,20 +1507,22 @@ func (m *ociLoadBalancerModelImpl) removeOrphanedListenerRoutingPolicies(
 			attachedPolicyNames[*listener.RoutingPolicyName] = struct{}{}
 		}
 	}
+	cleanupPolicyNames := map[string]struct{}{}
+	for listenerName := range params.cleanupListenerNames {
+		cleanupPolicyNames[listenerPolicyName(listenerName)] = struct{}{}
+	}
 
 	var errs []error
 	for policyName := range params.knownRoutingPolicies {
-		if !isControllerManagedListenerPolicyName(policyName) {
-			continue
-		}
 		policy := params.knownRoutingPolicies[policyName]
-		if !isDefaultCatchAllOnlyRoutingPolicy(policy) {
-			continue
-		}
-		if _, desired := desiredPolicyNames[policyName]; desired {
-			continue
-		}
-		if _, attached := attachedPolicyNames[policyName]; attached {
+		if !shouldRemoveOrphanedListenerRoutingPolicy(
+			policyName,
+			policy,
+			desiredPolicyNames,
+			attachedPolicyNames,
+			cleanupPolicyNames,
+			params.cleanupListenerNames != nil,
+		) {
 			continue
 		}
 
@@ -1469,6 +1538,34 @@ func (m *ociLoadBalancerModelImpl) removeOrphanedListenerRoutingPolicies(
 	}
 
 	return errs
+}
+
+func shouldRemoveOrphanedListenerRoutingPolicy(
+	policyName string,
+	policy loadbalancer.RoutingPolicy,
+	desiredPolicyNames map[string]struct{},
+	attachedPolicyNames map[string]struct{},
+	cleanupPolicyNames map[string]struct{},
+	hasCleanupScope bool,
+) bool {
+	if !isControllerManagedListenerPolicyName(policyName) {
+		return false
+	}
+	if hasCleanupScope {
+		if _, shouldCleanup := cleanupPolicyNames[policyName]; !shouldCleanup {
+			return false
+		}
+	}
+	if !isDefaultCatchAllOnlyRoutingPolicy(policy) {
+		return false
+	}
+	if _, desired := desiredPolicyNames[policyName]; desired {
+		return false
+	}
+	if _, attached := attachedPolicyNames[policyName]; attached {
+		return false
+	}
+	return true
 }
 
 func isDefaultCatchAllOnlyRoutingPolicy(policy loadbalancer.RoutingPolicy) bool {
@@ -1493,6 +1590,11 @@ func (m *ociLoadBalancerModelImpl) removeMissingListeners(
 
 	var errs []error
 	for listenerName, listener := range params.knownListeners {
+		if params.cleanupListenerNames != nil {
+			if _, shouldCleanup := params.cleanupListenerNames[listenerName]; !shouldCleanup {
+				continue
+			}
+		}
 		if _, existsInGateway := gatewayListenerNames[listenerName]; !existsInGateway {
 			if err := m.deleteMissingListener(ctx, params.loadBalancerID, listener); err != nil {
 				m.logger.WarnContext(ctx, "Failed to delete listener, will try with others",
@@ -1608,6 +1710,62 @@ func (l *routingPolicyLocks) release(key string, lock *routingPolicyLock) {
 	}
 }
 
+type loadBalancerCertificateLocks struct {
+	mu    sync.Mutex
+	locks map[string]*loadBalancerCertificateLock
+}
+
+type loadBalancerCertificateLock struct {
+	mu          sync.Mutex
+	refs        int
+	certificate *loadbalancer.Certificate
+}
+
+func (l *loadBalancerCertificateLocks) withLock(
+	key string,
+	operation func(cachedCert *loadbalancer.Certificate) (loadbalancer.Certificate, error),
+) (loadbalancer.Certificate, error) {
+	lock := l.acquire(key)
+	lock.mu.Lock()
+	defer func() {
+		lock.mu.Unlock()
+		l.release(key, lock)
+	}()
+
+	cert, err := operation(lock.certificate)
+	if err != nil {
+		return loadbalancer.Certificate{}, err
+	}
+	lock.certificate = &cert
+	return cert, nil
+}
+
+func (l *loadBalancerCertificateLocks) acquire(key string) *loadBalancerCertificateLock {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.locks == nil {
+		l.locks = make(map[string]*loadBalancerCertificateLock)
+	}
+	lock := l.locks[key]
+	if lock == nil {
+		lock = &loadBalancerCertificateLock{}
+		l.locks[key] = lock
+	}
+	lock.refs++
+	return lock
+}
+
+func (l *loadBalancerCertificateLocks) release(key string, lock *loadBalancerCertificateLock) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	lock.refs--
+	if lock.refs == 0 && l.locks[key] == lock {
+		delete(l.locks, key)
+	}
+}
+
 func (m *ociLoadBalancerModelImpl) commitRoutingPolicy(
 	ctx context.Context,
 	params commitRoutingPolicyParams,
@@ -1631,6 +1789,9 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicyLocked(
 		LoadBalancerId:    &params.loadBalancerID,
 	})
 	if err != nil {
+		if routingPolicyNotFound(err) {
+			return m.createMissingCommittedRoutingPolicy(ctx, params, policyName)
+		}
 		return fmt.Errorf("failed to get routing policy %s: %w", policyName, err)
 	}
 
@@ -1661,6 +1822,10 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicyLocked(
 
 	mergedRules := lo.Values(currentRulesByName)
 	sortRoutingRules(mergedRules)
+
+	if len(mergedRules) == 0 {
+		return m.deleteMissingRoutingPolicy(ctx, params.loadBalancerID, &policyName)
+	}
 
 	if routingRulesEqual(policyResponse.RoutingPolicy.Rules, mergedRules) {
 		m.logger.DebugContext(ctx, "Routing policy already up to date, skipping update",
@@ -1707,8 +1872,58 @@ func (m *ociLoadBalancerModelImpl) commitRoutingPolicyLocked(
 	return nil
 }
 
+func (m *ociLoadBalancerModelImpl) createMissingCommittedRoutingPolicy(
+	ctx context.Context,
+	params commitRoutingPolicyParams,
+	policyName string,
+) error {
+	if len(params.policyRules) == 0 {
+		m.logger.InfoContext(ctx, "Routing policy already deleted, skipping commit",
+			slog.String("loadBalancerId", params.loadBalancerID),
+			slog.String("routingPolicyName", policyName),
+		)
+		return nil
+	}
+
+	rules := slices.Clone(params.policyRules)
+	sortRoutingRules(rules)
+
+	m.logger.InfoContext(ctx, "Creating missing routing policy during route commit",
+		slog.String("loadBalancerId", params.loadBalancerID),
+		slog.String("routingPolicyName", policyName),
+	)
+
+	createRes, err := m.ociClient.CreateRoutingPolicy(ctx, loadbalancer.CreateRoutingPolicyRequest{
+		LoadBalancerId: &params.loadBalancerID,
+		CreateRoutingPolicyDetails: loadbalancer.CreateRoutingPolicyDetails{
+			Name:                     &policyName,
+			ConditionLanguageVersion: loadbalancer.CreateRoutingPolicyDetailsConditionLanguageVersionV1,
+			Rules:                    rules,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create routing policy %s: %w", policyName, err)
+	}
+	if createRes.OpcWorkRequestId == nil {
+		return fmt.Errorf("failed to create routing policy %s: missing work request id", policyName)
+	}
+	if err = m.workRequestsWatcher.WaitFor(ctx, *createRes.OpcWorkRequestId); err != nil {
+		return fmt.Errorf("failed to wait for routing policy %s creation: %w", policyName, err)
+	}
+	return nil
+}
+
+func routingPolicyNotFound(err error) bool {
+	serviceErr, ok := common.IsServiceError(err)
+	return ok && serviceErr.GetHTTPStatusCode() == http.StatusNotFound
+}
+
 func routingPolicyLockKey(loadBalancerID, policyName string) string {
 	return loadBalancerID + "/" + policyName
+}
+
+func loadBalancerCertificateLockKey(loadBalancerID, certificateName string) string {
+	return loadBalancerID + "/" + certificateName
 }
 
 func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
@@ -1725,7 +1940,10 @@ func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
 	)
 	previouslyProgrammedCertificates = append(
 		previouslyProgrammedCertificates,
-		knownFrontendMTLSCertificateNames(params.knownCertificates, params.desiredCertificates)...,
+		knownFrontendMTLSCertificateNames(
+			params.knownCertificates,
+			append(params.desiredCertificates, previouslyProgrammedCertificates...),
+		)...,
 	)
 
 	for _, certName := range normalizeProgrammedCertificateNames(previouslyProgrammedCertificates) {

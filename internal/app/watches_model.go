@@ -627,13 +627,6 @@ func (m *WatchesModel) indexGatewayByCertificateSecrets(ctx context.Context, obj
 		return nil
 	}
 
-	if gateway.Annotations == nil || gateway.Annotations[ControllerClassName] != "true" {
-		logger.DebugContext(ctx, "Gateway is not accepted by this controller. Skipping indexing",
-			slog.String("gateway", client.ObjectKeyFromObject(gateway).String()),
-		)
-		return nil
-	}
-
 	uniqueSecretKeys := make(map[string]struct{})
 	for _, listener := range gateway.Spec.Listeners {
 		if (listener.Protocol != gatewayv1.HTTPSProtocolType && listener.Protocol != gatewayv1.TLSProtocolType) ||

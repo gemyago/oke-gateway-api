@@ -199,6 +199,124 @@ func TestGatewayController(t *testing.T) {
 			assert.Equal(t, reconcile.Result{}, result)
 		})
 
+		t.Run("ignores deleting gateway without programmed finalizer", func(t *testing.T) {
+			gateway := newRandomGateway()
+			deletionTime := metav1.Now()
+			gateway.DeletionTimestamp = &deletionTime
+			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(gateway)}
+			deps := newMockDeps(t)
+			controller := NewGatewayController(deps)
+			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+			mockGatewayModel.EXPECT().
+				resolveReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *resolvedGatewayDetails) bool {
+					receiver.gateway = *gateway
+					return true
+				})).
+				Return(true, nil).Once()
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("deprovisions deleting gateway with programmed finalizer", func(t *testing.T) {
+			gateway := newRandomGateway()
+			deletionTime := metav1.Now()
+			gateway.DeletionTimestamp = &deletionTime
+			gateway.Finalizers = []string{LoadBalancerGatewayProgrammedFinalizer}
+			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(gateway)}
+			deps := newMockDeps(t)
+			controller := NewGatewayController(deps)
+			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+			expectedData := &resolvedGatewayDetails{gateway: *gateway}
+			mockGatewayModel.EXPECT().
+				resolveReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *resolvedGatewayDetails) bool {
+					receiver.gateway = *gateway
+					return true
+				})).
+				Return(true, nil).Once()
+			mockGatewayModel.EXPECT().
+				deprovisionGateway(t.Context(), expectedData).
+				Return(nil).Once()
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("handles deleting gateway deprovision status errors", func(t *testing.T) {
+			fake := faker.New()
+			gateway := newRandomGateway()
+			deletionTime := metav1.Now()
+			gateway.DeletionTimestamp = &deletionTime
+			gateway.Finalizers = []string{LoadBalancerGatewayProgrammedFinalizer}
+			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(gateway)}
+			deps := newMockDeps(t)
+			controller := NewGatewayController(deps)
+			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+			wantErr := &resourceStatusError{
+				conditionType: string(gatewayv1.GatewayConditionProgrammed),
+				reason:        fake.Lorem().Word(),
+				message:       fake.Lorem().Sentence(10),
+			}
+			mockGatewayModel.EXPECT().
+				resolveReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *resolvedGatewayDetails) bool {
+					receiver.gateway = *gateway
+					return true
+				})).
+				Return(true, nil).Once()
+			mockGatewayModel.EXPECT().
+				deprovisionGateway(t.Context(), &resolvedGatewayDetails{gateway: *gateway}).
+				Return(wantErr).Once()
+			mockResourcesModel.EXPECT().
+				setCondition(t.Context(), mock.MatchedBy(func(params setConditionParams) bool {
+					gotGateway, ok := params.resource.(*gatewayv1.Gateway)
+					return ok &&
+						gotGateway.Namespace == gateway.Namespace &&
+						gotGateway.Name == gateway.Name &&
+						params.conditionType == wantErr.conditionType &&
+						params.reason == wantErr.reason &&
+						params.message == wantErr.message
+				})).
+				Return(nil).Once()
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("returns deleting gateway deprovision regular errors", func(t *testing.T) {
+			fake := faker.New()
+			gateway := newRandomGateway()
+			deletionTime := metav1.Now()
+			gateway.DeletionTimestamp = &deletionTime
+			gateway.Finalizers = []string{LoadBalancerGatewayProgrammedFinalizer}
+			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(gateway)}
+			deps := newMockDeps(t)
+			controller := NewGatewayController(deps)
+			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+			wantErr := errors.New(fake.Lorem().Sentence(10))
+			mockGatewayModel.EXPECT().
+				resolveReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *resolvedGatewayDetails) bool {
+					receiver.gateway = *gateway
+					return true
+				})).
+				Return(true, nil).Once()
+			mockGatewayModel.EXPECT().
+				deprovisionGateway(t.Context(), &resolvedGatewayDetails{gateway: *gateway}).
+				Return(wantErr).Once()
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to program Gateway")
+			assert.Equal(t, reconcile.Result{}, result)
+		})
+
 		t.Run("returns error when accepted condition update fails", func(t *testing.T) {
 			gateway := newRandomGateway()
 
@@ -627,6 +745,7 @@ func TestGatewayController(t *testing.T) {
 				},
 			}
 			gateway.Annotations = map[string]string{
+				LoadBalancerGatewayIDAnnotation:                              loadBalancerID,
 				GatewayProgrammingRevisionAnnotation:                         GatewayProgrammingRevisionValue,
 				GatewayUsedSecretsAnnotationPrefix + "/" + string(secretUID): secretResourceVersion,
 				GatewayProgrammedCertificatesAnnotation: fmt.Sprintf(
@@ -635,7 +754,9 @@ func TestGatewayController(t *testing.T) {
 					secretName,
 					secretResourceVersion,
 				),
+				LoadBalancerGatewayProgrammedListenersAnnotation: "https",
 			}
+			gateway.Finalizers = []string{LoadBalancerGatewayProgrammedFinalizer}
 
 			gatewayClass := newRandomGatewayClass(
 				randomGatewayClassWithControllerNameOpt(ControllerClassName),

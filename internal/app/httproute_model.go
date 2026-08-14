@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sort"
 	"strings"
 
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/samber/lo"
 	"go.uber.org/dig"
@@ -375,6 +377,10 @@ func removeL7RoutePolicyRules(
 			prevPolicyRules: prevRulesByListener[listenerName],
 		})
 		if err != nil {
+			if serviceErr, ok := common.IsServiceError(err); ok &&
+				serviceErr.GetHTTPStatusCode() == http.StatusNotFound {
+				continue
+			}
 			return fmt.Errorf("failed to remove route policy rules for listener %s: %w", listenerName, err)
 		}
 	}

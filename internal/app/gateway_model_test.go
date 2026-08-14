@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"net/http"
 	"reflect"
 	"testing"
 
@@ -233,6 +234,132 @@ func TestGatewayModelImpl(t *testing.T) {
 			require.Len(t, receiver.listenerSets, 1)
 			require.Len(t, receiver.effectiveListeners, 1+len(gateway.Spec.Listeners))
 			assert.Contains(t, receiver.gatewaySecrets, secret.Namespace+"/"+secret.Name)
+		})
+
+		t.Run("deleting gateway can finalize without infrastructure", func(t *testing.T) {
+			fakeData := faker.New()
+			loadBalancerID := "ocid1.loadbalancer.oc1.." + fakeData.UUID().V4()
+			gatewayClass := newRandomGatewayClass(randomGatewayClassWithControllerNameOpt(ControllerClassName))
+			gateway := newRandomGateway()
+			deletionTime := metav1.Now()
+			gateway.DeletionTimestamp = &deletionTime
+			gateway.Finalizers = []string{LoadBalancerGatewayProgrammedFinalizer}
+			gateway.Annotations = map[string]string{LoadBalancerGatewayIDAnnotation: loadBalancerID}
+			gateway.Spec.GatewayClassName = gatewayv1.ObjectName(gatewayClass.Name)
+			gateway.Spec.Infrastructure = nil
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(newL4TestScheme(t)).
+				WithObjects(gateway, gatewayClass).
+				Build()
+			model := newGatewayModel(gatewayModelDeps{
+				K8sClient:            k8sClient,
+				ResourcesModel:       NewMockresourcesModel(t),
+				RootLogger:           diag.RootTestLogger(),
+				OciClient:            NewMockociLoadBalancerClient(t),
+				OciLoadBalancerModel: NewMockociLoadBalancerModel(t),
+			})
+
+			var receiver resolvedGatewayDetails
+			relevant, err := model.resolveReconcileRequest(t.Context(), reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(gateway),
+			}, &receiver)
+
+			require.NoError(t, err)
+			assert.True(t, relevant)
+			assert.Equal(t, loadBalancerID, receiver.config.Spec.LoadBalancerID)
+		})
+
+		t.Run("deleting gateway can finalize without GatewayConfig", func(t *testing.T) {
+			fakeData := faker.New()
+			loadBalancerID := "ocid1.loadbalancer.oc1.." + fakeData.UUID().V4()
+			configName := "config-" + fakeData.Lorem().Word()
+			gatewayClass := newRandomGatewayClass(randomGatewayClassWithControllerNameOpt(ControllerClassName))
+			gateway := newRandomGateway()
+			deletionTime := metav1.Now()
+			gateway.DeletionTimestamp = &deletionTime
+			gateway.Finalizers = []string{LoadBalancerGatewayProgrammedFinalizer}
+			gateway.Annotations = map[string]string{LoadBalancerGatewayIDAnnotation: loadBalancerID}
+			gateway.Spec.GatewayClassName = gatewayv1.ObjectName(gatewayClass.Name)
+			gateway.Spec.Infrastructure = &gatewayv1.GatewayInfrastructure{
+				ParametersRef: &gatewayv1.LocalParametersReference{
+					Group: ConfigRefGroup,
+					Kind:  ConfigRefKind,
+					Name:  configName,
+				},
+			}
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(newL4TestScheme(t)).
+				WithObjects(gateway, gatewayClass).
+				Build()
+			model := newGatewayModel(gatewayModelDeps{
+				K8sClient:            k8sClient,
+				ResourcesModel:       NewMockresourcesModel(t),
+				RootLogger:           diag.RootTestLogger(),
+				OciClient:            NewMockociLoadBalancerClient(t),
+				OciLoadBalancerModel: NewMockociLoadBalancerModel(t),
+			})
+
+			var receiver resolvedGatewayDetails
+			relevant, err := model.resolveReconcileRequest(t.Context(), reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(gateway),
+			}, &receiver)
+
+			require.NoError(t, err)
+			assert.True(t, relevant)
+			assert.Equal(t, loadBalancerID, receiver.config.Spec.LoadBalancerID)
+		})
+
+		t.Run("deleting gateway skips missing TLS secret resolution", func(t *testing.T) {
+			fakeData := faker.New()
+			configName := "config-" + fakeData.Lorem().Word()
+			gatewayClass := newRandomGatewayClass(randomGatewayClassWithControllerNameOpt(ControllerClassName))
+			gateway := newRandomGateway(randomGatewayWithListenersOpt(gatewayv1.Listener{
+				Name:     "https",
+				Protocol: gatewayv1.HTTPSProtocolType,
+				Port:     443,
+				TLS: &gatewayv1.ListenerTLSConfig{
+					CertificateRefs: []gatewayv1.SecretObjectReference{{
+						Name: gatewayv1.ObjectName("missing-" + fakeData.Lorem().Word()),
+					}},
+				},
+			}))
+			deletionTime := metav1.Now()
+			gateway.DeletionTimestamp = &deletionTime
+			gateway.Finalizers = []string{LoadBalancerGatewayProgrammedFinalizer}
+			gateway.Spec.GatewayClassName = gatewayv1.ObjectName(gatewayClass.Name)
+			gateway.Spec.Infrastructure = &gatewayv1.GatewayInfrastructure{
+				ParametersRef: &gatewayv1.LocalParametersReference{
+					Group: ConfigRefGroup,
+					Kind:  ConfigRefKind,
+					Name:  configName,
+				},
+			}
+			gatewayConfig := &types.GatewayConfig{
+				ObjectMeta: metav1.ObjectMeta{Namespace: gateway.Namespace, Name: configName},
+				Spec: types.GatewayConfigSpec{
+					LoadBalancerID: "ocid1.loadbalancer.oc1.." + fakeData.UUID().V4(),
+				},
+			}
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(newL4TestScheme(t)).
+				WithObjects(gateway, gatewayClass, gatewayConfig).
+				Build()
+			model := newGatewayModel(gatewayModelDeps{
+				K8sClient:            k8sClient,
+				ResourcesModel:       NewMockresourcesModel(t),
+				RootLogger:           diag.RootTestLogger(),
+				OciClient:            NewMockociLoadBalancerClient(t),
+				OciLoadBalancerModel: NewMockociLoadBalancerModel(t),
+			})
+
+			var receiver resolvedGatewayDetails
+			relevant, err := model.resolveReconcileRequest(t.Context(), reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(gateway),
+			}, &receiver)
+
+			require.NoError(t, err)
+			assert.True(t, relevant)
+			assert.Empty(t, receiver.gatewaySecrets)
 		})
 
 		t.Run("returns invalid certificate option errors", func(t *testing.T) {
@@ -1114,6 +1241,7 @@ func TestGatewayModelImpl(t *testing.T) {
 					loadBalancerID:       config.Spec.LoadBalancerID,
 					knownListeners:       loadBalancer.Listeners,
 					knownRoutingPolicies: loadBalancer.RoutingPolicies,
+					cleanupListenerNames: listenerNamesSet(gateway.Spec.Listeners),
 					gatewayListeners:     gateway.Spec.Listeners,
 				}).
 				Return(nil)
@@ -1135,6 +1263,93 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			require.NoError(t, err)
 		})
+
+		t.Run("does not cleanup another gateway listener when its default backend set drifts", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			config := makeRandomGatewayConfig()
+			ownedListener := makeRandomListener(
+				randomListenerWithHTTPProtocolOpt(),
+				randomListenerWithNameOpt(gatewayv1.SectionName("owned-"+fake.Lorem().Word())),
+			)
+			gateway := newRandomGateway(randomGatewayWithListenersOpt(ownedListener))
+			defaultBackendSet := makeRandomOCIBackendSet(func(backendSet *loadbalancer.BackendSet) {
+				backendSet.Name = new(gatewayDefaultBackendSetName(*gateway))
+			})
+			ownedOCIListener := makeRandomOCIListener(func(listener *loadbalancer.Listener) {
+				listener.Name = new(string(ownedListener.Name))
+				listener.DefaultBackendSetName = defaultBackendSet.Name
+			})
+			otherGatewayListenerName := "other-" + fake.Lorem().Word()
+			otherGatewayOCIListener := makeRandomOCIListener(func(listener *loadbalancer.Listener) {
+				listener.Name = &otherGatewayListenerName
+				listener.DefaultBackendSetName = defaultBackendSet.Name
+				listener.RoutingPolicyName = new(listenerPolicyName(otherGatewayListenerName))
+			})
+			loadBalancer := makeRandomOCILoadBalancer(
+				randomOCILoadBalancerWithRandomBackendSetsOpt(),
+				randomOCILoadBalancerWithRandomPoliciesOpt(),
+				randomOCILoadBalancerWithRandomCertificatesOpt(),
+			)
+			loadBalancer.Listeners = map[string]loadbalancer.Listener{
+				*ownedOCIListener.Name:        ownedOCIListener,
+				*otherGatewayOCIListener.Name: otherGatewayOCIListener,
+			}
+
+			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+				}).
+				Return(loadbalancer.GetLoadBalancerResponse{LoadBalancer: loadBalancer}, nil)
+
+			loadBalancerModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			loadBalancerModel.EXPECT().
+				reconcileDefaultBackendSet(t.Context(), reconcileDefaultBackendParams{
+					loadBalancerID:   config.Spec.LoadBalancerID,
+					knownBackendSets: loadBalancer.BackendSets,
+					gateway:          gateway,
+				}).
+				Return(defaultBackendSet, nil)
+			reconcileCertificatesCall := loadBalancerModel.EXPECT().
+				reconcileListenersCertificates(t.Context(), reconcileListenersCertificatesParams{
+					loadBalancerID:    config.Spec.LoadBalancerID,
+					gateway:           gateway,
+					gatewayListeners:  gateway.Spec.Listeners,
+					knownCertificates: loadBalancer.Certificates,
+				}).
+				Return(reconcileListenersCertificatesResult{}, nil)
+			loadBalancerModel.EXPECT().
+				reconcileHTTPListener(t.Context(), mock.MatchedBy(func(params reconcileHTTPListenerParams) bool {
+					return params.loadBalancerID == config.Spec.LoadBalancerID &&
+						params.defaultBackendSetName == *defaultBackendSet.Name &&
+						params.listenerSpec != nil &&
+						params.listenerSpec.Name == ownedListener.Name
+				})).
+				Return(nil).
+				NotBefore(reconcileCertificatesCall.Call)
+			removeCall := loadBalancerModel.EXPECT().
+				removeMissingListeners(t.Context(), mock.MatchedBy(func(params removeMissingListenersParams) bool {
+					_, hasOwned := params.cleanupListenerNames[*ownedOCIListener.Name]
+					_, hasOtherGateway := params.cleanupListenerNames[*otherGatewayOCIListener.Name]
+					return hasOwned && !hasOtherGateway
+				})).
+				Return(nil)
+			loadBalancerModel.EXPECT().
+				removeUnusedCertificates(t.Context(), mock.Anything).
+				Return(nil).
+				NotBefore(removeCall.Call)
+
+			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
+				gateway: *gateway,
+				config:  config,
+			})
+
+			require.NoError(t, err)
+		})
+
 		t.Run("programs frontend mTLS listener params and cleanup", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newGatewayModel(deps)
@@ -1397,6 +1612,7 @@ func TestGatewayModelImpl(t *testing.T) {
 					loadBalancerID:       config.Spec.LoadBalancerID,
 					knownListeners:       loadBalancer.Listeners,
 					knownRoutingPolicies: loadBalancer.RoutingPolicies,
+					cleanupListenerNames: listenerNamesSet(gatewayListeners),
 					gatewayListeners:     gatewayListeners,
 				}).
 				Return(nil)
@@ -1532,6 +1748,7 @@ func TestGatewayModelImpl(t *testing.T) {
 					loadBalancerID:       config.Spec.LoadBalancerID,
 					knownListeners:       loadBalancer.Listeners,
 					knownRoutingPolicies: loadBalancer.RoutingPolicies,
+					cleanupListenerNames: map[string]struct{}{},
 					gatewayListeners:     nil,
 				}).
 				Return(nil).
@@ -1897,11 +2114,15 @@ func TestGatewayModelImpl(t *testing.T) {
 					annotations: map[string]string{
 						GatewayProgrammingRevisionAnnotation:    GatewayProgrammingRevisionValue,
 						GatewayProgrammedCertificatesAnnotation: "",
+						LoadBalancerGatewayProgrammedListenersAnnotation: programmedGatewayListenersAnnotation(
+							gatewayManagedOCIListenersForLoadBalancer(data),
+						),
 					},
 					removeAnnotations: []string{
 						GatewayFrontendMTLSConfigMapsAnnotation,
 						GatewayFrontendMTLSReferenceGrantsAnnotation,
 					},
+					finalizer: LoadBalancerGatewayProgrammedFinalizer,
 				},
 			).Return(nil)
 
@@ -1941,6 +2162,8 @@ func TestGatewayModelImpl(t *testing.T) {
 				gateway:        *gateway,
 				gatewaySecrets: gatewaySecretsMap,
 			}
+			expectedAnnotations[LoadBalancerGatewayProgrammedListenersAnnotation] =
+				programmedGatewayListenersAnnotation(gatewayManagedOCIListenersForLoadBalancer(data))
 
 			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
 			mockResourcesModel.EXPECT().setCondition(
@@ -1957,6 +2180,7 @@ func TestGatewayModelImpl(t *testing.T) {
 						GatewayFrontendMTLSConfigMapsAnnotation,
 						GatewayFrontendMTLSReferenceGrantsAnnotation,
 					},
+					finalizer: LoadBalancerGatewayProgrammedFinalizer,
 				},
 			).Return(nil)
 
@@ -1992,6 +2216,486 @@ func TestGatewayModelImpl(t *testing.T) {
 		})
 	})
 
+	t.Run("deprovisionGateway", func(t *testing.T) {
+		t.Run("uses annotated load balancer id when config is empty", func(t *testing.T) {
+			fake := faker.New()
+			loadBalancerID := "ocid1.loadbalancer.oc1.." + fake.UUID().V4()
+			gateway := newRandomGateway()
+			gateway.Finalizers = []string{LoadBalancerGatewayProgrammedFinalizer}
+			gateway.Annotations = map[string]string{LoadBalancerGatewayIDAnnotation: loadBalancerID}
+			data := &resolvedGatewayDetails{gateway: *gateway}
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			mockOCIClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOCIClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{LoadBalancerId: &loadBalancerID}).
+				Return(loadbalancer.GetLoadBalancerResponse{
+					LoadBalancer: loadbalancer.LoadBalancer{
+						Listeners:       map[string]loadbalancer.Listener{},
+						RoutingPolicies: map[string]loadbalancer.RoutingPolicy{},
+						Certificates:    map[string]loadbalancer.Certificate{},
+					},
+				}, nil)
+			mockLBModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			mockLBModel.EXPECT().removeMissingListeners(t.Context(), mock.Anything).Return(nil)
+			mockLBModel.EXPECT().removeUnusedCertificates(t.Context(), mock.Anything).Return(nil)
+			mockLBModel.EXPECT().cleanupFrontendMTLSCABundles(t.Context(), mock.Anything).Return(nil)
+			mockLBModel.EXPECT().
+				deprovisionBackendSetByName(t.Context(), loadBalancerID, gatewayDefaultBackendSetName(data.gateway)).
+				Return(nil)
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockClient.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.Gateway")).Return(nil)
+
+			err := model.deprovisionGateway(t.Context(), data)
+
+			require.NoError(t, err)
+		})
+
+		t.Run("removes finalizer when load balancer is already gone", func(t *testing.T) {
+			fake := faker.New()
+			loadBalancerID := "ocid1.loadbalancer.oc1.." + fake.UUID().V4()
+			gateway := newRandomGateway()
+			gateway.Finalizers = []string{LoadBalancerGatewayProgrammedFinalizer}
+			data := &resolvedGatewayDetails{
+				gateway: *gateway,
+				config:  types.GatewayConfig{Spec: types.GatewayConfigSpec{LoadBalancerID: loadBalancerID}},
+			}
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			mockOCIClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOCIClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{LoadBalancerId: &loadBalancerID}).
+				Return(loadbalancer.GetLoadBalancerResponse{},
+					ociapi.NewRandomServiceError(ociapi.RandomServiceErrorWithStatusCode(http.StatusNotFound)))
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockClient.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.Gateway")).Return(nil)
+
+			err := model.deprovisionGateway(t.Context(), data)
+
+			require.NoError(t, err)
+		})
+
+		t.Run("keeps finalizer when load balancer lookup fails", func(t *testing.T) {
+			fake := faker.New()
+			loadBalancerID := "ocid1.loadbalancer.oc1.." + fake.UUID().V4()
+			wantErr := errors.New(fake.Lorem().Sentence(10))
+			data := &resolvedGatewayDetails{
+				gateway: *newRandomGateway(),
+				config:  types.GatewayConfig{Spec: types.GatewayConfigSpec{LoadBalancerID: loadBalancerID}},
+			}
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			mockOCIClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOCIClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{LoadBalancerId: &loadBalancerID}).
+				Return(loadbalancer.GetLoadBalancerResponse{}, wantErr)
+
+			err := model.deprovisionGateway(t.Context(), data)
+
+			require.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("keeps finalizer when listener cleanup fails", func(t *testing.T) {
+			fake := faker.New()
+			loadBalancerID := "ocid1.loadbalancer.oc1.." + fake.UUID().V4()
+			wantErr := errors.New(fake.Lorem().Sentence(10))
+			data := &resolvedGatewayDetails{
+				gateway: *newRandomGateway(),
+				config:  types.GatewayConfig{Spec: types.GatewayConfigSpec{LoadBalancerID: loadBalancerID}},
+			}
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			mockOCIClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOCIClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{LoadBalancerId: &loadBalancerID}).
+				Return(loadbalancer.GetLoadBalancerResponse{LoadBalancer: loadbalancer.LoadBalancer{}}, nil)
+			mockLBModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			mockLBModel.EXPECT().removeMissingListeners(t.Context(), mock.Anything).Return(wantErr)
+
+			err := model.deprovisionGateway(t.Context(), data)
+
+			require.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("keeps finalizer when later OCI cleanup fails", func(t *testing.T) {
+			fake := faker.New()
+			for name, setup := range map[string]func(*MockociLoadBalancerModel, error){
+				"certificates": func(mockLBModel *MockociLoadBalancerModel, wantErr error) {
+					mockLBModel.EXPECT().removeUnusedCertificates(t.Context(), mock.Anything).Return(wantErr)
+				},
+				"frontend mTLS CA bundles": func(mockLBModel *MockociLoadBalancerModel, wantErr error) {
+					mockLBModel.EXPECT().removeUnusedCertificates(t.Context(), mock.Anything).Return(nil)
+					mockLBModel.EXPECT().cleanupFrontendMTLSCABundles(t.Context(), mock.Anything).Return(wantErr)
+				},
+				"default backend set": func(mockLBModel *MockociLoadBalancerModel, wantErr error) {
+					mockLBModel.EXPECT().removeUnusedCertificates(t.Context(), mock.Anything).Return(nil)
+					mockLBModel.EXPECT().cleanupFrontendMTLSCABundles(t.Context(), mock.Anything).Return(nil)
+					mockLBModel.EXPECT().
+						deprovisionBackendSetByName(t.Context(), mock.Anything, mock.Anything).
+						Return(wantErr)
+				},
+			} {
+				t.Run(name, func(t *testing.T) {
+					loadBalancerID := "ocid1.loadbalancer.oc1.." + fake.UUID().V4()
+					wantErr := errors.New(fake.Lorem().Sentence(10))
+					data := &resolvedGatewayDetails{
+						gateway: *newRandomGateway(),
+						config:  types.GatewayConfig{Spec: types.GatewayConfigSpec{LoadBalancerID: loadBalancerID}},
+					}
+					deps := newMockDeps(t)
+					model := newGatewayModel(deps)
+					mockOCIClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+					mockOCIClient.EXPECT().
+						GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{LoadBalancerId: &loadBalancerID}).
+						Return(loadbalancer.GetLoadBalancerResponse{LoadBalancer: loadbalancer.LoadBalancer{}}, nil)
+					mockLBModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+					mockLBModel.EXPECT().removeMissingListeners(t.Context(), mock.Anything).Return(nil)
+					setup(mockLBModel, wantErr)
+
+					err := model.deprovisionGateway(t.Context(), data)
+
+					require.ErrorIs(t, err, wantErr)
+				})
+			}
+		})
+
+		t.Run("wraps finalizer update errors", func(t *testing.T) {
+			fake := faker.New()
+			wantErr := errors.New(fake.Lorem().Sentence(10))
+			data := &resolvedGatewayDetails{gateway: *newRandomGateway()}
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockClient.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.Gateway")).Return(wantErr)
+
+			err := model.deprovisionGateway(t.Context(), data)
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to remove finalizer from Gateway")
+		})
+
+		t.Run("ignores finalizer update not found after namespace deletion", func(t *testing.T) {
+			gateway := newRandomGateway()
+			gateway.Finalizers = []string{LoadBalancerGatewayProgrammedFinalizer}
+			data := &resolvedGatewayDetails{gateway: *gateway}
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockClient.EXPECT().
+				Update(t.Context(), mock.AnythingOfType("*v1.Gateway")).
+				Return(apierrors.NewNotFound(gatewayv1.Resource("gateways"), gateway.Name))
+
+			err := model.deprovisionGateway(t.Context(), data)
+
+			require.NoError(t, err)
+		})
+
+		t.Run("removes owned OCI resources and preserves unrelated listeners", func(t *testing.T) {
+			fake := faker.New()
+			loadBalancerID := "ocid1.loadbalancer.oc1.." + fake.UUID().V4()
+			listenerName := "https-" + fake.Lorem().Word()
+			unrelatedListenerName := "manual-" + fake.Lorem().Word()
+			routingPolicyName := listenerPolicyName(listenerName)
+			certName := "cert-" + fake.Lorem().Word()
+			compartmentID := "ocid1.compartment.oc1.." + fake.UUID().V4()
+			gateway := newRandomGateway(randomGatewayWithListenersOpt(gatewayv1.Listener{
+				Name:     gatewayv1.SectionName(listenerName),
+				Protocol: gatewayv1.HTTPSProtocolType,
+				Port:     443,
+			}))
+			gateway.Finalizers = []string{LoadBalancerGatewayProgrammedFinalizer}
+			gateway.Annotations = map[string]string{
+				LoadBalancerGatewayIDAnnotation:                             loadBalancerID,
+				GatewayProgrammingRevisionAnnotation:                        GatewayProgrammingRevisionValue,
+				GatewayProgrammedCertificatesAnnotation:                     certName,
+				LoadBalancerGatewayProgrammedListenersAnnotation:            listenerName,
+				GatewayFrontendMTLSCABundleCompartmentsAnnotation:           compartmentID,
+				GatewayUsedSecretsAnnotationPrefix + "/" + fake.UUID().V4(): fake.UUID().V4(),
+			}
+			data := &resolvedGatewayDetails{
+				gateway: *gateway,
+				config: types.GatewayConfig{
+					Spec: types.GatewayConfigSpec{LoadBalancerID: loadBalancerID},
+				},
+			}
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			mockOCIClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOCIClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{LoadBalancerId: &loadBalancerID}).
+				Return(loadbalancer.GetLoadBalancerResponse{
+					LoadBalancer: loadbalancer.LoadBalancer{
+						CompartmentId: &compartmentID,
+						Listeners: map[string]loadbalancer.Listener{
+							listenerName: {
+								Name:                  new(listenerName),
+								RoutingPolicyName:     new(routingPolicyName),
+								DefaultBackendSetName: new(gatewayDefaultBackendSetName(data.gateway)),
+							},
+							unrelatedListenerName: {
+								Name:                  new(unrelatedListenerName),
+								DefaultBackendSetName: new("other-" + fake.Lorem().Word()),
+							},
+						},
+						RoutingPolicies: map[string]loadbalancer.RoutingPolicy{
+							routingPolicyName: {Name: new(routingPolicyName)},
+						},
+						Certificates: map[string]loadbalancer.Certificate{
+							certName: {CertificateName: new(certName)},
+						},
+					},
+				}, nil)
+
+			mockLBModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			mockLBModel.EXPECT().
+				removeMissingListeners(t.Context(), mock.MatchedBy(func(params removeMissingListenersParams) bool {
+					_, hasOwned := params.knownListeners[listenerName]
+					_, hasUnrelated := params.knownListeners[unrelatedListenerName]
+					return params.loadBalancerID == loadBalancerID &&
+						hasOwned &&
+						hasUnrelated &&
+						assert.ObjectsAreEqual(
+							map[string]struct{}{listenerName: {}},
+							params.cleanupListenerNames,
+						) &&
+						len(params.gatewayListeners) == 0
+				})).
+				Return(nil)
+			mockLBModel.EXPECT().
+				removeUnusedCertificates(t.Context(), mock.MatchedBy(func(params removeUnusedCertificatesParams) bool {
+					return params.loadBalancerID == loadBalancerID &&
+						assert.ObjectsAreEqual([]string{certName}, params.previouslyProgrammedCertificates) &&
+						len(params.desiredCertificates) == 0
+				})).
+				Return(nil)
+			mockLBModel.EXPECT().
+				cleanupFrontendMTLSCABundles(t.Context(), mock.MatchedBy(func(params cleanupFrontendMTLSCABundlesParams) bool {
+					return params.gateway == &data.gateway &&
+						params.compartmentID == compartmentID &&
+						len(params.desiredBundleNames) == 0
+				})).
+				Return(nil)
+			mockLBModel.EXPECT().
+				deprovisionBackendSetByName(t.Context(), loadBalancerID, gatewayDefaultBackendSetName(data.gateway)).
+				Return(nil)
+
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockClient.EXPECT().
+				Update(t.Context(), mock.AnythingOfType("*v1.Gateway")).
+				RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.UpdateOption) error {
+					assert.NotContains(t, obj.GetFinalizers(), LoadBalancerGatewayProgrammedFinalizer)
+					assert.NotContains(t, obj.GetAnnotations(), LoadBalancerGatewayIDAnnotation)
+					assert.NotContains(t, obj.GetAnnotations(), GatewayProgrammingRevisionAnnotation)
+					assert.NotContains(t, obj.GetAnnotations(), GatewayProgrammedCertificatesAnnotation)
+					assert.NotContains(t, obj.GetAnnotations(), LoadBalancerGatewayProgrammedListenersAnnotation)
+					assert.NotContains(t, obj.GetAnnotations(), GatewayFrontendMTLSCABundleCompartmentsAnnotation)
+					for key := range obj.GetAnnotations() {
+						assert.NotContains(t, key, GatewayUsedSecretsAnnotationPrefix+"/")
+					}
+					return nil
+				})
+
+			err := model.deprovisionGateway(t.Context(), data)
+
+			require.NoError(t, err)
+		})
+
+		t.Run("removes ListenerSet derived OCI listeners", func(t *testing.T) {
+			fake := faker.New()
+			loadBalancerID := "ocid1.loadbalancer.oc1.." + fake.UUID().V4()
+			gateway := newRandomGateway()
+			gateway.Namespace = "infra-" + fake.Lorem().Word()
+			gateway.Name = "edge-" + fake.Lorem().Word()
+			gateway.Finalizers = []string{LoadBalancerGatewayProgrammedFinalizer}
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "apps-" + fake.Lorem().Word(),
+					Name:      "media-" + fake.Lorem().Word(),
+				},
+			}
+			listener := gatewayv1.Listener{Name: "https", Protocol: gatewayv1.HTTPSProtocolType, Port: 443}
+			ownedListenerName := listenerSetOCIListenerName(*gateway, listenerSet, listener)
+			gateway.Annotations = map[string]string{
+				LoadBalancerGatewayProgrammedListenersAnnotation: ownedListenerName,
+			}
+			routingPolicyName := listenerPolicyName(ownedListenerName)
+			otherGateway := *gateway.DeepCopy()
+			otherGateway.Name = "other-" + fake.Lorem().Word()
+			otherGatewayOwnedListenerName := listenerSetOCIListenerName(otherGateway, listenerSet, listener)
+			data := &resolvedGatewayDetails{
+				gateway:      *gateway,
+				listenerSets: []gatewayv1.ListenerSet{listenerSet},
+				effectiveListeners: []effectiveListener{{
+					sourceKind:      effectiveListenerSourceListenerSet,
+					sourceNamespace: listenerSet.Namespace,
+					sourceName:      listenerSet.Name,
+					listener:        listener,
+					ociName:         ownedListenerName,
+				}},
+				config: types.GatewayConfig{
+					Spec: types.GatewayConfigSpec{LoadBalancerID: loadBalancerID},
+				},
+			}
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			mockOCIClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOCIClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{LoadBalancerId: &loadBalancerID}).
+				Return(loadbalancer.GetLoadBalancerResponse{
+					LoadBalancer: loadbalancer.LoadBalancer{
+						Listeners: map[string]loadbalancer.Listener{
+							ownedListenerName: {
+								Name:                  new(ownedListenerName),
+								RoutingPolicyName:     new(routingPolicyName),
+								DefaultBackendSetName: new(gatewayDefaultBackendSetName(data.gateway)),
+							},
+							otherGatewayOwnedListenerName: {
+								Name:                  new(otherGatewayOwnedListenerName),
+								DefaultBackendSetName: new("other-" + fake.Lorem().Word()),
+							},
+						},
+						RoutingPolicies: map[string]loadbalancer.RoutingPolicy{
+							routingPolicyName: {Name: new(routingPolicyName)},
+						},
+						Certificates: map[string]loadbalancer.Certificate{},
+					},
+				}, nil)
+			mockLBModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			mockLBModel.EXPECT().
+				removeMissingListeners(t.Context(), mock.MatchedBy(func(params removeMissingListenersParams) bool {
+					_, hasOwned := params.knownListeners[ownedListenerName]
+					_, hasOtherGateway := params.knownListeners[otherGatewayOwnedListenerName]
+					return hasOwned &&
+						hasOtherGateway &&
+						assert.ObjectsAreEqual(
+							map[string]struct{}{ownedListenerName: {}},
+							params.cleanupListenerNames,
+						)
+				})).
+				Return(nil)
+			mockLBModel.EXPECT().removeUnusedCertificates(t.Context(), mock.Anything).Return(nil)
+			mockLBModel.EXPECT().cleanupFrontendMTLSCABundles(t.Context(), mock.Anything).Return(nil)
+			mockLBModel.EXPECT().
+				deprovisionBackendSetByName(t.Context(), loadBalancerID, gatewayDefaultBackendSetName(data.gateway)).
+				Return(nil)
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockClient.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.Gateway")).Return(nil)
+
+			err := model.deprovisionGateway(t.Context(), data)
+
+			require.NoError(t, err)
+		})
+
+		t.Run("removes ListenerSet listeners after ListenerSet is deleted", func(t *testing.T) {
+			fake := faker.New()
+			loadBalancerID := "ocid1.loadbalancer.oc1.." + fake.UUID().V4()
+			gateway := newRandomGateway()
+			gateway.Namespace = "infra-" + fake.Lorem().Word()
+			gateway.Name = "edge-" + fake.Lorem().Word()
+			gateway.Finalizers = []string{LoadBalancerGatewayProgrammedFinalizer}
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "apps-" + fake.Lorem().Word(),
+					Name:      "media-" + fake.Lorem().Word(),
+				},
+			}
+			listener := gatewayv1.Listener{Name: "https", Protocol: gatewayv1.HTTPSProtocolType, Port: 443}
+			vanishedListenerSetListenerName := listenerSetOCIListenerName(*gateway, listenerSet, listener)
+			gateway.Annotations = map[string]string{
+				LoadBalancerGatewayProgrammedListenersAnnotation: vanishedListenerSetListenerName,
+			}
+			routingPolicyName := listenerPolicyName(vanishedListenerSetListenerName)
+			data := &resolvedGatewayDetails{
+				gateway: *gateway,
+				config: types.GatewayConfig{
+					Spec: types.GatewayConfigSpec{LoadBalancerID: loadBalancerID},
+				},
+			}
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+			mockOCIClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOCIClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{LoadBalancerId: &loadBalancerID}).
+				Return(loadbalancer.GetLoadBalancerResponse{
+					LoadBalancer: loadbalancer.LoadBalancer{
+						Listeners: map[string]loadbalancer.Listener{
+							vanishedListenerSetListenerName: {
+								Name:                  new(vanishedListenerSetListenerName),
+								RoutingPolicyName:     new(routingPolicyName),
+								DefaultBackendSetName: new(gatewayDefaultBackendSetName(data.gateway)),
+							},
+						},
+						RoutingPolicies: map[string]loadbalancer.RoutingPolicy{
+							routingPolicyName: {Name: new(routingPolicyName)},
+						},
+						Certificates: map[string]loadbalancer.Certificate{},
+					},
+				}, nil)
+			mockLBModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			mockLBModel.EXPECT().
+				removeMissingListeners(t.Context(), mock.MatchedBy(func(params removeMissingListenersParams) bool {
+					_, hasListenerSetListener := params.knownListeners[vanishedListenerSetListenerName]
+					return hasListenerSetListener &&
+						assert.ObjectsAreEqual(
+							map[string]struct{}{vanishedListenerSetListenerName: {}},
+							params.cleanupListenerNames,
+						)
+				})).
+				Return(nil)
+			mockLBModel.EXPECT().removeUnusedCertificates(t.Context(), mock.Anything).Return(nil)
+			mockLBModel.EXPECT().cleanupFrontendMTLSCABundles(t.Context(), mock.Anything).Return(nil)
+			mockLBModel.EXPECT().
+				deprovisionBackendSetByName(t.Context(), loadBalancerID, gatewayDefaultBackendSetName(data.gateway)).
+				Return(nil)
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockClient.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.Gateway")).Return(nil)
+
+			err := model.deprovisionGateway(t.Context(), data)
+
+			require.NoError(t, err)
+		})
+	})
+
+	t.Run("gatewayCleanupListenerNames", func(t *testing.T) {
+		t.Run("returns desired and previously programmed listeners", func(t *testing.T) {
+			fake := faker.New()
+			desiredListenerName := gatewayv1.SectionName("desired-" + fake.Lorem().Word())
+			previousListenerName := "previous-" + fake.Lorem().Word()
+			gateway := newRandomGateway()
+			gateway.Annotations = map[string]string{
+				LoadBalancerGatewayProgrammedListenersAnnotation: previousListenerName,
+			}
+
+			result := gatewayCleanupListenerNames(*gateway, []gatewayv1.Listener{{
+				Name: desiredListenerName,
+			}})
+
+			assert.Equal(t, map[string]struct{}{
+				string(desiredListenerName): {},
+				previousListenerName:        {},
+			}, result)
+		})
+
+		t.Run("returns empty cleanup scope without desired or previously programmed listeners", func(t *testing.T) {
+			gateway := newRandomGateway()
+
+			result := gatewayCleanupListenerNames(*gateway, nil)
+
+			require.Empty(t, result)
+			require.NotNil(t, result)
+		})
+
+		t.Run("does not claim another gateway listener only because default backend set drifted", func(t *testing.T) {
+			gateway := newRandomGateway()
+
+			result := gatewayCleanupListenerNames(*gateway, nil)
+
+			require.Empty(t, result)
+			require.NotNil(t, result)
+		})
+	})
+
 	t.Run("isProgrammed", func(t *testing.T) {
 		t.Run("should return true when programmed condition is set with correct annotation", func(t *testing.T) {
 			deps := newMockDeps(t)
@@ -2011,6 +2715,9 @@ func TestGatewayModelImpl(t *testing.T) {
 					annotations: map[string]string{
 						GatewayProgrammingRevisionAnnotation:    GatewayProgrammingRevisionValue,
 						GatewayProgrammedCertificatesAnnotation: "",
+						LoadBalancerGatewayProgrammedListenersAnnotation: programmedGatewayListenersAnnotation(
+							gatewayManagedOCIListenersForLoadBalancer(data),
+						),
 					},
 				},
 			).Return(true)
@@ -2039,6 +2746,9 @@ func TestGatewayModelImpl(t *testing.T) {
 					annotations: map[string]string{
 						GatewayProgrammingRevisionAnnotation:    GatewayProgrammingRevisionValue,
 						GatewayProgrammedCertificatesAnnotation: "",
+						LoadBalancerGatewayProgrammedListenersAnnotation: programmedGatewayListenersAnnotation(
+							gatewayManagedOCIListenersForLoadBalancer(data),
+						),
 					},
 				},
 			).Return(false)
@@ -2074,6 +2784,8 @@ func TestGatewayModelImpl(t *testing.T) {
 				gateway:        *gateway,
 				gatewaySecrets: gatewaySecretsMap,
 			}
+			expectedAnnotations[LoadBalancerGatewayProgrammedListenersAnnotation] =
+				programmedGatewayListenersAnnotation(gatewayManagedOCIListenersForLoadBalancer(data))
 
 			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
 			mockResourcesModel.EXPECT().isConditionSet(
@@ -2138,6 +2850,9 @@ func TestGatewayModelImpl(t *testing.T) {
 						annotations: map[string]string{
 							GatewayProgrammingRevisionAnnotation:    GatewayProgrammingRevisionValue,
 							GatewayProgrammedCertificatesAnnotation: "",
+							LoadBalancerGatewayProgrammedListenersAnnotation: programmedGatewayListenersAnnotation(
+								gatewayManagedOCIListenersForLoadBalancer(data),
+							),
 							GatewayFrontendMTLSConfigMapsAnnotation: gateway.Namespace + "/" + configMapName +
 								"=" + string(configMapUID) + "/" + configMapResourceVersion,
 						},
@@ -2214,6 +2929,9 @@ func TestGatewayModelImpl(t *testing.T) {
 						annotations: map[string]string{
 							GatewayProgrammingRevisionAnnotation:    GatewayProgrammingRevisionValue,
 							GatewayProgrammedCertificatesAnnotation: "",
+							LoadBalancerGatewayProgrammedListenersAnnotation: programmedGatewayListenersAnnotation(
+								gatewayManagedOCIListenersForLoadBalancer(data),
+							),
 							GatewayFrontendMTLSConfigMapsAnnotation: configMapNamespace + "/" + configMapName +
 								"=" + string(configMapUID) + "/" + configMapResourceVersion,
 							GatewayFrontendMTLSReferenceGrantsAnnotation: configMapNamespace + "/" + grantName +

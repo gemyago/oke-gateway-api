@@ -10,6 +10,7 @@ import (
 	"go.uber.org/dig"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
@@ -104,6 +105,16 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 		slog.String("resourceVersion", data.gateway.ResourceVersion),
 		slog.Int64("generation", data.gateway.Generation),
 	)
+
+	if data.gateway.DeletionTimestamp != nil {
+		if !controllerutil.ContainsFinalizer(&data.gateway, LoadBalancerGatewayProgrammedFinalizer) {
+			return reconcile.Result{}, nil
+		}
+		if err = r.gatewayModel.deprovisionGateway(ctx, &data); err != nil {
+			return r.processResourceError(ctx, err, &data.gateway)
+		}
+		return reconcile.Result{}, nil
+	}
 
 	if !isGatewayAccepted(&data.gateway) {
 		if err = r.resourcesModel.setCondition(ctx, setConditionParams{

@@ -14,8 +14,80 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
+	"github.com/gemyago/oke-gateway-api/internal/app"
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 )
+
+func TestGatewayObjectPredicate(t *testing.T) {
+	fake := faker.New()
+
+	t.Run("accepts removal of controller listener ownership annotation", func(t *testing.T) {
+		oldGateway := &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "ns-" + fake.UUID().V4(),
+				Name:       "gateway-" + fake.UUID().V4(),
+				Generation: 1,
+				Annotations: map[string]string{
+					app.LoadBalancerGatewayProgrammedListenersAnnotation: "https",
+				},
+			},
+		}
+		newGateway := oldGateway.DeepCopy()
+		delete(newGateway.Annotations, app.LoadBalancerGatewayProgrammedListenersAnnotation)
+
+		result := gatewayObjectPredicate().Update(event.UpdateEvent{
+			ObjectOld: oldGateway,
+			ObjectNew: newGateway,
+		})
+
+		assert.True(t, result)
+	})
+
+	t.Run("accepts changes to network load balancer ownership annotations", func(t *testing.T) {
+		oldGateway := &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "ns-" + fake.UUID().V4(),
+				Name:       "gateway-" + fake.UUID().V4(),
+				Generation: 1,
+				Annotations: map[string]string{
+					app.NetworkLoadBalancerGatewayProgrammedListenersAnnotation:   "tcp",
+					app.NetworkLoadBalancerGatewayProgrammedBackendSetsAnnotation: "bs_tcp",
+				},
+			},
+		}
+		newGateway := oldGateway.DeepCopy()
+		newGateway.Annotations[app.NetworkLoadBalancerGatewayProgrammedListenersAnnotation] = "tcp,udp"
+
+		result := gatewayObjectPredicate().Update(event.UpdateEvent{
+			ObjectOld: oldGateway,
+			ObjectNew: newGateway,
+		})
+
+		assert.True(t, result)
+	})
+
+	t.Run("ignores unrelated annotation only updates", func(t *testing.T) {
+		oldGateway := &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "ns-" + fake.UUID().V4(),
+				Name:       "gateway-" + fake.UUID().V4(),
+				Generation: 1,
+				Annotations: map[string]string{
+					"example.com/checksum": "before",
+				},
+			},
+		}
+		newGateway := oldGateway.DeepCopy()
+		newGateway.Annotations["example.com/checksum"] = "after"
+
+		result := gatewayObjectPredicate().Update(event.UpdateEvent{
+			ObjectOld: oldGateway,
+			ObjectNew: newGateway,
+		})
+
+		assert.False(t, result)
+	})
+}
 
 func TestL7RouteObjectPredicate(t *testing.T) {
 	t.Run("accepts annotation only updates", func(t *testing.T) {
