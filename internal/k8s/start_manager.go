@@ -426,9 +426,18 @@ func gatewayObjectPredicate() predicate.Funcs {
 		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
 			return generationChanged.Update(updateEvent) ||
 				labelChanged.Update(updateEvent) ||
+				gatewayDeletionStarted(updateEvent) ||
 				gatewayControllerAnnotationChanged(updateEvent)
 		},
 	}
+}
+
+func gatewayDeletionStarted(updateEvent event.UpdateEvent) bool {
+	if updateEvent.ObjectOld == nil || updateEvent.ObjectNew == nil {
+		return false
+	}
+	return updateEvent.ObjectOld.GetDeletionTimestamp() == nil &&
+		updateEvent.ObjectNew.GetDeletionTimestamp() != nil
 }
 
 func gatewayControllerAnnotationChanged(updateEvent event.UpdateEvent) bool {

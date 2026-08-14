@@ -66,6 +66,26 @@ func TestGatewayObjectPredicate(t *testing.T) {
 		assert.True(t, result)
 	})
 
+	t.Run("accepts deletion timestamp changes", func(t *testing.T) {
+		oldGateway := &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "ns-" + fake.UUID().V4(),
+				Name:       "gateway-" + fake.UUID().V4(),
+				Generation: 1,
+			},
+		}
+		newGateway := oldGateway.DeepCopy()
+		now := metav1.Now()
+		newGateway.DeletionTimestamp = &now
+
+		result := gatewayObjectPredicate().Update(event.UpdateEvent{
+			ObjectOld: oldGateway,
+			ObjectNew: newGateway,
+		})
+
+		assert.True(t, result)
+	})
+
 	t.Run("ignores unrelated annotation only updates", func(t *testing.T) {
 		oldGateway := &gatewayv1.Gateway{
 			ObjectMeta: metav1.ObjectMeta{

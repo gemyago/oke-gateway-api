@@ -2501,6 +2501,80 @@ func TestGatewayModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("removes desired OCI listeners when ownership annotation is missing", func(t *testing.T) {
+			fake := faker.New()
+			loadBalancerID := "ocid1.loadbalancer.oc1.." + fake.UUID().V4()
+			listenerName := gatewayv1.SectionName("https-" + fake.Lorem().Word())
+			unrelatedListenerName := "manual-" + fake.Lorem().Word()
+			routingPolicyName := listenerPolicyName(string(listenerName))
+			gateway := newRandomGateway(randomGatewayWithListenersOpt(gatewayv1.Listener{
+				Name:     listenerName,
+				Protocol: gatewayv1.HTTPSProtocolType,
+				Port:     443,
+			}))
+			gateway.Finalizers = []string{LoadBalancerGatewayProgrammedFinalizer}
+			gateway.Annotations = map[string]string{
+				LoadBalancerGatewayIDAnnotation: loadBalancerID,
+			}
+			data := &resolvedGatewayDetails{
+				gateway: *gateway,
+				config: types.GatewayConfig{
+					Spec: types.GatewayConfigSpec{LoadBalancerID: loadBalancerID},
+				},
+			}
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			mockOCIClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOCIClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{LoadBalancerId: &loadBalancerID}).
+				Return(loadbalancer.GetLoadBalancerResponse{
+					LoadBalancer: loadbalancer.LoadBalancer{
+						Listeners: map[string]loadbalancer.Listener{
+							string(listenerName): {
+								Name:                  new(string(listenerName)),
+								RoutingPolicyName:     new(routingPolicyName),
+								DefaultBackendSetName: new(gatewayDefaultBackendSetName(data.gateway)),
+							},
+							unrelatedListenerName: {
+								Name:                  new(unrelatedListenerName),
+								DefaultBackendSetName: new("other-" + fake.Lorem().Word()),
+							},
+						},
+						RoutingPolicies: map[string]loadbalancer.RoutingPolicy{
+							routingPolicyName: {Name: new(routingPolicyName)},
+						},
+						Certificates: map[string]loadbalancer.Certificate{},
+					},
+				}, nil)
+
+			mockLBModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			mockLBModel.EXPECT().
+				removeMissingListeners(t.Context(), mock.MatchedBy(func(params removeMissingListenersParams) bool {
+					_, hasOwned := params.knownListeners[string(listenerName)]
+					_, hasUnrelated := params.knownListeners[unrelatedListenerName]
+					return params.loadBalancerID == loadBalancerID &&
+						hasOwned &&
+						hasUnrelated &&
+						assert.ObjectsAreEqual(
+							map[string]struct{}{string(listenerName): {}},
+							params.cleanupListenerNames,
+						)
+				})).
+				Return(nil)
+			mockLBModel.EXPECT().removeUnusedCertificates(t.Context(), mock.Anything).Return(nil)
+			mockLBModel.EXPECT().cleanupFrontendMTLSCABundles(t.Context(), mock.Anything).Return(nil)
+			mockLBModel.EXPECT().
+				deprovisionBackendSetByName(t.Context(), loadBalancerID, gatewayDefaultBackendSetName(data.gateway)).
+				Return(nil)
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockClient.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.Gateway")).Return(nil)
+
+			err := model.deprovisionGateway(t.Context(), data)
+
+			require.NoError(t, err)
+		})
+
 		t.Run("removes ListenerSet derived OCI listeners", func(t *testing.T) {
 			fake := faker.New()
 			loadBalancerID := "ocid1.loadbalancer.oc1.." + fake.UUID().V4()
@@ -2636,11 +2710,9 @@ func TestGatewayModelImpl(t *testing.T) {
 			mockLBModel.EXPECT().
 				removeMissingListeners(t.Context(), mock.MatchedBy(func(params removeMissingListenersParams) bool {
 					_, hasListenerSetListener := params.knownListeners[vanishedListenerSetListenerName]
+					_, cleansListenerSetListener := params.cleanupListenerNames[vanishedListenerSetListenerName]
 					return hasListenerSetListener &&
-						assert.ObjectsAreEqual(
-							map[string]struct{}{vanishedListenerSetListenerName: {}},
-							params.cleanupListenerNames,
-						)
+						cleansListenerSetListener
 				})).
 				Return(nil)
 			mockLBModel.EXPECT().removeUnusedCertificates(t.Context(), mock.Anything).Return(nil)

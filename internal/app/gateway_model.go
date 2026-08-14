@@ -805,8 +805,11 @@ func (m *gatewayModelImpl) deprovisionGatewayLoadBalancerResources(
 		loadBalancerID:       loadBalancerID,
 		knownListeners:       response.LoadBalancer.Listeners,
 		knownRoutingPolicies: response.LoadBalancer.RoutingPolicies,
-		cleanupListenerNames: gatewayCleanupListenerNames(data.gateway, nil),
-		gatewayListeners:     nil,
+		cleanupListenerNames: gatewayCleanupListenerNames(
+			data.gateway,
+			gatewayManagedOCIListenersForLoadBalancer(data),
+		),
+		gatewayListeners: nil,
 	}); err != nil {
 		return fmt.Errorf("failed to remove Gateway listeners: %w", err)
 	}
