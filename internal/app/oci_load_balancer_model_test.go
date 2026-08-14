@@ -4131,6 +4131,43 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("removes stale frontend mTLS certificate aliases after CA rotation", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			baseCert := makeManagedCertificate("default", "gateway-tls", fake.UUID().V4())
+			currentFrontendMTLSCert := makeRandomOCICertificate()
+			currentFrontendMTLSCertName := lo.FromPtr(baseCert.CertificateName) +
+				"-fmtls-19443-current-" + fake.RandomStringWithLength(8)
+			currentFrontendMTLSCert.CertificateName = &currentFrontendMTLSCertName
+			staleFrontendMTLSCert := makeRandomOCICertificate()
+			staleFrontendMTLSCertName := lo.FromPtr(baseCert.CertificateName) +
+				"-fmtls-19443-stale-" + fake.RandomStringWithLength(8)
+			staleFrontendMTLSCert.CertificateName = &staleFrontendMTLSCertName
+
+			params := removeUnusedCertificatesParams{
+				loadBalancerID:      fake.UUID().V4(),
+				desiredCertificates: []string{lo.FromPtr(currentFrontendMTLSCert.CertificateName)},
+				knownCertificates: map[string]loadbalancer.Certificate{
+					lo.FromPtr(currentFrontendMTLSCert.CertificateName): currentFrontendMTLSCert,
+					lo.FromPtr(staleFrontendMTLSCert.CertificateName):   staleFrontendMTLSCert,
+				},
+			}
+
+			workRequestID := fake.UUID().V4()
+			ociLoadBalancerClient.EXPECT().DeleteCertificate(t.Context(), loadbalancer.DeleteCertificateRequest{
+				LoadBalancerId:  &params.loadBalancerID,
+				CertificateName: staleFrontendMTLSCert.CertificateName,
+			}).Return(loadbalancer.DeleteCertificateResponse{OpcWorkRequestId: &workRequestID}, nil).Once()
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil).Once()
+
+			err := model.removeUnusedCertificates(t.Context(), params)
+			require.NoError(t, err)
+		})
+
 		t.Run("preserves unused certificates not previously programmed by the controller", func(t *testing.T) {
 			fake := faker.New()
 			deps := makeMockDeps(t)

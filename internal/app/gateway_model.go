@@ -638,15 +638,14 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 
 	gatewayListeners := effectiveOCIListenersForGateway(data)
 	gatewayManagedListeners := gatewayManagedOCIListenersForLoadBalancer(data)
-	reconcileListenersCertificatesResult, err := m.ociLoadBalancerModel.reconcileListenersCertificates(ctx,
-		reconcileListenersCertificatesParams{
-			loadBalancerID:    loadBalancerID,
-			gateway:           &data.gateway,
-			gatewayListeners:  gatewayListeners,
-			knownCertificates: response.LoadBalancer.Certificates,
-		})
+	reconcileListenersCertificatesResult, err := m.reconcileGatewayListenerCertificates(
+		ctx,
+		data,
+		gatewayListeners,
+		response.LoadBalancer,
+	)
 	if err != nil {
-		return fmt.Errorf("failed to reconcile listeners certificates: %w", err)
+		return err
 	}
 
 	for _, listener := range gatewayManagedListeners {
@@ -671,13 +670,8 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 		}
 	}
 
-	if err = m.ociLoadBalancerModel.removeMissingListeners(ctx, removeMissingListenersParams{
-		loadBalancerID:       loadBalancerID,
-		knownListeners:       response.LoadBalancer.Listeners,
-		knownRoutingPolicies: response.LoadBalancer.RoutingPolicies,
-		gatewayListeners:     gatewayListeners,
-	}); err != nil {
-		return fmt.Errorf("failed to remove missing listeners: %w", err)
+	if err = m.removeMissingGatewayListeners(ctx, loadBalancerID, response.LoadBalancer, gatewayListeners); err != nil {
+		return err
 	}
 
 	if err = m.cleanupFrontendMTLSCABundles(ctx, data, gatewayManagedListeners, response.LoadBalancer); err != nil {
@@ -698,6 +692,82 @@ func (m *gatewayModelImpl) programGateway(ctx context.Context, data *resolvedGat
 	}
 
 	return nil
+}
+
+func (m *gatewayModelImpl) reconcileGatewayListenerCertificates(
+	ctx context.Context,
+	data *resolvedGatewayDetails,
+	gatewayListeners []gatewayv1.Listener,
+	loadBalancer loadbalancer.LoadBalancer,
+) (reconcileListenersCertificatesResult, error) {
+	result, err := m.ociLoadBalancerModel.reconcileListenersCertificates(ctx, reconcileListenersCertificatesParams{
+		loadBalancerID:    data.config.Spec.LoadBalancerID,
+		gateway:           &data.gateway,
+		gatewayListeners:  gatewayListeners,
+		knownCertificates: loadBalancer.Certificates,
+	})
+	if err != nil {
+		if isFrontendMTLSStatusError(err) {
+			if removeErr := m.failClosedFrontendMTLSListeners(
+				ctx,
+				data,
+				gatewayListeners,
+				loadBalancer,
+			); removeErr != nil {
+				return reconcileListenersCertificatesResult{}, removeErr
+			}
+		}
+		return reconcileListenersCertificatesResult{}, fmt.Errorf("failed to reconcile listeners certificates: %w", err)
+	}
+	return result, nil
+}
+
+func (m *gatewayModelImpl) removeMissingGatewayListeners(
+	ctx context.Context,
+	loadBalancerID string,
+	loadBalancer loadbalancer.LoadBalancer,
+	gatewayListeners []gatewayv1.Listener,
+) error {
+	if err := m.ociLoadBalancerModel.removeMissingListeners(ctx, removeMissingListenersParams{
+		loadBalancerID:       loadBalancerID,
+		knownListeners:       loadBalancer.Listeners,
+		knownRoutingPolicies: loadBalancer.RoutingPolicies,
+		gatewayListeners:     gatewayListeners,
+	}); err != nil {
+		return fmt.Errorf("failed to remove missing listeners: %w", err)
+	}
+	return nil
+}
+
+func (m *gatewayModelImpl) failClosedFrontendMTLSListeners(
+	ctx context.Context,
+	data *resolvedGatewayDetails,
+	gatewayListeners []gatewayv1.Listener,
+	loadBalancer loadbalancer.LoadBalancer,
+) error {
+	if err := m.ociLoadBalancerModel.removeMissingListeners(ctx, removeMissingListenersParams{
+		loadBalancerID:       data.config.Spec.LoadBalancerID,
+		knownListeners:       loadBalancer.Listeners,
+		knownRoutingPolicies: loadBalancer.RoutingPolicies,
+		gatewayListeners:     gatewayListenersWithoutFrontendMTLS(data.gateway, gatewayListeners),
+	}); err != nil {
+		return fmt.Errorf("failed to fail closed frontend mTLS listeners: %w", err)
+	}
+	return nil
+}
+
+func gatewayListenersWithoutFrontendMTLS(
+	gateway gatewayv1.Gateway,
+	gatewayListeners []gatewayv1.Listener,
+) []gatewayv1.Listener {
+	keptListeners := []gatewayv1.Listener(nil)
+	for _, listener := range gatewayListeners {
+		if listenerUsesFrontendMTLS(gateway, listener) {
+			continue
+		}
+		keptListeners = append(keptListeners, listener)
+	}
+	return keptListeners
 }
 
 func (m *gatewayModelImpl) cleanupFrontendMTLSCABundles(
@@ -742,6 +812,16 @@ func desiredFrontendMTLSCABundleNames(
 		}
 	}
 	return desiredBundleNames
+}
+
+func listenerUsesFrontendMTLS(gateway gatewayv1.Gateway, listener gatewayv1.Listener) bool {
+	if listener.TLS == nil {
+		return false
+	}
+	if validation := effectiveFrontendTLSValidation(gateway, listener.Port); validation != nil {
+		return true
+	}
+	return len(frontendMTLSOCICABundleIDs(gateway, listener.Port)) > 0
 }
 
 func gatewayFrontendMTLSConfigured(gateway gatewayv1.Gateway) bool {

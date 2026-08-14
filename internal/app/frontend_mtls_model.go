@@ -649,3 +649,10 @@ func frontendMTLSStatusError(reason string, message string) *resourceStatusError
 		message:       message,
 	}
 }
+
+func isFrontendMTLSStatusError(err error) bool {
+	var statusErr *resourceStatusError
+	return errors.As(err, &statusErr) &&
+		statusErr.conditionType == string(gatewayv1.GatewayConditionAccepted) &&
+		strings.HasPrefix(statusErr.message, "frontend mTLS ")
+}

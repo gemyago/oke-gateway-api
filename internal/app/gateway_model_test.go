@@ -1474,6 +1474,137 @@ func TestGatewayModelImpl(t *testing.T) {
 
 			require.NoError(t, err)
 		})
+		t.Run("removes frontend mTLS listener when CA ReferenceGrant is revoked", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			config := makeRandomGatewayConfig()
+			listener := makeRandomListener(randomListenerWithHTTPSParamsOpt())
+			gateway := newRandomGateway()
+			caNamespace := gatewayv1.Namespace("security-" + fake.Lorem().Word())
+			gateway.Spec.Listeners = []gatewayv1.Listener{listener}
+			gateway.Spec.TLS = &gatewayv1.GatewayTLSConfig{
+				Frontend: &gatewayv1.FrontendTLSConfig{
+					PerPort: []gatewayv1.TLSPortConfig{{
+						Port: listener.Port,
+						TLS: gatewayv1.TLSConfig{
+							Validation: &gatewayv1.FrontendTLSValidation{
+								CACertificateRefs: []gatewayv1.ObjectReference{{
+									Name:      gatewayv1.ObjectName("ca-bundle-" + fake.Lorem().Word()),
+									Namespace: &caNamespace,
+								}},
+							},
+						},
+					}},
+				},
+			}
+			knownListener := makeRandomOCIListener()
+			loadBalancer := makeRandomOCILoadBalancer(
+				randomOCILoadBalancerWithRandomBackendSetsOpt(),
+				randomOCILoadBalancerWithRandomPoliciesOpt(),
+				randomOCILoadBalancerWithRandomCertificatesOpt(),
+			)
+			loadBalancer.Listeners = map[string]loadbalancer.Listener{
+				string(listener.Name): knownListener,
+			}
+			defaultBackendSet := makeRandomOCIBackendSet()
+			statusErr := frontendMTLSStatusError(
+				string(gatewayv1.GatewayReasonInvalidParameters),
+				"frontend mTLS caCertificateRef is not permitted by a ReferenceGrant",
+			)
+
+			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+				}).
+				Return(loadbalancer.GetLoadBalancerResponse{LoadBalancer: loadBalancer}, nil)
+			loadBalancerModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			loadBalancerModel.EXPECT().
+				reconcileDefaultBackendSet(t.Context(), mock.Anything).
+				Return(defaultBackendSet, nil)
+			reconcileCertificatesCall := loadBalancerModel.EXPECT().
+				reconcileListenersCertificates(t.Context(), mock.Anything).
+				Return(reconcileListenersCertificatesResult{}, statusErr)
+			loadBalancerModel.EXPECT().
+				removeMissingListeners(t.Context(), removeMissingListenersParams{
+					loadBalancerID:       config.Spec.LoadBalancerID,
+					knownListeners:       loadBalancer.Listeners,
+					knownRoutingPolicies: loadBalancer.RoutingPolicies,
+					gatewayListeners:     nil,
+				}).
+				Return(nil).
+				Once().
+				NotBefore(reconcileCertificatesCall.Call)
+
+			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
+				gateway: *gateway,
+				config:  config,
+			})
+
+			require.ErrorIs(t, err, statusErr)
+		})
+		t.Run("returns fail closed listener removal errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			config := makeRandomGatewayConfig()
+			listener := makeRandomListener(randomListenerWithHTTPSParamsOpt())
+			gateway := newRandomGateway()
+			gateway.Spec.Listeners = []gatewayv1.Listener{listener}
+			gateway.Spec.TLS = &gatewayv1.GatewayTLSConfig{
+				Frontend: &gatewayv1.FrontendTLSConfig{
+					Default: gatewayv1.TLSConfig{Validation: &gatewayv1.FrontendTLSValidation{
+						CACertificateRefs: []gatewayv1.ObjectReference{{
+							Name: gatewayv1.ObjectName("ca-bundle-" + fake.Lorem().Word()),
+						}},
+					}},
+				},
+			}
+			loadBalancer := makeRandomOCILoadBalancer(
+				randomOCILoadBalancerWithRandomBackendSetsOpt(),
+				randomOCILoadBalancerWithRandomPoliciesOpt(),
+				randomOCILoadBalancerWithRandomCertificatesOpt(),
+			)
+			loadBalancer.Listeners = map[string]loadbalancer.Listener{
+				string(listener.Name): makeRandomOCIListener(),
+			}
+			defaultBackendSet := makeRandomOCIBackendSet()
+			statusErr := frontendMTLSStatusError(
+				string(gatewayv1.GatewayReasonInvalidParameters),
+				"frontend mTLS caCertificateRef is not permitted by a ReferenceGrant",
+			)
+			wantErr := errors.New("remove failed")
+
+			mockOciClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+				}).
+				Return(loadbalancer.GetLoadBalancerResponse{LoadBalancer: loadBalancer}, nil)
+			loadBalancerModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			loadBalancerModel.EXPECT().
+				reconcileDefaultBackendSet(t.Context(), mock.Anything).
+				Return(defaultBackendSet, nil)
+			reconcileCertificatesCall := loadBalancerModel.EXPECT().
+				reconcileListenersCertificates(t.Context(), mock.Anything).
+				Return(reconcileListenersCertificatesResult{}, statusErr)
+			loadBalancerModel.EXPECT().
+				removeMissingListeners(t.Context(), mock.Anything).
+				Return(wantErr).
+				Once().
+				NotBefore(reconcileCertificatesCall.Call)
+
+			err := model.programGateway(t.Context(), &resolvedGatewayDetails{
+				gateway: *gateway,
+				config:  config,
+			})
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to fail closed frontend mTLS listeners")
+		})
 		t.Run("failed to get OCI Load Balancer", func(t *testing.T) {
 			fake := faker.New()
 			deps := newMockDeps(t)
@@ -3172,6 +3303,41 @@ func TestProgrammedGatewayCertificatesAnnotation(t *testing.T) {
 			ociCertificateNameFromSecret(secretB),
 		}, got)
 	})
+}
+
+func TestGatewayFrontendMTLSListenerFiltering(t *testing.T) {
+	fake := faker.New()
+	plainHTTPListener := makeRandomListener(func(listener *gatewayv1.Listener) {
+		listener.Protocol = gatewayv1.HTTPProtocolType
+		listener.TLS = nil
+	})
+	httpsListener := makeRandomListener(randomListenerWithHTTPSParamsOpt())
+	ociCAListener := makeRandomListener(randomListenerWithHTTPSParamsOpt())
+	gateway := newRandomGateway()
+	gateway.Spec.Listeners = []gatewayv1.Listener{plainHTTPListener, httpsListener, ociCAListener}
+	gateway.Annotations = map[string]string{}
+	gateway.Spec.TLS = &gatewayv1.GatewayTLSConfig{
+		Frontend: &gatewayv1.FrontendTLSConfig{
+			PerPort: []gatewayv1.TLSPortConfig{{
+				Port: httpsListener.Port,
+				TLS: gatewayv1.TLSConfig{Validation: &gatewayv1.FrontendTLSValidation{
+					CACertificateRefs: []gatewayv1.ObjectReference{{
+						Name: gatewayv1.ObjectName("ca-" + fake.Lorem().Word()),
+					}},
+				}},
+			}},
+		},
+	}
+	gateway.Annotations[frontendMTLSPortTrustedCABundleOCIDsAnnotation(ociCAListener.Port)] =
+		"ocid1.cabundle.oc1.." + fake.UUID().V4()
+
+	assert.False(t, listenerUsesFrontendMTLS(*gateway, plainHTTPListener))
+	assert.True(t, listenerUsesFrontendMTLS(*gateway, httpsListener))
+	assert.True(t, listenerUsesFrontendMTLS(*gateway, ociCAListener))
+	assert.Equal(t, []gatewayv1.Listener{plainHTTPListener}, gatewayListenersWithoutFrontendMTLS(
+		*gateway,
+		[]gatewayv1.Listener{plainHTTPListener, httpsListener, ociCAListener},
+	))
 }
 
 func TestGatewayCertificateOptionsValidation(t *testing.T) {

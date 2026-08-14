@@ -1806,7 +1806,7 @@ func knownFrontendMTLSCertificateNames(
 ) []string {
 	prefixes := make([]string, 0, len(controllerCertificates))
 	for _, certName := range normalizeProgrammedCertificateNames(controllerCertificates) {
-		prefixes = append(prefixes, certName+"-fmtls-")
+		prefixes = append(prefixes, frontendMTLSCertificateRootName(certName)+"-fmtls-")
 	}
 	if len(prefixes) == 0 {
 		return nil
@@ -1822,6 +1822,13 @@ func knownFrontendMTLSCertificateNames(
 		}
 	}
 	return normalizeProgrammedCertificateNames(matched)
+}
+
+func frontendMTLSCertificateRootName(certName string) string {
+	if root, _, ok := strings.Cut(certName, "-fmtls-"); ok {
+		return root
+	}
+	return certName
 }
 
 func listenerPolicyName(listenerName string) string {
