@@ -2785,11 +2785,9 @@ func TestGatewayModelImpl(t *testing.T) {
 			mockLBModel.EXPECT().
 				removeMissingListeners(t.Context(), mock.MatchedBy(func(params removeMissingListenersParams) bool {
 					_, hasListenerSetListener := params.knownListeners[vanishedListenerSetListenerName]
+					_, cleansListenerSetListener := params.cleanupListenerNames[vanishedListenerSetListenerName]
 					return hasListenerSetListener &&
-						assert.ObjectsAreEqual(
-							map[string]struct{}{vanishedListenerSetListenerName: {}},
-							params.cleanupListenerNames,
-						)
+						cleansListenerSetListener
 				})).
 				Return(nil)
 			mockLBModel.EXPECT().removeUnusedCertificates(t.Context(), mock.Anything).Return(nil)
