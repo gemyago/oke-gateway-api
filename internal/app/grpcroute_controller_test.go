@@ -28,6 +28,7 @@ type fakeGRPCRouteModel struct {
 	programRouteFunc        func(context.Context, programGRPCRouteParams) (programGRPCRouteResult, error)
 	deprovisionRouteFunc    func(context.Context, deprovisionGRPCRouteParams) error
 	setRejectedFunc         func(context.Context, resolvedGRPCRouteDetails, grpcRouteStatusError) error
+	setPendingFunc          func(context.Context, setGRPCRouteProgrammedParams) error
 	setProgrammedFunc       func(context.Context, setGRPCRouteProgrammedParams) error
 }
 
@@ -89,6 +90,16 @@ func (m fakeGRPCRouteModel) setRejected(
 	statusErr grpcRouteStatusError,
 ) error {
 	return m.setRejectedFunc(ctx, details, statusErr)
+}
+
+func (m fakeGRPCRouteModel) setPending(
+	ctx context.Context,
+	params setGRPCRouteProgrammedParams,
+) error {
+	if m.setPendingFunc == nil {
+		return nil
+	}
+	return m.setPendingFunc(ctx, params)
 }
 
 func (m fakeGRPCRouteModel) setProgrammed(
@@ -171,6 +182,7 @@ func TestGRPCRouteController(t *testing.T) {
 		resolved := makeResolved(route)
 		service := corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: route.Namespace, Name: "grpc-svc"}}
 		backendModel := NewMockhttpBackendModel(t)
+		pendingSet := false
 		routeModel := fakeGRPCRouteModel{
 			resolveRequestFunc: func(
 				_ context.Context,
@@ -187,9 +199,15 @@ func TestGRPCRouteController(t *testing.T) {
 				return map[string]corev1.Service{service.Namespace + "/" + service.Name: service}, nil
 			},
 			programRouteFunc: func(_ context.Context, params programGRPCRouteParams) (programGRPCRouteResult, error) {
+				assert.True(t, pendingSet)
 				assert.Equal(t, route.Name, params.grpcRoute.Name)
 				assert.Equal(t, service, params.knownBackends[service.Namespace+"/"+service.Name])
 				return programGRPCRouteResult{programmedPolicyRules: []string{"grpc/rule"}}, nil
+			},
+			setPendingFunc: func(_ context.Context, params setGRPCRouteProgrammedParams) error {
+				assert.Equal(t, route.Name, params.grpcRoute.Name)
+				pendingSet = true
+				return nil
 			},
 			setProgrammedFunc: func(_ context.Context, params setGRPCRouteProgrammedParams) error {
 				assert.Equal(t, []string{"grpc/rule"}, params.programmedPolicyRules)
@@ -208,6 +226,35 @@ func TestGRPCRouteController(t *testing.T) {
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, got.RequeueAfter, 2*time.Minute)
 		assert.LessOrEqual(t, got.RequeueAfter, 2*time.Minute+(2*time.Minute)/maxDriftRequeueJitterRatio)
+	})
+
+	t.Run("returns pending status update errors", func(t *testing.T) {
+		route := makeRoute()
+		resolved := makeResolved(route)
+		wantErr := errors.New("pending failed")
+		routeModel := fakeGRPCRouteModel{
+			resolveRequestFunc: func(
+				context.Context,
+				reconcile.Request,
+			) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
+				return resolvedMap(route, resolved), nil
+			},
+			isProgrammingRequiredFn: func(resolvedGRPCRouteDetails) bool { return true },
+			acceptRouteFunc: func(_ context.Context, details resolvedGRPCRouteDetails) (*gatewayv1.GRPCRoute, error) {
+				return &details.grpcRoute, nil
+			},
+			setPendingFunc: func(context.Context, setGRPCRouteProgrammedParams) error {
+				return wantErr
+			},
+		}
+
+		_, err := newController(routeModel, NewMockhttpBackendModel(t)).
+			Reconcile(t.Context(), reconcile.Request{NamespacedName: apitypes.NamespacedName{
+				Namespace: route.Namespace,
+				Name:      route.Name,
+			}})
+
+		require.ErrorIs(t, err, wantErr)
 	})
 
 	t.Run("syncs endpoints when programming is not required", func(t *testing.T) {

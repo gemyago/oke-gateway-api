@@ -43,6 +43,7 @@ type tlsRouteModel interface {
 	resolveRequest(ctx context.Context, req reconcile.Request) ([]resolvedTLSRouteDetails, error)
 	programRoute(ctx context.Context, details resolvedTLSRouteDetails) error
 	deprovisionRoute(ctx context.Context, details resolvedTLSRouteDetails) error
+	setPending(ctx context.Context, details resolvedTLSRouteDetails) error
 	setProgrammed(ctx context.Context, details resolvedTLSRouteDetails) error
 	setRejected(ctx context.Context, details resolvedTLSRouteDetails, statusErr tlsRouteStatusError) error
 }
@@ -1585,7 +1586,34 @@ func (m *tlsRouteModelImpl) updateParentStatus(
 		conditions,
 	)
 	if err := m.client.Status().Update(ctx, &details.tlsRoute); err != nil {
+		if apierrors.IsConflict(err) {
+			if retryErr := m.updateParentStatusAfterConflict(ctx, details, conditions); retryErr != nil {
+				return retryErr
+			}
+			return nil
+		}
 		return fmt.Errorf("failed to update TLSRoute %s status: %w", details.tlsRoute.Name, err)
+	}
+	return nil
+}
+
+func (m *tlsRouteModelImpl) updateParentStatusAfterConflict(
+	ctx context.Context,
+	details resolvedTLSRouteDetails,
+	conditions []metav1.Condition,
+) error {
+	latest := details.tlsRoute.DeepCopy()
+	if err := m.client.Get(ctx, client.ObjectKeyFromObject(&details.tlsRoute), latest); err != nil {
+		return fmt.Errorf("failed to refresh TLSRoute %s status after conflict: %w", details.tlsRoute.Name, err)
+	}
+	latest.Status.Parents = mergeTLSRouteParentStatus(
+		latest.Status.Parents,
+		details.matchedRef,
+		details.gatewayDetails.gatewayClass.Spec.ControllerName,
+		conditions,
+	)
+	if err := m.client.Status().Update(ctx, latest); err != nil {
+		return fmt.Errorf("failed to update TLSRoute %s status after conflict: %w", details.tlsRoute.Name, err)
 	}
 	return nil
 }
@@ -1673,6 +1701,23 @@ func (m *tlsRouteModelImpl) setProgrammed(ctx context.Context, details resolvedT
 		return err
 	}
 	return nil
+}
+
+func (m *tlsRouteModelImpl) setPending(ctx context.Context, details resolvedTLSRouteDetails) error {
+	routeToUpdate := details.tlsRoute.DeepCopy()
+	return setL4RoutePending(setL4RoutePendingParams{
+		routeKind:      "TLSRoute",
+		controllerName: details.gatewayDetails.gatewayClass.Spec.ControllerName,
+		routeToUpdate:  routeToUpdate,
+		updateParentStatus: func(conditions []metav1.Condition) error {
+			return m.updateParentStatus(ctx, resolvedTLSRouteDetails{
+				gatewayDetails:  details.gatewayDetails,
+				tlsRoute:        *routeToUpdate,
+				matchedRef:      details.matchedRef,
+				matchedListener: details.matchedListener,
+			}, conditions)
+		},
+	})
 }
 
 func (m *tlsRouteModelImpl) setRejected(

@@ -108,6 +108,11 @@ type grpcRouteModel interface {
 		ctx context.Context,
 		params setGRPCRouteProgrammedParams,
 	) error
+
+	setPending(
+		ctx context.Context,
+		params setGRPCRouteProgrammedParams,
+	) error
 }
 
 type grpcRouteStatusError struct {
@@ -702,6 +707,25 @@ func (m *grpcRouteModelImpl) setProgrammed(
 	})
 	if err != nil {
 		return fmt.Errorf("failed to update programmed status for GRPCRoute %s: %w", grpcRoute.Name, err)
+	}
+
+	return nil
+}
+
+func (m *grpcRouteModelImpl) setPending(
+	ctx context.Context,
+	params setGRPCRouteProgrammedParams,
+) error {
+	grpcRoute := params.grpcRoute.DeepCopy()
+	err := setL7RoutePending(ctx, m.resourcesModel, setL7RouteProgrammedParams{
+		resource:       grpcRoute,
+		parentStatuses: grpcRoute.Status.Parents,
+		gatewayClass:   params.gatewayClass,
+		gateway:        params.gateway,
+		matchedRef:     params.matchedRef,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update pending status for GRPCRoute %s: %w", grpcRoute.Name, err)
 	}
 
 	return nil

@@ -41,6 +41,7 @@ const (
 	backendTLSPolicyTag                  = "oke-gateway-api-policy"
 	backendTLSManagedByValue             = "backend-tls-policy"
 	defaultBackendTLSVerifyDepth         = 3
+	backendTLSPolicyReasonPending        = gatewayv1.PolicyConditionReason("Pending")
 )
 
 var (
@@ -336,7 +337,21 @@ func (m *backendTLSPolicyModelImpl) resolveAcceptedPolicy(
 			policy.Name,
 		)
 	}
-	if err = m.ensurePolicyFinalizerAndCompartment(ctx, policy, compartmentID); err != nil {
+	if err = m.setPolicyPendingConditions(ctx, policy, params.gateway); err != nil {
+		return nil, err
+	}
+	policyToFinalize := policy
+	if err = m.k8sClient.Get(ctx, apitypes.NamespacedName{
+		Namespace: policy.Namespace,
+		Name:      policy.Name,
+	}, &policyToFinalize); err != nil {
+		return nil, fmt.Errorf("failed to get BackendTLSPolicy %s/%s after pending status update: %w",
+			policy.Namespace,
+			policy.Name,
+			err,
+		)
+	}
+	if err = m.ensurePolicyFinalizerAndCompartment(ctx, policyToFinalize, compartmentID); err != nil {
 		return nil, err
 	}
 
@@ -852,6 +867,32 @@ func (m *backendTLSPolicyModelImpl) setPolicyErrorConditions(
 			metav1.ConditionFalse,
 			reason,
 			message,
+		),
+	)
+}
+
+func (m *backendTLSPolicyModelImpl) setPolicyPendingConditions(
+	ctx context.Context,
+	policy gatewayv1.BackendTLSPolicy,
+	gateway gatewayv1.Gateway,
+) error {
+	return m.setPolicyConditions(
+		ctx,
+		policy,
+		gateway,
+		backendTLSPolicyCondition(
+			policy.Generation,
+			gatewayv1.PolicyConditionAccepted,
+			metav1.ConditionTrue,
+			gatewayv1.PolicyReasonAccepted,
+			"BackendTLSPolicy is accepted.",
+		),
+		backendTLSPolicyCondition(
+			policy.Generation,
+			gatewayv1.BackendTLSPolicyConditionResolvedRefs,
+			metav1.ConditionUnknown,
+			backendTLSPolicyReasonPending,
+			"BackendTLSPolicy reconciliation is in progress.",
 		),
 	)
 }

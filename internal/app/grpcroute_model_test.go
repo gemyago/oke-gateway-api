@@ -1564,6 +1564,36 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 
 		require.ErrorIs(t, err, wantErr)
 	})
+
+	t.Run("setPending", func(t *testing.T) {
+		fake := faker.New()
+		deps := newMockDeps(t)
+		model := newGRPCRouteModel(deps)
+		resourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+		gateway := gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "gw-" + fake.Lorem().Word()}}
+		parentRef := gatewayv1.ParentReference{Name: gatewayv1.ObjectName(gateway.Name)}
+
+		resourcesModel.EXPECT().setCondition(t.Context(), mock.MatchedBy(func(params setConditionParams) bool {
+			return params.conditionType == string(gatewayv1.RouteConditionResolvedRefs) &&
+				params.status == metav1.ConditionUnknown &&
+				params.reason == string(gatewayv1.RouteReasonPending) &&
+				params.message == fmt.Sprintf("Route programming by %s is in progress", gateway.Name)
+		})).Return(nil).Once()
+
+		err := model.setPending(t.Context(), setGRPCRouteProgrammedParams{
+			grpcRoute: makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.Status.Parents = []gatewayv1.RouteParentStatus{{
+					ParentRef:      parentRef,
+					ControllerName: ControllerClassName,
+				}}
+			}),
+			gatewayClass: gatewayv1.GatewayClass{Spec: gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName}},
+			gateway:      gateway,
+			matchedRef:   parentRef,
+		})
+
+		require.NoError(t, err)
+	})
 }
 
 func TestGRPCRouteStatusError(t *testing.T) {

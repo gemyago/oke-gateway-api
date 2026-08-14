@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
@@ -712,6 +713,193 @@ func TestUDPRouteModel(t *testing.T) {
 		details.udpRoute = route
 		err = model.setProgrammed(t.Context(), details)
 		require.ErrorContains(t, err, "failed to update UDPRoute coap status")
+	})
+
+	t.Run("setProgrammed refreshes and updates status after conflict", func(t *testing.T) {
+		route := gatewayv1.UDPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "iot",
+				Name:       "coap",
+				Generation: 2,
+				Finalizers: []string{NetworkLoadBalancerUDPRouteProgrammedFinalizer},
+				Annotations: map[string]string{
+					NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation: "bs_coap",
+				},
+			},
+			Status: gatewayv1.UDPRouteStatus{RouteStatus: gatewayv1.RouteStatus{Parents: []gatewayv1.RouteParentStatus{{
+				ParentRef:      gatewayv1.ParentReference{Name: "edge"},
+				ControllerName: gatewayv1.GatewayController(NetworkLoadBalancerControllerClassName),
+			}}}},
+		}
+		latestRoute := route.DeepCopy()
+		latestRoute.ResourceVersion = "latest"
+		conflictErr := apierrors.NewConflict(
+			schema.GroupResource{Resource: "udproutes"},
+			route.Name,
+			errors.New("modified"),
+		)
+		mockClient := NewMockk8sClient(t)
+		statusWriter := k8sapi.NewMockSubResourceWriter(t)
+		mockClient.EXPECT().Status().Return(statusWriter).Twice()
+		statusWriter.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute")).
+			Return(conflictErr).
+			Once()
+		getCall := mockClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Namespace: route.Namespace, Name: route.Name}, mock.AnythingOfType("*v1.UDPRoute")).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				*obj.(*gatewayv1.UDPRoute) = *latestRoute
+				return nil
+			}).
+			Once()
+		statusWriter.EXPECT().
+			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				updated := obj.(*gatewayv1.UDPRoute)
+				condition := meta.FindStatusCondition(
+					updated.Status.Parents[0].Conditions,
+					string(gatewayv1.RouteConditionResolvedRefs),
+				)
+				return updated.ResourceVersion == "latest" &&
+					condition != nil &&
+					condition.Status == metav1.ConditionTrue
+			}), mock.Anything).
+			Return(nil).
+			Once().
+			NotBefore(getCall)
+
+		model := newUDPRouteModel(udpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
+		err := model.setProgrammed(t.Context(), resolvedUDPRouteDetails{
+			udpRoute: route,
+			gatewayDetails: resolvedGatewayDetails{gateway: gatewayv1.Gateway{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "edge"},
+			}},
+			matchedRef:      gatewayv1.ParentReference{Name: "edge"},
+			matchedListener: gatewayv1.Listener{Name: "coap", Protocol: gatewayv1.UDPProtocolType, Port: 5684},
+		})
+
+		require.NoError(t, err)
+	})
+
+	t.Run("setProgrammed returns status retry errors after conflict", func(t *testing.T) {
+		route := gatewayv1.UDPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "iot",
+				Name:       "coap",
+				Generation: 2,
+				Finalizers: []string{NetworkLoadBalancerUDPRouteProgrammedFinalizer},
+				Annotations: map[string]string{
+					NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation: "bs_coap",
+				},
+			},
+		}
+		latestRoute := route.DeepCopy()
+		latestRoute.ResourceVersion = "latest"
+		conflictErr := apierrors.NewConflict(
+			schema.GroupResource{Resource: "udproutes"},
+			route.Name,
+			errors.New("modified"),
+		)
+		wantErr := errors.New("retry update failed")
+		mockClient := NewMockk8sClient(t)
+		statusWriter := k8sapi.NewMockSubResourceWriter(t)
+		mockClient.EXPECT().Status().Return(statusWriter).Twice()
+		statusWriter.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute")).Return(conflictErr).Once()
+		getCall := mockClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Namespace: route.Namespace, Name: route.Name}, mock.AnythingOfType("*v1.UDPRoute")).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				*obj.(*gatewayv1.UDPRoute) = *latestRoute
+				return nil
+			}).
+			Once()
+		statusWriter.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute"), mock.Anything).
+			Return(wantErr).
+			Once().
+			NotBefore(getCall)
+
+		model := newUDPRouteModel(udpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
+		err := model.updateParentStatus(t.Context(), resolvedUDPRouteDetails{
+			udpRoute:        route,
+			matchedRef:      gatewayv1.ParentReference{Name: "edge"},
+			matchedListener: gatewayv1.Listener{Name: "coap", Protocol: gatewayv1.UDPProtocolType, Port: 5684},
+		}, []metav1.Condition{{
+			Type:   string(gatewayv1.RouteConditionAccepted),
+			Status: metav1.ConditionTrue,
+			Reason: string(gatewayv1.RouteReasonAccepted),
+		}})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to update UDPRoute")
+	})
+
+	t.Run("setProgrammed returns status refresh errors after conflict", func(t *testing.T) {
+		route := gatewayv1.UDPRoute{ObjectMeta: metav1.ObjectMeta{
+			Namespace:  "iot",
+			Name:       "coap",
+			Generation: 2,
+		}}
+		conflictErr := apierrors.NewConflict(
+			schema.GroupResource{Resource: "udproutes"},
+			route.Name,
+			errors.New("modified"),
+		)
+		wantErr := errors.New("refresh failed")
+		mockClient := NewMockk8sClient(t)
+		statusWriter := k8sapi.NewMockSubResourceWriter(t)
+		mockClient.EXPECT().Status().Return(statusWriter).Once()
+		statusWriter.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute")).Return(conflictErr).Once()
+		mockClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Namespace: route.Namespace, Name: route.Name}, mock.AnythingOfType("*v1.UDPRoute")).
+			Return(wantErr).
+			Once()
+
+		model := newUDPRouteModel(udpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
+		err := model.updateParentStatus(t.Context(), resolvedUDPRouteDetails{
+			udpRoute:        route,
+			matchedRef:      gatewayv1.ParentReference{Name: "edge"},
+			matchedListener: gatewayv1.Listener{Name: "coap", Protocol: gatewayv1.UDPProtocolType, Port: 5684},
+		}, []metav1.Condition{{
+			Type:   string(gatewayv1.RouteConditionAccepted),
+			Status: metav1.ConditionTrue,
+			Reason: string(gatewayv1.RouteReasonAccepted),
+		}})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to refresh UDPRoute")
+	})
+
+	t.Run("setPending updates UDPRoute parent status", func(t *testing.T) {
+		route := gatewayv1.UDPRoute{ObjectMeta: metav1.ObjectMeta{
+			Namespace:  "iot",
+			Name:       "coap",
+			Generation: 2,
+		}}
+		k8sClient := NewMockk8sClient(t)
+		statusWriter := k8sapi.NewMockSubResourceWriter(t)
+		k8sClient.EXPECT().Status().Return(statusWriter)
+		statusWriter.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.UDPRoute")).
+			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.SubResourceUpdateOption) error {
+				updated := mustUDPRoute(t, obj)
+				require.Len(t, updated.Status.Parents, 1)
+				require.Len(t, updated.Status.Parents[0].Conditions, 2)
+				for _, condition := range updated.Status.Parents[0].Conditions {
+					if condition.Type == string(gatewayv1.RouteConditionResolvedRefs) {
+						assert.Equal(t, metav1.ConditionUnknown, condition.Status)
+						assert.Equal(t, string(gatewayv1.RouteReasonPending), condition.Reason)
+					}
+				}
+				return nil
+			})
+		model := newUDPRouteModel(udpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: k8sClient})
+
+		err := model.setPending(t.Context(), resolvedUDPRouteDetails{
+			udpRoute:        route,
+			matchedRef:      gatewayv1.ParentReference{Name: "edge"},
+			matchedListener: gatewayv1.Listener{Name: "coap", Protocol: gatewayv1.UDPProtocolType, Port: 5684},
+		})
+
+		require.NoError(t, err)
 	})
 
 	t.Run("deprovisionDetachedRoute clears annotated backend set and removes finalizer", func(t *testing.T) {

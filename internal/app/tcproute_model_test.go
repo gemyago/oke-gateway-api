@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/jaswdr/faker/v2"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
@@ -1003,6 +1005,260 @@ func TestTCPRouteModel(t *testing.T) {
 		require.ErrorContains(t, err, "failed to update TCPRoute rtmp status")
 	})
 
+	t.Run("updateParentStatus preserves non matching parent status", func(t *testing.T) {
+		route := gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "iot",
+				Name:       "rtmp",
+				Generation: 2,
+			},
+			Status: gatewayv1.TCPRouteStatus{
+				RouteStatus: gatewayv1.RouteStatus{
+					Parents: []gatewayv1.RouteParentStatus{{
+						ParentRef:      gatewayv1.ParentReference{Name: "other"},
+						ControllerName: gatewayv1.GatewayController(NetworkLoadBalancerControllerClassName),
+					}},
+				},
+			},
+		}
+		mockClient := NewMockk8sClient(t)
+		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+		mockClient.EXPECT().Status().Return(mockStatusWriter)
+		mockStatusWriter.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
+			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.SubResourceUpdateOption) error {
+				updated := mustTCPRoute(t, obj)
+				require.Len(t, updated.Status.Parents, 2)
+				assert.Equal(t, gatewayv1.ObjectName("other"), updated.Status.Parents[0].ParentRef.Name)
+				assert.Equal(t, gatewayv1.ObjectName("edge"), updated.Status.Parents[1].ParentRef.Name)
+				assert.Len(t, updated.Status.Parents[1].Conditions, 1)
+				return nil
+			}).
+			Once()
+
+		model := newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
+		err := model.updateParentStatus(t.Context(), resolvedTCPRouteDetails{
+			tcpRoute:        route,
+			matchedRef:      gatewayv1.ParentReference{Name: "edge"},
+			matchedListener: gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: 1935},
+		}, []metav1.Condition{{
+			Type:   string(gatewayv1.RouteConditionAccepted),
+			Status: metav1.ConditionTrue,
+			Reason: string(gatewayv1.RouteReasonAccepted),
+		}})
+
+		require.NoError(t, err)
+	})
+
+	t.Run("setProgrammed succeeds after pending status update", func(t *testing.T) {
+		route := gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "iot",
+				Name:       "rtmp",
+				Generation: 2,
+			},
+			Status: gatewayv1.TCPRouteStatus{
+				RouteStatus: gatewayv1.RouteStatus{
+					Parents: []gatewayv1.RouteParentStatus{{
+						ParentRef:      gatewayv1.ParentReference{Name: "edge"},
+						ControllerName: gatewayv1.GatewayController(NetworkLoadBalancerControllerClassName),
+					}},
+				},
+			},
+		}
+		details := resolvedTCPRouteDetails{
+			tcpRoute: route,
+			gatewayDetails: resolvedGatewayDetails{
+				gateway: gatewayv1.Gateway{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "edge"},
+					Spec: gatewayv1.GatewaySpec{Listeners: []gatewayv1.Listener{
+						{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: 1935},
+					}},
+				},
+				config: types.GatewayConfig{Spec: types.GatewayConfigSpec{LoadBalancerID: "nlb-id"}},
+			},
+			matchedRef:      gatewayv1.ParentReference{Name: "edge"},
+			matchedListener: gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: 1935},
+		}
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithStatusSubresource(&gatewayv1.TCPRoute{}).
+			WithObjects(&route).
+			Build()
+		model := newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: k8sClient})
+
+		require.NoError(t, model.setPending(t.Context(), details))
+		require.NoError(t, model.setProgrammed(t.Context(), details))
+
+		var updated gatewayv1.TCPRoute
+		require.NoError(t, k8sClient.Get(t.Context(), client.ObjectKeyFromObject(&route), &updated))
+		assert.Contains(t, updated.Finalizers, NetworkLoadBalancerTCPRouteProgrammedFinalizer)
+		assert.Equal(t, "nlb-id", updated.Annotations[L4RouteProgrammedNetworkLoadBalancerIDAnnotation])
+		assert.Equal(t,
+			string(gatewayv1.RouteReasonResolvedRefs),
+			meta.FindStatusCondition(
+				updated.Status.Parents[0].Conditions,
+				string(gatewayv1.RouteConditionResolvedRefs),
+			).Reason,
+		)
+	})
+
+	t.Run("setProgrammed refreshes and updates status after conflict", func(t *testing.T) {
+		route := gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "iot",
+				Name:       "rtmp",
+				Generation: 2,
+				Finalizers: []string{NetworkLoadBalancerTCPRouteProgrammedFinalizer},
+				Annotations: map[string]string{
+					NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation: "bs_rtmp",
+				},
+			},
+		}
+		latestRoute := route.DeepCopy()
+		latestRoute.ResourceVersion = "latest"
+		conflictErr := apierrors.NewConflict(
+			schema.GroupResource{Resource: "tcproutes"},
+			route.Name,
+			errors.New("modified"),
+		)
+		mockClient := NewMockk8sClient(t)
+		statusWriter := k8sapi.NewMockSubResourceWriter(t)
+		mockClient.EXPECT().Status().Return(statusWriter).Twice()
+		statusWriter.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
+			Return(conflictErr).
+			Once()
+		getCall := mockClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Namespace: route.Namespace, Name: route.Name}, mock.AnythingOfType("*v1.TCPRoute")).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				*obj.(*gatewayv1.TCPRoute) = *latestRoute
+				return nil
+			}).
+			Once()
+		statusWriter.EXPECT().
+			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				updated := obj.(*gatewayv1.TCPRoute)
+				condition := meta.FindStatusCondition(
+					updated.Status.Parents[0].Conditions,
+					string(gatewayv1.RouteConditionAccepted),
+				)
+				return updated.ResourceVersion == "latest" &&
+					condition != nil &&
+					condition.Status == metav1.ConditionTrue
+			}), mock.Anything).
+			Return(nil).
+			Once().
+			NotBefore(getCall)
+
+		model := newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
+		err := model.updateParentStatus(t.Context(), resolvedTCPRouteDetails{
+			tcpRoute:        route,
+			matchedRef:      gatewayv1.ParentReference{Name: "edge"},
+			matchedListener: gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: 1935},
+		}, []metav1.Condition{{
+			Type:   string(gatewayv1.RouteConditionAccepted),
+			Status: metav1.ConditionTrue,
+			Reason: string(gatewayv1.RouteReasonAccepted),
+		}})
+
+		require.NoError(t, err)
+	})
+
+	t.Run("setProgrammed returns status retry errors after conflict", func(t *testing.T) {
+		route := gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "iot",
+				Name:       "rtmp",
+				Generation: 2,
+				Finalizers: []string{NetworkLoadBalancerTCPRouteProgrammedFinalizer},
+				Annotations: map[string]string{
+					NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation: "bs_rtmp",
+				},
+			},
+		}
+		latestRoute := route.DeepCopy()
+		latestRoute.ResourceVersion = "latest"
+		conflictErr := apierrors.NewConflict(
+			schema.GroupResource{Resource: "tcproutes"},
+			route.Name,
+			errors.New("modified"),
+		)
+		wantErr := errors.New("retry update failed")
+		mockClient := NewMockk8sClient(t)
+		statusWriter := k8sapi.NewMockSubResourceWriter(t)
+		mockClient.EXPECT().Status().Return(statusWriter).Twice()
+		statusWriter.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
+			Return(conflictErr).
+			Once()
+		getCall := mockClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Namespace: route.Namespace, Name: route.Name}, mock.AnythingOfType("*v1.TCPRoute")).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				*obj.(*gatewayv1.TCPRoute) = *latestRoute
+				return nil
+			}).
+			Once()
+		statusWriter.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute"), mock.Anything).
+			Return(wantErr).
+			Once().
+			NotBefore(getCall)
+
+		model := newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
+		err := model.updateParentStatus(t.Context(), resolvedTCPRouteDetails{
+			tcpRoute:        route,
+			matchedRef:      gatewayv1.ParentReference{Name: "edge"},
+			matchedListener: gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: 1935},
+		}, []metav1.Condition{{
+			Type:   string(gatewayv1.RouteConditionAccepted),
+			Status: metav1.ConditionTrue,
+			Reason: string(gatewayv1.RouteReasonAccepted),
+		}})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to update TCPRoute")
+	})
+
+	t.Run("setProgrammed returns status refresh errors after conflict", func(t *testing.T) {
+		route := gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{
+			Namespace:  "iot",
+			Name:       "rtmp",
+			Generation: 2,
+		}}
+		conflictErr := apierrors.NewConflict(
+			schema.GroupResource{Resource: "tcproutes"},
+			route.Name,
+			errors.New("modified"),
+		)
+		wantErr := errors.New("refresh failed")
+		mockClient := NewMockk8sClient(t)
+		statusWriter := k8sapi.NewMockSubResourceWriter(t)
+		mockClient.EXPECT().Status().Return(statusWriter).Once()
+		statusWriter.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
+			Return(conflictErr).
+			Once()
+		mockClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Namespace: route.Namespace, Name: route.Name}, mock.AnythingOfType("*v1.TCPRoute")).
+			Return(wantErr).
+			Once()
+
+		model := newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
+		err := model.updateParentStatus(t.Context(), resolvedTCPRouteDetails{
+			tcpRoute:        route,
+			matchedRef:      gatewayv1.ParentReference{Name: "edge"},
+			matchedListener: gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: 1935},
+		}, []metav1.Condition{{
+			Type:   string(gatewayv1.RouteConditionAccepted),
+			Status: metav1.ConditionTrue,
+			Reason: string(gatewayv1.RouteReasonAccepted),
+		}})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to refresh TCPRoute")
+	})
+
 	t.Run("setL4RouteProgrammed records load balancer id when annotations are nil", func(t *testing.T) {
 		route := &gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{
 			Namespace:  "iot",
@@ -1028,6 +1284,229 @@ func TestTCPRouteModel(t *testing.T) {
 				require.Len(t, conditions, 2)
 				return nil
 			},
+		})
+
+		require.NoError(t, err)
+	})
+
+	t.Run("setL4RouteProgrammed retries metadata update after conflict", func(t *testing.T) {
+		route := &gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{
+			Namespace:  "iot",
+			Name:       "rtmp",
+			Generation: 1,
+		}}
+		latestRoute := &gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{
+			Namespace:       route.Namespace,
+			Name:            route.Name,
+			ResourceVersion: "latest",
+		}}
+		conflictErr := apierrors.NewConflict(
+			schema.GroupResource{Resource: "tcproutes"},
+			route.Name,
+			errors.New("modified"),
+		)
+		mockClient := NewMockk8sClient(t)
+		conflictCall := mockClient.EXPECT().
+			Update(t.Context(), route, mock.Anything).
+			Return(conflictErr).
+			Once()
+		getCall := mockClient.EXPECT().
+			Get(t.Context(), client.ObjectKeyFromObject(route), mock.AnythingOfType("*v1.TCPRoute")).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				*obj.(*gatewayv1.TCPRoute) = *latestRoute
+				return nil
+			}).
+			Once().
+			NotBefore(conflictCall)
+		mockClient.EXPECT().
+			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				updated := obj.(*gatewayv1.TCPRoute)
+				return updated.ResourceVersion == "latest" &&
+					assert.Contains(t, updated.Finalizers, NetworkLoadBalancerTCPRouteProgrammedFinalizer) &&
+					assert.Equal(t, "nlb-id", updated.Annotations[L4RouteProgrammedNetworkLoadBalancerIDAnnotation])
+			}), mock.Anything).
+			Return(nil).
+			Once().
+			NotBefore(getCall)
+
+		err := setL4RouteProgrammed(t.Context(), setL4RouteProgrammedParams{
+			k8sClient:      mockClient,
+			routeKind:      "TCPRoute",
+			controllerName: gatewayv1.GatewayController(NetworkLoadBalancerControllerClassName),
+			routeToUpdate:  route,
+			finalizer:      NetworkLoadBalancerTCPRouteProgrammedFinalizer,
+			loadBalancerID: "nlb-id",
+			updateParentStatus: func(conditions []metav1.Condition) error {
+				require.Len(t, conditions, 2)
+				return nil
+			},
+		})
+
+		require.NoError(t, err)
+	})
+
+	t.Run("updateL4RouteProgrammedMetadata returns conflict retry errors", func(t *testing.T) {
+		route := &gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"}}
+		conflictErr := apierrors.NewConflict(
+			schema.GroupResource{Resource: "tcproutes"},
+			route.Name,
+			errors.New("modified"),
+		)
+		wantErr := errors.New("refresh failed")
+		mockClient := NewMockk8sClient(t)
+		conflictCall := mockClient.EXPECT().
+			Update(t.Context(), route, mock.Anything).
+			Return(conflictErr).
+			Once()
+		mockClient.EXPECT().
+			Get(t.Context(), client.ObjectKeyFromObject(route), mock.AnythingOfType("*v1.TCPRoute")).
+			Return(wantErr).
+			Once().
+			NotBefore(conflictCall)
+
+		err := updateL4RouteProgrammedMetadata(t.Context(), setL4RouteProgrammedParams{
+			k8sClient:     mockClient,
+			routeKind:     "TCPRoute",
+			routeToUpdate: route,
+			finalizer:     NetworkLoadBalancerTCPRouteProgrammedFinalizer,
+		})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to refresh TCPRoute iot/rtmp")
+	})
+
+	t.Run("updateL4RouteProgrammedMetadata wraps update errors", func(t *testing.T) {
+		route := &gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"}}
+		wantErr := errors.New("update failed")
+		mockClient := NewMockk8sClient(t)
+		mockClient.EXPECT().
+			Update(t.Context(), route, mock.Anything).
+			Return(wantErr).
+			Once()
+
+		err := updateL4RouteProgrammedMetadata(t.Context(), setL4RouteProgrammedParams{
+			k8sClient:     mockClient,
+			routeKind:     "TCPRoute",
+			routeToUpdate: route,
+			finalizer:     NetworkLoadBalancerTCPRouteProgrammedFinalizer,
+		})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to update TCPRoute iot/rtmp")
+	})
+
+	t.Run("updateL4RouteProgrammedMetadataAfterConflict wraps refresh errors", func(t *testing.T) {
+		route := &gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"}}
+		mockClient := NewMockk8sClient(t)
+		wantErr := errors.New("refresh failed")
+		mockClient.EXPECT().
+			Get(t.Context(), client.ObjectKeyFromObject(route), mock.AnythingOfType("*v1.TCPRoute")).
+			Return(wantErr).
+			Once()
+
+		err := updateL4RouteProgrammedMetadataAfterConflict(t.Context(), setL4RouteProgrammedParams{
+			k8sClient:     mockClient,
+			routeKind:     "TCPRoute",
+			routeToUpdate: route,
+			finalizer:     NetworkLoadBalancerTCPRouteProgrammedFinalizer,
+		})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to refresh TCPRoute iot/rtmp")
+	})
+
+	t.Run("updateL4RouteProgrammedMetadataAfterConflict wraps retry update errors", func(t *testing.T) {
+		route := &gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"}}
+		mockClient := NewMockk8sClient(t)
+		wantErr := errors.New("retry update failed")
+		mockClient.EXPECT().
+			Get(t.Context(), client.ObjectKeyFromObject(route), mock.AnythingOfType("*v1.TCPRoute")).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				*obj.(*gatewayv1.TCPRoute) = gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{
+					Namespace: route.Namespace,
+					Name:      route.Name,
+				}}
+				return nil
+			}).
+			Once()
+		mockClient.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute"), mock.Anything).
+			Return(wantErr).
+			Once()
+
+		err := updateL4RouteProgrammedMetadataAfterConflict(t.Context(), setL4RouteProgrammedParams{
+			k8sClient:     mockClient,
+			routeKind:     "TCPRoute",
+			routeToUpdate: route,
+			finalizer:     NetworkLoadBalancerTCPRouteProgrammedFinalizer,
+		})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to update TCPRoute iot/rtmp")
+	})
+
+	t.Run("setL4RoutePending sets accepted and pending resolved refs conditions", func(t *testing.T) {
+		fake := faker.New()
+		route := &gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{
+			Namespace:  "iot-" + fake.Lorem().Word(),
+			Name:       "rtmp-" + fake.Lorem().Word(),
+			Generation: 1,
+		}}
+
+		err := setL4RoutePending(setL4RoutePendingParams{
+			routeKind:      "TCPRoute",
+			controllerName: gatewayv1.GatewayController(NetworkLoadBalancerControllerClassName),
+			routeToUpdate:  route,
+			updateParentStatus: func(conditions []metav1.Condition) error {
+				require.Len(t, conditions, 2)
+
+				accepted := meta.FindStatusCondition(conditions, string(gatewayv1.RouteConditionAccepted))
+				require.NotNil(t, accepted)
+				assert.Equal(t, metav1.ConditionTrue, accepted.Status)
+				assert.Equal(t, string(gatewayv1.RouteReasonAccepted), accepted.Reason)
+
+				resolvedRefs := meta.FindStatusCondition(conditions, string(gatewayv1.RouteConditionResolvedRefs))
+				require.NotNil(t, resolvedRefs)
+				assert.Equal(t, metav1.ConditionUnknown, resolvedRefs.Status)
+				assert.Equal(t, string(gatewayv1.RouteReasonPending), resolvedRefs.Reason)
+				assert.Equal(t, "Route programming is in progress", resolvedRefs.Message)
+				assert.Equal(t, route.Generation, resolvedRefs.ObservedGeneration)
+				return nil
+			},
+		})
+
+		require.NoError(t, err)
+	})
+
+	t.Run("setPending updates TCPRoute parent status", func(t *testing.T) {
+		route := gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{
+			Namespace:  "iot",
+			Name:       "rtmp",
+			Generation: 2,
+		}}
+		k8sClient := NewMockk8sClient(t)
+		statusWriter := k8sapi.NewMockSubResourceWriter(t)
+		k8sClient.EXPECT().Status().Return(statusWriter)
+		statusWriter.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
+			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.SubResourceUpdateOption) error {
+				updated := mustTCPRoute(t, obj)
+				require.Len(t, updated.Status.Parents, 1)
+				resolvedRefs := meta.FindStatusCondition(
+					updated.Status.Parents[0].Conditions,
+					string(gatewayv1.RouteConditionResolvedRefs),
+				)
+				require.NotNil(t, resolvedRefs)
+				assert.Equal(t, metav1.ConditionUnknown, resolvedRefs.Status)
+				assert.Equal(t, string(gatewayv1.RouteReasonPending), resolvedRefs.Reason)
+				return nil
+			})
+		model := newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: k8sClient})
+
+		err := model.setPending(t.Context(), resolvedTCPRouteDetails{
+			tcpRoute:        route,
+			matchedRef:      gatewayv1.ParentReference{Name: "edge"},
+			matchedListener: gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: 1935},
 		})
 
 		require.NoError(t, err)

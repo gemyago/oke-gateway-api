@@ -21,9 +21,11 @@ type stubTCPRouteModel struct {
 	resolveErr       error
 	programErr       error
 	deprovisionErr   error
+	setPendingErr    error
 	setProgrammedErr error
 	setRejectedErr   error
 	deprovisioned    bool
+	pending          bool
 	programmed       bool
 	rejected         bool
 }
@@ -41,6 +43,11 @@ func (s *stubTCPRouteModel) deprovisionRoute(context.Context, resolvedTCPRouteDe
 	return s.deprovisionErr
 }
 
+func (s *stubTCPRouteModel) setPending(context.Context, resolvedTCPRouteDetails) error {
+	s.pending = true
+	return s.setPendingErr
+}
+
 func (s *stubTCPRouteModel) setProgrammed(context.Context, resolvedTCPRouteDetails) error {
 	s.programmed = true
 	return s.setProgrammedErr
@@ -56,9 +63,11 @@ type stubUDPRouteModel struct {
 	resolveErr       error
 	programErr       error
 	deprovisionErr   error
+	setPendingErr    error
 	setProgrammedErr error
 	setRejectedErr   error
 	deprovisioned    bool
+	pending          bool
 	programmed       bool
 	rejected         bool
 }
@@ -76,6 +85,11 @@ func (s *stubUDPRouteModel) deprovisionRoute(context.Context, resolvedUDPRouteDe
 	return s.deprovisionErr
 }
 
+func (s *stubUDPRouteModel) setPending(context.Context, resolvedUDPRouteDetails) error {
+	s.pending = true
+	return s.setPendingErr
+}
+
 func (s *stubUDPRouteModel) setProgrammed(context.Context, resolvedUDPRouteDetails) error {
 	s.programmed = true
 	return s.setProgrammedErr
@@ -91,9 +105,11 @@ type stubTLSRouteModel struct {
 	resolveErr       error
 	programErr       error
 	deprovisionErr   error
+	setPendingErr    error
 	setProgrammedErr error
 	setRejectedErr   error
 	deprovisioned    bool
+	pending          bool
 	programmed       bool
 	rejected         bool
 }
@@ -109,6 +125,11 @@ func (s *stubTLSRouteModel) programRoute(context.Context, resolvedTLSRouteDetail
 func (s *stubTLSRouteModel) deprovisionRoute(context.Context, resolvedTLSRouteDetails) error {
 	s.deprovisioned = true
 	return s.deprovisionErr
+}
+
+func (s *stubTLSRouteModel) setPending(context.Context, resolvedTLSRouteDetails) error {
+	s.pending = true
+	return s.setPendingErr
 }
 
 func (s *stubTLSRouteModel) setProgrammed(context.Context, resolvedTLSRouteDetails) error {
@@ -135,6 +156,7 @@ func TestTCPRouteController(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Empty(t, result)
+		assert.True(t, model.pending)
 		assert.True(t, model.programmed)
 	})
 
@@ -278,6 +300,10 @@ func TestTCPRouteController(t *testing.T) {
 				resolved:         []resolvedTCPRouteDetails{{tcpRoute: gatewayv1.TCPRoute{}}},
 				setProgrammedErr: errors.New("boom"),
 			},
+			"set pending": {
+				resolved:      []resolvedTCPRouteDetails{{tcpRoute: gatewayv1.TCPRoute{}}},
+				setPendingErr: errors.New("boom"),
+			},
 			"set rejected": {
 				resolved: []resolvedTCPRouteDetails{{tcpRoute: gatewayv1.TCPRoute{}}},
 				programErr: newTCPRouteAcceptedStatusError(
@@ -336,6 +362,7 @@ func TestTLSRouteController(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Empty(t, result)
+		assert.True(t, model.pending)
 		assert.True(t, model.programmed)
 	})
 
@@ -491,6 +518,10 @@ func TestTLSRouteController(t *testing.T) {
 				resolved:   []resolvedTLSRouteDetails{{tlsRoute: gatewayv1.TLSRoute{}}},
 				programErr: errors.New("boom"),
 			},
+			"set pending": {
+				resolved:      []resolvedTLSRouteDetails{{tlsRoute: gatewayv1.TLSRoute{}}},
+				setPendingErr: errors.New("boom"),
+			},
 			"set programmed": {
 				resolved:         []resolvedTLSRouteDetails{{tlsRoute: gatewayv1.TLSRoute{}}},
 				setProgrammedErr: errors.New("boom"),
@@ -546,6 +577,7 @@ func TestUDPRouteController(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Empty(t, result)
+		assert.True(t, model.pending)
 		assert.True(t, model.programmed)
 	})
 

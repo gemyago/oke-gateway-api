@@ -12,6 +12,7 @@ import (
 	"go.uber.org/dig"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,6 +34,7 @@ type udpRouteModel interface {
 	resolveRequest(ctx context.Context, req reconcile.Request) ([]resolvedUDPRouteDetails, error)
 	programRoute(ctx context.Context, details resolvedUDPRouteDetails) error
 	deprovisionRoute(ctx context.Context, details resolvedUDPRouteDetails) error
+	setPending(ctx context.Context, details resolvedUDPRouteDetails) error
 	setProgrammed(ctx context.Context, details resolvedUDPRouteDetails) error
 	setRejected(ctx context.Context, details resolvedUDPRouteDetails, statusErr udpRouteStatusError) error
 }
@@ -819,7 +821,33 @@ func (m *udpRouteModelImpl) updateParentStatus(
 	)
 
 	if err := m.client.Status().Update(ctx, &details.udpRoute); err != nil {
+		if apierrors.IsConflict(err) {
+			if retryErr := m.updateParentStatusAfterConflict(ctx, details, conditions); retryErr != nil {
+				return retryErr
+			}
+			return nil
+		}
 		return fmt.Errorf("failed to update UDPRoute %s status: %w", details.udpRoute.Name, err)
+	}
+	return nil
+}
+
+func (m *udpRouteModelImpl) updateParentStatusAfterConflict(
+	ctx context.Context,
+	details resolvedUDPRouteDetails,
+	conditions []metav1.Condition,
+) error {
+	latest := details.udpRoute.DeepCopy()
+	if err := m.client.Get(ctx, client.ObjectKeyFromObject(&details.udpRoute), latest); err != nil {
+		return fmt.Errorf("failed to refresh UDPRoute %s status after conflict: %w", details.udpRoute.Name, err)
+	}
+	latest.Status.Parents = mergeL4RouteParentStatus(
+		latest.Status.Parents,
+		details.matchedRef,
+		conditions,
+	)
+	if err := m.client.Status().Update(ctx, latest); err != nil {
+		return fmt.Errorf("failed to update UDPRoute %s status after conflict: %w", details.udpRoute.Name, err)
 	}
 	return nil
 }
@@ -835,6 +863,23 @@ func (m *udpRouteModelImpl) setProgrammed(ctx context.Context, details resolvedU
 		backendSetAnnotKey: NetworkLoadBalancerUDPRouteProgrammedBackendSetsAnnotation,
 		loadBalancerID:     details.gatewayDetails.config.Spec.LoadBalancerID,
 		desiredBackendSets: desiredUDPRouteBackendSetNames(details),
+		updateParentStatus: func(conditions []metav1.Condition) error {
+			return m.updateParentStatus(ctx, resolvedUDPRouteDetails{
+				gatewayDetails:  details.gatewayDetails,
+				udpRoute:        *routeToUpdate,
+				matchedRef:      details.matchedRef,
+				matchedListener: details.matchedListener,
+			}, conditions)
+		},
+	})
+}
+
+func (m *udpRouteModelImpl) setPending(ctx context.Context, details resolvedUDPRouteDetails) error {
+	routeToUpdate := details.udpRoute.DeepCopy()
+	return setL4RoutePending(setL4RoutePendingParams{
+		routeKind:      "UDPRoute",
+		controllerName: NetworkLoadBalancerControllerClassName,
+		routeToUpdate:  routeToUpdate,
 		updateParentStatus: func(conditions []metav1.Condition) error {
 			return m.updateParentStatus(ctx, resolvedUDPRouteDetails{
 				gatewayDetails:  details.gatewayDetails,

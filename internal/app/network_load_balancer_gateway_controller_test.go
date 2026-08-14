@@ -291,6 +291,23 @@ func TestNetworkLoadBalancerGatewayController(t *testing.T) {
 		assert.True(t, resourcesModel.setCalled)
 	})
 
+	t.Run("wraps pending programmed condition errors", func(t *testing.T) {
+		wantErr := errors.New("pending failed")
+		controller := NewNetworkLoadBalancerGatewayController(NetworkLoadBalancerGatewayControllerDeps{
+			RootLogger:     diag.RootTestLogger(),
+			ResourcesModel: &stubResourcesModel{conditionSet: true, setErr: wantErr},
+			GatewayModel: &stubNLBGatewayModel{
+				relevant: true,
+				data:     baseData,
+			},
+		})
+
+		_, err := controller.Reconcile(t.Context(), req)
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to set pending programmed condition")
+	})
+
 	t.Run("returns busy requeue for network load balancer busy errors", func(t *testing.T) {
 		resourcesModel := &stubResourcesModel{conditionSet: true}
 		gatewayModel := &stubNLBGatewayModel{

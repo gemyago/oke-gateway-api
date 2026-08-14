@@ -251,6 +251,12 @@ type httpRouteModel interface {
 		ctx context.Context,
 		params setProgrammedParams,
 	) error
+
+	// setPending marks the route as accepted with programming in progress.
+	setPending(
+		ctx context.Context,
+		params setProgrammedParams,
+	) error
 }
 
 // parentRefSameTarget checks if two parent references target the same resource.
@@ -1638,6 +1644,35 @@ func setL7RouteProgrammed(
 	})
 }
 
+func setL7RoutePending(
+	ctx context.Context,
+	resourcesModel resourcesModel,
+	params setL7RouteProgrammedParams,
+) error {
+	_, statusIndex, found := lo.FindIndexOf(
+		params.parentStatuses,
+		func(status gatewayv1.RouteParentStatus) bool {
+			return status.ControllerName == params.gatewayClass.Spec.ControllerName &&
+				parentRefSameTarget(status.ParentRef, params.matchedRef)
+		},
+	)
+	if !found {
+		return fmt.Errorf("parent status not found for controller %s and parentRef %s",
+			params.gatewayClass.Spec.ControllerName,
+			params.matchedRef.Name,
+		)
+	}
+
+	return resourcesModel.setCondition(ctx, setConditionParams{
+		resource:      params.resource,
+		conditions:    &params.parentStatuses[statusIndex].Conditions,
+		conditionType: string(gatewayv1.RouteConditionResolvedRefs),
+		status:        metav1.ConditionUnknown,
+		reason:        string(gatewayv1.RouteReasonPending),
+		message:       fmt.Sprintf("Route programming by %s is in progress", params.gateway.Name),
+	})
+}
+
 func (m *httpRouteModelImpl) setProgrammed(
 	ctx context.Context,
 	params setProgrammedParams,
@@ -1661,6 +1696,25 @@ func (m *httpRouteModelImpl) setProgrammed(
 	})
 	if err != nil {
 		return fmt.Errorf("failed to update programmed status for HTTProute %s: %w", httpRoute.Name, err)
+	}
+
+	return nil
+}
+
+func (m *httpRouteModelImpl) setPending(
+	ctx context.Context,
+	params setProgrammedParams,
+) error {
+	httpRoute := params.httpRoute.DeepCopy()
+	err := setL7RoutePending(ctx, m.resourcesModel, setL7RouteProgrammedParams{
+		resource:       httpRoute,
+		parentStatuses: httpRoute.Status.Parents,
+		gatewayClass:   params.gatewayClass,
+		gateway:        params.gateway,
+		matchedRef:     params.matchedRef,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update pending status for HTTPRoute %s: %w", httpRoute.Name, err)
 	}
 
 	return nil

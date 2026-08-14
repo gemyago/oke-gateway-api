@@ -35,6 +35,7 @@ type tcpRouteModel interface {
 	resolveRequest(ctx context.Context, req reconcile.Request) ([]resolvedTCPRouteDetails, error)
 	programRoute(ctx context.Context, details resolvedTCPRouteDetails) error
 	deprovisionRoute(ctx context.Context, details resolvedTCPRouteDetails) error
+	setPending(ctx context.Context, details resolvedTCPRouteDetails) error
 	setProgrammed(ctx context.Context, details resolvedTCPRouteDetails) error
 	setRejected(ctx context.Context, details resolvedTCPRouteDetails, statusErr tcpRouteStatusError) error
 }
@@ -1359,7 +1360,33 @@ func (m *tcpRouteModelImpl) updateParentStatus(
 	)
 
 	if err := m.client.Status().Update(ctx, &details.tcpRoute); err != nil {
+		if apierrors.IsConflict(err) {
+			if retryErr := m.updateParentStatusAfterConflict(ctx, details, conditions); retryErr != nil {
+				return retryErr
+			}
+			return nil
+		}
 		return fmt.Errorf("failed to update TCPRoute %s status: %w", details.tcpRoute.Name, err)
+	}
+	return nil
+}
+
+func (m *tcpRouteModelImpl) updateParentStatusAfterConflict(
+	ctx context.Context,
+	details resolvedTCPRouteDetails,
+	conditions []metav1.Condition,
+) error {
+	latest := details.tcpRoute.DeepCopy()
+	if err := m.client.Get(ctx, client.ObjectKeyFromObject(&details.tcpRoute), latest); err != nil {
+		return fmt.Errorf("failed to refresh TCPRoute %s status after conflict: %w", details.tcpRoute.Name, err)
+	}
+	latest.Status.Parents = mergeL4RouteParentStatus(
+		latest.Status.Parents,
+		details.matchedRef,
+		conditions,
+	)
+	if err := m.client.Status().Update(ctx, latest); err != nil {
+		return fmt.Errorf("failed to update TCPRoute %s status after conflict: %w", details.tcpRoute.Name, err)
 	}
 	return nil
 }
@@ -1412,6 +1439,23 @@ func (m *tcpRouteModelImpl) setProgrammed(ctx context.Context, details resolvedT
 	})
 }
 
+func (m *tcpRouteModelImpl) setPending(ctx context.Context, details resolvedTCPRouteDetails) error {
+	routeToUpdate := details.tcpRoute.DeepCopy()
+	return setL4RoutePending(setL4RoutePendingParams{
+		routeKind:      "TCPRoute",
+		controllerName: NetworkLoadBalancerControllerClassName,
+		routeToUpdate:  routeToUpdate,
+		updateParentStatus: func(conditions []metav1.Condition) error {
+			return m.updateParentStatus(ctx, resolvedTCPRouteDetails{
+				gatewayDetails:  details.gatewayDetails,
+				tcpRoute:        *routeToUpdate,
+				matchedRef:      details.matchedRef,
+				matchedListener: details.matchedListener,
+			}, conditions)
+		},
+	})
+}
+
 type setL4RouteProgrammedParams struct {
 	k8sClient          k8sClient
 	routeKind          string
@@ -1425,29 +1469,10 @@ type setL4RouteProgrammedParams struct {
 }
 
 func setL4RouteProgrammed(ctx context.Context, params setL4RouteProgrammedParams) error {
-	needsUpdate := controllerutil.AddFinalizer(params.routeToUpdate, params.finalizer)
-	if len(params.desiredBackendSets) > 0 {
-		setAnnotatedBackendSetNames(params.routeToUpdate, params.backendSetAnnotKey, params.desiredBackendSets)
-		needsUpdate = true
-	}
-	if params.loadBalancerID != "" &&
-		params.routeToUpdate.GetAnnotations()[L4RouteProgrammedNetworkLoadBalancerIDAnnotation] != params.loadBalancerID {
-		annotations := params.routeToUpdate.GetAnnotations()
-		if annotations == nil {
-			annotations = map[string]string{}
-		}
-		annotations[L4RouteProgrammedNetworkLoadBalancerIDAnnotation] = params.loadBalancerID
-		params.routeToUpdate.SetAnnotations(annotations)
-		needsUpdate = true
-	}
+	needsUpdate := applyL4RouteProgrammedMetadata(params, params.routeToUpdate)
 	if needsUpdate {
-		if err := params.k8sClient.Update(ctx, params.routeToUpdate); err != nil {
-			return fmt.Errorf("failed to update %s %s/%s finalizer and annotations: %w",
-				params.routeKind,
-				params.routeToUpdate.GetNamespace(),
-				params.routeToUpdate.GetName(),
-				err,
-			)
+		if err := updateL4RouteProgrammedMetadata(ctx, params); err != nil {
+			return err
 		}
 	}
 
@@ -1470,6 +1495,110 @@ func setL4RouteProgrammed(ctx context.Context, params setL4RouteProgrammedParams
 			Status:             metav1.ConditionTrue,
 			Reason:             string(gatewayv1.RouteReasonResolvedRefs),
 			Message:            "Backend references resolved",
+			ObservedGeneration: params.routeToUpdate.GetGeneration(),
+			LastTransitionTime: metav1.Now(),
+		},
+	})
+}
+
+func applyL4RouteProgrammedMetadata(params setL4RouteProgrammedParams, route client.Object) bool {
+	needsUpdate := controllerutil.AddFinalizer(route, params.finalizer)
+	if len(params.desiredBackendSets) > 0 {
+		setAnnotatedBackendSetNames(route, params.backendSetAnnotKey, params.desiredBackendSets)
+		needsUpdate = true
+	}
+	if params.loadBalancerID != "" &&
+		route.GetAnnotations()[L4RouteProgrammedNetworkLoadBalancerIDAnnotation] != params.loadBalancerID {
+		annotations := route.GetAnnotations()
+		if annotations == nil {
+			annotations = map[string]string{}
+		}
+		annotations[L4RouteProgrammedNetworkLoadBalancerIDAnnotation] = params.loadBalancerID
+		route.SetAnnotations(annotations)
+		needsUpdate = true
+	}
+	return needsUpdate
+}
+
+func updateL4RouteProgrammedMetadata(ctx context.Context, params setL4RouteProgrammedParams) error {
+	if err := params.k8sClient.Update(ctx, params.routeToUpdate); err != nil {
+		if apierrors.IsConflict(err) {
+			if retryErr := updateL4RouteProgrammedMetadataAfterConflict(ctx, params); retryErr != nil {
+				return retryErr
+			}
+			return nil
+		}
+		return fmt.Errorf("failed to update %s %s/%s finalizer and annotations: %w",
+			params.routeKind,
+			params.routeToUpdate.GetNamespace(),
+			params.routeToUpdate.GetName(),
+			err,
+		)
+	}
+	return nil
+}
+
+func updateL4RouteProgrammedMetadataAfterConflict(
+	ctx context.Context,
+	params setL4RouteProgrammedParams,
+) error {
+	latest, ok := params.routeToUpdate.DeepCopyObject().(client.Object)
+	if !ok {
+		return fmt.Errorf(
+			"failed to copy %s %s/%s for finalizer and annotations update",
+			params.routeKind,
+			params.routeToUpdate.GetNamespace(),
+			params.routeToUpdate.GetName(),
+		)
+	}
+	if err := params.k8sClient.Get(ctx, client.ObjectKeyFromObject(params.routeToUpdate), latest); err != nil {
+		return fmt.Errorf(
+			"failed to refresh %s %s/%s after finalizer and annotations conflict: %w",
+			params.routeKind,
+			params.routeToUpdate.GetNamespace(),
+			params.routeToUpdate.GetName(),
+			err,
+		)
+	}
+	applyL4RouteProgrammedMetadata(params, latest)
+	if err := params.k8sClient.Update(ctx, latest); err != nil {
+		return fmt.Errorf("failed to update %s %s/%s finalizer and annotations: %w",
+			params.routeKind,
+			params.routeToUpdate.GetNamespace(),
+			params.routeToUpdate.GetName(),
+			err,
+		)
+	}
+	return nil
+}
+
+type setL4RoutePendingParams struct {
+	routeKind          string
+	controllerName     gatewayv1.GatewayController
+	routeToUpdate      client.Object
+	updateParentStatus func([]metav1.Condition) error
+}
+
+func setL4RoutePending(params setL4RoutePendingParams) error {
+	return params.updateParentStatus([]metav1.Condition{
+		{
+			Type:   string(gatewayv1.RouteConditionAccepted),
+			Status: metav1.ConditionTrue,
+			Reason: string(gatewayv1.RouteReasonAccepted),
+			Message: fmt.Sprintf(
+				"%s %s accepted by %s",
+				params.routeKind,
+				params.routeToUpdate.GetName(),
+				params.controllerName,
+			),
+			ObservedGeneration: params.routeToUpdate.GetGeneration(),
+			LastTransitionTime: metav1.Now(),
+		},
+		{
+			Type:               string(gatewayv1.RouteConditionResolvedRefs),
+			Status:             metav1.ConditionUnknown,
+			Reason:             string(gatewayv1.RouteReasonPending),
+			Message:            "Route programming is in progress",
 			ObservedGeneration: params.routeToUpdate.GetGeneration(),
 			LastTransitionTime: metav1.Now(),
 		},

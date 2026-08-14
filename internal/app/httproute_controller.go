@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/dig"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 // HTTPRouteController is a simple controller that watches HTTPRoute resources.
@@ -50,27 +51,7 @@ func (r *HTTPRouteController) reconcileResolvedRoute(
 	resolvedData resolvedRouteDetails,
 ) (bool, error) {
 	if resolvedData.httpRoute.DeletionTimestamp != nil {
-		r.logger.InfoContext(ctx, "HTTPRoute is marked for deletion, deprovisioning",
-			slog.String("httpRoute", resolvedData.httpRoute.Name),
-			slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
-		)
-		err := r.httpRouteModel.deprovisionRoute(ctx, deprovisionRouteParams{
-			gateway:          resolvedData.gatewayDetails.gateway,
-			config:           resolvedData.gatewayDetails.config,
-			httpRoute:        resolvedData.httpRoute,
-			matchedListeners: resolvedData.matchedListeners,
-		})
-		if err != nil {
-			return false, fmt.Errorf("failed to deprovision route for gateway %s: %w",
-				resolvedData.gatewayDetails.gateway.Name, err)
-		}
-
-		r.logger.InfoContext(ctx, "Successfully deprovisioned HTTProute",
-			slog.String("httpRoute", resolvedData.httpRoute.Name),
-			slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
-		)
-
-		return false, nil
+		return false, r.deprovisionResolvedRoute(ctx, resolvedData)
 	}
 
 	acceptedRoute, err := r.httpRouteModel.acceptRoute(ctx, resolvedData)
@@ -100,6 +81,10 @@ func (r *HTTPRouteController) reconcileResolvedRoute(
 		slog.String("httpRoute", resolvedData.httpRoute.Name),
 		slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
 	)
+
+	if err = r.setPending(ctx, resolvedData, *acceptedRoute); err != nil {
+		return false, fmt.Errorf("failed to set pending status: %w", err)
+	}
 
 	knownBackends, err := r.httpRouteModel.resolveBackendRefs(ctx, resolveBackendRefsParams{
 		httpRoute: *acceptedRoute,
@@ -146,6 +131,47 @@ func (r *HTTPRouteController) reconcileResolvedRoute(
 	)
 
 	return true, nil
+}
+
+func (r *HTTPRouteController) deprovisionResolvedRoute(
+	ctx context.Context,
+	resolvedData resolvedRouteDetails,
+) error {
+	r.logger.InfoContext(ctx, "HTTPRoute is marked for deletion, deprovisioning",
+		slog.String("httpRoute", resolvedData.httpRoute.Name),
+		slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
+	)
+	err := r.httpRouteModel.deprovisionRoute(ctx, deprovisionRouteParams{
+		gateway:          resolvedData.gatewayDetails.gateway,
+		config:           resolvedData.gatewayDetails.config,
+		httpRoute:        resolvedData.httpRoute,
+		matchedListeners: resolvedData.matchedListeners,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to deprovision route for gateway %s: %w",
+			resolvedData.gatewayDetails.gateway.Name, err)
+	}
+
+	r.logger.InfoContext(ctx, "Successfully deprovisioned HTTProute",
+		slog.String("httpRoute", resolvedData.httpRoute.Name),
+		slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
+	)
+
+	return nil
+}
+
+func (r *HTTPRouteController) setPending(
+	ctx context.Context,
+	resolvedData resolvedRouteDetails,
+	acceptedRoute gatewayv1.HTTPRoute,
+) error {
+	return r.httpRouteModel.setPending(ctx, setProgrammedParams{
+		gatewayClass: resolvedData.gatewayDetails.gatewayClass,
+		gateway:      resolvedData.gatewayDetails.gateway,
+		config:       resolvedData.gatewayDetails.config,
+		httpRoute:    acceptedRoute,
+		matchedRef:   resolvedData.matchedRef,
+	})
 }
 
 func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {

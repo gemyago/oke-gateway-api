@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -2963,6 +2964,60 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("programs route after pending status update", func(t *testing.T) {
+			fakeData := faker.New()
+			route := makeRandomHTTPRoute()
+			route.Generation = rand.Int64N(1000) + 1
+			gatewayData := makeRandomAcceptedGatewayDetails()
+			matchedRef := makeRandomParentRef()
+			route.Status.Parents = []gatewayv1.RouteParentStatus{{
+				ParentRef:      matchedRef,
+				ControllerName: gatewayData.gatewayClass.Spec.ControllerName,
+			}}
+
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(newL4TestScheme(t)).
+				WithStatusSubresource(&gatewayv1.HTTPRoute{}).
+				WithObjects(&route).
+				Build()
+			model := newHTTPRouteModel(httpRouteModelDeps{
+				K8sClient:  k8sClient,
+				RootLogger: diag.RootTestLogger(),
+				ResourcesModel: newResourcesModel(resourcesModelDeps{
+					K8sClient:  k8sClient,
+					RootLogger: diag.RootTestLogger(),
+				}),
+			})
+
+			params := setProgrammedParams{
+				httpRoute:    route,
+				gatewayClass: gatewayData.gatewayClass,
+				gateway:      gatewayData.gateway,
+				config:       gatewayData.config,
+				matchedRef:   matchedRef,
+				programmedPolicyRules: []string{
+					"rule-" + fakeData.Lorem().Word(),
+				},
+				programmedBackendSets: []string{
+					"backend-set-" + fakeData.Lorem().Word(),
+				},
+			}
+
+			require.NoError(t, model.setPending(t.Context(), params))
+			require.NoError(t, model.setProgrammed(t.Context(), params))
+
+			var updated gatewayv1.HTTPRoute
+			require.NoError(t, k8sClient.Get(t.Context(), client.ObjectKeyFromObject(&route), &updated))
+			assert.Contains(t, updated.Finalizers, HTTPRouteProgrammedFinalizer)
+			assert.Equal(t,
+				string(gatewayv1.RouteReasonResolvedRefs),
+				meta.FindStatusCondition(
+					updated.Status.Parents[0].Conditions,
+					string(gatewayv1.RouteConditionResolvedRefs),
+				).Reason,
+			)
+		})
+
 		t.Run("parent status not found (wrong controller)", func(t *testing.T) {
 			fake := faker.New()
 			deps := newMockDeps(t)
@@ -3051,6 +3106,62 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			err := model.setProgrammed(t.Context(), details)
 			require.ErrorIs(t, err, updateErr)
+		})
+	})
+
+	t.Run("setPending", func(t *testing.T) {
+		t.Run("success", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			route := makeRandomHTTPRoute()
+			gatewayData := makeRandomAcceptedGatewayDetails()
+			matchedRef := makeRandomParentRef()
+			route.Status.Parents = []gatewayv1.RouteParentStatus{{
+				ParentRef:      matchedRef,
+				ControllerName: gatewayData.gatewayClass.Spec.ControllerName,
+			}}
+
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+			mockResourcesModel.EXPECT().setCondition(t.Context(), mock.MatchedBy(func(params setConditionParams) bool {
+				return params.conditionType == string(gatewayv1.RouteConditionResolvedRefs) &&
+					params.status == metav1.ConditionUnknown &&
+					params.reason == string(gatewayv1.RouteReasonPending) &&
+					params.message == fmt.Sprintf("Route programming by %s is in progress", gatewayData.gateway.Name)
+			})).Return(nil).Once()
+
+			err := model.setPending(t.Context(), setProgrammedParams{
+				httpRoute:    route,
+				gatewayClass: gatewayData.gatewayClass,
+				gateway:      gatewayData.gateway,
+				matchedRef:   matchedRef,
+			})
+
+			require.NoError(t, err)
+		})
+
+		t.Run("returns status update errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			route := makeRandomHTTPRoute()
+			gatewayData := makeRandomAcceptedGatewayDetails()
+			matchedRef := makeRandomParentRef()
+			route.Status.Parents = []gatewayv1.RouteParentStatus{{
+				ParentRef:      matchedRef,
+				ControllerName: gatewayData.gatewayClass.Spec.ControllerName,
+			}}
+			wantErr := errors.New(fake.Lorem().Sentence(10))
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+			mockResourcesModel.EXPECT().setCondition(t.Context(), mock.Anything).Return(wantErr).Once()
+
+			err := model.setPending(t.Context(), setProgrammedParams{
+				httpRoute:    route,
+				gatewayClass: gatewayData.gatewayClass,
+				gateway:      gatewayData.gateway,
+				matchedRef:   matchedRef,
+			})
+
+			require.ErrorIs(t, err, wantErr)
 		})
 	})
 

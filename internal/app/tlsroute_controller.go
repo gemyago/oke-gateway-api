@@ -89,6 +89,10 @@ func (r *TLSRouteController) reconcileResolvedRoute(
 		return nil
 	}
 
+	if err := r.tlsRouteModel.setPending(ctx, resolvedRoute); err != nil {
+		return fmt.Errorf("failed to set TLSRoute %s pending status: %w", req.NamespacedName, err)
+	}
+
 	if err := r.tlsRouteModel.programRoute(ctx, resolvedRoute); err != nil {
 		var statusErr tlsRouteStatusError
 		if errors.As(err, &statusErr) {

@@ -45,14 +45,21 @@ func (r *UDPRouteController) Reconcile(ctx context.Context, req reconcile.Reques
 		route:         func(details resolvedUDPRouteDetails) client.Object { return &details.udpRoute },
 		deprovision:   r.udpRouteModel.deprovisionRoute,
 		program:       r.udpRouteModel.programRoute,
+		setPending:    r.udpRouteModel.setPending,
 		setProgrammed: r.udpRouteModel.setProgrammed,
 		driftInterval: r.driftInterval,
-		setRejected: func(details resolvedUDPRouteDetails, err error) (bool, error) {
-			var statusErr udpRouteStatusError
-			if errors.As(err, &statusErr) {
-				return true, r.udpRouteModel.setRejected(ctx, details, statusErr)
-			}
-			return false, nil
-		},
+		setRejected:   r.setRejected(ctx),
 	})
+}
+
+func (r *UDPRouteController) setRejected(
+	ctx context.Context,
+) func(resolvedUDPRouteDetails, error) (bool, error) {
+	return func(details resolvedUDPRouteDetails, err error) (bool, error) {
+		var statusErr udpRouteStatusError
+		if errors.As(err, &statusErr) {
+			return true, r.udpRouteModel.setRejected(ctx, details, statusErr)
+		}
+		return false, nil
+	}
 }

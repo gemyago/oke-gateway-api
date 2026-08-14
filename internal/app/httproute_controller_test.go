@@ -27,6 +27,22 @@ func TestHTTPRouteController(t *testing.T) {
 			RootLogger:       diag.RootTestLogger(),
 		}
 	}
+	expectPending := func(
+		mockModel *MockhttpRouteModel,
+		resolvedData resolvedRouteDetails,
+		acceptedRoute gatewayv1.HTTPRoute,
+	) {
+		mockModel.EXPECT().setPending(
+			t.Context(),
+			setProgrammedParams{
+				gatewayClass: resolvedData.gatewayDetails.gatewayClass,
+				gateway:      resolvedData.gatewayDetails.gateway,
+				config:       resolvedData.gatewayDetails.config,
+				httpRoute:    acceptedRoute,
+				matchedRef:   resolvedData.matchedRef,
+			},
+		).Return(nil).Once()
+	}
 
 	t.Run("sets BackendTLSPolicy availability on concrete model", func(t *testing.T) {
 		model := &httpRouteModelImpl{}
@@ -90,6 +106,8 @@ func TestHTTPRouteController(t *testing.T) {
 				t.Context(),
 				wantResolvedData,
 			).Return(&wantAcceptedRoute, nil)
+
+			expectPending(mockModel, wantResolvedData, wantAcceptedRoute)
 
 			mockModel.EXPECT().resolveBackendRefs(
 				t.Context(),
@@ -358,6 +376,8 @@ func TestHTTPRouteController(t *testing.T) {
 				wantResolvedData,
 			).Return(&wantAcceptedRoute, nil)
 
+			expectPending(mockModel, wantResolvedData, wantAcceptedRoute)
+
 			wantErr := fmt.Errorf("resolve backend refs error: %s", fake.Lorem().Sentence(10))
 			mockModel.EXPECT().resolveBackendRefs(
 				t.Context(),
@@ -365,6 +385,41 @@ func TestHTTPRouteController(t *testing.T) {
 					httpRoute: wantAcceptedRoute,
 				},
 			).Return(nil, wantErr)
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.ErrorIs(t, err, wantErr)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("SetPendingError", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			controller := NewHTTPRouteController(deps)
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: fake.Internet().Domain(),
+					Name:      fake.Lorem().Word(),
+				},
+			}
+			wantResolvedData := resolvedRouteDetails{
+				httpRoute: makeRandomHTTPRoute(),
+				gatewayDetails: resolvedGatewayDetails{
+					gateway: *newRandomGateway(),
+					config:  makeRandomGatewayConfig(),
+				},
+			}
+			wantAcceptedRoute := makeRandomHTTPRoute()
+			wantErr := fmt.Errorf("set pending error: %s", fake.Lorem().Sentence(10))
+
+			mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+			mockModel.EXPECT().resolveRequest(t.Context(), req).Return(map[routeParentResultKey]resolvedRouteDetails{
+				gatewayParentResultKey(req.NamespacedName): wantResolvedData,
+			}, (error)(nil))
+			mockModel.EXPECT().acceptRoute(t.Context(), wantResolvedData).Return(&wantAcceptedRoute, nil)
+			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
+			mockModel.EXPECT().setPending(t.Context(), mock.Anything).Return(wantErr)
 
 			result, err := controller.Reconcile(t.Context(), req)
 
@@ -417,6 +472,8 @@ func TestHTTPRouteController(t *testing.T) {
 				t.Context(),
 				wantResolvedData,
 			).Return(&wantAcceptedRoute, nil)
+
+			expectPending(mockModel, wantResolvedData, wantAcceptedRoute)
 
 			mockModel.EXPECT().resolveBackendRefs(
 				t.Context(),
@@ -486,6 +543,7 @@ func TestHTTPRouteController(t *testing.T) {
 				t.Context(),
 				wantResolvedData,
 			).Return(&wantAcceptedRoute, nil)
+			expectPending(mockModel, wantResolvedData, wantAcceptedRoute)
 			mockModel.EXPECT().resolveBackendRefs(
 				t.Context(),
 				resolveBackendRefsParams{httpRoute: wantAcceptedRoute},
@@ -603,6 +661,8 @@ func TestHTTPRouteController(t *testing.T) {
 
 			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, nil)
 
+			expectPending(mockModel, wantResolvedData, wantAcceptedRoute)
+
 			wantBackendRefs := make(map[string]v1.Service)
 			for range 3 {
 				svc := makeRandomService()
@@ -708,6 +768,8 @@ func TestHTTPRouteController(t *testing.T) {
 				t.Context(),
 				wantResolvedData,
 			).Return(&wantAcceptedRoute, nil)
+
+			expectPending(mockModel, wantResolvedData, wantAcceptedRoute)
 
 			mockModel.EXPECT().resolveBackendRefs(
 				t.Context(),

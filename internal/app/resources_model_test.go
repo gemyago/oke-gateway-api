@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"math/rand/v2"
 	"testing"
@@ -9,8 +10,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
@@ -392,6 +396,215 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 		require.ErrorIs(t, err, expectedError, "Returned error should wrap the original Update error")
 	})
 
+	t.Run("StatusUpdateConflict_RefreshesAndUpdatesStatus", func(t *testing.T) {
+		fake := faker.New()
+		deps := newMockDeps(t)
+		model := newResourcesModel(deps)
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+
+		gatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            "gateway-class-" + fake.Lorem().Word(),
+				Generation:      rand.Int64N(1000) + 1,
+				ResourceVersion: "old",
+			},
+			Status: gatewayv1.GatewayClassStatus{Conditions: []metav1.Condition{}},
+		}
+		latestGatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            gatewayClass.Name,
+				Generation:      gatewayClass.Generation,
+				ResourceVersion: "latest",
+			},
+			Status: gatewayv1.GatewayClassStatus{Conditions: []metav1.Condition{{
+				Type:               string(gatewayv1.GatewayClassConditionStatusAccepted),
+				Status:             metav1.ConditionUnknown,
+				Reason:             string(gatewayv1.GatewayClassReasonPending),
+				ObservedGeneration: gatewayClass.Generation,
+			}}},
+		}
+		conflictErr := apierrors.NewConflict(
+			schema.GroupResource{Resource: "gatewayclasses"},
+			gatewayClass.Name,
+			errors.New("modified"),
+		)
+
+		mockClient.EXPECT().Status().Return(mockStatusWriter).Twice()
+		mockStatusWriter.EXPECT().
+			Update(t.Context(), gatewayClass, mock.Anything).
+			Return(conflictErr).
+			Once()
+		getCall := mockClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Name: gatewayClass.Name}, mock.AnythingOfType("*v1.GatewayClass")).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				*obj.(*gatewayv1.GatewayClass) = *latestGatewayClass
+				return nil
+			}).
+			Once()
+		mockStatusWriter.EXPECT().
+			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				updated := obj.(*gatewayv1.GatewayClass)
+				condition := meta.FindStatusCondition(
+					updated.Status.Conditions,
+					string(gatewayv1.GatewayClassConditionStatusAccepted),
+				)
+				return updated.ResourceVersion == "latest" &&
+					condition != nil &&
+					condition.Status == metav1.ConditionTrue &&
+					condition.Reason == string(gatewayv1.GatewayClassReasonAccepted)
+			}), mock.Anything).
+			Return(nil).
+			Once().
+			NotBefore(getCall)
+
+		err := model.setCondition(t.Context(), setConditionParams{
+			resource:      gatewayClass,
+			conditions:    &gatewayClass.Status.Conditions,
+			conditionType: string(gatewayv1.GatewayClassConditionStatusAccepted),
+			status:        metav1.ConditionTrue,
+			reason:        string(gatewayv1.GatewayClassReasonAccepted),
+			message:       "accepted",
+		})
+
+		require.NoError(t, err)
+	})
+
+	t.Run("StatusUpdateConflict_ReturnsRetryUpdateError", func(t *testing.T) {
+		fake := faker.New()
+		deps := newMockDeps(t)
+		model := newResourcesModel(deps)
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+
+		gatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{Name: "gateway-class-" + fake.Lorem().Word()},
+		}
+		conflictErr := apierrors.NewConflict(
+			schema.GroupResource{Resource: "gatewayclasses"},
+			gatewayClass.Name,
+			errors.New("modified"),
+		)
+		updateErr := errors.New("retry update failed")
+
+		mockClient.EXPECT().Status().Return(mockStatusWriter).Twice()
+		mockStatusWriter.EXPECT().Update(t.Context(), gatewayClass, mock.Anything).Return(conflictErr).Once()
+		getCall := mockClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Name: gatewayClass.Name}, mock.AnythingOfType("*v1.GatewayClass")).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				*obj.(*gatewayv1.GatewayClass) = gatewayv1.GatewayClass{
+					ObjectMeta: metav1.ObjectMeta{Name: gatewayClass.Name},
+				}
+				return nil
+			}).
+			Once()
+		mockStatusWriter.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.GatewayClass"), mock.Anything).
+			Return(updateErr).
+			Once().
+			NotBefore(getCall)
+
+		err := model.setCondition(t.Context(), setConditionParams{
+			resource:      gatewayClass,
+			conditions:    &gatewayClass.Status.Conditions,
+			conditionType: string(gatewayv1.GatewayClassConditionStatusAccepted),
+			status:        metav1.ConditionTrue,
+			reason:        string(gatewayv1.GatewayClassReasonAccepted),
+			message:       "accepted",
+		})
+
+		require.ErrorIs(t, err, updateErr)
+		require.ErrorContains(t, err, "failed to update status")
+	})
+
+	t.Run("StatusUpdateConflict_ReturnsRefreshError", func(t *testing.T) {
+		fake := faker.New()
+		deps := newMockDeps(t)
+		model := newResourcesModel(deps)
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+
+		gatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{Name: "gateway-class-" + fake.Lorem().Word()},
+		}
+		conflictErr := apierrors.NewConflict(
+			schema.GroupResource{Resource: "gatewayclasses"},
+			gatewayClass.Name,
+			errors.New("modified"),
+		)
+		wantErr := errors.New("refresh failed")
+
+		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
+		mockStatusWriter.EXPECT().Update(t.Context(), gatewayClass, mock.Anything).Return(conflictErr).Once()
+		mockClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Name: gatewayClass.Name}, mock.AnythingOfType("*v1.GatewayClass")).
+			Return(wantErr).
+			Once()
+
+		err := model.setCondition(t.Context(), setConditionParams{
+			resource:      gatewayClass,
+			conditions:    &gatewayClass.Status.Conditions,
+			conditionType: string(gatewayv1.GatewayClassConditionStatusAccepted),
+			status:        metav1.ConditionTrue,
+			reason:        string(gatewayv1.GatewayClassReasonAccepted),
+			message:       "accepted",
+		})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to refresh resource")
+	})
+
+	t.Run("StatusUpdateConflict_ReturnsParentResolutionError", func(t *testing.T) {
+		fake := faker.New()
+		deps := newMockDeps(t)
+		model := newResourcesModel(deps)
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+
+		targetConditions := []metav1.Condition{{Type: string(gatewayv1.RouteConditionResolvedRefs)}}
+		route := &gatewayv1.HTTPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "routes-" + fake.Lorem().Word(),
+				Name:      "route-" + fake.Lorem().Word(),
+			},
+			Status: gatewayv1.HTTPRouteStatus{RouteStatus: gatewayv1.RouteStatus{
+				Parents: []gatewayv1.RouteParentStatus{{
+					ParentRef:      gatewayv1.ParentReference{Name: "edge"},
+					ControllerName: gatewayv1.GatewayController(ControllerClassName),
+					Conditions:     targetConditions,
+				}},
+			}},
+		}
+		latestRoute := route.DeepCopy()
+		latestRoute.Status.Parents = []gatewayv1.RouteParentStatus{
+			{
+				ParentRef:      gatewayv1.ParentReference{Name: "other"},
+				ControllerName: gatewayv1.GatewayController(ControllerClassName),
+			},
+			{
+				ParentRef:      gatewayv1.ParentReference{Name: "another"},
+				ControllerName: gatewayv1.GatewayController(ControllerClassName),
+			},
+		}
+		mockClient.EXPECT().
+			Get(t.Context(), client.ObjectKeyFromObject(route), mock.AnythingOfType("*v1.HTTPRoute")).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				*obj.(*gatewayv1.HTTPRoute) = *latestRoute
+				return nil
+			}).
+			Once()
+
+		err := model.updateResourceStatusAfterConflict(t.Context(), setConditionParams{
+			resource:   route,
+			conditions: &route.Status.Parents[0].Conditions,
+		}, metav1.Condition{
+			Type:   string(gatewayv1.RouteConditionResolvedRefs),
+			Status: metav1.ConditionTrue,
+			Reason: string(gatewayv1.RouteReasonResolvedRefs),
+		})
+
+		require.ErrorContains(t, err, "failed to resolve route parent status")
+	})
+
 	t.Run("HappyPath_AddsFinalizer_NoAnnotations", func(t *testing.T) {
 		fake := faker.New()
 		deps := newMockDeps(t)
@@ -496,6 +709,158 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("ResourceUpdateConflict_RefreshesAndUpdatesMetadata", func(t *testing.T) {
+		fake := faker.New()
+		deps := newMockDeps(t)
+		model := newResourcesModel(deps)
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+
+		finalizerName := "test-finalizer/" + fake.Lorem().Word()
+		annotationKey := "annotation-" + fake.Lorem().Word()
+		annotationValue := "value-" + fake.Lorem().Word()
+		gatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       "gateway-class-" + fake.Lorem().Word(),
+				Generation: rand.Int64N(1000) + 1,
+			},
+			Status: gatewayv1.GatewayClassStatus{Conditions: []metav1.Condition{}},
+		}
+		latestGatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            gatewayClass.Name,
+				Generation:      gatewayClass.Generation,
+				ResourceVersion: "latest",
+			},
+		}
+		conflictErr := apierrors.NewConflict(
+			schema.GroupResource{Resource: "gatewayclasses"},
+			gatewayClass.Name,
+			errors.New("modified"),
+		)
+
+		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
+		mockStatusWriter.EXPECT().Update(t.Context(), gatewayClass, mock.Anything).Return(nil).Once()
+		conflictCall := mockClient.EXPECT().Update(t.Context(), gatewayClass, mock.Anything).Return(conflictErr).Once()
+		getCall := mockClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Name: gatewayClass.Name}, mock.AnythingOfType("*v1.GatewayClass")).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				*obj.(*gatewayv1.GatewayClass) = *latestGatewayClass
+				return nil
+			}).
+			Once().
+			NotBefore(conflictCall)
+		mockClient.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+			updated := obj.(*gatewayv1.GatewayClass)
+			if updated.ResourceVersion != "latest" {
+				return false
+			}
+			assert.Contains(t, updated.Finalizers, finalizerName)
+			assert.Equal(t, annotationValue, updated.Annotations[annotationKey])
+			return true
+		}), mock.Anything).Return(nil).Once().NotBefore(getCall)
+
+		err := model.setCondition(t.Context(), setConditionParams{
+			resource:      gatewayClass,
+			conditions:    &gatewayClass.Status.Conditions,
+			conditionType: string(gatewayv1.GatewayClassConditionStatusAccepted),
+			status:        metav1.ConditionTrue,
+			reason:        string(gatewayv1.GatewayClassReasonAccepted),
+			message:       "accepted",
+			finalizer:     finalizerName,
+			annotations:   map[string]string{annotationKey: annotationValue},
+		})
+
+		require.NoError(t, err)
+	})
+
+	t.Run("ResourceUpdateConflict_ReturnsRefreshErrors", func(t *testing.T) {
+		fake := faker.New()
+		deps := newMockDeps(t)
+		model := newResourcesModel(deps)
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+
+		gatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{Name: "gateway-class-" + fake.Lorem().Word()},
+		}
+		conflictErr := apierrors.NewConflict(
+			schema.GroupResource{Resource: "gatewayclasses"},
+			gatewayClass.Name,
+			errors.New("modified"),
+		)
+		wantErr := errors.New("refresh failed")
+
+		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
+		mockStatusWriter.EXPECT().Update(t.Context(), gatewayClass, mock.Anything).Return(nil).Once()
+		mockClient.EXPECT().Update(t.Context(), gatewayClass, mock.Anything).Return(conflictErr).Once()
+		mockClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Name: gatewayClass.Name}, mock.AnythingOfType("*v1.GatewayClass")).
+			Return(wantErr).
+			Once()
+
+		err := model.setCondition(t.Context(), setConditionParams{
+			resource:      gatewayClass,
+			conditions:    &gatewayClass.Status.Conditions,
+			conditionType: string(gatewayv1.GatewayClassConditionStatusAccepted),
+			status:        metav1.ConditionTrue,
+			reason:        string(gatewayv1.GatewayClassReasonAccepted),
+			message:       "accepted",
+			finalizer:     "test-finalizer/" + fake.Lorem().Word(),
+		})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to refresh resource")
+	})
+
+	t.Run("ResourceUpdateConflict_ReturnsRetryUpdateErrors", func(t *testing.T) {
+		fake := faker.New()
+		deps := newMockDeps(t)
+		model := newResourcesModel(deps)
+		mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+
+		gatewayClass := &gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{Name: "gateway-class-" + fake.Lorem().Word()},
+		}
+		conflictErr := apierrors.NewConflict(
+			schema.GroupResource{Resource: "gatewayclasses"},
+			gatewayClass.Name,
+			errors.New("modified"),
+		)
+		wantErr := errors.New("retry update failed")
+
+		mockClient.EXPECT().Status().Return(mockStatusWriter).Once()
+		mockStatusWriter.EXPECT().Update(t.Context(), gatewayClass, mock.Anything).Return(nil).Once()
+		mockClient.EXPECT().Update(t.Context(), gatewayClass, mock.Anything).Return(conflictErr).Once()
+		mockClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Name: gatewayClass.Name}, mock.AnythingOfType("*v1.GatewayClass")).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				*obj.(*gatewayv1.GatewayClass) = gatewayv1.GatewayClass{
+					ObjectMeta: metav1.ObjectMeta{Name: gatewayClass.Name},
+				}
+				return nil
+			}).
+			Once()
+		mockClient.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.GatewayClass"), mock.Anything).
+			Return(wantErr).
+			Once()
+
+		err := model.setCondition(t.Context(), setConditionParams{
+			resource:      gatewayClass,
+			conditions:    &gatewayClass.Status.Conditions,
+			conditionType: string(gatewayv1.GatewayClassConditionStatusAccepted),
+			status:        metav1.ConditionTrue,
+			reason:        string(gatewayv1.GatewayClassReasonAccepted),
+			message:       "accepted",
+			finalizer:     "test-finalizer/" + fake.Lorem().Word(),
+		})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to update resource")
+	})
+
 	t.Run("ErrorPath_FinalizerUpdateFails", func(t *testing.T) {
 		fake := faker.New()
 		deps := newMockDeps(t)
@@ -590,6 +955,128 @@ func TestResourcesModelImpl_setCondition(t *testing.T) {
 	})
 }
 
+func TestResourcesModelImpl_statusConditionsForRetry(t *testing.T) {
+	fake := faker.New()
+
+	t.Run("returns top level Gateway conditions", func(t *testing.T) {
+		gateway := &gatewayv1.Gateway{Status: gatewayv1.GatewayStatus{Conditions: []metav1.Condition{{
+			Type:   "Programmed",
+			Status: metav1.ConditionUnknown,
+			Reason: "Pending-" + fake.Lorem().Word(),
+		}}}}
+
+		conditions, err := statusConditionsForRetry(gateway, gateway, nil)
+
+		require.NoError(t, err)
+		require.Same(t, &gateway.Status.Conditions[0], &(*conditions)[0])
+	})
+
+	t.Run("returns top level ListenerSet conditions", func(t *testing.T) {
+		listenerSet := &gatewayv1.ListenerSet{Status: gatewayv1.ListenerSetStatus{Conditions: []metav1.Condition{{
+			Type:   "Accepted",
+			Status: metav1.ConditionUnknown,
+			Reason: "Pending-" + fake.Lorem().Word(),
+		}}}}
+
+		conditions, err := statusConditionsForRetry(listenerSet, listenerSet, nil)
+
+		require.NoError(t, err)
+		require.Same(t, &listenerSet.Status.Conditions[0], &(*conditions)[0])
+	})
+
+	t.Run("returns matching HTTPRoute parent conditions", func(t *testing.T) {
+		targetConditions := []metav1.Condition{{
+			Type:   string(gatewayv1.RouteConditionResolvedRefs),
+			Status: metav1.ConditionTrue,
+			Reason: string(gatewayv1.RouteReasonResolvedRefs),
+		}}
+		otherParentName := gatewayv1.ObjectName("other-" + fake.Lorem().Word())
+		edgeParentName := gatewayv1.ObjectName("edge-" + fake.Lorem().Word())
+		original := &gatewayv1.HTTPRoute{Status: gatewayv1.HTTPRouteStatus{RouteStatus: gatewayv1.RouteStatus{
+			Parents: []gatewayv1.RouteParentStatus{
+				{
+					ParentRef:      gatewayv1.ParentReference{Name: otherParentName},
+					ControllerName: gatewayv1.GatewayController(ControllerClassName),
+					Conditions:     []metav1.Condition{{Type: "Accepted", Status: metav1.ConditionTrue}},
+				},
+				{
+					ParentRef:      gatewayv1.ParentReference{Name: edgeParentName},
+					ControllerName: gatewayv1.GatewayController(ControllerClassName),
+					Conditions:     targetConditions,
+				},
+			},
+		}}}
+		latest := original.DeepCopy()
+		latest.Status.Parents[1].Conditions = []metav1.Condition{{
+			Type:   string(gatewayv1.RouteConditionResolvedRefs),
+			Status: metav1.ConditionUnknown,
+			Reason: string(gatewayv1.RouteReasonPending),
+		}}
+
+		conditions, err := statusConditionsForRetry(latest, original, targetConditions)
+
+		require.NoError(t, err)
+		require.Same(t, &latest.Status.Parents[1].Conditions[0], &(*conditions)[0])
+	})
+
+	t.Run("returns matching GRPCRoute parent conditions", func(t *testing.T) {
+		targetConditions := []metav1.Condition{{
+			Type:   string(gatewayv1.RouteConditionAccepted),
+			Status: metav1.ConditionFalse,
+			Reason: string(gatewayv1.RouteReasonAccepted),
+		}}
+		parentName := gatewayv1.ObjectName("grpc-" + fake.Lorem().Word())
+		original := &gatewayv1.GRPCRoute{Status: gatewayv1.GRPCRouteStatus{RouteStatus: gatewayv1.RouteStatus{
+			Parents: []gatewayv1.RouteParentStatus{{
+				ParentRef:      gatewayv1.ParentReference{Name: parentName},
+				ControllerName: gatewayv1.GatewayController(ControllerClassName),
+				Conditions:     targetConditions,
+			}},
+		}}}
+		latest := original.DeepCopy()
+
+		conditions, err := statusConditionsForRetry(latest, original, targetConditions)
+
+		require.NoError(t, err)
+		require.Same(t, &latest.Status.Parents[0].Conditions[0], &(*conditions)[0])
+	})
+
+	t.Run("returns error for mismatched route original type", func(t *testing.T) {
+		latest := &gatewayv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "route-" + fake.Lorem().Word()}}
+		original := &gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "gateway-" + fake.Lorem().Word()}}
+
+		conditions, err := statusConditionsForRetry(latest, original, nil)
+
+		require.Nil(t, conditions)
+		require.ErrorContains(t, err, "failed to resolve status conditions")
+	})
+
+	t.Run("returns error when route parent is not found", func(t *testing.T) {
+		targetConditions := []metav1.Condition{{Type: string(gatewayv1.RouteConditionAccepted)}}
+		edgeParentName := gatewayv1.ObjectName("edge-" + fake.Lorem().Word())
+		otherParentName := gatewayv1.ObjectName("other-" + fake.Lorem().Word())
+		anotherParentName := gatewayv1.ObjectName("another-" + fake.Lorem().Word())
+		original := &gatewayv1.HTTPRoute{Status: gatewayv1.HTTPRouteStatus{RouteStatus: gatewayv1.RouteStatus{
+			Parents: []gatewayv1.RouteParentStatus{{
+				ParentRef:      gatewayv1.ParentReference{Name: edgeParentName},
+				ControllerName: gatewayv1.GatewayController(ControllerClassName),
+				Conditions:     targetConditions,
+			}},
+		}}}
+		latest := original.DeepCopy()
+		latest.Status.Parents[0].ParentRef.Name = otherParentName
+		latest.Status.Parents = append(latest.Status.Parents, gatewayv1.RouteParentStatus{
+			ParentRef:      gatewayv1.ParentReference{Name: anotherParentName},
+			ControllerName: gatewayv1.GatewayController(ControllerClassName),
+		})
+
+		conditions, err := statusConditionsForRetry(latest, original, targetConditions)
+
+		require.Nil(t, conditions)
+		require.ErrorContains(t, err, "failed to resolve route parent status")
+	})
+}
+
 func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 	newMockDeps := func(t *testing.T) resourcesModelDeps {
 		return resourcesModelDeps{
@@ -656,6 +1143,11 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 	randomConditionWithObservedGeneration := func(observedGeneration int64) randomConditionsOpt {
 		return func(condition *metav1.Condition) {
 			condition.ObservedGeneration = observedGeneration
+		}
+	}
+	randomConditionWithStatus := func(status metav1.ConditionStatus) randomConditionsOpt {
+		return func(condition *metav1.Condition) {
+			condition.Status = status
 		}
 	}
 
@@ -736,6 +1228,39 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 		}
 		result := model.isConditionSet(params)
 		assert.False(t, result, "Expected false for wrong observed generation")
+	})
+
+	t.Run("ConditionSet_CurrentGenerationButNotTrue", func(t *testing.T) {
+		fake := faker.New()
+		model := newResourcesModel(newMockDeps(t))
+		conditionType := fake.Internet().Domain()
+		generation := rand.Int64()
+
+		for _, status := range []metav1.ConditionStatus{
+			metav1.ConditionFalse,
+			metav1.ConditionUnknown,
+		} {
+			t.Run(string(status), func(t *testing.T) {
+				gatewayClass := newRandomResource(
+					randomResourceWithGeneration(generation),
+					randomResourceWithConditions(
+						newRandomConditions(
+							randomConditionWithType(conditionType),
+							randomConditionWithObservedGeneration(generation),
+							randomConditionWithStatus(status),
+						),
+					),
+				)
+
+				result := model.isConditionSet(isConditionSetParams{
+					resource:      gatewayClass,
+					conditions:    gatewayClass.Status.Conditions,
+					conditionType: conditionType,
+				})
+
+				assert.False(t, result, "Expected false for current generation condition that is not True")
+			})
+		}
 	})
 
 	t.Run("ConditionSetAndMatches_WithMatchingAnnotations", func(t *testing.T) {

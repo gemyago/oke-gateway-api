@@ -34,6 +34,7 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
+	"github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
 	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
 	"github.com/gemyago/oke-gateway-api/internal/types"
 )
@@ -362,6 +363,7 @@ func TestBackendTLSPolicyModelValidationAndLifecycle(t *testing.T) {
 			K8sClient: fake.NewClientBuilder().
 				WithScheme(newL4TestScheme(t)).
 				WithObjects(objects...).
+				WithStatusSubresource(&gatewayv1.BackendTLSPolicy{}).
 				Build(),
 			OciLoadBalancerClient:     lbClient,
 			OciCertificatesMgmtClient: certsClient,
@@ -436,6 +438,75 @@ func TestBackendTLSPolicyModelValidationAndLifecycle(t *testing.T) {
 		_, err := model.resolveForBackendRef(t.Context(), resolveParams)
 
 		require.ErrorIs(t, err, errBackendTLSPolicyNotFound)
+	})
+
+	t.Run("setPolicyPendingConditions marks policy accepted with pending refs", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "pending", serviceName, "tls", baseOptions, "ca")
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithObjects(&policy).
+			WithStatusSubresource(&gatewayv1.BackendTLSPolicy{}).
+			Build()
+		model := newBackendTLSPolicyModel(backendTLSPolicyModelDeps{
+			RootLogger:                diag.RootTestLogger(),
+			K8sClient:                 k8sClient,
+			OciLoadBalancerClient:     NewMockociLoadBalancerClient(t),
+			OciCertificatesMgmtClient: newStubCertificatesManagementClient(),
+		})
+
+		err := model.setPolicyPendingConditions(t.Context(), policy, gateway)
+
+		require.NoError(t, err)
+		var updated gatewayv1.BackendTLSPolicy
+		require.NoError(t, k8sClient.Get(t.Context(), apitypes.NamespacedName{
+			Namespace: namespace,
+			Name:      "pending",
+		}, &updated))
+		assertBackendTLSPolicyCondition(
+			t,
+			updated,
+			gatewayv1.PolicyConditionAccepted,
+			metav1.ConditionTrue,
+			gatewayv1.PolicyReasonAccepted,
+		)
+		assertBackendTLSPolicyCondition(
+			t,
+			updated,
+			gatewayv1.BackendTLSPolicyConditionResolvedRefs,
+			metav1.ConditionUnknown,
+			backendTLSPolicyReasonPending,
+		)
+	})
+
+	t.Run("setPolicyPendingConditions returns status update errors", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "pending-error", serviceName, "tls", baseOptions, "ca")
+		k8sClient := NewMockk8sClient(t)
+		statusWriter := k8sapi.NewMockSubResourceWriter(t)
+		k8sClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Namespace: namespace, Name: "pending-error"}, mock.Anything).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				typedPolicy, ok := obj.(*gatewayv1.BackendTLSPolicy)
+				require.True(t, ok)
+				*typedPolicy = policy
+				return nil
+			}).
+			Once()
+		k8sClient.EXPECT().Status().Return(statusWriter)
+		wantErr := errors.New("status failed")
+		statusWriter.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.BackendTLSPolicy")).
+			Return(wantErr)
+		model := newBackendTLSPolicyModel(backendTLSPolicyModelDeps{
+			RootLogger:                diag.RootTestLogger(),
+			K8sClient:                 k8sClient,
+			OciLoadBalancerClient:     NewMockociLoadBalancerClient(t),
+			OciCertificatesMgmtClient: newStubCertificatesManagementClient(),
+		})
+
+		err := model.setPolicyPendingConditions(t.Context(), policy, gateway)
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to update BackendTLSPolicy")
 	})
 
 	t.Run("selects oldest policy and marks lower precedence policy conflicted", func(t *testing.T) {
@@ -991,6 +1062,128 @@ func TestBackendTLSPolicyModelValidationAndLifecycle(t *testing.T) {
 		require.NotNil(t, sslConfig)
 		assert.Len(t, certsClient.updateCalls, 1)
 		assert.Equal(t, newPEM, lo.FromPtr(certsClient.updateCalls[0].UpdateCaBundleDetails.CaBundlePem))
+	})
+
+	t.Run("resolveAcceptedPolicy returns pending status update errors", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "pending-resolve-error", serviceName, "tls", baseOptions, "ca")
+		targetRef := policy.Spec.TargetRefs[0]
+		ref := policy.Spec.Validation.CACertificateRefs[0]
+		ca := corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: string(ref.Name)},
+			Data:       map[string]string{"ca.crt": testCAPEM(t)},
+		}
+		k8sClient := NewMockk8sClient(t)
+		k8sClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Namespace: namespace, Name: string(ref.Name)}, mock.Anything).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				typedCA, ok := obj.(*corev1.ConfigMap)
+				require.True(t, ok)
+				*typedCA = ca
+				return nil
+			})
+		k8sClient.EXPECT().
+			Get(
+				t.Context(),
+				apitypes.NamespacedName{Namespace: namespace, Name: "pending-resolve-error"},
+				mock.AnythingOfType("*v1.BackendTLSPolicy"),
+			).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				typedPolicy, ok := obj.(*gatewayv1.BackendTLSPolicy)
+				require.True(t, ok)
+				*typedPolicy = policy
+				return nil
+			}).
+			Once()
+		statusWriter := k8sapi.NewMockSubResourceWriter(t)
+		k8sClient.EXPECT().Status().Return(statusWriter)
+		wantErr := errors.New("pending status failed")
+		statusWriter.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.BackendTLSPolicy")).
+			Return(wantErr)
+		lbClient := NewMockociLoadBalancerClient(t)
+		lbClient.EXPECT().GetLoadBalancer(t.Context(), mock.Anything).
+			Return(loadbalancer.GetLoadBalancerResponse{
+				LoadBalancer: loadbalancer.LoadBalancer{CompartmentId: &compartmentID},
+			}, nil)
+		model := newBackendTLSPolicyModel(backendTLSPolicyModelDeps{
+			RootLogger:                diag.RootTestLogger(),
+			K8sClient:                 k8sClient,
+			OciLoadBalancerClient:     lbClient,
+			OciCertificatesMgmtClient: newStubCertificatesManagementClient(),
+		})
+
+		_, err := model.resolveAcceptedPolicy(t.Context(), backendTLSPolicyCandidate{
+			policy:    policy,
+			targetRef: targetRef,
+		}, resolveParams)
+
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("resolveAcceptedPolicy returns policy refresh errors after pending status", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "pending-refresh-error", serviceName, "tls", baseOptions, "ca")
+		targetRef := policy.Spec.TargetRefs[0]
+		ref := policy.Spec.Validation.CACertificateRefs[0]
+		ca := corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: string(ref.Name)},
+			Data:       map[string]string{"ca.crt": testCAPEM(t)},
+		}
+		k8sClient := NewMockk8sClient(t)
+		k8sClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Namespace: namespace, Name: string(ref.Name)}, mock.Anything).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				typedCA, ok := obj.(*corev1.ConfigMap)
+				require.True(t, ok)
+				*typedCA = ca
+				return nil
+			})
+		pendingGetCall := k8sClient.EXPECT().
+			Get(
+				t.Context(),
+				apitypes.NamespacedName{Namespace: namespace, Name: "pending-refresh-error"},
+				mock.AnythingOfType("*v1.BackendTLSPolicy"),
+			).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				typedPolicy, ok := obj.(*gatewayv1.BackendTLSPolicy)
+				require.True(t, ok)
+				*typedPolicy = policy
+				return nil
+			}).
+			Once()
+		statusWriter := k8sapi.NewMockSubResourceWriter(t)
+		k8sClient.EXPECT().Status().Return(statusWriter)
+		statusCall := statusWriter.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.BackendTLSPolicy")).
+			Return(nil).
+			NotBefore(pendingGetCall)
+		wantErr := errors.New("refresh failed")
+		k8sClient.EXPECT().
+			Get(
+				t.Context(),
+				apitypes.NamespacedName{Namespace: namespace, Name: "pending-refresh-error"},
+				mock.Anything,
+			).
+			Return(wantErr).
+			NotBefore(statusCall)
+		lbClient := NewMockociLoadBalancerClient(t)
+		lbClient.EXPECT().GetLoadBalancer(t.Context(), mock.Anything).
+			Return(loadbalancer.GetLoadBalancerResponse{
+				LoadBalancer: loadbalancer.LoadBalancer{CompartmentId: &compartmentID},
+			}, nil)
+		model := newBackendTLSPolicyModel(backendTLSPolicyModelDeps{
+			RootLogger:                diag.RootTestLogger(),
+			K8sClient:                 k8sClient,
+			OciLoadBalancerClient:     lbClient,
+			OciCertificatesMgmtClient: newStubCertificatesManagementClient(),
+		})
+
+		_, err := model.resolveAcceptedPolicy(t.Context(), backendTLSPolicyCandidate{
+			policy:    policy,
+			targetRef: targetRef,
+		}, resolveParams)
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "after pending status update")
 	})
 
 	t.Run("rejects unowned existing OCI CA bundle", func(t *testing.T) {

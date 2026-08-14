@@ -16,9 +16,11 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1375,6 +1377,168 @@ func TestTLSRouteModelCertificateAndStatus(t *testing.T) {
 		require.ErrorContains(t, err, "failed to update TLSRoute")
 	})
 
+	t.Run("refreshes and updates parent status after conflict", func(t *testing.T) {
+		k8sClient := NewMockk8sClient(t)
+		statusWriter := k8sapi.NewMockSubResourceWriter(t)
+		statusModel := newTLSRouteModel(tlsRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: k8sClient})
+		route := gatewayv1.TLSRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "media",
+				Name:       "rtmps",
+				Generation: 2,
+			},
+		}
+		latestRoute := route.DeepCopy()
+		latestRoute.ResourceVersion = "latest"
+		conflictErr := apierrors.NewConflict(
+			schema.GroupResource{Resource: "tlsroutes"},
+			route.Name,
+			errors.New("modified"),
+		)
+		k8sClient.EXPECT().Status().Return(statusWriter).Twice()
+		statusWriter.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.TLSRoute")).
+			Return(conflictErr).
+			Once()
+		getCall := k8sClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Namespace: route.Namespace, Name: route.Name}, mock.AnythingOfType("*v1.TLSRoute")).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				*obj.(*gatewayv1.TLSRoute) = *latestRoute
+				return nil
+			}).
+			Once()
+		statusWriter.EXPECT().
+			Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				updated := obj.(*gatewayv1.TLSRoute)
+				condition := meta.FindStatusCondition(
+					updated.Status.Parents[0].Conditions,
+					string(gatewayv1.RouteConditionAccepted),
+				)
+				return updated.ResourceVersion == "latest" &&
+					condition != nil &&
+					condition.Status == metav1.ConditionTrue
+			}), mock.Anything).
+			Return(nil).
+			Once().
+			NotBefore(getCall)
+
+		err := statusModel.updateParentStatus(t.Context(), resolvedTLSRouteDetails{
+			tlsRoute: route,
+			matchedRef: gatewayv1.ParentReference{
+				Name: "edge",
+			},
+			gatewayDetails: resolvedGatewayDetails{
+				gatewayClass: gatewayv1.GatewayClass{Spec: gatewayv1.GatewayClassSpec{
+					ControllerName: ControllerClassName,
+				}},
+			},
+		}, []metav1.Condition{{
+			Type:   string(gatewayv1.RouteConditionAccepted),
+			Status: metav1.ConditionTrue,
+			Reason: string(gatewayv1.RouteReasonAccepted),
+		}})
+
+		require.NoError(t, err)
+	})
+
+	t.Run("returns parent status retry errors after conflict", func(t *testing.T) {
+		k8sClient := NewMockk8sClient(t)
+		statusWriter := k8sapi.NewMockSubResourceWriter(t)
+		statusModel := newTLSRouteModel(tlsRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: k8sClient})
+		route := gatewayv1.TLSRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "media",
+				Name:       "rtmps",
+				Generation: 2,
+			},
+		}
+		latestRoute := route.DeepCopy()
+		latestRoute.ResourceVersion = "latest"
+		conflictErr := apierrors.NewConflict(
+			schema.GroupResource{Resource: "tlsroutes"},
+			route.Name,
+			errors.New("modified"),
+		)
+		wantErr := errors.New("retry update failed")
+		k8sClient.EXPECT().Status().Return(statusWriter).Twice()
+		statusWriter.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.TLSRoute")).Return(conflictErr).Once()
+		getCall := k8sClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Namespace: route.Namespace, Name: route.Name}, mock.AnythingOfType("*v1.TLSRoute")).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				*obj.(*gatewayv1.TLSRoute) = *latestRoute
+				return nil
+			}).
+			Once()
+		statusWriter.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.TLSRoute"), mock.Anything).
+			Return(wantErr).
+			Once().
+			NotBefore(getCall)
+
+		err := statusModel.updateParentStatus(t.Context(), resolvedTLSRouteDetails{
+			tlsRoute: route,
+			matchedRef: gatewayv1.ParentReference{
+				Name: "edge",
+			},
+			gatewayDetails: resolvedGatewayDetails{
+				gatewayClass: gatewayv1.GatewayClass{Spec: gatewayv1.GatewayClassSpec{
+					ControllerName: ControllerClassName,
+				}},
+			},
+		}, []metav1.Condition{{
+			Type:   string(gatewayv1.RouteConditionAccepted),
+			Status: metav1.ConditionTrue,
+			Reason: string(gatewayv1.RouteReasonAccepted),
+		}})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to update TLSRoute")
+	})
+
+	t.Run("returns parent status refresh errors after conflict", func(t *testing.T) {
+		k8sClient := NewMockk8sClient(t)
+		statusWriter := k8sapi.NewMockSubResourceWriter(t)
+		statusModel := newTLSRouteModel(tlsRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: k8sClient})
+		route := gatewayv1.TLSRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "media",
+				Name:       "rtmps",
+				Generation: 2,
+			},
+		}
+		conflictErr := apierrors.NewConflict(
+			schema.GroupResource{Resource: "tlsroutes"},
+			route.Name,
+			errors.New("modified"),
+		)
+		wantErr := errors.New("refresh failed")
+		k8sClient.EXPECT().Status().Return(statusWriter).Once()
+		statusWriter.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.TLSRoute")).Return(conflictErr).Once()
+		k8sClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Namespace: route.Namespace, Name: route.Name}, mock.AnythingOfType("*v1.TLSRoute")).
+			Return(wantErr).
+			Once()
+
+		err := statusModel.updateParentStatus(t.Context(), resolvedTLSRouteDetails{
+			tlsRoute: route,
+			matchedRef: gatewayv1.ParentReference{
+				Name: "edge",
+			},
+			gatewayDetails: resolvedGatewayDetails{
+				gatewayClass: gatewayv1.GatewayClass{Spec: gatewayv1.GatewayClassSpec{
+					ControllerName: ControllerClassName,
+				}},
+			},
+		}, []metav1.Condition{{
+			Type:   string(gatewayv1.RouteConditionAccepted),
+			Status: metav1.ConditionTrue,
+			Reason: string(gatewayv1.RouteReasonAccepted),
+		}})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to refresh TLSRoute")
+	})
+
 	t.Run("returns programmed finalizer update errors", func(t *testing.T) {
 		k8sClient := NewMockk8sClient(t)
 		statusModel := newTLSRouteModel(tlsRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: k8sClient})
@@ -1450,6 +1614,48 @@ func TestTLSRouteModelCertificateAndStatus(t *testing.T) {
 				}},
 				config: types.GatewayConfig{Spec: types.GatewayConfigSpec{LoadBalancerID: "nlb-id"}},
 			},
+		})
+
+		require.NoError(t, err)
+	})
+
+	t.Run("setPending updates TLSRoute parent status", func(t *testing.T) {
+		sectionName := gatewayv1.SectionName("rtmps")
+		route := gatewayv1.TLSRoute{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "rtmps", Generation: 2},
+		}
+		k8sClient := NewMockk8sClient(t)
+		statusWriter := k8sapi.NewMockSubResourceWriter(t)
+		k8sClient.EXPECT().Status().Return(statusWriter)
+		statusWriter.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.TLSRoute")).
+			RunAndReturn(func(_ context.Context, obj client.Object, _ ...client.SubResourceUpdateOption) error {
+				updated, ok := obj.(*gatewayv1.TLSRoute)
+				require.True(t, ok)
+				require.Len(t, updated.Status.Parents, 1)
+				resolvedRefs := meta.FindStatusCondition(
+					updated.Status.Parents[0].Conditions,
+					string(gatewayv1.RouteConditionResolvedRefs),
+				)
+				require.NotNil(t, resolvedRefs)
+				assert.Equal(t, metav1.ConditionUnknown, resolvedRefs.Status)
+				assert.Equal(t, string(gatewayv1.RouteReasonPending), resolvedRefs.Reason)
+				return nil
+			})
+		statusModel := newTLSRouteModel(tlsRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: k8sClient})
+
+		err := statusModel.setPending(t.Context(), resolvedTLSRouteDetails{
+			tlsRoute: route,
+			gatewayDetails: resolvedGatewayDetails{
+				gatewayClass: gatewayv1.GatewayClass{Spec: gatewayv1.GatewayClassSpec{
+					ControllerName: ControllerClassName,
+				}},
+			},
+			matchedRef: gatewayv1.ParentReference{
+				Name:        "edge",
+				SectionName: &sectionName,
+			},
+			matchedListener: gatewayv1.Listener{Name: "rtmps", Protocol: gatewayv1.TLSProtocolType, Port: 443},
 		})
 
 		require.NoError(t, err)

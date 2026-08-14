@@ -83,6 +83,16 @@ func (r *GRPCRouteController) reconcileResolvedRoute(
 		return true, nil
 	}
 
+	if err = r.grpcRouteModel.setPending(ctx, setGRPCRouteProgrammedParams{
+		gatewayClass: resolvedData.gatewayDetails.gatewayClass,
+		gateway:      resolvedData.gatewayDetails.gateway,
+		config:       resolvedData.gatewayDetails.config,
+		grpcRoute:    *acceptedRoute,
+		matchedRef:   resolvedData.matchedRef,
+	}); err != nil {
+		return false, fmt.Errorf("failed to set pending status: %w", err)
+	}
+
 	knownBackends, err := r.grpcRouteModel.resolveBackendRefs(ctx, resolveGRPCBackendRefsParams{
 		grpcRoute: *acceptedRoute,
 	})

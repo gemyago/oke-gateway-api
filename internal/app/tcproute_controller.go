@@ -47,16 +47,23 @@ func (r *TCPRouteController) Reconcile(ctx context.Context, req reconcile.Reques
 		route:         func(details resolvedTCPRouteDetails) client.Object { return &details.tcpRoute },
 		deprovision:   r.tcpRouteModel.deprovisionRoute,
 		program:       r.tcpRouteModel.programRoute,
+		setPending:    r.tcpRouteModel.setPending,
 		setProgrammed: r.tcpRouteModel.setProgrammed,
 		driftInterval: r.driftInterval,
-		setRejected: func(details resolvedTCPRouteDetails, err error) (bool, error) {
-			var statusErr tcpRouteStatusError
-			if errors.As(err, &statusErr) {
-				return true, r.tcpRouteModel.setRejected(ctx, details, statusErr)
-			}
-			return false, nil
-		},
+		setRejected:   r.setRejected(ctx),
 	})
+}
+
+func (r *TCPRouteController) setRejected(
+	ctx context.Context,
+) func(resolvedTCPRouteDetails, error) (bool, error) {
+	return func(details resolvedTCPRouteDetails, err error) (bool, error) {
+		var statusErr tcpRouteStatusError
+		if errors.As(err, &statusErr) {
+			return true, r.tcpRouteModel.setRejected(ctx, details, statusErr)
+		}
+		return false, nil
+	}
 }
 
 type reconcileL4RouteParams[D any] struct {
@@ -69,6 +76,7 @@ type reconcileL4RouteParams[D any] struct {
 	route         func(D) client.Object
 	deprovision   func(context.Context, D) error
 	program       func(context.Context, D) error
+	setPending    func(context.Context, D) error
 	setProgrammed func(context.Context, D) error
 	driftInterval time.Duration
 	setRejected   func(D, error) (bool, error)
@@ -122,6 +130,10 @@ func reconcileResolvedL4Route[D any](
 			return fmt.Errorf("failed to deprovision %s %s: %w", params.routeKind, params.req.NamespacedName, err)
 		}
 		return nil
+	}
+
+	if err := params.setPending(ctx, resolvedRoute); err != nil {
+		return fmt.Errorf("failed to set %s %s pending status: %w", params.routeKind, params.req.NamespacedName, err)
 	}
 
 	if err := params.program(ctx, resolvedRoute); err != nil {
