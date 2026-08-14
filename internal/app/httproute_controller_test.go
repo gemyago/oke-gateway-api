@@ -14,6 +14,7 @@ import (
 	types "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client" // Import client for ObjectKey
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 )
@@ -439,6 +440,75 @@ func TestHTTPRouteController(t *testing.T) {
 
 			require.ErrorIs(t, err, wantErr)
 			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("does not retry when parent Gateway rejects programming", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			controller := NewHTTPRouteController(deps)
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: fake.Internet().Domain(),
+					Name:      fake.Lorem().Word(),
+				},
+			}
+
+			wantResolvedData := resolvedRouteDetails{
+				httpRoute: makeRandomHTTPRoute(),
+				gatewayDetails: resolvedGatewayDetails{
+					gateway: *newRandomGateway(),
+					config:  makeRandomGatewayConfig(),
+				},
+			}
+
+			wantBackendRefs := make(map[string]v1.Service)
+			for range 3 {
+				svc := makeRandomService()
+				fullName := types.NamespacedName{
+					Namespace: svc.Namespace,
+					Name:      svc.Name,
+				}
+				wantBackendRefs[fullName.String()] = svc
+			}
+
+			mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+			mockModel.EXPECT().resolveRequest(
+				t.Context(),
+				req,
+			).Return(map[routeParentResultKey]resolvedRouteDetails{
+				gatewayParentResultKey(req.NamespacedName): wantResolvedData,
+			}, (error)(nil))
+			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
+
+			wantAcceptedRoute := makeRandomHTTPRoute()
+			mockModel.EXPECT().acceptRoute(
+				t.Context(),
+				wantResolvedData,
+			).Return(&wantAcceptedRoute, nil)
+			mockModel.EXPECT().resolveBackendRefs(
+				t.Context(),
+				resolveBackendRefsParams{httpRoute: wantAcceptedRoute},
+			).Return(wantBackendRefs, nil)
+			mockModel.EXPECT().programRoute(
+				t.Context(),
+				programRouteParams{
+					gateway:       wantResolvedData.gatewayDetails.gateway,
+					config:        wantResolvedData.gatewayDetails.config,
+					httpRoute:     wantAcceptedRoute,
+					knownBackends: wantBackendRefs,
+				},
+			).Return(programRouteResult{}, &resourceStatusError{
+				conditionType: string(gatewayv1.GatewayConditionAccepted),
+				reason:        string(gatewayv1.GatewayReasonRefNotPermitted),
+				message:       "frontend mTLS caCertificateRef is not permitted by a ReferenceGrant",
+			})
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, result)
+			mockModel.AssertNotCalled(t, "setProgrammed", mock.Anything, mock.Anything)
 		})
 
 		t.Run("ProgrammingNotRequired", func(t *testing.T) {

@@ -107,6 +107,14 @@ func (r *GRPCRouteController) reconcileResolvedRoute(
 		knownBackends:    knownBackends,
 	})
 	if err != nil {
+		if isParentGatewayStatusError(err) {
+			r.logger.InfoContext(ctx, "GRPCRoute parent Gateway is not programmable",
+				slog.String("grpcRoute", resolvedData.grpcRoute.Name),
+				slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
+				slog.String("reason", err.Error()),
+			)
+			return false, nil
+		}
 		return false, fmt.Errorf("failed to program route: %w", err)
 	}
 

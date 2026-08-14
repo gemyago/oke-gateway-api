@@ -393,6 +393,27 @@ func TestTLSRouteController(t *testing.T) {
 		assert.False(t, model.programmed)
 	})
 
+	t.Run("does not retry when parent Gateway rejects programming", func(t *testing.T) {
+		model := &stubTLSRouteModel{
+			resolved: []resolvedTLSRouteDetails{{tlsRoute: gatewayv1.TLSRoute{}}},
+			programErr: &resourceStatusError{
+				conditionType: string(gatewayv1.GatewayConditionAccepted),
+				reason:        string(gatewayv1.GatewayReasonRefNotPermitted),
+				message:       "frontend mTLS caCertificateRef is not permitted by a ReferenceGrant",
+			},
+		}
+		controller := NewTLSRouteController(TLSRouteControllerDeps{
+			RootLogger:    diag.RootTestLogger(),
+			TLSRouteModel: model,
+		})
+
+		_, err := controller.Reconcile(t.Context(), req)
+
+		require.NoError(t, err)
+		assert.False(t, model.rejected)
+		assert.False(t, model.programmed)
+	})
+
 	t.Run("deprovisions deleted route with matching finalizer", func(t *testing.T) {
 		model := &stubTLSRouteModel{resolved: []resolvedTLSRouteDetails{{
 			gatewayDetails: resolvedGatewayDetails{

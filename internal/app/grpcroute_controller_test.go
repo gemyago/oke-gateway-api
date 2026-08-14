@@ -408,6 +408,41 @@ func TestGRPCRouteController(t *testing.T) {
 		require.ErrorIs(t, err, wantErr)
 	})
 
+	t.Run("does not retry when parent Gateway rejects programming", func(t *testing.T) {
+		route := makeRoute()
+		resolved := makeResolved(route)
+		service := corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: route.Namespace, Name: "grpc-svc"}}
+		backendModel := NewMockhttpBackendModel(t)
+		routeModel := fakeGRPCRouteModel{
+			resolveRequestFunc: func(
+				_ context.Context,
+				_ reconcile.Request,
+			) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
+				return resolvedMap(route, resolved), nil
+			},
+			isProgrammingRequiredFn: func(resolvedGRPCRouteDetails) bool { return true },
+			acceptRouteFunc: func(_ context.Context, details resolvedGRPCRouteDetails) (*gatewayv1.GRPCRoute, error) {
+				return &details.grpcRoute, nil
+			},
+			resolveBackendRefsFunc: func(context.Context, resolveGRPCBackendRefsParams) (map[string]corev1.Service, error) {
+				return map[string]corev1.Service{service.Namespace + "/" + service.Name: service}, nil
+			},
+			programRouteFunc: func(context.Context, programGRPCRouteParams) (programGRPCRouteResult, error) {
+				return programGRPCRouteResult{}, &resourceStatusError{
+					conditionType: string(gatewayv1.GatewayConditionAccepted),
+					reason:        string(gatewayv1.GatewayReasonRefNotPermitted),
+					message:       "frontend mTLS caCertificateRef is not permitted by a ReferenceGrant",
+				}
+			},
+		}
+
+		got, err := newController(routeModel, backendModel).Reconcile(t.Context(), reconcile.Request{})
+
+		require.NoError(t, err)
+		assertDriftRequeue(t, got, 2*time.Minute)
+		backendModel.AssertNotCalled(t, "syncGRPCRouteEndpoints", mock.Anything, mock.Anything)
+	})
+
 	t.Run("sets rejected status for backend ref status errors", func(t *testing.T) {
 		route := makeRoute()
 		resolved := makeResolved(route)

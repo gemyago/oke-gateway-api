@@ -97,6 +97,13 @@ func (r *TLSRouteController) reconcileResolvedRoute(
 			}
 			return nil
 		}
+		if isParentGatewayStatusError(err) {
+			r.logger.InfoContext(ctx, "TLSRoute parent Gateway is not programmable",
+				slog.String("tlsRoute", req.NamespacedName.String()),
+				slog.String("reason", err.Error()),
+			)
+			return nil
+		}
 		return fmt.Errorf("failed to program TLSRoute %s: %w", req.NamespacedName, err)
 	}
 	if err := r.tlsRouteModel.setProgrammed(ctx, resolvedRoute); err != nil {

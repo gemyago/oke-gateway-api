@@ -116,6 +116,14 @@ func (r *HTTPRouteController) reconcileResolvedRoute(
 		knownBackends:    knownBackends,
 	})
 	if err != nil {
+		if isParentGatewayStatusError(err) {
+			r.logger.InfoContext(ctx, "HTTPRoute parent Gateway is not programmable",
+				slog.String("httpRoute", resolvedData.httpRoute.Name),
+				slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
+				slog.String("reason", err.Error()),
+			)
+			return false, nil
+		}
 		return false, fmt.Errorf("failed to program route: %w", err)
 	}
 

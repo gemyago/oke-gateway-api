@@ -1,6 +1,11 @@
 package app
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+)
 
 type resourceStatusError struct {
 	conditionType string
@@ -16,6 +21,15 @@ func (e resourceStatusError) Error() string {
 			e.conditionType, e.reason, e.message, e.cause)
 	}
 	return fmt.Sprintf("resourceStatusError: type=%s, reason=%s, message=%s", e.conditionType, e.reason, e.message)
+}
+
+func isParentGatewayStatusError(err error) bool {
+	var statusErr *resourceStatusError
+	if !errors.As(err, &statusErr) {
+		return false
+	}
+	return statusErr.conditionType == string(gatewayv1.GatewayConditionAccepted) ||
+		statusErr.conditionType == string(gatewayv1.GatewayConditionProgrammed)
 }
 
 type ReconcileError struct {
