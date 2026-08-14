@@ -661,6 +661,12 @@ func (m *grpcRouteModelImpl) isProgrammingRequired(details resolvedGRPCRouteDeta
 	if !found {
 		return true
 	}
+	if l7ProgrammedListenersChanged(
+		details.grpcRoute.Annotations[GRPCRouteProgrammedPolicyRulesAnnotation],
+		details.matchedListeners,
+	) {
+		return true
+	}
 
 	return !m.resourcesModel.isConditionSet(isConditionSetParams{
 		resource:      &details.grpcRoute,

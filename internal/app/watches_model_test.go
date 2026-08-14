@@ -3165,6 +3165,99 @@ func TestWatchesModel(t *testing.T) {
 			require.Nil(t, model.MapGatewayToTLSRoute(t.Context(), &corev1.Service{}))
 		})
 
+		t.Run("maps Gateway changes to referencing HTTPRoutes", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			mapper, ok := any(model).(interface {
+				MapGatewayToHTTPRoute(context.Context, client.Object) []reconcile.Request
+			})
+			require.True(t, ok, "WatchesModel must map Gateway changes to referencing HTTPRoutes")
+			gateway := &gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "web", Name: "edge"}}
+			httpRoutes := []gatewayv1.HTTPRoute{
+				{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "web", Name: "matched"},
+					Spec: gatewayv1.HTTPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+						ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
+					}},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "web", Name: "other"},
+					Spec: gatewayv1.HTTPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+						ParentRefs: []gatewayv1.ParentReference{{Name: "other"}},
+					}},
+				},
+			}
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.HTTPRouteList{},
+					client.MatchingFields{httpRouteParentGatewayIndexKey: "web/edge"}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(httpRoutes[:1]))
+					return nil
+				})
+
+			require.Equal(t,
+				[]reconcile.Request{{NamespacedName: apitypes.NamespacedName{Namespace: "web", Name: "matched"}}},
+				mapper.MapGatewayToHTTPRoute(t.Context(), gateway),
+			)
+			require.Nil(t, mapper.MapGatewayToHTTPRoute(t.Context(), &corev1.Service{}))
+		})
+
+		t.Run("maps Gateway changes to referencing GRPCRoutes", func(t *testing.T) {
+			deps := makeMockDeps(t)
+			model := NewWatchesModel(deps)
+			mapper, ok := any(model).(interface {
+				MapGatewayToGRPCRoute(context.Context, client.Object) []reconcile.Request
+			})
+			require.True(t, ok, "WatchesModel must map Gateway changes to referencing GRPCRoutes")
+			gateway := &gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "grpc", Name: "edge"}}
+			grpcRoutes := []gatewayv1.GRPCRoute{
+				{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "grpc", Name: "matched"},
+					Spec: gatewayv1.GRPCRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+						ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
+					}},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "grpc", Name: "other"},
+					Spec: gatewayv1.GRPCRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+						ParentRefs: []gatewayv1.ParentReference{{Name: "other"}},
+					}},
+				},
+			}
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.GRPCRouteList{},
+					client.MatchingFields{grpcRouteParentGatewayIndexKey: "grpc/edge"}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(grpcRoutes[:1]))
+					return nil
+				})
+
+			require.Equal(t,
+				[]reconcile.Request{{NamespacedName: apitypes.NamespacedName{Namespace: "grpc", Name: "matched"}}},
+				mapper.MapGatewayToGRPCRoute(t.Context(), gateway),
+			)
+			require.Nil(t, mapper.MapGatewayToGRPCRoute(t.Context(), &corev1.Service{}))
+		})
+
+		t.Run("appends only active L7 route requests", func(t *testing.T) {
+			now := metav1.Now()
+			routes := &gatewayv1.HTTPRouteList{Items: []gatewayv1.HTTPRoute{
+				{ObjectMeta: metav1.ObjectMeta{Namespace: "web", Name: "active"}},
+				{ObjectMeta: metav1.ObjectMeta{Namespace: "web", Name: "deleting", DeletionTimestamp: &now}},
+			}}
+			requestsByKey := map[client.ObjectKey]reconcile.Request{}
+
+			appendL7RouteRequests(routes, requestsByKey)
+
+			require.Equal(t, map[client.ObjectKey]reconcile.Request{
+				{Namespace: "web", Name: "active"}: {
+					NamespacedName: apitypes.NamespacedName{Namespace: "web", Name: "active"},
+				},
+			}, requestsByKey)
+		})
+
 		t.Run("returns nil when indexed TLSRoute list fails for Gateway changes", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)

@@ -93,6 +93,7 @@ type setupL7RouteControllerParams struct {
 	name                       string
 	route                      client.Object
 	mapEndpoint                handler.MapFunc
+	mapGateway                 handler.MapFunc
 	pairedRoute                client.Object
 	mapPairedRoute             handler.MapFunc
 	mapListenerSetToRoute      handler.MapFunc
@@ -599,6 +600,7 @@ func setupHTTPRouteController(
 		name:                       "httproute",
 		route:                      &gatewayv1.HTTPRoute{},
 		mapEndpoint:                deps.WatchesModel.MapEndpointSliceToHTTPRoute,
+		mapGateway:                 deps.WatchesModel.MapGatewayToHTTPRoute,
 		pairedRoute:                &gatewayv1.GRPCRoute{},
 		mapPairedRoute:             deps.WatchesModel.MapGRPCRouteToHTTPRoute,
 		mapListenerSetToRoute:      listenerSetMapper(enableListenerSet, deps.WatchesModel.MapListenerSetToHTTPRoute),
@@ -620,6 +622,7 @@ func setupGRPCRouteController(
 		name:                       "grpcroute",
 		route:                      &gatewayv1.GRPCRoute{},
 		mapEndpoint:                deps.WatchesModel.MapEndpointSliceToGRPCRoute,
+		mapGateway:                 deps.WatchesModel.MapGatewayToGRPCRoute,
 		pairedRoute:                &gatewayv1.HTTPRoute{},
 		mapPairedRoute:             deps.WatchesModel.MapHTTPRouteToGRPCRoute,
 		mapListenerSetToRoute:      listenerSetMapper(enableListenerSet, deps.WatchesModel.MapListenerSetToGRPCRoute),
@@ -642,6 +645,11 @@ func setupL7RouteController(
 		Watches(
 			&discoveryv1.EndpointSlice{},
 			handler.EnqueueRequestsFromMapFunc(params.mapEndpoint),
+		).
+		Watches(
+			&gatewayv1.Gateway{},
+			handler.EnqueueRequestsFromMapFunc(params.mapGateway),
+			builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})),
 		).
 		Watches(
 			params.pairedRoute,

@@ -423,6 +423,38 @@ func mergeL7ProgrammedPolicyRules(
 	return merged
 }
 
+func l7ProgrammedListenersChanged(
+	programmedPolicyRulesAnnotation string,
+	matchedListeners []gatewayv1.Listener,
+) bool {
+	if len(matchedListeners) == 0 {
+		return false
+	}
+
+	programmedListenerNames := map[string]struct{}{}
+	for _, rule := range parseProgrammedHTTPRoutePolicyRules(programmedPolicyRulesAnnotation) {
+		if rule.listenerName == "" {
+			continue
+		}
+		programmedListenerNames[rule.listenerName] = struct{}{}
+	}
+
+	matchedListenerNames := map[string]struct{}{}
+	for _, listener := range matchedListeners {
+		matchedListenerNames[string(listener.Name)] = struct{}{}
+	}
+
+	if len(programmedListenerNames) != len(matchedListenerNames) {
+		return true
+	}
+	for listenerName := range matchedListenerNames {
+		if _, found := programmedListenerNames[listenerName]; !found {
+			return true
+		}
+	}
+	return false
+}
+
 func l7RoutesShareListenerHostname(
 	gateway gatewayv1.Gateway,
 	effectiveListeners []effectiveListener,
@@ -1540,6 +1572,12 @@ func (m *httpRouteModelImpl) isProgrammingRequired(
 	})
 
 	if !found {
+		return true, nil
+	}
+	if l7ProgrammedListenersChanged(
+		details.httpRoute.Annotations[HTTPRouteProgrammedPolicyRulesAnnotation],
+		details.matchedListeners,
+	) {
 		return true, nil
 	}
 

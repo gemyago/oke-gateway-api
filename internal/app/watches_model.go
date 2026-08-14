@@ -824,6 +824,60 @@ func (m *WatchesModel) MapHTTPRouteToGRPCRoute(ctx context.Context, obj client.O
 	)
 }
 
+func (m *WatchesModel) MapGatewayToHTTPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	return m.mapGatewayToL7RouteRequests(
+		ctx, obj, httpRouteParentGatewayIndexKey, "HTTPRoutes",
+		func() client.ObjectList { return &gatewayv1.HTTPRouteList{} },
+	)
+}
+
+func (m *WatchesModel) MapGatewayToGRPCRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	return m.mapGatewayToL7RouteRequests(
+		ctx, obj, grpcRouteParentGatewayIndexKey, "GRPCRoutes",
+		func() client.ObjectList { return &gatewayv1.GRPCRouteList{} },
+	)
+}
+
+func (m *WatchesModel) mapGatewayToL7RouteRequests(
+	ctx context.Context,
+	obj client.Object,
+	indexKey string,
+	routeKind string,
+	newRouteList func() client.ObjectList,
+) []reconcile.Request {
+	gateway, ok := obj.(*gatewayv1.Gateway)
+	if !ok {
+		m.logger.WarnContext(ctx, "Received non-Gateway object", slog.Any("object", obj))
+		return nil
+	}
+
+	return mapParentGatewaysToL7RouteRequests(
+		ctx,
+		m.logger,
+		m.k8sClient,
+		[]string{path.Join(gateway.Namespace, gateway.Name)},
+		indexKey,
+		routeKind,
+		newRouteList,
+		appendL7RouteRequests,
+	)
+}
+
+func appendL7RouteRequests(routeList client.ObjectList, requestsByKey map[client.ObjectKey]reconcile.Request) {
+	items, err := meta.ExtractList(routeList)
+	if err != nil {
+		return
+	}
+	for _, item := range items {
+		route, ok := item.(client.Object)
+		if !ok || route.GetDeletionTimestamp() != nil {
+			continue
+		}
+		key := client.ObjectKeyFromObject(route)
+		requestsByKey[key] = reconcile.Request{NamespacedName: key}
+	}
+}
+
 func mapParentGatewaysToL7RouteRequests[T client.ObjectList](
 	ctx context.Context,
 	logger *slog.Logger,

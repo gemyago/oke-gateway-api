@@ -124,6 +124,62 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 	})
 
+	t.Run("l7ProgrammedListenersChanged", func(t *testing.T) {
+		fake := faker.New()
+		listenerA := gatewayv1.SectionName("listener-a-" + fake.Lorem().Word())
+		listenerB := gatewayv1.SectionName("listener-b-" + fake.Lorem().Word())
+		ruleA := fake.UUID().V4()
+		ruleB := fake.UUID().V4()
+
+		t.Run("returns false when no listeners are matched", func(t *testing.T) {
+			assert.False(t, l7ProgrammedListenersChanged(
+				string(listenerA)+"/"+ruleA,
+				nil,
+			))
+		})
+
+		t.Run("returns false when programmed listeners match", func(t *testing.T) {
+			assert.False(t, l7ProgrammedListenersChanged(
+				strings.Join([]string{
+					string(listenerA) + "/" + ruleA,
+					string(listenerB) + "/" + ruleB,
+				}, ","),
+				[]gatewayv1.Listener{{Name: listenerB}, {Name: listenerA}},
+			))
+		})
+
+		t.Run("returns true when a matched listener was not programmed", func(t *testing.T) {
+			assert.True(t, l7ProgrammedListenersChanged(
+				string(listenerA)+"/"+ruleA,
+				[]gatewayv1.Listener{{Name: listenerA}, {Name: listenerB}},
+			))
+		})
+
+		t.Run("returns true when a programmed listener no longer matches", func(t *testing.T) {
+			assert.True(t, l7ProgrammedListenersChanged(
+				strings.Join([]string{
+					string(listenerA) + "/" + ruleA,
+					string(listenerB) + "/" + ruleB,
+				}, ","),
+				[]gatewayv1.Listener{{Name: listenerA}},
+			))
+		})
+
+		t.Run("returns true when programmed listener names differ", func(t *testing.T) {
+			assert.True(t, l7ProgrammedListenersChanged(
+				string(listenerA)+"/"+ruleA,
+				[]gatewayv1.Listener{{Name: listenerB}},
+			))
+		})
+
+		t.Run("returns true when previous policy rules are legacy unscoped entries", func(t *testing.T) {
+			assert.True(t, l7ProgrammedListenersChanged(
+				"legacy-rule-"+fake.Lorem().Word(),
+				[]gatewayv1.Listener{{Name: listenerA}},
+			))
+		})
+	})
+
 	t.Run("removeL7RoutePolicyRules", func(t *testing.T) {
 		t.Run("removes previous policy rules per listener", func(t *testing.T) {
 			fake := faker.New()
@@ -2701,6 +2757,47 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				details.httpRoute.Annotations = map[string]string{}
 			}
 			details.httpRoute.Annotations[HTTPRouteProgrammingRevisionAnnotation] = "2"
+			details.httpRoute.Status.Parents = []gatewayv1.RouteParentStatus{
+				{
+					ControllerName: controllerName,
+					ParentRef:      details.matchedRef,
+					Conditions: []metav1.Condition{
+						{
+							Type:               string(gatewayv1.RouteConditionResolvedRefs),
+							Status:             metav1.ConditionTrue,
+							ObservedGeneration: details.httpRoute.Generation,
+						},
+					},
+				},
+			}
+
+			required, err := model.isProgrammingRequired(details)
+
+			require.NoError(t, err)
+			assert.True(t, required)
+		})
+
+		t.Run("ProgrammingRequired/MatchedListenerSetChanged", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			deps.ResourcesModel = newResourcesModel(resourcesModelDeps{
+				K8sClient:  deps.K8sClient,
+				RootLogger: diag.RootTestLogger(),
+			})
+			model := newHTTPRouteModel(deps)
+			controllerName, details := newIsProgrammingRequiredDetails()
+			oldListenerName := gatewayv1.SectionName("old-" + fake.Lorem().Word())
+			newListenerName := gatewayv1.SectionName("new-" + fake.Lorem().Word())
+
+			details.matchedListeners = []gatewayv1.Listener{
+				{Name: oldListenerName, Protocol: gatewayv1.HTTPProtocolType, Port: 80},
+				{Name: newListenerName, Protocol: gatewayv1.HTTPProtocolType, Port: 8080},
+			}
+			details.httpRoute.Annotations = map[string]string{
+				HTTPRouteProgrammingRevisionAnnotation:    HTTPRouteProgrammingRevisionValue,
+				HTTPRouteProgrammedPolicyRulesAnnotation:  string(oldListenerName) + "/" + fake.UUID().V4(),
+				L7RouteProgrammedLoadBalancerIDAnnotation: details.gatewayDetails.config.Spec.LoadBalancerID,
+			}
 			details.httpRoute.Status.Parents = []gatewayv1.RouteParentStatus{
 				{
 					ControllerName: controllerName,

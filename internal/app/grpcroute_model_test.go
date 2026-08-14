@@ -1203,6 +1203,49 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 
 			assert.False(t, got)
 		})
+
+		t.Run("returns true when matched listener set changed", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			deps.ResourcesModel = newResourcesModel(resourcesModelDeps{
+				K8sClient:  deps.K8sClient,
+				RootLogger: diag.RootTestLogger(),
+			})
+			model := newGRPCRouteModel(deps)
+			oldListenerName := gatewayv1.SectionName("old-" + fake.Lorem().Word())
+			newListenerName := gatewayv1.SectionName("new-" + fake.Lorem().Word())
+			gatewayData := makeResolvedGateway(
+				gatewayv1.Listener{Name: oldListenerName, Port: 443, Protocol: gatewayv1.HTTPSProtocolType},
+				gatewayv1.Listener{Name: newListenerName, Port: 8443, Protocol: gatewayv1.HTTPSProtocolType},
+			)
+			parentRef := gatewayv1.ParentReference{Name: gatewayv1.ObjectName(gatewayData.gateway.Name)}
+			route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.Generation = 1
+				route.Annotations = map[string]string{
+					GRPCRouteProgrammingRevisionAnnotation:    GRPCRouteProgrammingRevisionValue,
+					GRPCRouteProgrammedPolicyRulesAnnotation:  string(oldListenerName) + "/" + fake.UUID().V4(),
+					L7RouteProgrammedLoadBalancerIDAnnotation: gatewayData.config.Spec.LoadBalancerID,
+				}
+				route.Status.Parents = []gatewayv1.RouteParentStatus{{
+					ParentRef:      parentRef,
+					ControllerName: ControllerClassName,
+					Conditions: []metav1.Condition{{
+						Type:               string(gatewayv1.RouteConditionResolvedRefs),
+						Status:             metav1.ConditionTrue,
+						ObservedGeneration: route.Generation,
+					}},
+				}}
+			})
+
+			got := model.isProgrammingRequired(resolvedGRPCRouteDetails{
+				gatewayDetails:   gatewayData,
+				grpcRoute:        route,
+				matchedRef:       parentRef,
+				matchedListeners: gatewayData.gateway.Spec.Listeners,
+			})
+
+			assert.True(t, got)
+		})
 	})
 
 	t.Run("programRoute", func(t *testing.T) {
