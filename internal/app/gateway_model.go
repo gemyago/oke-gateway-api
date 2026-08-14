@@ -801,15 +801,16 @@ func (m *gatewayModelImpl) deprovisionGatewayLoadBalancerResources(
 	}
 
 	data.loadBalancer = &response.LoadBalancer
+	cleanupListenerNames := gatewayCleanupListenerNames(
+		data.gateway,
+		gatewayManagedOCIListenersForLoadBalancer(data),
+	)
 	if err = m.ociLoadBalancerModel.removeMissingListeners(ctx, removeMissingListenersParams{
 		loadBalancerID:       loadBalancerID,
 		knownListeners:       response.LoadBalancer.Listeners,
 		knownRoutingPolicies: response.LoadBalancer.RoutingPolicies,
-		cleanupListenerNames: gatewayCleanupListenerNames(
-			data.gateway,
-			gatewayManagedOCIListenersForLoadBalancer(data),
-		),
-		gatewayListeners: nil,
+		cleanupListenerNames: cleanupListenerNames,
+		gatewayListeners:     nil,
 	}); err != nil {
 		return fmt.Errorf("failed to remove Gateway listeners: %w", err)
 	}
@@ -819,8 +820,11 @@ func (m *gatewayModelImpl) deprovisionGatewayLoadBalancerResources(
 		previouslyProgrammedCertificates: parseProgrammedGatewayCertificatesAnnotation(
 			data.gateway.Annotations[GatewayProgrammedCertificatesAnnotation],
 		),
-		desiredCertificates: nil,
-		knownCertificates:   response.LoadBalancer.Certificates,
+		desiredCertificates: loadBalancerListenerCertificatesOutsideCleanup(
+			response.LoadBalancer,
+			cleanupListenerNames,
+		),
+		knownCertificates: response.LoadBalancer.Certificates,
 	}); err != nil {
 		return fmt.Errorf("failed to remove Gateway certificates: %w", err)
 	}
@@ -849,6 +853,26 @@ func gatewayCleanupListenerNames(gateway gatewayv1.Gateway, desiredListeners []g
 		annotatedResourceNames(gateway, LoadBalancerGatewayProgrammedListenersAnnotation),
 		listenerNamesSet(desiredListeners),
 	)
+}
+
+func loadBalancerListenerCertificatesOutsideCleanup(
+	loadBalancer loadbalancer.LoadBalancer,
+	cleanupListenerNames map[string]struct{},
+) []string {
+	certNames := map[string]struct{}{}
+	for listenerName, listener := range loadBalancer.Listeners {
+		if _, cleanup := cleanupListenerNames[listenerName]; cleanup {
+			continue
+		}
+		if listener.SslConfiguration == nil || listener.SslConfiguration.CertificateName == nil {
+			continue
+		}
+		certNames[*listener.SslConfiguration.CertificateName] = struct{}{}
+	}
+
+	names := lo.Keys(certNames)
+	sort.Strings(names)
+	return names
 }
 
 func listenerNamesSet(listeners []gatewayv1.Listener) map[string]struct{} {

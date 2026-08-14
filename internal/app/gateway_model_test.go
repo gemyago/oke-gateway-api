@@ -2501,6 +2501,81 @@ func TestGatewayModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("preserves certificate used by another listener during deprovision", func(t *testing.T) {
+			fake := faker.New()
+			loadBalancerID := "ocid1.loadbalancer.oc1.." + fake.UUID().V4()
+			listenerName := "https-" + fake.Lorem().Word()
+			sharedListenerName := "shared-" + fake.Lorem().Word()
+			routingPolicyName := listenerPolicyName(listenerName)
+			certName := "cert-" + fake.Lorem().Word()
+			gateway := newRandomGateway(randomGatewayWithListenersOpt(gatewayv1.Listener{
+				Name:     gatewayv1.SectionName(listenerName),
+				Protocol: gatewayv1.HTTPSProtocolType,
+				Port:     443,
+			}))
+			gateway.Finalizers = []string{LoadBalancerGatewayProgrammedFinalizer}
+			gateway.Annotations = map[string]string{
+				LoadBalancerGatewayIDAnnotation:                  loadBalancerID,
+				GatewayProgrammedCertificatesAnnotation:          certName,
+				LoadBalancerGatewayProgrammedListenersAnnotation: listenerName,
+			}
+			data := &resolvedGatewayDetails{
+				gateway: *gateway,
+				config: types.GatewayConfig{
+					Spec: types.GatewayConfigSpec{LoadBalancerID: loadBalancerID},
+				},
+			}
+			deps := newMockDeps(t)
+			model := newGatewayModel(deps)
+
+			mockOCIClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			mockOCIClient.EXPECT().
+				GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{LoadBalancerId: &loadBalancerID}).
+				Return(loadbalancer.GetLoadBalancerResponse{
+					LoadBalancer: loadbalancer.LoadBalancer{
+						Listeners: map[string]loadbalancer.Listener{
+							listenerName: {
+								Name:                  new(listenerName),
+								RoutingPolicyName:     new(routingPolicyName),
+								DefaultBackendSetName: new(gatewayDefaultBackendSetName(data.gateway)),
+								SslConfiguration:      &loadbalancer.SslConfiguration{CertificateName: new(certName)},
+							},
+							sharedListenerName: {
+								Name:                  new(sharedListenerName),
+								DefaultBackendSetName: new("other-" + fake.Lorem().Word()),
+								SslConfiguration:      &loadbalancer.SslConfiguration{CertificateName: new(certName)},
+							},
+						},
+						RoutingPolicies: map[string]loadbalancer.RoutingPolicy{
+							routingPolicyName: {Name: new(routingPolicyName)},
+						},
+						Certificates: map[string]loadbalancer.Certificate{
+							certName: {CertificateName: new(certName)},
+						},
+					},
+				}, nil)
+
+			mockLBModel, _ := deps.OciLoadBalancerModel.(*MockociLoadBalancerModel)
+			mockLBModel.EXPECT().removeMissingListeners(t.Context(), mock.Anything).Return(nil)
+			mockLBModel.EXPECT().
+				removeUnusedCertificates(t.Context(), mock.MatchedBy(func(params removeUnusedCertificatesParams) bool {
+					return params.loadBalancerID == loadBalancerID &&
+						assert.ObjectsAreEqual([]string{certName}, params.previouslyProgrammedCertificates) &&
+						assert.ObjectsAreEqual([]string{certName}, params.desiredCertificates)
+				})).
+				Return(nil)
+			mockLBModel.EXPECT().cleanupFrontendMTLSCABundles(t.Context(), mock.Anything).Return(nil)
+			mockLBModel.EXPECT().
+				deprovisionBackendSetByName(t.Context(), loadBalancerID, gatewayDefaultBackendSetName(data.gateway)).
+				Return(nil)
+			mockClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockClient.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.Gateway")).Return(nil)
+
+			err := model.deprovisionGateway(t.Context(), data)
+
+			require.NoError(t, err)
+		})
+
 		t.Run("removes desired OCI listeners when ownership annotation is missing", func(t *testing.T) {
 			fake := faker.New()
 			loadBalancerID := "ocid1.loadbalancer.oc1.." + fake.UUID().V4()
