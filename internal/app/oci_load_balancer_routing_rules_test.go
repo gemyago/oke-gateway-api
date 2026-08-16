@@ -608,6 +608,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			rs := newOciLoadBalancerRoutingRulesMapper()
 			actual, err := rs.mapHTTPRouteHostnamesAndMatchesToCondition(
 				nil,
+				0,
 				[]gatewayv1.HTTPRouteMatch{
 					{
 						Path: &gatewayv1.HTTPPathMatch{
@@ -631,6 +632,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			rs := newOciLoadBalancerRoutingRulesMapper()
 			actual, err := rs.mapHTTPRouteHostnamesAndMatchesToCondition(
 				[]gatewayv1.Hostname{host1, host2},
+				0,
 				[]gatewayv1.HTTPRouteMatch{
 					{
 						Path: &gatewayv1.HTTPPathMatch{
@@ -667,6 +669,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			rs := newOciLoadBalancerRoutingRulesMapper()
 			actual, err := rs.mapHTTPRouteHostnamesAndMatchesToCondition(
 				[]gatewayv1.Hostname{host1, host2},
+				0,
 				nil,
 			)
 
@@ -680,6 +683,41 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				),
 				actual,
 			)
+		})
+
+		t.Run("matches hostname with listener port", func(t *testing.T) {
+			fake := faker.New()
+			hostname := gatewayv1.Hostname("api-" + fake.Internet().Domain())
+			listenerPort := 8000 + fake.Int32Between(1, 1000)
+			pathValue := "/" + fake.Lorem().Word()
+
+			rs := newOciLoadBalancerRoutingRulesMapper()
+			actual, err := rs.mapHTTPRouteHostnamesAndMatchesToCondition(
+				[]gatewayv1.Hostname{hostname},
+				listenerPort,
+				[]gatewayv1.HTTPRouteMatch{
+					{
+						Path: &gatewayv1.HTTPPathMatch{
+							Type:  lo.ToPtr(gatewayv1.PathMatchPathPrefix),
+							Value: &pathValue,
+						},
+					},
+				},
+			)
+
+			require.NoError(t, err)
+			want := fmt.Sprintf(
+				"any("+
+					"all(http.request.headers[(i 'host')] eq (i '%s'), http.request.url.path sw '%s'), "+
+					"all(http.request.headers[(i 'host')] eq (i '%s:%d'), http.request.url.path sw '%s')"+
+					")",
+				hostname,
+				pathValue,
+				hostname,
+				listenerPort,
+				pathValue,
+			)
+			assert.Equal(t, want, actual)
 		})
 	})
 
@@ -704,6 +742,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			rs := newOciLoadBalancerRoutingRulesMapper()
 			actual, err := rs.mapGRPCRouteHostnamesAndMatchesToCondition(
 				nil,
+				0,
 				[]gatewayv1.GRPCRouteMatch{
 					{
 						Method: &gatewayv1.GRPCMethodMatch{
@@ -732,6 +771,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			rs := newOciLoadBalancerRoutingRulesMapper()
 			actual, err := rs.mapGRPCRouteHostnamesAndMatchesToCondition(
 				nil,
+				0,
 				[]gatewayv1.GRPCRouteMatch{
 					{
 						Method: &gatewayv1.GRPCMethodMatch{
@@ -759,6 +799,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			rs := newOciLoadBalancerRoutingRulesMapper()
 			actual, err := rs.mapGRPCRouteHostnamesAndMatchesToCondition(
 				nil,
+				0,
 				[]gatewayv1.GRPCRouteMatch{
 					{
 						Method: &gatewayv1.GRPCMethodMatch{
@@ -790,6 +831,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			rs := newOciLoadBalancerRoutingRulesMapper()
 			actual, err := rs.mapGRPCRouteHostnamesAndMatchesToCondition(
 				[]gatewayv1.Hostname{hostname},
+				0,
 				[]gatewayv1.GRPCRouteMatch{
 					{
 						Method: &gatewayv1.GRPCMethodMatch{
@@ -830,6 +872,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			rs := newOciLoadBalancerRoutingRulesMapper()
 			actual, err := rs.mapGRPCRouteHostnamesAndMatchesToCondition(
 				[]gatewayv1.Hostname{host1, host2},
+				0,
 				nil,
 			)
 
@@ -842,6 +885,36 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 					"any(%s, %s)",
 					grpcBranches([]string{hostCondition1}),
 					grpcBranches([]string{hostCondition2}),
+				),
+				actual,
+			)
+		})
+
+		t.Run("matches hostname with listener port", func(t *testing.T) {
+			fake := faker.New()
+			hostname := gatewayv1.Hostname("grpc-" + fake.Internet().Domain())
+			listenerPort := 8000 + fake.Int32Between(1, 1000)
+
+			rs := newOciLoadBalancerRoutingRulesMapper()
+			actual, err := rs.mapGRPCRouteHostnamesAndMatchesToCondition(
+				[]gatewayv1.Hostname{hostname},
+				listenerPort,
+				nil,
+			)
+
+			require.NoError(t, err)
+			bareHostCondition := fmt.Sprintf("http.request.headers[(i 'host')] eq (i '%s')", hostname)
+			portHostCondition := fmt.Sprintf(
+				"http.request.headers[(i 'host')] eq (i '%s:%d')",
+				hostname,
+				listenerPort,
+			)
+			assert.Equal(
+				t,
+				fmt.Sprintf(
+					"any(%s, %s)",
+					grpcBranches([]string{bareHostCondition}),
+					grpcBranches([]string{portHostCondition}),
 				),
 				actual,
 			)
@@ -872,6 +945,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			rs := newOciLoadBalancerRoutingRulesMapper()
 			_, err := rs.mapGRPCRouteHostnamesAndMatchesToCondition(
 				[]gatewayv1.Hostname{hostname},
+				0,
 				[]gatewayv1.GRPCRouteMatch{{Method: &gatewayv1.GRPCMethodMatch{}}},
 			)
 
@@ -886,6 +960,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			rs := newOciLoadBalancerRoutingRulesMapper()
 			_, err := rs.mapGRPCRouteHostnamesAndMatchesToCondition(
 				nil,
+				0,
 				[]gatewayv1.GRPCRouteMatch{
 					{
 						Method: &gatewayv1.GRPCMethodMatch{
@@ -906,6 +981,7 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			rs := newOciLoadBalancerRoutingRulesMapper()
 			_, err := rs.mapGRPCRouteHostnamesAndMatchesToCondition(
 				nil,
+				0,
 				[]gatewayv1.GRPCRouteMatch{
 					{
 						Headers: []gatewayv1.GRPCHeaderMatch{

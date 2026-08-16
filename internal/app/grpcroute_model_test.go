@@ -1297,6 +1297,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		ociLBModel.EXPECT().makeGRPCRoutingRule(t.Context(), makeGRPCRoutingRuleParams{
 			grpcRoute:          route,
 			grpcRouteRuleIndex: 0,
+			listenerPort:       listener.Port,
 		}).Return(routingRule, nil).Once()
 		ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
 			loadBalancerID:  config.Spec.LoadBalancerID,
@@ -1358,6 +1359,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		ociLBModel.EXPECT().makeGRPCRoutingRule(t.Context(), makeGRPCRoutingRuleParams{
 			grpcRoute:          route,
 			grpcRouteRuleIndex: 0,
+			listenerPort:       listener.Port,
 		}).Return(routingRule, nil).Once()
 		ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
 			loadBalancerID: config.Spec.LoadBalancerID,
@@ -1424,6 +1426,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		ociLBModel.EXPECT().makeGRPCRoutingRule(t.Context(), makeGRPCRoutingRuleParams{
 			grpcRoute:          route,
 			grpcRouteRuleIndex: 0,
+			listenerPort:       listener.Port,
 		}).Return(routingRule, nil).Once()
 		ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
 			loadBalancerID: config.Spec.LoadBalancerID,
@@ -1523,11 +1526,16 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		service := corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{Namespace: route.Namespace, Name: string(backendRef.Name)},
 		}
+		listener := makeRandomListener()
 		wantErr := errors.New(fake.Lorem().Sentence(10))
 
 		ociLBModel.EXPECT().reconcileBackendSet(t.Context(), mock.Anything).Return(nil).Once()
 		ociLBModel.EXPECT().
-			makeGRPCRoutingRule(t.Context(), mock.Anything).
+			makeGRPCRoutingRule(t.Context(), makeGRPCRoutingRuleParams{
+				grpcRoute:          route,
+				grpcRouteRuleIndex: 0,
+				listenerPort:       listener.Port,
+			}).
 			Return(loadbalancer.RoutingRule{}, wantErr).
 			Once()
 
@@ -1535,6 +1543,9 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			config:        config,
 			grpcRoute:     route,
 			knownBackends: map[string]corev1.Service{service.Namespace + "/" + service.Name: service},
+			matchedListeners: []gatewayv1.Listener{
+				listener,
+			},
 		})
 
 		require.ErrorIs(t, err, wantErr)

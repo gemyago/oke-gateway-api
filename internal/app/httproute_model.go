@@ -136,7 +136,7 @@ type programL7RoutePolicyParams struct {
 	previousPolicyRules []programmedHTTPRoutePolicyRule
 	previousBackendSets map[string]struct{}
 	ruleCount           int
-	makeRoutingRule     func(ruleIndex int) (loadbalancer.RoutingRule, error)
+	makeRoutingRule     func(ruleIndex int, listenerPort gatewayv1.PortNumber) (loadbalancer.RoutingRule, error)
 	backendTLSPolicy    backendTLSPolicyModel
 	backendTLSDisabled  bool
 	backendTLSRequired  func(service v1.Service, backendRef gatewayv1.BackendRef) error
@@ -155,7 +155,7 @@ type programL7RouteParams struct {
 	ruleCount             int
 	policyRulesAnnotation string
 	backendSetsAnnotation string
-	makeRoutingRule       func(ruleIndex int) (loadbalancer.RoutingRule, error)
+	makeRoutingRule       func(ruleIndex int, listenerPort gatewayv1.PortNumber) (loadbalancer.RoutingRule, error)
 	backendTLSRequired    func(service v1.Service, backendRef gatewayv1.BackendRef) error
 }
 
@@ -1154,20 +1154,13 @@ func programL7RoutePolicy(
 		return nil, nil, reconcileErr
 	}
 
-	policyRules := make([]loadbalancer.RoutingRule, 0, params.ruleCount)
 	policyRuleNames := make([]string, 0, params.ruleCount)
-	for ruleIndex := range params.ruleCount {
-		rule, err := params.makeRoutingRule(ruleIndex)
-		if err != nil {
-			return nil, nil, fmt.Errorf(
-				"failed to make routing rule %d for route %s: %w",
-				ruleIndex,
-				params.routeName,
-				err,
-			)
+	recordPolicyRuleName := func(rule loadbalancer.RoutingRule) {
+		ruleName := lo.FromPtr(rule.Name)
+		if ruleName == "" || lo.Contains(policyRuleNames, ruleName) {
+			return
 		}
-		policyRules = append(policyRules, rule)
-		policyRuleNames = append(policyRuleNames, *rule.Name)
+		policyRuleNames = append(policyRuleNames, ruleName)
 	}
 
 	prevRulesByListener := previousPolicyRulesByListener(params.previousPolicyRules, params.matchedListeners)
@@ -1179,6 +1172,21 @@ func programL7RoutePolicy(
 	)
 
 	for _, listener := range params.matchedListeners {
+		policyRules := make([]loadbalancer.RoutingRule, 0, params.ruleCount)
+		for ruleIndex := range params.ruleCount {
+			rule, err := params.makeRoutingRule(ruleIndex, listener.Port)
+			if err != nil {
+				return nil, nil, fmt.Errorf(
+					"failed to make routing rule %d for route %s: %w",
+					ruleIndex,
+					params.routeName,
+					err,
+				)
+			}
+			policyRules = append(policyRules, rule)
+			recordPolicyRuleName(rule)
+		}
+
 		listenerName := string(listener.Name)
 		err := ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
 			loadBalancerID:  params.loadBalancerID,
@@ -1411,10 +1419,11 @@ func (m *httpRouteModelImpl) programRoute(
 		ruleCount:             len(params.httpRoute.Spec.Rules),
 		policyRulesAnnotation: HTTPRouteProgrammedPolicyRulesAnnotation,
 		backendSetsAnnotation: HTTPRouteProgrammedBackendSetsAnnotation,
-		makeRoutingRule: func(ruleIndex int) (loadbalancer.RoutingRule, error) {
+		makeRoutingRule: func(ruleIndex int, listenerPort gatewayv1.PortNumber) (loadbalancer.RoutingRule, error) {
 			return m.ociLoadBalancerModel.makeRoutingRule(ctx, makeRoutingRuleParams{
 				httpRoute:          params.httpRoute,
 				httpRouteRuleIndex: ruleIndex,
+				listenerPort:       listenerPort,
 			})
 		},
 	})

@@ -93,11 +93,13 @@ type reconcileListenersCertificatesResult struct {
 type makeRoutingRuleParams struct {
 	httpRoute          gatewayv1.HTTPRoute
 	httpRouteRuleIndex int
+	listenerPort       gatewayv1.PortNumber
 }
 
 type makeGRPCRoutingRuleParams struct {
 	grpcRoute          gatewayv1.GRPCRoute
 	grpcRouteRuleIndex int
+	listenerPort       gatewayv1.PortNumber
 }
 
 type makeBackendRoutingRuleParams[T any] struct {
@@ -1340,6 +1342,7 @@ func (m *ociLoadBalancerModelImpl) makeRoutingRule(
 		mapCondition: func() (string, error) {
 			return m.routingRulesMapper.mapHTTPRouteHostnamesAndMatchesToCondition(
 				params.httpRoute.Spec.Hostnames,
+				params.listenerPort,
 				rule.Matches,
 			)
 		},
@@ -1364,6 +1367,7 @@ func (m *ociLoadBalancerModelImpl) makeGRPCRoutingRule(
 		mapCondition: func() (string, error) {
 			return m.routingRulesMapper.mapGRPCRouteHostnamesAndMatchesToCondition(
 				params.grpcRoute.Spec.Hostnames,
+				params.listenerPort,
 				rule.Matches,
 			)
 		},

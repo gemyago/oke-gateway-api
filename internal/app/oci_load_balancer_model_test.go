@@ -3311,15 +3311,18 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				),
 			)
 			ruleIndex := 0
+			listenerPort := 8000 + fake.Int32Between(1, 1000)
 
 			params := makeRoutingRuleParams{
 				httpRoute:          httpRoute,
 				httpRouteRuleIndex: ruleIndex,
+				listenerPort:       listenerPort,
 			}
 
 			expectedCondition := fake.Lorem().Sentence(10)
 			routingRulesMapper.EXPECT().mapHTTPRouteHostnamesAndMatchesToCondition(
 				httpRoute.Spec.Hostnames,
+				listenerPort,
 				httpRoute.Spec.Rules[ruleIndex].Matches,
 			).Return(expectedCondition, nil).Once()
 
@@ -3350,6 +3353,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			model := newOciLoadBalancerModel(deps)
 
 			hostname := gatewayv1.Hostname("auth-" + fake.Internet().Domain())
+			listenerPort := 8000 + fake.Int32Between(1, 1000)
 			pathValue := "/"
 			backendRef := makeRandomBackendRef()
 			httpRoute := makeRandomHTTPRoute(
@@ -3372,6 +3376,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			actualRule, err := model.makeRoutingRule(t.Context(), makeRoutingRuleParams{
 				httpRoute:          httpRoute,
 				httpRouteRuleIndex: 0,
+				listenerPort:       listenerPort,
 			})
 
 			require.NoError(t, err)
@@ -3379,6 +3384,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			assert.Contains(t, condition, "all(")
 			assert.Contains(t, condition, "http.request.headers[(i 'host')]")
 			assert.Contains(t, condition, fmt.Sprintf("eq (i '%s')", hostname))
+			assert.Contains(t, condition, fmt.Sprintf("eq (i '%s:%d')", hostname, listenerPort))
 			assert.Contains(t, condition, fmt.Sprintf("http.request.url.path sw '%s'", pathValue))
 		})
 
@@ -3392,15 +3398,18 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				randomHTTPRouteWithRulesOpt(makeRandomHTTPRouteRule()),
 			)
 			ruleIndex := 0
+			listenerPort := 8000 + fake.Int32Between(1, 1000)
 
 			params := makeRoutingRuleParams{
 				httpRoute:          httpRoute,
 				httpRouteRuleIndex: ruleIndex,
+				listenerPort:       listenerPort,
 			}
 
 			expectedErr := errors.New(fake.Lorem().Sentence(10))
 			routingRulesMapper.EXPECT().mapHTTPRouteHostnamesAndMatchesToCondition(
 				httpRoute.Spec.Hostnames,
+				listenerPort,
 				httpRoute.Spec.Rules[ruleIndex].Matches,
 			).Return("", expectedErr).Once()
 
@@ -3481,10 +3490,12 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				},
 			}
 			ruleIndex := 0
+			listenerPort := 8000 + fake.Int32Between(1, 1000)
 
 			expectedCondition := fake.Lorem().Sentence(10)
 			routingRulesMapper.EXPECT().mapGRPCRouteHostnamesAndMatchesToCondition(
 				grpcRoute.Spec.Hostnames,
+				listenerPort,
 				grpcRoute.Spec.Rules[ruleIndex].Matches,
 			).Return(expectedCondition, nil).Once()
 
@@ -3505,6 +3516,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			actualRule, err := model.makeGRPCRoutingRule(t.Context(), makeGRPCRoutingRuleParams{
 				grpcRoute:          grpcRoute,
 				grpcRouteRuleIndex: ruleIndex,
+				listenerPort:       listenerPort,
 			})
 
 			require.NoError(t, err)
@@ -3526,14 +3538,17 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				},
 			}
 			wantErr := errors.New(fake.Lorem().Sentence(10))
+			listenerPort := 8000 + fake.Int32Between(1, 1000)
 			routingRulesMapper.EXPECT().mapGRPCRouteHostnamesAndMatchesToCondition(
 				grpcRoute.Spec.Hostnames,
+				listenerPort,
 				grpcRoute.Spec.Rules[0].Matches,
 			).Return("", wantErr).Once()
 
 			_, err := model.makeGRPCRoutingRule(t.Context(), makeGRPCRoutingRuleParams{
 				grpcRoute:          grpcRoute,
 				grpcRouteRuleIndex: 0,
+				listenerPort:       listenerPort,
 			})
 
 			require.ErrorIs(t, err, wantErr)

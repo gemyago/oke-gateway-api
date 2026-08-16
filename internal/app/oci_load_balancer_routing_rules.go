@@ -60,6 +60,7 @@ type ociLoadBalancerRoutingRulesMapper interface {
 	// to an OCI Load Balancer routing policy condition.
 	mapHTTPRouteHostnamesAndMatchesToCondition(
 		hostnames []gatewayv1.Hostname,
+		listenerPort gatewayv1.PortNumber,
 		matches []gatewayv1.HTTPRouteMatch,
 	) (string, error)
 
@@ -67,6 +68,7 @@ type ociLoadBalancerRoutingRulesMapper interface {
 	// to an OCI Load Balancer routing policy condition.
 	mapGRPCRouteHostnamesAndMatchesToCondition(
 		hostnames []gatewayv1.Hostname,
+		listenerPort gatewayv1.PortNumber,
 		matches []gatewayv1.GRPCRouteMatch,
 	) (string, error)
 }
@@ -217,6 +219,7 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteMatchesToConditions(
 
 func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteHostnamesAndMatchesToCondition(
 	hostnames []gatewayv1.Hostname,
+	listenerPort gatewayv1.PortNumber,
 	matches []gatewayv1.HTTPRouteMatch,
 ) (string, error) {
 	if len(hostnames) == 0 {
@@ -230,13 +233,14 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteHostnamesAndMatchesT
 
 	conditions := make([]string, 0, len(hostnames)*max(1, len(matchConditions)))
 	for _, hostname := range hostnames {
-		hostCondition := fmt.Sprintf(`http.request.headers[(i 'host')] eq (i '%s')`, hostname)
-		if len(matchConditions) == 0 {
-			conditions = append(conditions, hostCondition)
-			continue
-		}
-		for _, matchCondition := range matchConditions {
-			conditions = append(conditions, "all("+hostCondition+", "+matchCondition+")")
+		for _, hostCondition := range hostConditionsForHostname(hostname, listenerPort) {
+			if len(matchConditions) == 0 {
+				conditions = append(conditions, hostCondition)
+				continue
+			}
+			for _, matchCondition := range matchConditions {
+				conditions = append(conditions, "all("+hostCondition+", "+matchCondition+")")
+			}
 		}
 	}
 
@@ -245,6 +249,7 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteHostnamesAndMatchesT
 
 func (r *ociLoadBalancerRoutingRulesMapperImpl) mapGRPCRouteHostnamesAndMatchesToCondition(
 	hostnames []gatewayv1.Hostname,
+	listenerPort gatewayv1.PortNumber,
 	matches []gatewayv1.GRPCRouteMatch,
 ) (string, error) {
 	if len(hostnames) == 0 {
@@ -258,24 +263,38 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapGRPCRouteHostnamesAndMatchesT
 
 	conditions := make([]string, 0, len(hostnames)*max(1, len(matchConditions))*len(grpcContentTypeConditions()))
 	for _, hostname := range hostnames {
-		hostCondition := fmt.Sprintf(`http.request.headers[(i 'host')] eq (i '%s')`, hostname)
-		if len(matchConditions) == 0 {
-			for _, contentTypeCondition := range grpcContentTypeConditions() {
-				conditions = append(conditions, allRoutingConditions(hostCondition, contentTypeCondition))
+		for _, hostCondition := range hostConditionsForHostname(hostname, listenerPort) {
+			if len(matchConditions) == 0 {
+				for _, contentTypeCondition := range grpcContentTypeConditions() {
+					conditions = append(conditions, allRoutingConditions(hostCondition, contentTypeCondition))
+				}
+				continue
 			}
-			continue
-		}
-		for _, matchCondition := range matchConditions {
-			for _, contentTypeCondition := range grpcContentTypeConditions() {
-				conditions = append(
-					conditions,
-					allRoutingConditions(hostCondition, contentTypeCondition, matchCondition),
-				)
+			for _, matchCondition := range matchConditions {
+				for _, contentTypeCondition := range grpcContentTypeConditions() {
+					conditions = append(
+						conditions,
+						allRoutingConditions(hostCondition, contentTypeCondition, matchCondition),
+					)
+				}
 			}
 		}
 	}
 
 	return fmt.Sprintf("any(%s)", strings.Join(conditions, ", ")), nil
+}
+
+func hostConditionsForHostname(hostname gatewayv1.Hostname, listenerPort gatewayv1.PortNumber) []string {
+	hostnameValue := string(hostname)
+	conditions := []string{hostHeaderEquals(hostnameValue)}
+	if listenerPort > 0 && !strings.HasPrefix(hostnameValue, "*.") && !strings.Contains(hostnameValue, ":") {
+		conditions = append(conditions, hostHeaderEquals(fmt.Sprintf("%s:%d", hostnameValue, listenerPort)))
+	}
+	return conditions
+}
+
+func hostHeaderEquals(hostname string) string {
+	return fmt.Sprintf(`http.request.headers[(i 'host')] eq (i '%s')`, hostname)
 }
 
 func grpcContentTypeCondition() string {

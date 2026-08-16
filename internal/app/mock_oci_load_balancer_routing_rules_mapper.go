@@ -134,9 +134,9 @@ func (_c *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteMatchesToCondition_C
 	return _c
 }
 
-// mapHTTPRouteHostnamesAndMatchesToCondition provides a mock function with given fields: hostnames, matches
-func (_m *MockociLoadBalancerRoutingRulesMapper) mapHTTPRouteHostnamesAndMatchesToCondition(hostnames []v1.Hostname, matches []v1.HTTPRouteMatch) (string, error) {
-	ret := _m.Called(hostnames, matches)
+// mapHTTPRouteHostnamesAndMatchesToCondition provides a mock function with given fields: hostnames, listenerPort, matches
+func (_m *MockociLoadBalancerRoutingRulesMapper) mapHTTPRouteHostnamesAndMatchesToCondition(hostnames []v1.Hostname, listenerPort v1.PortNumber, matches []v1.HTTPRouteMatch) (string, error) {
+	ret := _m.Called(hostnames, listenerPort, matches)
 
 	if len(ret) == 0 {
 		panic("no return value specified for mapHTTPRouteHostnamesAndMatchesToCondition")
@@ -144,17 +144,17 @@ func (_m *MockociLoadBalancerRoutingRulesMapper) mapHTTPRouteHostnamesAndMatches
 
 	var r0 string
 	var r1 error
-	if rf, ok := ret.Get(0).(func([]v1.Hostname, []v1.HTTPRouteMatch) (string, error)); ok {
-		return rf(hostnames, matches)
+	if rf, ok := ret.Get(0).(func([]v1.Hostname, v1.PortNumber, []v1.HTTPRouteMatch) (string, error)); ok {
+		return rf(hostnames, listenerPort, matches)
 	}
-	if rf, ok := ret.Get(0).(func([]v1.Hostname, []v1.HTTPRouteMatch) string); ok {
-		r0 = rf(hostnames, matches)
+	if rf, ok := ret.Get(0).(func([]v1.Hostname, v1.PortNumber, []v1.HTTPRouteMatch) string); ok {
+		r0 = rf(hostnames, listenerPort, matches)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
 
-	if rf, ok := ret.Get(1).(func([]v1.Hostname, []v1.HTTPRouteMatch) error); ok {
-		r1 = rf(hostnames, matches)
+	if rf, ok := ret.Get(1).(func([]v1.Hostname, v1.PortNumber, []v1.HTTPRouteMatch) error); ok {
+		r1 = rf(hostnames, listenerPort, matches)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -169,14 +169,15 @@ type MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCond
 
 // mapHTTPRouteHostnamesAndMatchesToCondition is a helper method to define mock.On call
 //   - hostnames []v1.Hostname
+//   - listenerPort v1.PortNumber
 //   - matches []v1.HTTPRouteMatch
-func (_e *MockociLoadBalancerRoutingRulesMapper_Expecter) mapHTTPRouteHostnamesAndMatchesToCondition(hostnames interface{}, matches interface{}) *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call {
-	return &MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call{Call: _e.mock.On("mapHTTPRouteHostnamesAndMatchesToCondition", hostnames, matches)}
+func (_e *MockociLoadBalancerRoutingRulesMapper_Expecter) mapHTTPRouteHostnamesAndMatchesToCondition(hostnames interface{}, listenerPort interface{}, matches interface{}) *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call {
+	return &MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call{Call: _e.mock.On("mapHTTPRouteHostnamesAndMatchesToCondition", hostnames, listenerPort, matches)}
 }
 
-func (_c *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call) Run(run func(hostnames []v1.Hostname, matches []v1.HTTPRouteMatch)) *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call {
+func (_c *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call) Run(run func(hostnames []v1.Hostname, listenerPort v1.PortNumber, matches []v1.HTTPRouteMatch)) *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].([]v1.Hostname), args[1].([]v1.HTTPRouteMatch))
+		run(args[0].([]v1.Hostname), args[1].(v1.PortNumber), args[2].([]v1.HTTPRouteMatch))
 	})
 	return _c
 }
@@ -186,14 +187,14 @@ func (_c *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesT
 	return _c
 }
 
-func (_c *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call) RunAndReturn(run func([]v1.Hostname, []v1.HTTPRouteMatch) (string, error)) *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call {
+func (_c *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call) RunAndReturn(run func([]v1.Hostname, v1.PortNumber, []v1.HTTPRouteMatch) (string, error)) *MockociLoadBalancerRoutingRulesMapper_mapHTTPRouteHostnamesAndMatchesToCondition_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// mapGRPCRouteHostnamesAndMatchesToCondition provides a mock function with given fields: hostnames, matches
-func (_m *MockociLoadBalancerRoutingRulesMapper) mapGRPCRouteHostnamesAndMatchesToCondition(hostnames []v1.Hostname, matches []v1.GRPCRouteMatch) (string, error) {
-	ret := _m.Called(hostnames, matches)
+// mapGRPCRouteHostnamesAndMatchesToCondition provides a mock function with given fields: hostnames, listenerPort, matches
+func (_m *MockociLoadBalancerRoutingRulesMapper) mapGRPCRouteHostnamesAndMatchesToCondition(hostnames []v1.Hostname, listenerPort v1.PortNumber, matches []v1.GRPCRouteMatch) (string, error) {
+	ret := _m.Called(hostnames, listenerPort, matches)
 
 	if len(ret) == 0 {
 		panic("no return value specified for mapGRPCRouteHostnamesAndMatchesToCondition")
@@ -201,17 +202,17 @@ func (_m *MockociLoadBalancerRoutingRulesMapper) mapGRPCRouteHostnamesAndMatches
 
 	var r0 string
 	var r1 error
-	if rf, ok := ret.Get(0).(func([]v1.Hostname, []v1.GRPCRouteMatch) (string, error)); ok {
-		return rf(hostnames, matches)
+	if rf, ok := ret.Get(0).(func([]v1.Hostname, v1.PortNumber, []v1.GRPCRouteMatch) (string, error)); ok {
+		return rf(hostnames, listenerPort, matches)
 	}
-	if rf, ok := ret.Get(0).(func([]v1.Hostname, []v1.GRPCRouteMatch) string); ok {
-		r0 = rf(hostnames, matches)
+	if rf, ok := ret.Get(0).(func([]v1.Hostname, v1.PortNumber, []v1.GRPCRouteMatch) string); ok {
+		r0 = rf(hostnames, listenerPort, matches)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
 
-	if rf, ok := ret.Get(1).(func([]v1.Hostname, []v1.GRPCRouteMatch) error); ok {
-		r1 = rf(hostnames, matches)
+	if rf, ok := ret.Get(1).(func([]v1.Hostname, v1.PortNumber, []v1.GRPCRouteMatch) error); ok {
+		r1 = rf(hostnames, listenerPort, matches)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -226,14 +227,15 @@ type MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCond
 
 // mapGRPCRouteHostnamesAndMatchesToCondition is a helper method to define mock.On call
 //   - hostnames []v1.Hostname
+//   - listenerPort v1.PortNumber
 //   - matches []v1.GRPCRouteMatch
-func (_e *MockociLoadBalancerRoutingRulesMapper_Expecter) mapGRPCRouteHostnamesAndMatchesToCondition(hostnames interface{}, matches interface{}) *MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call {
-	return &MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call{Call: _e.mock.On("mapGRPCRouteHostnamesAndMatchesToCondition", hostnames, matches)}
+func (_e *MockociLoadBalancerRoutingRulesMapper_Expecter) mapGRPCRouteHostnamesAndMatchesToCondition(hostnames interface{}, listenerPort interface{}, matches interface{}) *MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call {
+	return &MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call{Call: _e.mock.On("mapGRPCRouteHostnamesAndMatchesToCondition", hostnames, listenerPort, matches)}
 }
 
-func (_c *MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call) Run(run func(hostnames []v1.Hostname, matches []v1.GRPCRouteMatch)) *MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call {
+func (_c *MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call) Run(run func(hostnames []v1.Hostname, listenerPort v1.PortNumber, matches []v1.GRPCRouteMatch)) *MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].([]v1.Hostname), args[1].([]v1.GRPCRouteMatch))
+		run(args[0].([]v1.Hostname), args[1].(v1.PortNumber), args[2].([]v1.GRPCRouteMatch))
 	})
 	return _c
 }
@@ -243,7 +245,7 @@ func (_c *MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesT
 	return _c
 }
 
-func (_c *MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call) RunAndReturn(run func([]v1.Hostname, []v1.GRPCRouteMatch) (string, error)) *MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call {
+func (_c *MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call) RunAndReturn(run func([]v1.Hostname, v1.PortNumber, []v1.GRPCRouteMatch) (string, error)) *MockociLoadBalancerRoutingRulesMapper_mapGRPCRouteHostnamesAndMatchesToCondition_Call {
 	_c.Call.Return(run)
 	return _c
 }

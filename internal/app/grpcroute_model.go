@@ -499,10 +499,11 @@ func (m *grpcRouteModelImpl) programRoute(
 		ruleCount:             len(params.grpcRoute.Spec.Rules),
 		policyRulesAnnotation: GRPCRouteProgrammedPolicyRulesAnnotation,
 		backendSetsAnnotation: GRPCRouteProgrammedBackendSetsAnnotation,
-		makeRoutingRule: func(ruleIndex int) (loadbalancer.RoutingRule, error) {
+		makeRoutingRule: func(ruleIndex int, listenerPort gatewayv1.PortNumber) (loadbalancer.RoutingRule, error) {
 			return m.ociLoadBalancerModel.makeGRPCRoutingRule(ctx, makeGRPCRoutingRuleParams{
 				grpcRoute:          params.grpcRoute,
 				grpcRouteRuleIndex: ruleIndex,
+				listenerPort:       listenerPort,
 			})
 		},
 	})

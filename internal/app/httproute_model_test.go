@@ -1960,20 +1960,19 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				}).Return(nil)
 			}
 
-			// Create expected routing rules for each HTTP route rule
-			expectedRules := make([]loadbalancer.RoutingRule, 0, len(httpRoute.Spec.Rules))
-			for i := range httpRoute.Spec.Rules {
-				rule := makeRandomOCIRoutingRule()
-				expectedRules = append(expectedRules, rule)
-
-				ociLBModel.EXPECT().makeRoutingRule(t.Context(), makeRoutingRuleParams{
-					httpRoute:          httpRoute,
-					httpRouteRuleIndex: i,
-				}).Return(rule, nil)
-			}
-
 			// Expect commitRoutingPolicyV2 to be called for each listener
 			for _, listener := range listeners {
+				expectedRules := make([]loadbalancer.RoutingRule, 0, len(httpRoute.Spec.Rules))
+				for i := range httpRoute.Spec.Rules {
+					rule := makeRandomOCIRoutingRule()
+					expectedRules = append(expectedRules, rule)
+
+					ociLBModel.EXPECT().makeRoutingRule(t.Context(), makeRoutingRuleParams{
+						httpRoute:          httpRoute,
+						httpRouteRuleIndex: i,
+						listenerPort:       listener.Port,
+					}).Return(rule, nil)
+				}
 				ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
 					loadBalancerID: config.Spec.LoadBalancerID,
 					listenerName:   string(listener.Name),
@@ -2041,6 +2040,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				ociLBModel.EXPECT().makeRoutingRule(t.Context(), makeRoutingRuleParams{
 					httpRoute:          httpRoute,
 					httpRouteRuleIndex: i,
+					listenerPort:       listener.Port,
 				}).Return(rule, nil).Once()
 			}
 			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
@@ -2109,6 +2109,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			ociLBModel.EXPECT().makeRoutingRule(t.Context(), makeRoutingRuleParams{
 				httpRoute:          httpRoute,
 				httpRouteRuleIndex: 0,
+				listenerPort:       listener.Port,
 			}).Return(rule, nil).Once()
 			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
 				loadBalancerID: config.Spec.LoadBalancerID,
@@ -2174,7 +2175,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				matchedListeners: []gatewayv1.Listener{listener},
 				backendTLSPolicy: &stubBackendTLSPolicyModel{resolveErr: errBackendTLSPolicyNotFound},
 				ruleCount:        1,
-				makeRoutingRule: func(int) (loadbalancer.RoutingRule, error) {
+				makeRoutingRule: func(int, gatewayv1.PortNumber) (loadbalancer.RoutingRule, error) {
 					return rule, nil
 				},
 			})
@@ -2214,6 +2215,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				ociLBModel.EXPECT().makeRoutingRule(t.Context(), makeRoutingRuleParams{
 					httpRoute:          httpRoute,
 					httpRouteRuleIndex: i,
+					listenerPort:       listener.Port,
 				}).Return(rule, nil).Once()
 			}
 			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
@@ -2326,21 +2328,20 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				}).Return(nil)
 			}
 
-			// Create expected routing rules for each HTTP route rule
-			expectedRules := make([]loadbalancer.RoutingRule, 0, len(httpRoute.Spec.Rules))
-			for i := range httpRoute.Spec.Rules {
-				rule := makeRandomOCIRoutingRule()
-				rule.Name = new(ociListerPolicyRuleName(httpRoute, i))
-				expectedRules = append(expectedRules, rule)
-
-				ociLBModel.EXPECT().makeRoutingRule(t.Context(), makeRoutingRuleParams{
-					httpRoute:          httpRoute,
-					httpRouteRuleIndex: i,
-				}).Return(rule, nil).Once()
-			}
-
 			// Expect commitRoutingPolicyV2 to be called for each listener
 			for _, listener := range listeners {
+				expectedRules := make([]loadbalancer.RoutingRule, 0, len(httpRoute.Spec.Rules))
+				for i := range httpRoute.Spec.Rules {
+					rule := makeRandomOCIRoutingRule()
+					rule.Name = new(ociListerPolicyRuleName(httpRoute, i))
+					expectedRules = append(expectedRules, rule)
+
+					ociLBModel.EXPECT().makeRoutingRule(t.Context(), makeRoutingRuleParams{
+						httpRoute:          httpRoute,
+						httpRouteRuleIndex: i,
+						listenerPort:       listener.Port,
+					}).Return(rule, nil).Once()
+				}
 				ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
 					loadBalancerID:  config.Spec.LoadBalancerID,
 					listenerName:    string(listener.Name),
@@ -2409,6 +2410,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			ociLBModel.EXPECT().makeRoutingRule(t.Context(), makeRoutingRuleParams{
 				httpRoute:          httpRoute,
 				httpRouteRuleIndex: 0,
+				listenerPort:       currentListener.Port,
 			}).Return(rule, nil)
 
 			currentCommit := ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
