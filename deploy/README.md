@@ -64,12 +64,21 @@ kubectl apply -n oke-gw -f manifests/examples/serverroutes.yaml
 ## GRPCRoute example
 
 `GRPCRoute` uses the standard Gateway API CRDs and OCI Load Balancer. It is for gRPC-aware layer 7 routing; use `TCPRoute` on NLB only for gRPC passthrough.
+`HTTPRoute` and `GRPCRoute` can share one HTTPS listener and hostname. Native gRPC traffic is selected by `content-type: application/grpc*`; grpc-web or regular HTTP traffic can continue to use `HTTPRoute`. Backend TLS is optional and should be configured with `BackendTLSPolicy` only when OCI must use TLS to the backend Service port.
 
 ```sh
 kubectl apply -n oke-gw -f manifests/examples/gatewayconfig.yaml
 kubectl apply -n oke-gw -f manifests/examples/gatewayclass.yaml
 kubectl apply -n oke-gw -f manifests/examples/gateway-https-oci-certificate.yaml
 kubectl apply -n oke-gw -f manifests/examples/grpcroute.yaml
+```
+
+Apply the shared HTTPRoute and GRPCRoute listener example:
+
+```sh
+kubectl apply -n oke-gw -f manifests/examples/gatewayconfig.yaml
+kubectl apply -n oke-gw -f manifests/examples/gatewayclass.yaml
+kubectl apply -n oke-gw -f manifests/examples/grpcroute-shared-listener.yaml
 ```
 
 ## Layer 4 Network Load Balancer examples

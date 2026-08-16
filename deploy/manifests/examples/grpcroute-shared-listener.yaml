@@ -1,0 +1,67 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: grpc-shared-listener
+spec:
+  gatewayClassName: oke-gateway-api
+  infrastructure:
+    parametersRef:
+      group: oke-gateway-api.gemyago.github.io
+      kind: GatewayConfig
+      name: oke-gateway-config
+  listeners:
+    - name: https
+      port: 443
+      protocol: HTTPS
+      hostname: api.example.com
+      tls:
+        mode: Terminate
+        options:
+          oci.oraclecloud.com/certificate-ocid: ocid1.certificate.oc1..exampleuniqueID
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: grpc-web-api
+spec:
+  parentRefs:
+    - name: grpc-shared-listener
+      sectionName: https
+  hostnames:
+    - api.example.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: grpc-web-proxy
+          port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: native-grpc-api
+spec:
+  parentRefs:
+    - name: grpc-shared-listener
+      sectionName: https
+  hostnames:
+    - api.example.com
+  rules:
+    - backendRefs:
+        - name: grpc-web-proxy
+          port: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grpc-web-proxy
+spec:
+  selector:
+    app: grpc-web-proxy
+  ports:
+    - name: grpc-web
+      port: 8080
+      targetPort: grpc-web
+      protocol: TCP

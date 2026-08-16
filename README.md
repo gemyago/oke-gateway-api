@@ -233,9 +233,9 @@ Gateway frontend mutual TLS is supported on OCI Load Balancer HTTPS and terminat
 
 `GRPCRoute` uses the standard Gateway API CRDs and is reconciled on OCI Load Balancer with the other layer 7 routes. It is not implemented on OCI Network Load Balancer. Use `TCPRoute` if you only need gRPC passthrough to pods.
 
-The controller supports gRPC host, service, method, and exact header matching. `HTTPRoute` and `GRPCRoute` can share the same HTTPS listener and hostname; `GRPCRoute` rules require a native gRPC `content-type` and are ordered before broad `HTTPRoute` matches.
+The controller supports gRPC host, service, method, and exact header matching. `HTTPRoute` and `GRPCRoute` can share the same HTTPS listener and hostname; `GRPCRoute` rules require a native gRPC `content-type` and are ordered before broad `HTTPRoute` matches. Hostname conditions match both the bare host and the same host with the listener port, which covers HTTP/2 clients that send `:authority` as `api.example.com:443`.
 
-See [deploy/manifests/examples/grpcroute.yaml](./deploy/manifests/examples/grpcroute.yaml) for a minimal route example.
+Backend TLS is not required just because a `GRPCRoute` is present. Add a `BackendTLSPolicy` only when OCI Load Balancer should use TLS or mTLS to the backend Service port. See [deploy/manifests/examples/grpcroute.yaml](./deploy/manifests/examples/grpcroute.yaml) for a minimal route example and [deploy/manifests/examples/grpcroute-shared-listener.yaml](./deploy/manifests/examples/grpcroute-shared-listener.yaml) for HTTPRoute and GRPCRoute sharing one HTTPS listener.
 
 ## ListenerSet
 
