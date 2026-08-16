@@ -133,22 +133,6 @@ func newGRPCRouteRefNotPermittedStatusError(message string) grpcRouteStatusError
 	}
 }
 
-func newGRPCRouteBackendTLSRequiredStatusError(
-	service corev1.Service,
-	backendRef gatewayv1.BackendRef,
-) grpcRouteStatusError {
-	return grpcRouteStatusError{
-		conditionType: gatewayv1.RouteConditionResolvedRefs,
-		reason:        gatewayv1.RouteReasonInvalidKind,
-		message: fmt.Sprintf(
-			"BackendTLSPolicy is required for OCI GRPCRoute backend %s/%s port %d",
-			service.Namespace,
-			service.Name,
-			lo.FromPtr(backendRef.Port),
-		),
-	}
-}
-
 type grpcRouteModelImpl struct {
 	client               k8sClient
 	logger               *slog.Logger
@@ -515,9 +499,6 @@ func (m *grpcRouteModelImpl) programRoute(
 		ruleCount:             len(params.grpcRoute.Spec.Rules),
 		policyRulesAnnotation: GRPCRouteProgrammedPolicyRulesAnnotation,
 		backendSetsAnnotation: GRPCRouteProgrammedBackendSetsAnnotation,
-		backendTLSRequired: func(service corev1.Service, backendRef gatewayv1.BackendRef) error {
-			return newGRPCRouteBackendTLSRequiredStatusError(service, backendRef)
-		},
 		makeRoutingRule: func(ruleIndex int) (loadbalancer.RoutingRule, error) {
 			return m.ociLoadBalancerModel.makeGRPCRoutingRule(ctx, makeGRPCRoutingRuleParams{
 				grpcRoute:          params.grpcRoute,

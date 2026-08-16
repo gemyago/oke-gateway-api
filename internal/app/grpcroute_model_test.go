@@ -1325,10 +1325,12 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		)
 	})
 
-	t.Run("programRoute rejects missing BackendTLSPolicy for OCI gRPC backends", func(t *testing.T) {
+	t.Run("programRoute keeps plaintext backend when BackendTLSPolicy is missing", func(t *testing.T) {
+		fake := faker.New()
 		deps := newMockDeps(t)
 		model := newGRPCRouteModel(deps)
 		model.backendTLSPolicy = &stubBackendTLSPolicyModel{resolveErr: errBackendTLSPolicyNotFound}
+		ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
 		config := makeRandomGatewayConfig()
 		backendRef := makeGRPCBackendRef()
 		listener := gatewayv1.Listener{Name: gatewayv1.SectionName("grpc"), Port: 50051}
@@ -1340,19 +1342,43 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		service := corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{Namespace: route.Namespace, Name: string(backendRef.Name)},
 		}
+		ruleName := "grpc_rule_" + fake.Lorem().Word()
+		routingRule := loadbalancer.RoutingRule{Name: &ruleName}
 
-		_, err := model.programRoute(t.Context(), programGRPCRouteParams{
+		ociLBModel.EXPECT().
+			reconcileBackendSet(t.Context(), mock.MatchedBy(func(params reconcileBackendSetParams) bool {
+				return params.loadBalancerID == config.Spec.LoadBalancerID &&
+					params.service.Name == service.Name &&
+					params.backendRef.Name == backendRef.Name &&
+					params.manageSSLConfig &&
+					params.sslConfig == nil
+			})).
+			Return(nil).
+			Once()
+		ociLBModel.EXPECT().makeGRPCRoutingRule(t.Context(), makeGRPCRoutingRuleParams{
+			grpcRoute:          route,
+			grpcRouteRuleIndex: 0,
+		}).Return(routingRule, nil).Once()
+		ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+			loadBalancerID: config.Spec.LoadBalancerID,
+			listenerName:   string(listener.Name),
+			policyRules:    []loadbalancer.RoutingRule{routingRule},
+		}).Return(nil).Once()
+
+		got, err := model.programRoute(t.Context(), programGRPCRouteParams{
 			config:           config,
 			grpcRoute:        route,
 			knownBackends:    map[string]corev1.Service{service.Namespace + "/" + service.Name: service},
 			matchedListeners: []gatewayv1.Listener{listener},
 		})
 
-		var statusErr grpcRouteStatusError
-		require.ErrorAs(t, err, &statusErr)
-		assert.Equal(t, gatewayv1.RouteConditionResolvedRefs, statusErr.conditionType)
-		assert.Equal(t, gatewayv1.RouteReasonInvalidKind, statusErr.reason)
-		assert.Contains(t, statusErr.message, "BackendTLSPolicy")
+		require.NoError(t, err)
+		assert.Equal(t, []string{fmt.Sprintf("%s/%s", listener.Name, ruleName)}, got.programmedPolicyRules)
+		assert.Equal(
+			t,
+			[]string{ociBackendSetNameFromBackendObjectRef(route.Namespace, backendRef.BackendObjectReference)},
+			got.programmedBackendSets,
+		)
 	})
 
 	t.Run("programRoute configures backend SSL for OCI gRPC backends", func(t *testing.T) {
@@ -1607,17 +1633,11 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 				ControllerName: ControllerClassName,
 			}}
 		})
-		statusErr := newGRPCRouteBackendTLSRequiredStatusError(
-			corev1.Service{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: route.Namespace,
-					Name:      "svc-" + fake.Lorem().Word(),
-				},
-			},
-			gatewayv1.BackendRef{
-				BackendObjectReference: gatewayv1.BackendObjectReference{Port: lo.ToPtr(gatewayv1.PortNumber(50051))},
-			},
-		)
+		statusErr := grpcRouteStatusError{
+			conditionType: gatewayv1.RouteConditionResolvedRefs,
+			reason:        gatewayv1.RouteReasonInvalidKind,
+			message:       fake.Lorem().Sentence(8),
+		}
 
 		ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
 			loadBalancerID:  gatewayData.config.Spec.LoadBalancerID,
@@ -1640,6 +1660,60 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		}, statusErr)
 
 		require.NoError(t, err)
+	})
+
+	t.Run("setRejected returns rejected policy rule cleanup errors", func(t *testing.T) {
+		fake := faker.New()
+		deps := newMockDeps(t)
+		model := newGRPCRouteModel(deps)
+		ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+		listenerName := gatewayv1.SectionName("grpc")
+		ruleName := "grpc-rule-" + fake.Lorem().Word()
+		gatewayData := makeResolvedGateway(gatewayv1.Listener{Name: listenerName, Port: 50051})
+		parentRef := gatewayv1.ParentReference{Name: gatewayv1.ObjectName(gatewayData.gateway.Name)}
+		route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+			route.Annotations = map[string]string{
+				GRPCRouteProgrammedPolicyRulesAnnotation: fmt.Sprintf("%s/%s", listenerName, ruleName),
+			}
+			route.Status.Parents = []gatewayv1.RouteParentStatus{{
+				ParentRef:      parentRef,
+				ControllerName: ControllerClassName,
+			}}
+		})
+		wantErr := errors.New(fake.Lorem().Sentence(8))
+
+		ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+			loadBalancerID:  gatewayData.config.Spec.LoadBalancerID,
+			listenerName:    string(listenerName),
+			policyRules:     []loadbalancer.RoutingRule{},
+			prevPolicyRules: []string{ruleName},
+		}).Return(wantErr).Once()
+
+		err := model.setRejected(t.Context(), resolvedGRPCRouteDetails{
+			gatewayDetails:   gatewayData,
+			grpcRoute:        route,
+			matchedRef:       parentRef,
+			matchedListeners: []gatewayv1.Listener{gatewayData.gateway.Spec.Listeners[0]},
+		}, newGRPCRouteRefNotPermittedStatusError(fake.Lorem().Sentence(8)))
+
+		require.ErrorIs(t, err, wantErr)
+		assert.ErrorContains(t, err, "failed to remove rejected GRPCRoute policy rules")
+	})
+
+	t.Run("setRejected returns error when parent status is missing", func(t *testing.T) {
+		fake := faker.New()
+		deps := newMockDeps(t)
+		model := newGRPCRouteModel(deps)
+		gatewayData := makeResolvedGateway()
+		parentRef := gatewayv1.ParentReference{Name: gatewayv1.ObjectName(gatewayData.gateway.Name)}
+
+		err := model.setRejected(t.Context(), resolvedGRPCRouteDetails{
+			gatewayDetails: gatewayData,
+			grpcRoute:      makeGRPCRoute(),
+			matchedRef:     parentRef,
+		}, newGRPCRouteRefNotPermittedStatusError(fake.Lorem().Sentence(8)))
+
+		require.ErrorContains(t, err, "parent status not found")
 	})
 
 	t.Run("setRejected returns status update errors", func(t *testing.T) {
