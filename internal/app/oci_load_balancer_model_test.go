@@ -4839,7 +4839,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			ociLoadBalancerClient.AssertNotCalled(t, "DeleteCertificate")
 		})
 
-		t.Run("continues when certificate delete has no work request id", func(t *testing.T) {
+		t.Run("returns error when only certificate delete has no work request id", func(t *testing.T) {
 			fake := faker.New()
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
@@ -4870,10 +4870,37 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 
 			err := model.removeUnusedCertificates(t.Context(), params)
 
-			require.NoError(t, err)
+			require.ErrorContains(t, err, "missing work request id")
 		})
 
-		t.Run("continues deletion even if one fails", func(t *testing.T) {
+		t.Run("returns error when certificate delete has no work request id", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			unusedCert := makeManagedCertificate("default", "unused", fake.UUID().V4())
+			params := removeUnusedCertificatesParams{
+				loadBalancerID: fake.UUID().V4(),
+				previouslyProgrammedCertificates: []string{
+					lo.FromPtr(unusedCert.CertificateName),
+				},
+				knownCertificates: map[string]loadbalancer.Certificate{
+					lo.FromPtr(unusedCert.CertificateName): unusedCert,
+				},
+			}
+
+			ociLoadBalancerClient.EXPECT().DeleteCertificate(t.Context(), loadbalancer.DeleteCertificateRequest{
+				LoadBalancerId:  &params.loadBalancerID,
+				CertificateName: unusedCert.CertificateName,
+			}).Return(loadbalancer.DeleteCertificateResponse{}, nil).Once()
+
+			err := model.removeUnusedCertificates(t.Context(), params)
+
+			require.ErrorContains(t, err, "missing work request id")
+		})
+
+		t.Run("continues deletion even if one fails and returns error", func(t *testing.T) {
 			fake := faker.New()
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
@@ -4932,10 +4959,38 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil).Once()
 
 			err := model.removeUnusedCertificates(t.Context(), params)
-			require.NoError(t, err)
+			require.ErrorIs(t, err, wantErr)
 		})
 
-		t.Run("handles wait failure", func(t *testing.T) {
+		t.Run("returns error when certificate delete fails", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			unusedCert := makeManagedCertificate("default", "unused", fake.UUID().V4())
+			params := removeUnusedCertificatesParams{
+				loadBalancerID: fake.UUID().V4(),
+				previouslyProgrammedCertificates: []string{
+					lo.FromPtr(unusedCert.CertificateName),
+				},
+				knownCertificates: map[string]loadbalancer.Certificate{
+					lo.FromPtr(unusedCert.CertificateName): unusedCert,
+				},
+			}
+
+			wantErr := errors.New(fake.Lorem().Sentence(10))
+			ociLoadBalancerClient.EXPECT().DeleteCertificate(t.Context(), loadbalancer.DeleteCertificateRequest{
+				LoadBalancerId:  &params.loadBalancerID,
+				CertificateName: unusedCert.CertificateName,
+			}).Return(loadbalancer.DeleteCertificateResponse{}, wantErr).Once()
+
+			err := model.removeUnusedCertificates(t.Context(), params)
+
+			require.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("returns error when certificate delete wait fails", func(t *testing.T) {
 			fake := faker.New()
 			deps := makeMockDeps(t)
 			model := newOciLoadBalancerModel(deps)
@@ -4978,7 +5033,40 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(wantErr).Once()
 
 			err := model.removeUnusedCertificates(t.Context(), params)
-			require.NoError(t, err)
+			require.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("returns error when only certificate delete wait fails", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			unusedCert := makeManagedCertificate("default", "unused", fake.UUID().V4())
+			params := removeUnusedCertificatesParams{
+				loadBalancerID: fake.UUID().V4(),
+				previouslyProgrammedCertificates: []string{
+					lo.FromPtr(unusedCert.CertificateName),
+				},
+				knownCertificates: map[string]loadbalancer.Certificate{
+					lo.FromPtr(unusedCert.CertificateName): unusedCert,
+				},
+			}
+
+			workRequestID := fake.UUID().V4()
+			wantErr := errors.New(fake.Lorem().Sentence(10))
+			ociLoadBalancerClient.EXPECT().DeleteCertificate(t.Context(), loadbalancer.DeleteCertificateRequest{
+				LoadBalancerId:  &params.loadBalancerID,
+				CertificateName: unusedCert.CertificateName,
+			}).Return(loadbalancer.DeleteCertificateResponse{
+				OpcWorkRequestId: &workRequestID,
+			}, nil).Once()
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(wantErr).Once()
+
+			err := model.removeUnusedCertificates(t.Context(), params)
+
+			require.ErrorIs(t, err, wantErr)
 		})
 	})
 }

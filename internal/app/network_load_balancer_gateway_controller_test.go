@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jaswdr/faker/v2"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,6 +16,7 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
+	"github.com/gemyago/oke-gateway-api/internal/types"
 )
 
 type stubNLBGatewayModel struct {
@@ -30,6 +32,7 @@ type stubNLBGatewayModel struct {
 	deprovisioned    bool
 	alreadyDone      bool
 	programmedNLB    *networkloadbalancer.NetworkLoadBalancer
+	onProgram        func()
 }
 
 func (s *stubNLBGatewayModel) resolveReconcileRequest(
@@ -56,6 +59,9 @@ func (s *stubNLBGatewayModel) getNetworkLoadBalancer(
 }
 
 func (s *stubNLBGatewayModel) programGateway(context.Context, *resolvedGatewayDetails) error {
+	if s.onProgram != nil {
+		s.onProgram()
+	}
 	s.programmedNow = true
 	return s.programErr
 }
@@ -83,10 +89,12 @@ type stubResourcesModel struct {
 	conditionSet bool
 	setCalled    bool
 	setErr       error
+	calls        []setConditionParams
 }
 
-func (s *stubResourcesModel) setCondition(context.Context, setConditionParams) error {
+func (s *stubResourcesModel) setCondition(_ context.Context, params setConditionParams) error {
 	s.setCalled = true
+	s.calls = append(s.calls, params)
 	return s.setErr
 }
 
@@ -132,6 +140,45 @@ func TestNetworkLoadBalancerGatewayController(t *testing.T) {
 		assert.True(t, resourcesModel.setCalled)
 		assert.True(t, gatewayModel.programmedNow)
 		assert.Same(t, nlb, gatewayModel.programmedNLB)
+	})
+
+	t.Run("persists finalizer and network load balancer identity before programming gateway", func(t *testing.T) {
+		fake := faker.New()
+		loadBalancerID := "ocid1.networkloadbalancer.oc1.." + fake.UUID().V4()
+		data := baseData
+		data.config = types.GatewayConfig{
+			Spec: types.GatewayConfigSpec{
+				LoadBalancerID: loadBalancerID,
+			},
+		}
+		nlb := &networkloadbalancer.NetworkLoadBalancer{Id: &loadBalancerID}
+		resourcesModel := &stubResourcesModel{conditionSet: true}
+		protectedBeforeProgram := false
+		gatewayModel := &stubNLBGatewayModel{
+			relevant: true,
+			data:     data,
+			nlb:      nlb,
+			onProgram: func() {
+				for _, call := range resourcesModel.calls {
+					if call.conditionType == string(gatewayv1.GatewayConditionProgrammed) &&
+						call.finalizer == NetworkLoadBalancerGatewayProgrammedFinalizer &&
+						call.annotations[NetworkLoadBalancerGatewayIDAnnotation] == loadBalancerID {
+						protectedBeforeProgram = true
+					}
+				}
+			},
+		}
+		controller := NewNetworkLoadBalancerGatewayController(NetworkLoadBalancerGatewayControllerDeps{
+			RootLogger:     diag.RootTestLogger(),
+			ResourcesModel: resourcesModel,
+			GatewayModel:   gatewayModel,
+		})
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		require.NoError(t, err)
+		assert.Empty(t, result)
+		assert.True(t, protectedBeforeProgram)
 	})
 
 	t.Run("ignores irrelevant gateway", func(t *testing.T) {
@@ -215,7 +262,7 @@ func TestNetworkLoadBalancerGatewayController(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, networkLoadBalancerBusyRequeueAfter, result.RequeueAfter)
-		assert.False(t, resourcesModel.setCalled)
+		assert.True(t, resourcesModel.setCalled)
 		assert.True(t, gatewayModel.programmedNow)
 	})
 
@@ -261,7 +308,7 @@ func TestNetworkLoadBalancerGatewayController(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, networkLoadBalancerBusyRequeueAfter, result.RequeueAfter)
-		assert.False(t, resourcesModel.setCalled)
+		assert.True(t, resourcesModel.setCalled)
 		assert.True(t, gatewayModel.programmedNow)
 	})
 

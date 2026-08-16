@@ -136,6 +136,27 @@ func (r *NetworkLoadBalancerGatewayController) Reconcile(
 		return reconcile.Result{}, nil
 	}
 
+	if err = r.resourcesModel.setCondition(ctx, setConditionParams{
+		resource:      &data.gateway,
+		conditions:    &data.gateway.Status.Conditions,
+		conditionType: string(gatewayv1.GatewayConditionProgrammed),
+		status:        metav1.ConditionUnknown,
+		reason:        string(gatewayv1.GatewayReasonPending),
+		message: fmt.Sprintf(
+			"Gateway %s programming by %s is in progress",
+			data.gateway.Name,
+			NetworkLoadBalancerControllerClassName,
+		),
+		annotations: networkLoadBalancerGatewayProtectionAnnotations(&data),
+		finalizer:   NetworkLoadBalancerGatewayProgrammedFinalizer,
+	}); err != nil {
+		return reconcile.Result{}, fmt.Errorf(
+			"failed to persist programming protection for Gateway %s: %w",
+			req.NamespacedName,
+			err,
+		)
+	}
+
 	if err = r.gatewayModel.programGateway(ctx, &data); err != nil {
 		return r.processResourceError(ctx, err, &data.gateway)
 	}
@@ -151,4 +172,17 @@ func (r *NetworkLoadBalancerGatewayController) Reconcile(
 		return reconcile.Result{}, err
 	}
 	return driftRequeue(r.driftInterval), nil
+}
+
+func networkLoadBalancerGatewayProtectionAnnotations(data *resolvedGatewayDetails) map[string]string {
+	loadBalancerID := data.config.Spec.LoadBalancerID
+	if loadBalancerID == "" {
+		loadBalancerID = data.gateway.Annotations[NetworkLoadBalancerGatewayIDAnnotation]
+	}
+	if loadBalancerID == "" {
+		return nil
+	}
+	return map[string]string{
+		NetworkLoadBalancerGatewayIDAnnotation: loadBalancerID,
+	}
 }

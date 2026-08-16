@@ -1946,6 +1946,7 @@ func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
 		)...,
 	)
 
+	var cleanupErrs []error
 	for _, certName := range normalizeProgrammedCertificateNames(previouslyProgrammedCertificates) {
 		if _, isDesired := desiredCertificates[certName]; isDesired {
 			continue
@@ -1971,6 +1972,7 @@ func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
 				slog.String("certificateName", certName),
 				slog.String("loadBalancerId", params.loadBalancerID),
 			)
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("failed to delete certificate %s: %w", certName, err))
 			continue
 		}
 		if resp.OpcWorkRequestId == nil {
@@ -1978,6 +1980,10 @@ func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
 				slog.String("certificateName", certName),
 				slog.String("loadBalancerId", params.loadBalancerID),
 			)
+			cleanupErrs = append(cleanupErrs, fmt.Errorf(
+				"failed to delete certificate %s: missing work request id",
+				certName,
+			))
 			continue
 		}
 
@@ -1987,6 +1993,11 @@ func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
 				slog.String("loadBalancerId", params.loadBalancerID),
 				slog.String("certificateName", certName),
 			)
+			cleanupErrs = append(cleanupErrs, fmt.Errorf(
+				"failed to wait for certificate %s deletion: %w",
+				certName,
+				err,
+			))
 			continue
 		}
 
@@ -1998,6 +2009,9 @@ func (m *ociLoadBalancerModelImpl) removeUnusedCertificates(
 
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("failed to remove unused certificates: %w", err)
+	}
+	if len(cleanupErrs) > 0 {
+		return errors.Join(cleanupErrs...)
 	}
 
 	return nil

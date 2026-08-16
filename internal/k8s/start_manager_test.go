@@ -66,6 +66,52 @@ func TestGatewayObjectPredicate(t *testing.T) {
 		assert.True(t, result)
 	})
 
+	t.Run("accepts removal of cleanup critical ALB annotations", func(t *testing.T) {
+		oldGateway := &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "ns-" + fake.UUID().V4(),
+				Name:       "gateway-" + fake.UUID().V4(),
+				Generation: 1,
+				Annotations: map[string]string{
+					app.LoadBalancerGatewayIDAnnotation:         "ocid1.loadbalancer.oc1.." + fake.UUID().V4(),
+					app.GatewayProgrammedCertificatesAnnotation: "cert-" + fake.UUID().V4(),
+				},
+			},
+		}
+		newGateway := oldGateway.DeepCopy()
+		delete(newGateway.Annotations, app.LoadBalancerGatewayIDAnnotation)
+		delete(newGateway.Annotations, app.GatewayProgrammedCertificatesAnnotation)
+
+		result := gatewayObjectPredicate().Update(event.UpdateEvent{
+			ObjectOld: oldGateway,
+			ObjectNew: newGateway,
+		})
+
+		assert.True(t, result)
+	})
+
+	t.Run("accepts removal of cleanup critical NLB annotations", func(t *testing.T) {
+		oldGateway := &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "ns-" + fake.UUID().V4(),
+				Name:       "gateway-" + fake.UUID().V4(),
+				Generation: 1,
+				Annotations: map[string]string{
+					app.NetworkLoadBalancerGatewayIDAnnotation: "ocid1.networkloadbalancer.oc1.." + fake.UUID().V4(),
+				},
+			},
+		}
+		newGateway := oldGateway.DeepCopy()
+		delete(newGateway.Annotations, app.NetworkLoadBalancerGatewayIDAnnotation)
+
+		result := gatewayObjectPredicate().Update(event.UpdateEvent{
+			ObjectOld: oldGateway,
+			ObjectNew: newGateway,
+		})
+
+		assert.True(t, result)
+	})
+
 	t.Run("accepts deletion timestamp changes", func(t *testing.T) {
 		oldGateway := &gatewayv1.Gateway{
 			ObjectMeta: metav1.ObjectMeta{

@@ -44,6 +44,22 @@ func TestGatewayController(t *testing.T) {
 			LastTransitionTime: metav1.Now(),
 		})
 	}
+	expectGatewayProgrammingProtection := func(
+		mockResourcesModel *MockresourcesModel,
+		gateway *gatewayv1.Gateway,
+		annotations map[string]string,
+	) {
+		mockResourcesModel.EXPECT().
+			setCondition(t.Context(), mock.MatchedBy(func(params setConditionParams) bool {
+				return params.resource.GetName() == gateway.Name &&
+					params.conditionType == string(gatewayv1.GatewayConditionProgrammed) &&
+					params.status == metav1.ConditionUnknown &&
+					params.reason == string(gatewayv1.GatewayReasonPending) &&
+					params.finalizer == LoadBalancerGatewayProgrammedFinalizer &&
+					assert.Equal(t, annotations, params.annotations)
+			})).
+			Return(nil).Once()
+	}
 
 	t.Run("SetListenerSetEnabled", func(t *testing.T) {
 		model := &gatewayModelImpl{}
@@ -103,6 +119,8 @@ func TestGatewayController(t *testing.T) {
 				}).
 				Return(false).Once()
 
+			expectGatewayProgrammingProtection(mockResourcesModel, gateway, nil)
+
 			mockGatewayModel.EXPECT().
 				programGateway(t.Context(), &resolvedGatewayDetails{
 					gateway: *gateway,
@@ -113,6 +131,63 @@ func TestGatewayController(t *testing.T) {
 				setProgrammed(t.Context(), &resolvedGatewayDetails{
 					gateway: *gateway,
 				}).
+				Return(nil).Once()
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, result)
+		})
+
+		t.Run("persists finalizer and load balancer identity before programming gateway", func(t *testing.T) {
+			fake := faker.New()
+			loadBalancerID := "ocid1.loadbalancer.oc1.." + fake.UUID().V4()
+			gateway := newRandomGateway()
+			markGatewayAccepted(gateway)
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: gateway.Namespace,
+					Name:      gateway.Name,
+				},
+			}
+
+			deps := newMockDeps(t)
+			controller := NewGatewayController(deps)
+
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+			expectedData := &resolvedGatewayDetails{
+				gateway: *gateway,
+				config: types.GatewayConfig{
+					Spec: types.GatewayConfigSpec{
+						LoadBalancerID: loadBalancerID,
+					},
+				},
+			}
+
+			mockGatewayModel.EXPECT().
+				resolveReconcileRequest(t.Context(), req, mock.MatchedBy(func(receiver *resolvedGatewayDetails) bool {
+					*receiver = *expectedData
+					return true
+				})).
+				Return(true, nil).Once()
+			mockGatewayModel.EXPECT().
+				isProgrammed(t.Context(), expectedData).
+				Return(false).Once()
+			mockResourcesModel.EXPECT().
+				setCondition(t.Context(), mock.MatchedBy(func(params setConditionParams) bool {
+					return params.resource.GetName() == gateway.Name &&
+						params.conditionType == string(gatewayv1.GatewayConditionProgrammed) &&
+						params.finalizer == LoadBalancerGatewayProgrammedFinalizer &&
+						params.annotations[LoadBalancerGatewayIDAnnotation] == loadBalancerID
+				})).
+				Return(nil).Once()
+			mockGatewayModel.EXPECT().
+				programGateway(t.Context(), expectedData).
+				Return(nil).Once()
+			mockGatewayModel.EXPECT().
+				setProgrammed(t.Context(), expectedData).
 				Return(nil).Once()
 
 			result, err := controller.Reconcile(t.Context(), req)
@@ -414,6 +489,7 @@ func TestGatewayController(t *testing.T) {
 			deps := newMockDeps(t)
 			controller := NewGatewayController(deps)
 
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
 			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
 			mockGatewayModel.EXPECT().
@@ -430,6 +506,8 @@ func TestGatewayController(t *testing.T) {
 				Return(false).Once()
 
 			wantErr := errors.New(fake.Lorem().Sentence(10))
+
+			expectGatewayProgrammingProtection(mockResourcesModel, gateway, nil)
 
 			mockGatewayModel.EXPECT().
 				programGateway(t.Context(), mock.Anything).
@@ -479,6 +557,8 @@ func TestGatewayController(t *testing.T) {
 				reason:        fake.Lorem().Word(),
 				message:       fake.Lorem().Sentence(10),
 			}
+
+			expectGatewayProgrammingProtection(mockResourcesModel, gateway, nil)
 
 			mockGatewayModel.EXPECT().
 				programGateway(t.Context(), mock.Anything).
@@ -540,6 +620,8 @@ func TestGatewayController(t *testing.T) {
 				message:       fake.Lorem().Sentence(10),
 			}
 
+			expectGatewayProgrammingProtection(mockResourcesModel, gateway, nil)
+
 			mockGatewayModel.EXPECT().
 				programGateway(t.Context(), mock.Anything).
 				Return(wantErr).Once()
@@ -576,6 +658,7 @@ func TestGatewayController(t *testing.T) {
 			deps := newMockDeps(t)
 			controller := NewGatewayController(deps)
 
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
 			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
 			mockGatewayModel.EXPECT().
@@ -592,6 +675,8 @@ func TestGatewayController(t *testing.T) {
 				Return(false).Once()
 
 			wantErr := errors.New(fake.Lorem().Sentence(10))
+
+			expectGatewayProgrammingProtection(mockResourcesModel, gateway, nil)
 
 			mockGatewayModel.EXPECT().
 				programGateway(t.Context(), mock.Anything).
@@ -661,6 +746,7 @@ func TestGatewayController(t *testing.T) {
 			deps.DriftInterval = driftInterval
 			controller := NewGatewayController(deps)
 
+			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
 			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 
 			mockGatewayModel.EXPECT().
@@ -675,6 +761,8 @@ func TestGatewayController(t *testing.T) {
 					gateway: *gateway,
 				}).
 				Return(true).Once()
+
+			expectGatewayProgrammingProtection(mockResourcesModel, gateway, nil)
 
 			mockGatewayModel.EXPECT().
 				programGateway(t.Context(), &resolvedGatewayDetails{

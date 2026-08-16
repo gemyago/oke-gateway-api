@@ -456,7 +456,10 @@ func gatewayControllerAnnotationChanged(updateEvent event.UpdateEvent) bool {
 
 func gatewayControllerWatchedAnnotations() []string {
 	return []string{
+		app.LoadBalancerGatewayIDAnnotation,
+		app.GatewayProgrammedCertificatesAnnotation,
 		app.LoadBalancerGatewayProgrammedListenersAnnotation,
+		app.NetworkLoadBalancerGatewayIDAnnotation,
 		app.NetworkLoadBalancerGatewayProgrammedListenersAnnotation,
 		app.NetworkLoadBalancerGatewayProgrammedBackendSetsAnnotation,
 	}
