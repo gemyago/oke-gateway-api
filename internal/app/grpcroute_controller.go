@@ -9,6 +9,7 @@ import (
 
 	"go.uber.org/dig"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 // GRPCRouteController watches GRPCRoute resources.
@@ -43,6 +44,41 @@ func (r *GRPCRouteController) SetBackendTLSPolicyEnabled(enabled bool) {
 	if model, ok := r.grpcRouteModel.(interface{ setBackendTLSPolicyEnabled(bool) }); ok {
 		model.setBackendTLSPolicyEnabled(enabled)
 	}
+}
+
+func (r *GRPCRouteController) rejectResolvedRoute(
+	ctx context.Context,
+	resolvedData resolvedGRPCRouteDetails,
+	acceptedRoute gatewayv1.GRPCRoute,
+	statusErr grpcRouteStatusError,
+) error {
+	rejectedRouteDetails := resolvedData
+	rejectedRouteDetails.grpcRoute = acceptedRoute
+	if rejectErr := r.grpcRouteModel.setRejected(ctx, rejectedRouteDetails, statusErr); rejectErr != nil {
+		return fmt.Errorf("failed to reject route: %w", rejectErr)
+	}
+	return nil
+}
+
+func (r *GRPCRouteController) handleProgramRouteError(
+	ctx context.Context,
+	resolvedData resolvedGRPCRouteDetails,
+	acceptedRoute gatewayv1.GRPCRoute,
+	err error,
+) (bool, error) {
+	var statusErr grpcRouteStatusError
+	if errors.As(err, &statusErr) {
+		return true, r.rejectResolvedRoute(ctx, resolvedData, acceptedRoute, statusErr)
+	}
+	if isParentGatewayStatusError(err) {
+		r.logger.InfoContext(ctx, "GRPCRoute parent Gateway is not programmable",
+			slog.String("grpcRoute", resolvedData.grpcRoute.Name),
+			slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
+			slog.String("reason", err.Error()),
+		)
+		return true, nil
+	}
+	return false, fmt.Errorf("failed to program route: %w", err)
 }
 
 func (r *GRPCRouteController) reconcileResolvedRoute(
@@ -99,10 +135,8 @@ func (r *GRPCRouteController) reconcileResolvedRoute(
 	if err != nil {
 		var statusErr grpcRouteStatusError
 		if errors.As(err, &statusErr) {
-			rejectedRouteDetails := resolvedData
-			rejectedRouteDetails.grpcRoute = *acceptedRoute
-			if rejectErr := r.grpcRouteModel.setRejected(ctx, rejectedRouteDetails, statusErr); rejectErr != nil {
-				return false, fmt.Errorf("failed to reject route: %w", rejectErr)
+			if rejectErr := r.rejectResolvedRoute(ctx, resolvedData, *acceptedRoute, statusErr); rejectErr != nil {
+				return false, rejectErr
 			}
 			return false, nil
 		}
@@ -117,15 +151,11 @@ func (r *GRPCRouteController) reconcileResolvedRoute(
 		knownBackends:    knownBackends,
 	})
 	if err != nil {
-		if isParentGatewayStatusError(err) {
-			r.logger.InfoContext(ctx, "GRPCRoute parent Gateway is not programmable",
-				slog.String("grpcRoute", resolvedData.grpcRoute.Name),
-				slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
-				slog.String("reason", err.Error()),
-			)
-			return false, nil
+		handled, handleErr := r.handleProgramRouteError(ctx, resolvedData, *acceptedRoute, err)
+		if handled {
+			return false, handleErr
 		}
-		return false, fmt.Errorf("failed to program route: %w", err)
+		return false, handleErr
 	}
 
 	if err = r.grpcRouteModel.setProgrammed(ctx, setGRPCRouteProgrammedParams{
