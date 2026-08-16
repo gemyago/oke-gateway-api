@@ -141,6 +141,25 @@ func WaitForHTTPRouteResolvedRefs(
 	)
 }
 
+func WaitForGRPCRouteResolvedRefs(
+	ctx context.Context,
+	kubeClient ctrlclient.WithWatch,
+	namespace string,
+	name string,
+	gatewayName string,
+	opts *WaitOptions,
+) (*gatewayv1.GRPCRoute, error) {
+	return waitForGRPCRouteCondition(
+		ctx,
+		kubeClient,
+		namespace,
+		name,
+		gatewayName,
+		string(gatewayv1.RouteConditionResolvedRefs),
+		opts,
+	)
+}
+
 func WaitForHTTPRouteDeleted(
 	ctx context.Context,
 	kubeClient ctrlclient.WithWatch,
@@ -456,6 +475,54 @@ func waitForHTTPRouteCondition(
 				conditionType,
 				resource.Generation,
 			)
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return resource, nil
+}
+
+func waitForGRPCRouteCondition(
+	ctx context.Context,
+	kubeClient ctrlclient.WithWatch,
+	namespace string,
+	name string,
+	gatewayName string,
+	conditionType string,
+	opts *WaitOptions,
+) (*gatewayv1.GRPCRoute, error) {
+	_ = opts
+
+	resource := &gatewayv1.GRPCRoute{}
+	key := ctrlclient.ObjectKey{Namespace: namespace, Name: name}
+
+	err := waitForObject(
+		ctx,
+		fmt.Sprintf("wait for GRPCRoute %s/%s condition %s=True", namespace, name, conditionType),
+		kubeClient,
+		key,
+		func() ctrlclient.ObjectList {
+			return &gatewayv1.GRPCRouteList{}
+		},
+		func(ctx context.Context) (bool, string, error) {
+			if err := kubeClient.Get(ctx, key, resource); err != nil {
+				return false, "", err
+			}
+
+			for _, parent := range resource.Status.Parents {
+				if string(parent.ParentRef.Name) != gatewayName {
+					continue
+				}
+
+				ok, message, err := hasCondition(parent.Conditions, conditionType, resource.Generation)
+				if ok || err != nil {
+					return ok, message, err
+				}
+			}
+
+			return false, fmt.Sprintf("parent %q condition not found", gatewayName), nil
 		},
 	)
 	if err != nil {

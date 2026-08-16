@@ -37,6 +37,7 @@ const maxListenerPolicyNameLength = 32
 const listenerPolicyNameHashLength = 16
 const ociListenerProtocolHTTP = "HTTP"
 const ociListenerProtocolHTTP2 = "HTTP2"
+const ociListenerProtocolGRPC = "GRPC"
 
 type reconcileDefaultBackendParams struct {
 	loadBalancerID   string
@@ -152,9 +153,9 @@ type ociLoadBalancerModel interface {
 		params reconcileHTTPListenerParams,
 	) error
 
-	ensureHTTP2ListenerProtocol(
+	ensureGRPCListenerProtocol(
 		ctx context.Context,
-		params ensureHTTP2ListenerProtocolParams,
+		params ensureGRPCListenerProtocolParams,
 	) error
 
 	reconcileBackendSet(
@@ -214,7 +215,7 @@ type ociLoadBalancerModelImpl struct {
 	certificateLocks    loadBalancerCertificateLocks
 }
 
-type ensureHTTP2ListenerProtocolParams struct {
+type ensureGRPCListenerProtocolParams struct {
 	loadBalancerID string
 	listenerName   string
 }
@@ -1048,7 +1049,7 @@ func (m *ociLoadBalancerModelImpl) reconcileExistingHTTPListener(
 		listenerSpec:          params.listenerSpec,
 		defaultBackendSetName: params.defaultBackendSetName,
 		sslConfig:             sslConfig,
-		preserveHTTP2: listenerPolicyContainsGRPCRules(
+		preserveGRPC: listenerPolicyContainsGRPCRules(
 			params.knownRoutingPolicies[listenerPolicyName(listenerName)],
 		),
 	})
@@ -1118,9 +1119,9 @@ func (m *ociLoadBalancerModelImpl) createHTTPListener(
 	return nil
 }
 
-func (m *ociLoadBalancerModelImpl) ensureHTTP2ListenerProtocol(
+func (m *ociLoadBalancerModelImpl) ensureGRPCListenerProtocol(
 	ctx context.Context,
-	params ensureHTTP2ListenerProtocolParams,
+	params ensureGRPCListenerProtocolParams,
 ) error {
 	getRes, err := m.ociClient.GetLoadBalancer(ctx, loadbalancer.GetLoadBalancerRequest{
 		LoadBalancerId: new(params.loadBalancerID),
@@ -1133,11 +1134,11 @@ func (m *ociLoadBalancerModelImpl) ensureHTTP2ListenerProtocol(
 	if !ok {
 		return fmt.Errorf("listener %s not found", params.listenerName)
 	}
-	if lo.FromPtr(listener.Protocol) == ociListenerProtocolHTTP2 {
+	if lo.FromPtr(listener.Protocol) == ociListenerProtocolGRPC {
 		return nil
 	}
 
-	m.logger.InfoContext(ctx, "Updating listener protocol to HTTP2",
+	m.logger.InfoContext(ctx, "Updating listener protocol to GRPC",
 		slog.String("loadBalancerId", params.loadBalancerID),
 		slog.String("listenerName", params.listenerName),
 		slog.String("currentProtocol", lo.FromPtr(listener.Protocol)),
@@ -1146,7 +1147,7 @@ func (m *ociLoadBalancerModelImpl) ensureHTTP2ListenerProtocol(
 	updateDetails := loadbalancer.UpdateListenerDetails{
 		DefaultBackendSetName:   listener.DefaultBackendSetName,
 		Port:                    listener.Port,
-		Protocol:                new(ociListenerProtocolHTTP2),
+		Protocol:                new(ociListenerProtocolGRPC),
 		HostnameNames:           listener.HostnameNames,
 		PathRouteSetName:        listener.PathRouteSetName,
 		RoutingPolicyName:       listener.RoutingPolicyName,
@@ -1161,11 +1162,11 @@ func (m *ociLoadBalancerModelImpl) ensureHTTP2ListenerProtocol(
 		UpdateListenerDetails: updateDetails,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to update listener %s protocol to HTTP2: %w", params.listenerName, err)
+		return fmt.Errorf("failed to update listener %s protocol to GRPC: %w", params.listenerName, err)
 	}
 	if updateRes.OpcWorkRequestId == nil {
 		return fmt.Errorf(
-			"failed to update listener %s protocol to HTTP2: missing work request id",
+			"failed to update listener %s protocol to GRPC: missing work request id",
 			params.listenerName,
 		)
 	}
@@ -2198,13 +2199,13 @@ type makeOciListenerUpdateDetailsParams struct {
 	listenerSpec          *gatewayv1.Listener
 	defaultBackendSetName string
 	sslConfig             *loadbalancer.SslConfigurationDetails
-	preserveHTTP2         bool
+	preserveGRPC          bool
 }
 
 func makeOciListenerUpdateDetails(
 	params makeOciListenerUpdateDetailsParams,
 ) (loadbalancer.UpdateListenerDetails, bool) {
-	expectedProtocol := expectedHTTPListenerProtocol(params.preserveHTTP2)
+	expectedProtocol := expectedHTTPListenerProtocol(params.preserveGRPC)
 	hasChanges := params.existingListenerData.Protocol == nil ||
 		*params.existingListenerData.Protocol != expectedProtocol
 
@@ -2241,9 +2242,9 @@ func makeOciListenerUpdateDetails(
 	}, true
 }
 
-func expectedHTTPListenerProtocol(preserveHTTP2 bool) string {
-	if preserveHTTP2 {
-		return ociListenerProtocolHTTP2
+func expectedHTTPListenerProtocol(preserveGRPC bool) string {
+	if preserveGRPC {
+		return ociListenerProtocolGRPC
 	}
 	return ociListenerProtocolHTTP
 }

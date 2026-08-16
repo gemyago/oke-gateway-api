@@ -1447,7 +1447,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		)
 	})
 
-	t.Run("ensureGRPCListenersProtocol updates matched listeners to HTTP2", func(t *testing.T) {
+	t.Run("ensureGRPCListenersProtocol updates matched listeners to GRPC", func(t *testing.T) {
 		fake := faker.New()
 		deps := newMockDeps(t)
 		model := newGRPCRouteModel(deps)
@@ -1460,7 +1460,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		}
 
 		for _, listener := range listeners {
-			ociLBModel.EXPECT().ensureHTTP2ListenerProtocol(t.Context(), ensureHTTP2ListenerProtocolParams{
+			ociLBModel.EXPECT().ensureGRPCListenerProtocol(t.Context(), ensureGRPCListenerProtocolParams{
 				loadBalancerID: config.Spec.LoadBalancerID,
 				listenerName:   string(listener.Name),
 			}).Return(nil).Once()
@@ -1490,7 +1490,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		listener := gatewayv1.Listener{Name: gatewayv1.SectionName("grpc"), Port: 50051}
 		wantErr := errors.New(fake.Lorem().Sentence(10))
 
-		ociLBModel.EXPECT().ensureHTTP2ListenerProtocol(t.Context(), ensureHTTP2ListenerProtocolParams{
+		ociLBModel.EXPECT().ensureGRPCListenerProtocol(t.Context(), ensureGRPCListenerProtocolParams{
 			loadBalancerID: config.Spec.LoadBalancerID,
 			listenerName:   string(listener.Name),
 		}).Return(wantErr).Once()

@@ -513,12 +513,12 @@ func (m *grpcRouteModelImpl) ensureGRPCListenersProtocol(
 	params ensureGRPCListenersProtocolParams,
 ) error {
 	for _, listener := range params.matchedListeners {
-		if err := m.ociLoadBalancerModel.ensureHTTP2ListenerProtocol(ctx, ensureHTTP2ListenerProtocolParams{
+		if err := m.ociLoadBalancerModel.ensureGRPCListenerProtocol(ctx, ensureGRPCListenerProtocolParams{
 			loadBalancerID: params.config.Spec.LoadBalancerID,
 			listenerName:   string(listener.Name),
 		}); err != nil {
 			return fmt.Errorf(
-				"failed to ensure listener %s supports HTTP2: %w",
+				"failed to ensure listener %s supports GRPC: %w",
 				listener.Name,
 				err,
 			)

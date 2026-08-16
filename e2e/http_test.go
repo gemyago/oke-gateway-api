@@ -63,6 +63,9 @@ func TestHTTP(t *testing.T) {
 	t.Run("HeaderMatchingVariants", func(t *testing.T) {
 		testHTTPHeaderMatchingVariants(t, routingFixture)
 	})
+	t.Run("GRPCSameListenerProtocol", func(t *testing.T) {
+		testHTTPGRPCSameListenerProtocol(t, liveFixture)
+	})
 	t.Run("PathExactVsPrefix", func(t *testing.T) {
 		testHTTPPathExactVsPrefix(t, routingFixture)
 	})

@@ -118,6 +118,18 @@ type HTTPRouteOptions struct {
 	Annotations   map[string]string
 }
 
+type GRPCRouteOptions struct {
+	Namespace    string
+	Name         string
+	GatewayName  string
+	ListenerName gatewayv1.SectionName
+	ServiceName  string
+	ServicePort  int32
+	Hostnames    []gatewayv1.Hostname
+	Labels       map[string]string
+	Annotations  map[string]string
+}
+
 func NewGatewayClass(opts GatewayClassOptions) *gatewayv1.GatewayClass {
 	controllerName := opts.ControllerName
 	if controllerName == "" {
@@ -462,6 +474,58 @@ func NewHTTPRoute(opts HTTPRouteOptions) *gatewayv1.HTTPRoute {
 						},
 					},
 					BackendRefs: []gatewayv1.HTTPBackendRef{
+						{
+							BackendRef: gatewayv1.BackendRef{
+								BackendObjectReference: gatewayv1.BackendObjectReference{
+									Name: gatewayv1.ObjectName(opts.ServiceName),
+									Port: &portNumber,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func NewGRPCRoute(opts GRPCRouteOptions) *gatewayv1.GRPCRoute {
+	listenerName := opts.ListenerName
+	if listenerName == "" {
+		listenerName = DefaultHTTPSListenerName
+	}
+
+	servicePort := opts.ServicePort
+	if servicePort == 0 {
+		servicePort = DefaultEchoPort
+	}
+
+	portNumber := servicePort
+
+	return &gatewayv1.GRPCRoute{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: gatewayv1.GroupVersion.String(),
+			Kind:       "GRPCRoute",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        opts.Name,
+			Namespace:   opts.Namespace,
+			Labels:      fixtureLabels(opts.Name, "grpc-route", opts.Labels),
+			Annotations: cloneStringMap(opts.Annotations),
+		},
+		Spec: gatewayv1.GRPCRouteSpec{
+			CommonRouteSpec: gatewayv1.CommonRouteSpec{
+				ParentRefs: []gatewayv1.ParentReference{
+					{
+						Name:        gatewayv1.ObjectName(opts.GatewayName),
+						SectionName: &listenerName,
+					},
+				},
+			},
+			Hostnames: append([]gatewayv1.Hostname(nil), opts.Hostnames...),
+			Rules: []gatewayv1.GRPCRouteRule{
+				{
+					BackendRefs: []gatewayv1.GRPCBackendRef{
 						{
 							BackendRef: gatewayv1.BackendRef{
 								BackendObjectReference: gatewayv1.BackendObjectReference{
