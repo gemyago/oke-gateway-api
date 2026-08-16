@@ -305,7 +305,7 @@ func TestNetworkLoadBalancerGatewayController(t *testing.T) {
 		_, err := controller.Reconcile(t.Context(), req)
 
 		require.ErrorIs(t, err, wantErr)
-		require.ErrorContains(t, err, "failed to set pending programmed condition")
+		require.ErrorContains(t, err, "failed to persist programming protection")
 	})
 
 	t.Run("returns busy requeue for network load balancer busy errors", func(t *testing.T) {

@@ -504,7 +504,6 @@ func TestGatewayController(t *testing.T) {
 					gateway: *gateway,
 				}).
 				Return(false).Once()
-
 			wantErr := errors.New(fake.Lorem().Sentence(10))
 
 			expectGatewayProgrammingProtection(mockResourcesModel, gateway, nil)
@@ -551,7 +550,6 @@ func TestGatewayController(t *testing.T) {
 					gateway: *gateway,
 				}).
 				Return(false).Once()
-
 			wantErr := &resourceStatusError{
 				conditionType: string(gatewayv1.GatewayConditionProgrammed),
 				reason:        fake.Lorem().Word(),
@@ -613,7 +611,6 @@ func TestGatewayController(t *testing.T) {
 					gateway: *gateway,
 				}).
 				Return(false).Once()
-
 			wantErr := &resourceStatusError{
 				conditionType: string(gatewayv1.GatewayConditionProgrammed),
 				reason:        fake.Lorem().Word(),
@@ -673,7 +670,6 @@ func TestGatewayController(t *testing.T) {
 					gateway: *gateway,
 				}).
 				Return(false).Once()
-
 			wantErr := errors.New(fake.Lorem().Sentence(10))
 
 			expectGatewayProgrammingProtection(mockResourcesModel, gateway, nil)
@@ -728,7 +724,7 @@ func TestGatewayController(t *testing.T) {
 			result, err := controller.Reconcile(t.Context(), req)
 
 			require.ErrorIs(t, err, wantErr)
-			require.ErrorContains(t, err, "failed to set pending programmed condition")
+			require.ErrorContains(t, err, "failed to persist programming protection")
 			assert.Equal(t, reconcile.Result{}, result)
 		})
 
