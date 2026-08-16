@@ -1588,6 +1588,60 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("setRejected removes previously programmed policy rules", func(t *testing.T) {
+		fake := faker.New()
+		deps := newMockDeps(t)
+		model := newGRPCRouteModel(deps)
+		resourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+		ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+		listenerName := gatewayv1.SectionName("grpc")
+		ruleName := "grpc-rule-" + fake.Lorem().Word()
+		gatewayData := makeResolvedGateway(gatewayv1.Listener{Name: listenerName, Port: 50051})
+		parentRef := gatewayv1.ParentReference{Name: gatewayv1.ObjectName(gatewayData.gateway.Name)}
+		route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+			route.Annotations = map[string]string{
+				GRPCRouteProgrammedPolicyRulesAnnotation: fmt.Sprintf("%s/%s", listenerName, ruleName),
+			}
+			route.Status.Parents = []gatewayv1.RouteParentStatus{{
+				ParentRef:      parentRef,
+				ControllerName: ControllerClassName,
+			}}
+		})
+		statusErr := newGRPCRouteBackendTLSRequiredStatusError(
+			corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: route.Namespace,
+					Name:      "svc-" + fake.Lorem().Word(),
+				},
+			},
+			gatewayv1.BackendRef{
+				BackendObjectReference: gatewayv1.BackendObjectReference{Port: lo.ToPtr(gatewayv1.PortNumber(50051))},
+			},
+		)
+
+		ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+			loadBalancerID:  gatewayData.config.Spec.LoadBalancerID,
+			listenerName:    string(listenerName),
+			policyRules:     []loadbalancer.RoutingRule{},
+			prevPolicyRules: []string{ruleName},
+		}).Return(nil).Once()
+		resourcesModel.EXPECT().setCondition(t.Context(), mock.MatchedBy(func(params setConditionParams) bool {
+			return params.conditionType == string(gatewayv1.RouteConditionResolvedRefs) &&
+				params.status == metav1.ConditionFalse &&
+				params.reason == string(gatewayv1.RouteReasonInvalidKind) &&
+				params.message == statusErr.message
+		})).Return(nil).Once()
+
+		err := model.setRejected(t.Context(), resolvedGRPCRouteDetails{
+			gatewayDetails:   gatewayData,
+			grpcRoute:        route,
+			matchedRef:       parentRef,
+			matchedListeners: []gatewayv1.Listener{gatewayData.gateway.Spec.Listeners[0]},
+		}, statusErr)
+
+		require.NoError(t, err)
+	})
+
 	t.Run("setRejected returns status update errors", func(t *testing.T) {
 		fake := faker.New()
 		deps := newMockDeps(t)

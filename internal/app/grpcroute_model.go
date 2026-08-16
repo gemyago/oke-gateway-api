@@ -653,6 +653,18 @@ func (m *grpcRouteModelImpl) setRejected(
 	statusErr grpcRouteStatusError,
 ) error {
 	grpcRoute := routeDetails.grpcRoute.DeepCopy()
+	if programmedPolicyRulesAnnotation, ok := grpcRoute.Annotations[GRPCRouteProgrammedPolicyRulesAnnotation]; ok {
+		if err := removeL7RoutePolicyRules(
+			ctx,
+			m.ociLoadBalancerModel,
+			routeDetails.gatewayDetails.config.Spec.LoadBalancerID,
+			routeDetails.matchedListeners,
+			programmedPolicyRulesAnnotation,
+		); err != nil {
+			return fmt.Errorf("failed to remove rejected GRPCRoute policy rules: %w", err)
+		}
+	}
+
 	_, statusIndex, found := lo.FindIndexOf(
 		grpcRoute.Status.Parents,
 		func(status gatewayv1.RouteParentStatus) bool {
