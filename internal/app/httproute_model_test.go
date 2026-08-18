@@ -3363,6 +3363,60 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("does not delete backend set still used by another routing policy", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			config := makeRandomGatewayConfig()
+			listener := makeRandomListener()
+			previousRule := "rule-" + fake.Lorem().Word()
+			backendRef := makeRandomBackendRef()
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(makeRandomHTTPRouteRule(
+					randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef),
+				)),
+			)
+			backendSetName := ociBackendSetNameFromBackendObjectRef(
+				httpRoute.Namespace,
+				backendRef.BackendObjectReference,
+			)
+			httpRoute.Finalizers = []string{HTTPRouteProgrammedFinalizer}
+			httpRoute.Annotations = map[string]string{
+				HTTPRouteProgrammedPolicyRulesAnnotation: fmt.Sprintf("%s/%s", listener.Name, previousRule),
+				HTTPRouteProgrammedBackendSetsAnnotation: backendSetName,
+			}
+
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  config.Spec.LoadBalancerID,
+				listenerName:    string(listener.Name),
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{previousRule},
+			}).Return(nil).Once()
+			ociLBModel.EXPECT().
+				backendSetReferenced(t.Context(), config.Spec.LoadBalancerID, backendSetName).
+				Return(true, nil).
+				Once()
+
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			k8sClient.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				updatedRoute, ok := obj.(*gatewayv1.HTTPRoute)
+				return ok &&
+					updatedRoute.Name == httpRoute.Name &&
+					!controllerutil.ContainsFinalizer(updatedRoute, HTTPRouteProgrammedFinalizer)
+			})).Return(nil).Once()
+
+			err := model.deprovisionRoute(t.Context(), deprovisionRouteParams{
+				gateway:          *newRandomGateway(),
+				config:           config,
+				httpRoute:        httpRoute,
+				matchedListeners: []gatewayv1.Listener{listener},
+			})
+
+			require.NoError(t, err)
+		})
+
 		t.Run("ignores not found when removing finalizer after cleanup", func(t *testing.T) {
 			fake := faker.New()
 			deps := newMockDeps(t)

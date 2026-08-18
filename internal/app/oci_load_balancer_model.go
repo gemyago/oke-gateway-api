@@ -176,6 +176,12 @@ type ociLoadBalancerModel interface {
 		backendSetName string,
 	) error
 
+	backendSetReferenced(
+		ctx context.Context,
+		loadBalancerID string,
+		backendSetName string,
+	) (bool, error)
+
 	// makeRoutingRule appends a new routing rule to the routing policy.
 	makeRoutingRule(
 		ctx context.Context,
@@ -1323,6 +1329,28 @@ func (m *ociLoadBalancerModelImpl) deprovisionBackendSetByName(
 		slog.String("backendSetName", backendSetName),
 	)
 	return nil
+}
+
+func (m *ociLoadBalancerModelImpl) backendSetReferenced(
+	ctx context.Context,
+	loadBalancerID string,
+	backendSetName string,
+) (bool, error) {
+	response, err := m.ociClient.GetLoadBalancer(ctx, loadbalancer.GetLoadBalancerRequest{
+		LoadBalancerId: &loadBalancerID,
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to get load balancer %s: %w", loadBalancerID, err)
+	}
+
+	for _, policy := range response.LoadBalancer.RoutingPolicies {
+		for _, rule := range policy.Rules {
+			if routingRuleForwardsToBackendSet(rule, backendSetName) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }
 
 func (m *ociLoadBalancerModelImpl) makeRoutingRule(

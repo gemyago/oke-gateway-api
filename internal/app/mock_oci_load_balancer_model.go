@@ -166,6 +166,61 @@ func (_c *MockociLoadBalancerModel_deprovisionBackendSetByName_Call) RunAndRetur
 	return _c
 }
 
+// backendSetReferenced provides a mock function with given fields: ctx, loadBalancerID, backendSetName
+func (_m *MockociLoadBalancerModel) backendSetReferenced(ctx context.Context, loadBalancerID string, backendSetName string) (bool, error) {
+	ret := _m.Called(ctx, loadBalancerID, backendSetName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for backendSetReferenced")
+	}
+
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) bool); ok {
+		r0 = rf(ctx, loadBalancerID, backendSetName)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, loadBalancerID, backendSetName)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockociLoadBalancerModel_backendSetReferenced_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'backendSetReferenced'
+type MockociLoadBalancerModel_backendSetReferenced_Call struct {
+	*mock.Call
+}
+
+// backendSetReferenced is a helper method to define mock.On call
+//   - ctx context.Context
+//   - loadBalancerID string
+//   - backendSetName string
+func (_e *MockociLoadBalancerModel_Expecter) backendSetReferenced(ctx interface{}, loadBalancerID interface{}, backendSetName interface{}) *MockociLoadBalancerModel_backendSetReferenced_Call {
+	return &MockociLoadBalancerModel_backendSetReferenced_Call{Call: _e.mock.On("backendSetReferenced", ctx, loadBalancerID, backendSetName)}
+}
+
+func (_c *MockociLoadBalancerModel_backendSetReferenced_Call) Run(run func(ctx context.Context, loadBalancerID string, backendSetName string)) *MockociLoadBalancerModel_backendSetReferenced_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_backendSetReferenced_Call) Return(_a0 bool, _a1 error) *MockociLoadBalancerModel_backendSetReferenced_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockociLoadBalancerModel_backendSetReferenced_Call) RunAndReturn(run func(context.Context, string, string) (bool, error)) *MockociLoadBalancerModel_backendSetReferenced_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ensureGRPCListenerProtocol provides a mock function with given fields: ctx, params
 func (_m *MockociLoadBalancerModel) ensureGRPCListenerProtocol(ctx context.Context, params ensureGRPCListenerProtocolParams) error {
 	ret := _m.Called(ctx, params)

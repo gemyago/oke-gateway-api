@@ -1478,23 +1478,15 @@ func (m *httpRouteModelImpl) deprovisionRoute(
 		}
 	}
 
-	// TODO: Dedup and filter-out non service refs
-	for _, rule := range params.httpRoute.Spec.Rules {
-		for _, backendRef := range rule.BackendRefs {
-			err := m.ociLoadBalancerModel.deprovisionBackendSet(ctx, deprovisionBackendSetParams{
-				loadBalancerID: params.config.Spec.LoadBalancerID,
-				routeNamespace: params.httpRoute.Namespace,
-				backendRef:     backendRef.BackendRef,
-			})
-			if err != nil {
-				return fmt.Errorf(
-					"failed to deprovision backend set for rule %s/%s: %w",
-					params.httpRoute.Namespace,
-					params.httpRoute.Name,
-					err,
-				)
-			}
-		}
+	if err := deprovisionL7BackendSets(ctx, m.ociLoadBalancerModel, deprovisionL7BackendSetsParams{
+		loadBalancerID:      params.config.Spec.LoadBalancerID,
+		routeKind:           l7HTTPRouteKind,
+		routeNamespace:      params.httpRoute.Namespace,
+		routeName:           params.httpRoute.Name,
+		backendRefs:         httpRouteBackendRefs(params.httpRoute),
+		previousBackendSets: annotatedBackendSetNames(&params.httpRoute, HTTPRouteProgrammedBackendSetsAnnotation),
+	}); err != nil {
+		return err
 	}
 
 	routeToUpdate := params.httpRoute.DeepCopy()
@@ -1515,6 +1507,7 @@ type deprovisionDetachedL7RouteParams struct {
 	route                 client.Object
 	routeKind             string
 	policyRulesAnnotation string
+	backendSetsAnnotation string
 	loadBalancerID        string
 	backendRefs           []gatewayv1.BackendRef
 	removeFinalizer       func(context.Context) error
@@ -1536,25 +1529,77 @@ func deprovisionDetachedL7Route(
 		}
 	}
 
+	if err := deprovisionL7BackendSets(ctx, ociLoadBalancerModel, deprovisionL7BackendSetsParams{
+		loadBalancerID: params.loadBalancerID,
+		routeKind:      l7RouteKind(params.routeKind),
+		routeNamespace: params.route.GetNamespace(),
+		routeName:      params.route.GetName(),
+		backendRefs:    params.backendRefs,
+		previousBackendSets: annotatedBackendSetNames(
+			params.route,
+			params.backendSetsAnnotation,
+		),
+	}); err != nil {
+		return fmt.Errorf("failed to deprovision detached %s backend sets: %w", params.routeKind, err)
+	}
+
+	return params.removeFinalizer(ctx)
+}
+
+type deprovisionL7BackendSetsParams struct {
+	loadBalancerID      string
+	routeKind           l7RouteKind
+	routeNamespace      string
+	routeName           string
+	backendRefs         []gatewayv1.BackendRef
+	previousBackendSets map[string]struct{}
+}
+
+func deprovisionL7BackendSets(
+	ctx context.Context,
+	ociLoadBalancerModel ociLoadBalancerModel,
+	params deprovisionL7BackendSetsParams,
+) error {
 	processedBackendRefs := make(map[string]struct{})
 	for _, backendRef := range params.backendRefs {
-		key := l7BackendRefKey(backendRef, params.route.GetNamespace())
+		key := l7BackendRefKey(backendRef, params.routeNamespace)
 		if _, ok := processedBackendRefs[key]; ok {
 			continue
 		}
+
+		backendSetName := ociBackendSetNameFromBackendObjectRef(
+			params.routeNamespace,
+			backendRef.BackendObjectReference,
+		)
+		if _, previouslyProgrammed := params.previousBackendSets[backendSetName]; previouslyProgrammed {
+			referenced, err := ociLoadBalancerModel.backendSetReferenced(ctx, params.loadBalancerID, backendSetName)
+			if err != nil {
+				return fmt.Errorf("failed to check backend set %s references: %w", backendSetName, err)
+			}
+			if referenced {
+				processedBackendRefs[key] = struct{}{}
+				continue
+			}
+		}
+
 		err := ociLoadBalancerModel.deprovisionBackendSet(ctx, deprovisionBackendSetParams{
 			loadBalancerID: params.loadBalancerID,
-			routeNamespace: params.route.GetNamespace(),
+			routeNamespace: params.routeNamespace,
 			backendRef:     backendRef,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to deprovision detached %s backend set %s: %w",
-				params.routeKind, key, err)
+			return fmt.Errorf(
+				"failed to deprovision backend set for %s %s/%s: %w",
+				params.routeKind,
+				params.routeNamespace,
+				params.routeName,
+				err,
+			)
 		}
 		processedBackendRefs[key] = struct{}{}
 	}
 
-	return params.removeFinalizer(ctx)
+	return nil
 }
 
 func (m *httpRouteModelImpl) deprovisionDetachedRoute(
@@ -1565,6 +1610,7 @@ func (m *httpRouteModelImpl) deprovisionDetachedRoute(
 		route:                 &httpRoute,
 		routeKind:             "HTTPRoute",
 		policyRulesAnnotation: HTTPRouteProgrammedPolicyRulesAnnotation,
+		backendSetsAnnotation: HTTPRouteProgrammedBackendSetsAnnotation,
 		loadBalancerID:        httpRoute.Annotations[L7RouteProgrammedLoadBalancerIDAnnotation],
 		backendRefs:           httpRouteBackendRefs(httpRoute),
 		removeFinalizer: func(ctx context.Context) error {

@@ -563,26 +563,15 @@ func (m *grpcRouteModelImpl) deprovisionRoute(
 		}
 	}
 
-	processedBackendRefs := make(map[string]struct{})
-	for _, backendRef := range grpcRouteBackendRefs(params.grpcRoute) {
-		key := l7BackendRefKey(backendRef, params.grpcRoute.Namespace)
-		if _, ok := processedBackendRefs[key]; ok {
-			continue
-		}
-		err := m.ociLoadBalancerModel.deprovisionBackendSet(ctx, deprovisionBackendSetParams{
-			loadBalancerID: params.config.Spec.LoadBalancerID,
-			routeNamespace: params.grpcRoute.Namespace,
-			backendRef:     backendRef,
-		})
-		if err != nil {
-			return fmt.Errorf(
-				"failed to deprovision backend set for rule %s/%s: %w",
-				params.grpcRoute.Namespace,
-				params.grpcRoute.Name,
-				err,
-			)
-		}
-		processedBackendRefs[key] = struct{}{}
+	if err := deprovisionL7BackendSets(ctx, m.ociLoadBalancerModel, deprovisionL7BackendSetsParams{
+		loadBalancerID:      params.config.Spec.LoadBalancerID,
+		routeKind:           l7GRPCRouteKind,
+		routeNamespace:      params.grpcRoute.Namespace,
+		routeName:           params.grpcRoute.Name,
+		backendRefs:         grpcRouteBackendRefs(params.grpcRoute),
+		previousBackendSets: annotatedBackendSetNames(&params.grpcRoute, GRPCRouteProgrammedBackendSetsAnnotation),
+	}); err != nil {
+		return err
 	}
 
 	routeToUpdate := params.grpcRoute.DeepCopy()
@@ -604,6 +593,7 @@ func (m *grpcRouteModelImpl) deprovisionDetachedRoute(
 		route:                 &grpcRoute,
 		routeKind:             "GRPCRoute",
 		policyRulesAnnotation: GRPCRouteProgrammedPolicyRulesAnnotation,
+		backendSetsAnnotation: GRPCRouteProgrammedBackendSetsAnnotation,
 		loadBalancerID:        grpcRoute.Annotations[L7RouteProgrammedLoadBalancerIDAnnotation],
 		backendRefs:           grpcRouteBackendRefs(grpcRoute),
 		removeFinalizer: func(ctx context.Context) error {

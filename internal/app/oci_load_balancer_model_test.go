@@ -4605,6 +4605,92 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		})
 	})
 
+	t.Run("backendSetReferenced", func(t *testing.T) {
+		t.Run("returns true when routing policy forwards to backend set", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			loadBalancerID := fake.UUID().V4()
+			backendSetName := "backend-" + fake.Lorem().Word()
+			policyName := "policy-" + fake.Lorem().Word()
+			loadBalancer := makeRandomOCILoadBalancer()
+			loadBalancer.RoutingPolicies = map[string]loadbalancer.RoutingPolicy{
+				policyName: {
+					Name: new(policyName),
+					Rules: []loadbalancer.RoutingRule{
+						defaultCatchAllRoutingRule(backendSetName),
+					},
+				},
+			}
+
+			ociLoadBalancerClient.EXPECT().GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+				LoadBalancerId: &loadBalancerID,
+			}).Return(loadbalancer.GetLoadBalancerResponse{
+				LoadBalancer: loadBalancer,
+			}, nil).Once()
+
+			referenced, err := model.backendSetReferenced(t.Context(), loadBalancerID, backendSetName)
+
+			require.NoError(t, err)
+			assert.True(t, referenced)
+		})
+
+		t.Run("returns false when no routing policy forwards to backend set", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			loadBalancerID := fake.UUID().V4()
+			backendSetName := "backend-" + fake.Lorem().Word()
+			otherBackendSetName := "other-backend-" + fake.Lorem().Word()
+			policyName := "policy-" + fake.Lorem().Word()
+			loadBalancer := makeRandomOCILoadBalancer()
+			loadBalancer.RoutingPolicies = map[string]loadbalancer.RoutingPolicy{
+				policyName: {
+					Name: new(policyName),
+					Rules: []loadbalancer.RoutingRule{
+						defaultCatchAllRoutingRule(otherBackendSetName),
+					},
+				},
+			}
+
+			ociLoadBalancerClient.EXPECT().GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+				LoadBalancerId: &loadBalancerID,
+			}).Return(loadbalancer.GetLoadBalancerResponse{
+				LoadBalancer: loadBalancer,
+			}, nil).Once()
+
+			referenced, err := model.backendSetReferenced(t.Context(), loadBalancerID, backendSetName)
+
+			require.NoError(t, err)
+			assert.False(t, referenced)
+		})
+
+		t.Run("returns error when load balancer lookup fails", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			loadBalancerID := fake.UUID().V4()
+			backendSetName := "backend-" + fake.Lorem().Word()
+			wantErr := errors.New(fake.Lorem().Sentence(10))
+
+			ociLoadBalancerClient.EXPECT().GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+				LoadBalancerId: &loadBalancerID,
+			}).Return(loadbalancer.GetLoadBalancerResponse{}, wantErr).Once()
+
+			referenced, err := model.backendSetReferenced(t.Context(), loadBalancerID, backendSetName)
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, wantErr)
+			assert.False(t, referenced)
+		})
+	})
+
 	t.Run("removeUnusedCertificates", func(t *testing.T) {
 		makeManagedCertificate := func(namespace, name, resourceVersion string) loadbalancer.Certificate {
 			certName := fmt.Sprintf("%s-%s-rev-%s", namespace, name, resourceVersion)
