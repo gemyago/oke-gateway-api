@@ -560,6 +560,45 @@ func TestGRPCRouteController(t *testing.T) {
 		assertDriftRequeue(t, got, 2*time.Minute)
 	})
 
+	t.Run("rejects previously programmed route when backend service disappears", func(t *testing.T) {
+		fake := faker.New()
+		route := makeRoute()
+		route.Annotations = map[string]string{
+			GRPCRouteProgrammedPolicyRulesAnnotation: "grpc/rule-" + fake.Lorem().Word(),
+		}
+		resolved := makeResolved(route)
+		statusErr := newGRPCRouteBackendNotFoundStatusError(
+			"backendRef service " + route.Namespace + "/missing-" + fake.Lorem().Word() + " not found",
+		)
+		routeModel := fakeGRPCRouteModel{
+			resolveRequestFunc: func(
+				_ context.Context,
+				_ reconcile.Request,
+			) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
+				return resolvedMap(route, resolved), nil
+			},
+			isProgrammingRequiredFn: func(resolvedGRPCRouteDetails) bool { return true },
+			acceptRouteFunc: func(_ context.Context, details resolvedGRPCRouteDetails) (*gatewayv1.GRPCRoute, error) {
+				return &details.grpcRoute, nil
+			},
+			resolveBackendRefsFunc: func(context.Context, resolveGRPCBackendRefsParams) (map[string]corev1.Service, error) {
+				return nil, statusErr
+			},
+			setRejectedFunc: func(_ context.Context, details resolvedGRPCRouteDetails, gotErr grpcRouteStatusError) error {
+				assert.Equal(t, route.Name, details.grpcRoute.Name)
+				assert.Equal(t, gatewayv1.RouteConditionResolvedRefs, gotErr.conditionType)
+				assert.Equal(t, gatewayv1.RouteReasonBackendNotFound, gotErr.reason)
+				assert.Equal(t, statusErr.message, gotErr.message)
+				return nil
+			},
+		}
+
+		got, err := newController(routeModel, NewMockhttpBackendModel(t)).Reconcile(t.Context(), reconcile.Request{})
+
+		require.NoError(t, err)
+		assertDriftRequeue(t, got, 2*time.Minute)
+	})
+
 	t.Run("wraps rejected status update errors", func(t *testing.T) {
 		route := makeRoute()
 		resolved := makeResolved(route)

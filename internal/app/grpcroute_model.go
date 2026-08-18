@@ -133,6 +133,14 @@ func newGRPCRouteRefNotPermittedStatusError(message string) grpcRouteStatusError
 	}
 }
 
+func newGRPCRouteBackendNotFoundStatusError(message string) grpcRouteStatusError {
+	return grpcRouteStatusError{
+		conditionType: gatewayv1.RouteConditionResolvedRefs,
+		reason:        gatewayv1.RouteReasonBackendNotFound,
+		message:       message,
+	}
+}
+
 type grpcRouteModelImpl struct {
 	client               k8sClient
 	logger               *slog.Logger
@@ -472,6 +480,11 @@ func (m *grpcRouteModelImpl) resolveBackendRefs(
 
 			var service corev1.Service
 			if getErr := m.client.Get(ctx, fullName, &service); getErr != nil {
+				if apierrors.IsNotFound(getErr) {
+					return nil, newGRPCRouteBackendNotFoundStatusError(
+						fmt.Sprintf("backendRef service %s not found", fullName.String()),
+					)
+				}
 				return nil, fmt.Errorf("failed to get service %s: %w", fullName.String(), getErr)
 			}
 

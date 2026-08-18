@@ -882,6 +882,30 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			require.ErrorIs(t, err, wantErr)
 		})
 
+		t.Run("returns backend not found status errors", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGRPCRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			backendRef := makeGRPCBackendRef()
+			route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.Spec.Rules = []gatewayv1.GRPCRouteRule{{BackendRefs: []gatewayv1.GRPCBackendRef{backendRef}}}
+			})
+			fullName := backendObjectRefName(backendRef.BackendObjectReference, route.Namespace)
+
+			k8sClient.EXPECT().
+				Get(t.Context(), fullName, mock.Anything).
+				Return(apierrors.NewNotFound(schema.GroupResource{Resource: "services"}, fullName.Name)).
+				Once()
+
+			_, err := model.resolveBackendRefs(t.Context(), resolveGRPCBackendRefsParams{grpcRoute: route})
+
+			var statusErr grpcRouteStatusError
+			require.ErrorAs(t, err, &statusErr)
+			assert.Equal(t, gatewayv1.RouteConditionResolvedRefs, statusErr.conditionType)
+			assert.Equal(t, gatewayv1.RouteReasonBackendNotFound, statusErr.reason)
+			assert.Equal(t, fmt.Sprintf("backendRef service %s not found", fullName.String()), statusErr.message)
+		})
+
 		t.Run("rejects cross namespace backend without reference grant", func(t *testing.T) {
 			fake := faker.New()
 			deps := newMockDeps(t)
