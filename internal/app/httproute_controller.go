@@ -77,7 +77,7 @@ func (r *HTTPRouteController) reconcileResolvedRoute(
 		return true, nil
 	}
 
-	r.logger.DebugContext(ctx, "Performing HTTProute programming",
+	r.logger.DebugContext(ctx, "Performing HTTPRoute programming",
 		slog.String("httpRoute", resolvedData.httpRoute.Name),
 		slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
 	)
@@ -125,7 +125,7 @@ func (r *HTTPRouteController) reconcileResolvedRoute(
 		return false, fmt.Errorf("failed to set programmed status: %w", err)
 	}
 
-	r.logger.InfoContext(ctx, "Successfully programmed HTTProute",
+	r.logger.InfoContext(ctx, "Successfully programmed HTTPRoute",
 		slog.String("httpRoute", resolvedData.httpRoute.Name),
 		slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
 	)
@@ -152,7 +152,7 @@ func (r *HTTPRouteController) deprovisionResolvedRoute(
 			resolvedData.gatewayDetails.gateway.Name, err)
 	}
 
-	r.logger.InfoContext(ctx, "Successfully deprovisioned HTTProute",
+	r.logger.InfoContext(ctx, "Successfully deprovisioned HTTPRoute",
 		slog.String("httpRoute", resolvedData.httpRoute.Name),
 		slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
 	)
@@ -175,7 +175,7 @@ func (r *HTTPRouteController) setPending(
 }
 
 func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	r.logger.InfoContext(ctx, fmt.Sprintf("Processing reconciliation for HTTProute %s", req.NamespacedName))
+	r.logger.InfoContext(ctx, fmt.Sprintf("Processing reconciliation for HTTPRoute %s", req.NamespacedName))
 
 	resolvedRequests, err := r.httpRouteModel.resolveRequest(ctx, req)
 	if err != nil {
@@ -209,7 +209,7 @@ func (r *HTTPRouteController) Reconcile(ctx context.Context, req reconcile.Reque
 		}
 	}
 
-	r.logger.InfoContext(ctx, fmt.Sprintf("Reconciled HTTProute %s", req.NamespacedName))
+	r.logger.InfoContext(ctx, fmt.Sprintf("Reconciled HTTPRoute %s", req.NamespacedName))
 
 	return driftRequeue(r.driftInterval), nil
 }
