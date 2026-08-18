@@ -392,6 +392,62 @@ func TestHTTPRouteController(t *testing.T) {
 			assert.Equal(t, reconcile.Result{}, result)
 		})
 
+		t.Run("RejectsRouteWhenBackendServiceDisappears", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			controller := NewHTTPRouteController(deps)
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: fake.Internet().Domain(),
+					Name:      fake.Lorem().Word(),
+				},
+			}
+			wantResolvedData := resolvedRouteDetails{
+				httpRoute: makeRandomHTTPRoute(),
+				gatewayDetails: resolvedGatewayDetails{
+					gateway: *newRandomGateway(),
+					config:  makeRandomGatewayConfig(),
+				},
+			}
+			wantAcceptedRoute := makeRandomHTTPRoute()
+			wantAcceptedRoute.Annotations = map[string]string{
+				HTTPRouteProgrammedPolicyRulesAnnotation: "https/rule-" + fake.Lorem().Word(),
+			}
+			statusErr := newHTTPRouteBackendNotFoundStatusError(
+				"backendRef service " + wantAcceptedRoute.Namespace + "/missing-" + fake.Lorem().Word() + " not found",
+			)
+
+			mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+			mockModel.EXPECT().resolveRequest(t.Context(), req).Return(map[routeParentResultKey]resolvedRouteDetails{
+				gatewayParentResultKey(req.NamespacedName): wantResolvedData,
+			}, (error)(nil))
+			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
+			mockModel.EXPECT().acceptRoute(t.Context(), wantResolvedData).Return(&wantAcceptedRoute, nil)
+			expectPending(mockModel, wantResolvedData, wantAcceptedRoute)
+			mockModel.EXPECT().resolveBackendRefs(
+				t.Context(),
+				resolveBackendRefsParams{httpRoute: wantAcceptedRoute},
+			).Return(nil, statusErr)
+			mockModel.EXPECT().setRejected(
+				t.Context(),
+				mock.MatchedBy(func(details resolvedRouteDetails) bool {
+					return details.httpRoute.Name == wantAcceptedRoute.Name &&
+						details.httpRoute.Namespace == wantAcceptedRoute.Namespace
+				}),
+				mock.MatchedBy(func(gotErr httpRouteStatusError) bool {
+					return gotErr.conditionType == gatewayv1.RouteConditionResolvedRefs &&
+						gotErr.reason == gatewayv1.RouteReasonBackendNotFound &&
+						gotErr.message == statusErr.message
+				}),
+			).Return(nil)
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.NoError(t, err)
+			assertDriftRequeue(t, result, controller.driftInterval)
+		})
+
 		t.Run("SetPendingError", func(t *testing.T) {
 			fake := faker.New()
 			deps := newMockDeps(t)

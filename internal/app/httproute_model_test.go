@@ -1609,6 +1609,41 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("setRejected sets resolved refs condition false", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			resourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+			gatewayClass := newRandomGatewayClass()
+			parentRef := makeRandomParentRef()
+			httpRoute := makeRandomHTTPRoute(
+				func(route *gatewayv1.HTTPRoute) {
+					route.Status.Parents = []gatewayv1.RouteParentStatus{{
+						ParentRef:      parentRef,
+						ControllerName: gatewayClass.Spec.ControllerName,
+					}}
+				},
+			)
+			statusErr := newHTTPRouteBackendNotFoundStatusError(fake.Lorem().Sentence(8))
+
+			resourcesModel.EXPECT().setCondition(t.Context(), mock.MatchedBy(func(params setConditionParams) bool {
+				return params.conditionType == string(gatewayv1.RouteConditionResolvedRefs) &&
+					params.status == metav1.ConditionFalse &&
+					params.reason == string(gatewayv1.RouteReasonBackendNotFound) &&
+					params.message == statusErr.message
+			})).Return(nil).Once()
+
+			err := model.setRejected(t.Context(), resolvedRouteDetails{
+				gatewayDetails: resolvedGatewayDetails{
+					gatewayClass: *gatewayClass,
+				},
+				httpRoute:  httpRoute,
+				matchedRef: parentRef,
+			}, statusErr)
+
+			require.NoError(t, err)
+		})
+
 		t.Run("set condition of existing parent", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
@@ -1902,6 +1937,38 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			require.Error(t, err)
 			require.ErrorIs(t, err, expectedErr)
+		})
+
+		t.Run("backend service not found returns status error", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			backendRef := makeRandomBackendRef()
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(
+					makeRandomHTTPRouteRule(
+						randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef),
+					),
+				),
+			)
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			serviceName := string(backendRef.BackendObjectReference.Name)
+			expectedErr := apierrors.NewNotFound(schema.GroupResource{Resource: "services"}, serviceName)
+			mockK8sClient.EXPECT().Get(t.Context(), mock.Anything, mock.Anything).Return(expectedErr)
+
+			_, err := model.resolveBackendRefs(t.Context(), resolveBackendRefsParams{
+				httpRoute: httpRoute,
+			})
+
+			require.Error(t, err)
+			var statusErr httpRouteStatusError
+			require.ErrorAs(t, err, &statusErr)
+			assert.Equal(t, gatewayv1.RouteConditionResolvedRefs, statusErr.conditionType)
+			assert.Equal(t, gatewayv1.RouteReasonBackendNotFound, statusErr.reason)
+			assert.Contains(t, statusErr.message, serviceName)
+			assert.Contains(t, statusErr.message, "not found")
+			assert.NotErrorIs(t, err, expectedErr)
 		})
 	})
 

@@ -377,6 +377,66 @@ func (_c *MockhttpRouteModel_resolveRequest_Call) RunAndReturn(run func(context.
 	return _c
 }
 
+// setRejected provides a mock function with given fields: ctx, routeDetails, statusErr
+func (_m *MockhttpRouteModel) setRejected(
+	ctx context.Context,
+	routeDetails resolvedRouteDetails,
+	statusErr httpRouteStatusError,
+) error {
+	ret := _m.Called(ctx, routeDetails, statusErr)
+
+	if len(ret) == 0 {
+		panic("no return value specified for setRejected")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, resolvedRouteDetails, httpRouteStatusError) error); ok {
+		r0 = rf(ctx, routeDetails, statusErr)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockhttpRouteModel_setRejected_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'setRejected'
+type MockhttpRouteModel_setRejected_Call struct {
+	*mock.Call
+}
+
+// setRejected is a helper method to define mock.On call
+//   - ctx context.Context
+//   - routeDetails resolvedRouteDetails
+//   - statusErr httpRouteStatusError
+func (_e *MockhttpRouteModel_Expecter) setRejected(
+	ctx interface{},
+	routeDetails interface{},
+	statusErr interface{},
+) *MockhttpRouteModel_setRejected_Call {
+	return &MockhttpRouteModel_setRejected_Call{Call: _e.mock.On("setRejected", ctx, routeDetails, statusErr)}
+}
+
+func (_c *MockhttpRouteModel_setRejected_Call) Run(
+	run func(ctx context.Context, routeDetails resolvedRouteDetails, statusErr httpRouteStatusError),
+) *MockhttpRouteModel_setRejected_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(resolvedRouteDetails), args[2].(httpRouteStatusError))
+	})
+	return _c
+}
+
+func (_c *MockhttpRouteModel_setRejected_Call) Return(_a0 error) *MockhttpRouteModel_setRejected_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockhttpRouteModel_setRejected_Call) RunAndReturn(
+	run func(context.Context, resolvedRouteDetails, httpRouteStatusError) error,
+) *MockhttpRouteModel_setRejected_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // setProgrammed provides a mock function with given fields: ctx, params
 func (_m *MockhttpRouteModel) setProgrammed(ctx context.Context, params setProgrammedParams) error {
 	ret := _m.Called(ctx, params)

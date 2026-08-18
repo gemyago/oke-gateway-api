@@ -71,6 +71,20 @@ type setProgrammedParams struct {
 	programmedBackendSets []string
 }
 
+type setL7RouteRejectedParams struct {
+	resource                        client.Object
+	parentStatuses                  *[]gatewayv1.RouteParentStatus
+	gatewayClass                    gatewayv1.GatewayClass
+	matchedRef                      gatewayv1.ParentReference
+	loadBalancerID                  string
+	matchedListeners                []gatewayv1.Listener
+	programmedPolicyRulesAnnotation string
+	routeKind                       string
+	conditionType                   gatewayv1.RouteConditionType
+	reason                          gatewayv1.RouteConditionReason
+	message                         string
+}
+
 type programmedHTTPRoutePolicyRule struct {
 	listenerName string
 	ruleName     string
@@ -248,6 +262,12 @@ type httpRouteModel interface {
 		params deprovisionRouteParams,
 	) error
 
+	setRejected(
+		ctx context.Context,
+		routeDetails resolvedRouteDetails,
+		statusErr httpRouteStatusError,
+	) error
+
 	// setProgrammed marks the route as successfully programmed by updating its status.
 	setProgrammed(
 		ctx context.Context,
@@ -259,6 +279,24 @@ type httpRouteModel interface {
 		ctx context.Context,
 		params setProgrammedParams,
 	) error
+}
+
+type httpRouteStatusError struct {
+	conditionType gatewayv1.RouteConditionType
+	reason        gatewayv1.RouteConditionReason
+	message       string
+}
+
+func (e httpRouteStatusError) Error() string {
+	return e.message
+}
+
+func newHTTPRouteBackendNotFoundStatusError(message string) httpRouteStatusError {
+	return httpRouteStatusError{
+		conditionType: gatewayv1.RouteConditionResolvedRefs,
+		reason:        gatewayv1.RouteReasonBackendNotFound,
+		message:       message,
+	}
 }
 
 // parentRefSameTarget checks if two parent references target the same resource.
@@ -1114,6 +1152,27 @@ func (m *httpRouteModelImpl) rejectRoute(
 	})
 }
 
+func (m *httpRouteModelImpl) setRejected(
+	ctx context.Context,
+	routeDetails resolvedRouteDetails,
+	statusErr httpRouteStatusError,
+) error {
+	httpRoute := routeDetails.httpRoute.DeepCopy()
+	return setL7RouteRejected(ctx, m.resourcesModel, m.ociLoadBalancerModel, setL7RouteRejectedParams{
+		resource:                        httpRoute,
+		parentStatuses:                  &httpRoute.Status.Parents,
+		gatewayClass:                    routeDetails.gatewayDetails.gatewayClass,
+		matchedRef:                      routeDetails.matchedRef,
+		loadBalancerID:                  routeDetails.gatewayDetails.config.Spec.LoadBalancerID,
+		matchedListeners:                routeDetails.matchedListeners,
+		programmedPolicyRulesAnnotation: HTTPRouteProgrammedPolicyRulesAnnotation,
+		routeKind:                       "HTTPRoute",
+		conditionType:                   statusErr.conditionType,
+		reason:                          statusErr.reason,
+		message:                         statusErr.message,
+	})
+}
+
 func (m *httpRouteModelImpl) resolveBackendRefs(
 	ctx context.Context,
 	params resolveBackendRefsParams,
@@ -1125,6 +1184,11 @@ func (m *httpRouteModelImpl) resolveBackendRefs(
 
 			var service v1.Service
 			if err := m.client.Get(ctx, fullName, &service); err != nil {
+				if apierrors.IsNotFound(err) {
+					return nil, newHTTPRouteBackendNotFoundStatusError(
+						fmt.Sprintf("backendRef service %s not found", fullName.String()),
+					)
+				}
 				return nil, fmt.Errorf("failed to get service %s: %w", fullName.String(), err)
 			}
 
@@ -1711,6 +1775,48 @@ func setL7RouteProgrammed(
 			L7RouteProgrammedLoadBalancerIDAnnotation: params.loadBalancerID,
 		},
 		finalizer: params.finalizer,
+	})
+}
+
+func setL7RouteRejected(
+	ctx context.Context,
+	resourcesModel resourcesModel,
+	ociLoadBalancerModel ociLoadBalancerModel,
+	params setL7RouteRejectedParams,
+) error {
+	if programmedPolicyRulesAnnotation, ok := params.resource.GetAnnotations()[params.programmedPolicyRulesAnnotation]; ok {
+		if err := removeL7RoutePolicyRules(
+			ctx,
+			ociLoadBalancerModel,
+			params.loadBalancerID,
+			params.matchedListeners,
+			programmedPolicyRulesAnnotation,
+		); err != nil {
+			return fmt.Errorf("failed to remove rejected %s policy rules: %w", params.routeKind, err)
+		}
+	}
+
+	_, statusIndex, found := lo.FindIndexOf(
+		*params.parentStatuses,
+		func(status gatewayv1.RouteParentStatus) bool {
+			return status.ControllerName == params.gatewayClass.Spec.ControllerName &&
+				parentRefSameTarget(status.ParentRef, params.matchedRef)
+		},
+	)
+	if !found {
+		return fmt.Errorf("parent status not found for controller %s and parentRef %s",
+			params.gatewayClass.Spec.ControllerName,
+			params.matchedRef.Name,
+		)
+	}
+
+	return resourcesModel.setCondition(ctx, setConditionParams{
+		resource:      params.resource,
+		conditions:    &(*params.parentStatuses)[statusIndex].Conditions,
+		conditionType: string(params.conditionType),
+		status:        metav1.ConditionFalse,
+		reason:        string(params.reason),
+		message:       params.message,
 	})
 }
 

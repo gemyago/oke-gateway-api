@@ -638,39 +638,18 @@ func (m *grpcRouteModelImpl) setRejected(
 	statusErr grpcRouteStatusError,
 ) error {
 	grpcRoute := routeDetails.grpcRoute.DeepCopy()
-	if programmedPolicyRulesAnnotation, ok := grpcRoute.Annotations[GRPCRouteProgrammedPolicyRulesAnnotation]; ok {
-		if err := removeL7RoutePolicyRules(
-			ctx,
-			m.ociLoadBalancerModel,
-			routeDetails.gatewayDetails.config.Spec.LoadBalancerID,
-			routeDetails.matchedListeners,
-			programmedPolicyRulesAnnotation,
-		); err != nil {
-			return fmt.Errorf("failed to remove rejected GRPCRoute policy rules: %w", err)
-		}
-	}
-
-	_, statusIndex, found := lo.FindIndexOf(
-		grpcRoute.Status.Parents,
-		func(status gatewayv1.RouteParentStatus) bool {
-			return status.ControllerName == routeDetails.gatewayDetails.gatewayClass.Spec.ControllerName &&
-				parentRefSameTarget(status.ParentRef, routeDetails.matchedRef)
-		},
-	)
-	if !found {
-		return fmt.Errorf("parent status not found for controller %s and parentRef %s",
-			routeDetails.gatewayDetails.gatewayClass.Spec.ControllerName,
-			routeDetails.matchedRef.Name,
-		)
-	}
-
-	return m.resourcesModel.setCondition(ctx, setConditionParams{
-		resource:      grpcRoute,
-		conditions:    &grpcRoute.Status.Parents[statusIndex].Conditions,
-		conditionType: string(statusErr.conditionType),
-		status:        metav1.ConditionFalse,
-		reason:        string(statusErr.reason),
-		message:       statusErr.message,
+	return setL7RouteRejected(ctx, m.resourcesModel, m.ociLoadBalancerModel, setL7RouteRejectedParams{
+		resource:                        grpcRoute,
+		parentStatuses:                  &grpcRoute.Status.Parents,
+		gatewayClass:                    routeDetails.gatewayDetails.gatewayClass,
+		matchedRef:                      routeDetails.matchedRef,
+		loadBalancerID:                  routeDetails.gatewayDetails.config.Spec.LoadBalancerID,
+		matchedListeners:                routeDetails.matchedListeners,
+		programmedPolicyRulesAnnotation: GRPCRouteProgrammedPolicyRulesAnnotation,
+		routeKind:                       "GRPCRoute",
+		conditionType:                   statusErr.conditionType,
+		reason:                          statusErr.reason,
+		message:                         statusErr.message,
 	})
 }
 

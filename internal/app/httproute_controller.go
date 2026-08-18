@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -43,6 +44,20 @@ func (r *HTTPRouteController) SetBackendTLSPolicyEnabled(enabled bool) {
 	if model, ok := r.httpRouteModel.(interface{ setBackendTLSPolicyEnabled(bool) }); ok {
 		model.setBackendTLSPolicyEnabled(enabled)
 	}
+}
+
+func (r *HTTPRouteController) rejectResolvedRoute(
+	ctx context.Context,
+	resolvedData resolvedRouteDetails,
+	acceptedRoute gatewayv1.HTTPRoute,
+	statusErr httpRouteStatusError,
+) error {
+	rejectedRouteDetails := resolvedData
+	rejectedRouteDetails.httpRoute = acceptedRoute
+	if rejectErr := r.httpRouteModel.setRejected(ctx, rejectedRouteDetails, statusErr); rejectErr != nil {
+		return fmt.Errorf("failed to reject route: %w", rejectErr)
+	}
+	return nil
 }
 
 // Returns true if backends sync is required.
@@ -90,6 +105,10 @@ func (r *HTTPRouteController) reconcileResolvedRoute(
 		httpRoute: *acceptedRoute,
 	})
 	if err != nil {
+		var statusErr httpRouteStatusError
+		if errors.As(err, &statusErr) {
+			return false, r.rejectResolvedRoute(ctx, resolvedData, *acceptedRoute, statusErr)
+		}
 		return false, fmt.Errorf("failed to resolve backend refs: %w", err)
 	}
 
