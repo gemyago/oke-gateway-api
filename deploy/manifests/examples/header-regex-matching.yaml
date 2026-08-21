@@ -1,0 +1,65 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: regex-header-gateway
+spec:
+  gatewayClassName: oke-gateway-api
+  infrastructure:
+    parametersRef:
+      group: oke-gateway-api.gemyago.github.io
+      kind: GatewayConfig
+      name: oke-gateway-config
+  listeners:
+    - name: https
+      port: 443
+      protocol: HTTPS
+      hostname: "*.example.com"
+      tls:
+        mode: Terminate
+        options:
+          oci.oraclecloud.com/certificate-ocid: ocid1.certificate.oc1..exampleuniqueID
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: community-manager-api
+spec:
+  parentRefs:
+    - name: regex-header-gateway
+      sectionName: https
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+          headers:
+            - name: Host
+              type: RegularExpression
+              value: '^community-manager-api\..*$'
+            - name: X-Tenant
+              type: RegularExpression
+              value: '-prod$'
+      backendRefs:
+        - name: community-manager-api
+          port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: community-manager-grpc
+spec:
+  parentRefs:
+    - name: regex-header-gateway
+      sectionName: https
+  rules:
+    - matches:
+        - headers:
+            - name: Host
+              type: RegularExpression
+              value: '^community-manager-grpc\..*$'
+            - name: X-API-Version
+              type: RegularExpression
+              value: '^v1\/'
+      backendRefs:
+        - name: community-manager-grpc
+          port: 8080

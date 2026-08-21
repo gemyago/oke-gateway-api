@@ -141,6 +141,14 @@ func newGRPCRouteBackendNotFoundStatusError(message string) grpcRouteStatusError
 	}
 }
 
+func newGRPCRouteUnsupportedValueStatusError(message string) grpcRouteStatusError {
+	return grpcRouteStatusError{
+		conditionType: gatewayv1.RouteConditionAccepted,
+		reason:        gatewayv1.RouteReasonUnsupportedValue,
+		message:       message,
+	}
+}
+
 type grpcRouteModelImpl struct {
 	client               k8sClient
 	logger               *slog.Logger

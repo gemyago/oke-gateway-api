@@ -555,6 +555,74 @@ func TestHTTPRouteController(t *testing.T) {
 			assert.Equal(t, reconcile.Result{}, result)
 		})
 
+		t.Run("sets rejected status for programming status errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			controller := NewHTTPRouteController(deps)
+
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: fake.Internet().Domain(),
+					Name:      fake.Lorem().Word(),
+				},
+			}
+			wantResolvedData := resolvedRouteDetails{
+				httpRoute: makeRandomHTTPRoute(),
+				gatewayDetails: resolvedGatewayDetails{
+					gateway: *newRandomGateway(),
+					config:  makeRandomGatewayConfig(),
+				},
+			}
+			wantBackendRefs := make(map[string]v1.Service)
+			for range 3 {
+				svc := makeRandomService()
+				fullName := types.NamespacedName{
+					Namespace: svc.Namespace,
+					Name:      svc.Name,
+				}
+				wantBackendRefs[fullName.String()] = svc
+			}
+			wantAcceptedRoute := makeRandomHTTPRoute()
+			programErr := fmt.Errorf("failed to map http route matches to condition: %w", errUnsupportedMatch)
+
+			mockModel, _ := deps.HTTPRouteModel.(*MockhttpRouteModel)
+			mockModel.EXPECT().resolveRequest(
+				t.Context(),
+				req,
+			).Return(map[routeParentResultKey]resolvedRouteDetails{
+				gatewayParentResultKey(req.NamespacedName): wantResolvedData,
+			}, (error)(nil))
+			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(true, nil)
+			mockModel.EXPECT().acceptRoute(t.Context(), wantResolvedData).Return(&wantAcceptedRoute, nil)
+			expectPending(mockModel, wantResolvedData, wantAcceptedRoute)
+			mockModel.EXPECT().resolveBackendRefs(
+				t.Context(),
+				resolveBackendRefsParams{httpRoute: wantAcceptedRoute},
+			).Return(wantBackendRefs, nil)
+			mockModel.EXPECT().programRoute(
+				t.Context(),
+				programRouteParams{
+					gateway:       wantResolvedData.gatewayDetails.gateway,
+					config:        wantResolvedData.gatewayDetails.config,
+					httpRoute:     wantAcceptedRoute,
+					knownBackends: wantBackendRefs,
+				},
+			).Return(programRouteResult{}, programErr)
+			mockModel.EXPECT().setRejected(t.Context(), mock.MatchedBy(func(details resolvedRouteDetails) bool {
+				return details.httpRoute.Name == wantAcceptedRoute.Name &&
+					details.httpRoute.Namespace == wantAcceptedRoute.Namespace
+			}), mock.MatchedBy(func(statusErr httpRouteStatusError) bool {
+				return statusErr.conditionType == gatewayv1.RouteConditionAccepted &&
+					statusErr.reason == gatewayv1.RouteReasonUnsupportedValue &&
+					statusErr.message == programErr.Error()
+			})).Return(nil)
+
+			result, err := controller.Reconcile(t.Context(), req)
+
+			require.NoError(t, err)
+			assertDriftRequeue(t, result, controller.driftInterval)
+		})
+
 		t.Run("does not retry when parent Gateway rejects programming", func(t *testing.T) {
 			fake := faker.New()
 			deps := newMockDeps(t)

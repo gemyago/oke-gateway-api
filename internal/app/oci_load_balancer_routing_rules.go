@@ -3,7 +3,6 @@ package app
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/samber/lo"
@@ -12,36 +11,66 @@ import (
 
 var errUnsupportedMatch = errors.New("unsupported match type")
 
-// Allow alphanumeric characters, hyphens, underscores, and escaped dots.
-var startsWithExpression = regexp.MustCompile(`^\^([a-zA-Z0-9\-_\\\.]+?)(?:\.\*)?$`)
-
-// Allow alphanumeric characters, hyphens, underscores, and escaped dots.
-var endsWithExpression = regexp.MustCompile(`^([a-zA-Z0-9\-_\\\.]+?)\$$`)
-
-const expectedMatchesLength = 2
-
 // Returns the prefix and true if it matches, empty string and false otherwise.
 func parseRegexForStartsWith(pattern string) (string, bool) {
-	matches := startsWithExpression.FindStringSubmatch(pattern)
-	if len(matches) != expectedMatchesLength {
+	value, ok := strings.CutPrefix(pattern, "^")
+	if !ok {
 		return "", false
 	}
 
-	// Unescape dots in the prefix
-	prefix := strings.ReplaceAll(matches[1], "\\.", ".")
-	return prefix, true
+	value = strings.TrimSuffix(value, ".*$")
+	value = strings.TrimSuffix(value, ".*")
+	return parseRegexLiteral(value)
 }
 
 // Returns the suffix and true if it matches, empty string and false otherwise.
 func parseRegexForEndsWith(pattern string) (string, bool) {
-	matches := endsWithExpression.FindStringSubmatch(pattern)
-	if len(matches) != expectedMatchesLength {
+	value, ok := strings.CutSuffix(pattern, "$")
+	if !ok {
 		return "", false
 	}
 
-	// Unescape dots in the suffix
-	suffix := strings.ReplaceAll(matches[1], "\\.", ".")
-	return suffix, true
+	value = strings.TrimPrefix(value, ".*")
+	return parseRegexLiteral(value)
+}
+
+func parseRegexLiteral(value string) (string, bool) {
+	if value == "" {
+		return "", false
+	}
+
+	var literal strings.Builder
+	for index := 0; index < len(value); index++ {
+		if value[index] != '\\' {
+			if isRegexMetaCharacter(value[index]) {
+				return "", false
+			}
+			literal.WriteByte(value[index])
+			continue
+		}
+
+		index++
+		if index >= len(value) {
+			return "", false
+		}
+		switch value[index] {
+		case '.', '/', '\\':
+			literal.WriteByte(value[index])
+		default:
+			return "", false
+		}
+	}
+
+	return literal.String(), true
+}
+
+func isRegexMetaCharacter(value byte) bool {
+	switch value {
+	case '.', '^', '$', '*', '+', '?', '(', ')', '[', ']', '{', '}', '|':
+		return true
+	default:
+		return false
+	}
 }
 
 type ociLoadBalancerRoutingRulesMapper interface {
@@ -169,16 +198,20 @@ func mapHeaderMatchToCondition(headerMatch gatewayv1.HTTPHeaderMatch) (string, e
 }
 
 func mapRegexHeaderMatchToCondition(headerMatch gatewayv1.HTTPHeaderMatch) (string, error) {
-	if prefix, swMatched := parseRegexForStartsWith(headerMatch.Value); swMatched {
-		return fmt.Sprintf(`http.request.headers[(i '%s')][0] sw (i '%s')`, headerMatch.Name, prefix), nil
+	return mapRegexHeaderValueToCondition(string(headerMatch.Name), headerMatch.Value)
+}
+
+func mapRegexHeaderValueToCondition(headerName string, headerValue string) (string, error) {
+	if prefix, swMatched := parseRegexForStartsWith(headerValue); swMatched {
+		return fmt.Sprintf(`http.request.headers[(i '%s')][0] sw (i '%s')`, headerName, prefix), nil
 	}
-	if suffix, ewMatched := parseRegexForEndsWith(headerMatch.Value); ewMatched {
-		return fmt.Sprintf(`http.request.headers[(i '%s')][0] ew (i '%s')`, headerMatch.Name, suffix), nil
+	if suffix, ewMatched := parseRegexForEndsWith(headerValue); ewMatched {
+		return fmt.Sprintf(`http.request.headers[(i '%s')][0] ew (i '%s')`, headerName, suffix), nil
 	}
 	return "", fmt.Errorf(
 		"%w: regex header matching for header '%s'",
 		errUnsupportedMatch,
-		headerMatch.Name,
+		headerName,
 	)
 }
 
@@ -424,7 +457,13 @@ func mapGRPCHeaderMatchToCondition(headerMatch gatewayv1.GRPCHeaderMatch) (strin
 	if headerMatch.Type != nil {
 		headerType = *headerMatch.Type
 	}
-	if headerType != gatewayv1.GRPCHeaderMatchExact {
+
+	switch headerType {
+	case gatewayv1.GRPCHeaderMatchExact:
+		return fmt.Sprintf(`http.request.headers[(i '%s')] eq (i '%s')`, headerMatch.Name, headerMatch.Value), nil
+	case gatewayv1.GRPCHeaderMatchRegularExpression:
+		return mapRegexHeaderValueToCondition(string(headerMatch.Name), headerMatch.Value)
+	default:
 		return "", fmt.Errorf(
 			"%w: unsupported grpc header match type '%s' for header '%s'",
 			errUnsupportedMatch,
@@ -432,6 +471,4 @@ func mapGRPCHeaderMatchToCondition(headerMatch gatewayv1.GRPCHeaderMatch) (strin
 			headerMatch.Name,
 		)
 	}
-
-	return fmt.Sprintf(`http.request.headers[(i '%s')] eq (i '%s')`, headerMatch.Name, headerMatch.Value), nil
 }

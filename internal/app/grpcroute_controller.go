@@ -70,6 +70,14 @@ func (r *GRPCRouteController) handleProgramRouteError(
 	if errors.As(err, &statusErr) {
 		return true, r.rejectResolvedRoute(ctx, resolvedData, acceptedRoute, statusErr)
 	}
+	if errors.Is(err, errUnsupportedMatch) {
+		return true, r.rejectResolvedRoute(
+			ctx,
+			resolvedData,
+			acceptedRoute,
+			newGRPCRouteUnsupportedValueStatusError(err.Error()),
+		)
+	}
 	if isParentGatewayStatusError(err) {
 		r.logger.InfoContext(ctx, "GRPCRoute parent Gateway is not programmable",
 			slog.String("grpcRoute", resolvedData.grpcRoute.Name),

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -415,6 +416,43 @@ func TestGRPCRouteController(t *testing.T) {
 			setRejectedFunc: func(_ context.Context, details resolvedGRPCRouteDetails, gotErr grpcRouteStatusError) error {
 				assert.Equal(t, route.Name, details.grpcRoute.Name)
 				assert.Equal(t, statusErr, gotErr)
+				return nil
+			},
+		}
+
+		got, err := newController(routeModel, NewMockhttpBackendModel(t)).Reconcile(t.Context(), reconcile.Request{})
+
+		require.NoError(t, err)
+		assertDriftRequeue(t, got, 2*time.Minute)
+	})
+
+	t.Run("sets rejected status for unsupported programming matches", func(t *testing.T) {
+		route := makeRoute()
+		resolved := makeResolved(route)
+		service := corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: route.Namespace, Name: "grpc-svc"}}
+		programErr := fmt.Errorf("failed to map grpc route matches to condition: %w", errUnsupportedMatch)
+		routeModel := fakeGRPCRouteModel{
+			resolveRequestFunc: func(
+				_ context.Context,
+				_ reconcile.Request,
+			) (map[routeParentResultKey]resolvedGRPCRouteDetails, error) {
+				return resolvedMap(route, resolved), nil
+			},
+			isProgrammingRequiredFn: func(resolvedGRPCRouteDetails) bool { return true },
+			acceptRouteFunc: func(_ context.Context, details resolvedGRPCRouteDetails) (*gatewayv1.GRPCRoute, error) {
+				return &details.grpcRoute, nil
+			},
+			resolveBackendRefsFunc: func(context.Context, resolveGRPCBackendRefsParams) (map[string]corev1.Service, error) {
+				return map[string]corev1.Service{service.Namespace + "/" + service.Name: service}, nil
+			},
+			programRouteFunc: func(context.Context, programGRPCRouteParams) (programGRPCRouteResult, error) {
+				return programGRPCRouteResult{}, programErr
+			},
+			setRejectedFunc: func(_ context.Context, details resolvedGRPCRouteDetails, gotErr grpcRouteStatusError) error {
+				assert.Equal(t, route.Name, details.grpcRoute.Name)
+				assert.Equal(t, gatewayv1.RouteConditionAccepted, gotErr.conditionType)
+				assert.Equal(t, gatewayv1.RouteReasonUnsupportedValue, gotErr.reason)
+				assert.Equal(t, programErr.Error(), gotErr.message)
 				return nil
 			},
 		}

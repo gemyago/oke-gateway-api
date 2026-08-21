@@ -4274,6 +4274,56 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			ociLoadBalancerClient.AssertNotCalled(t, "UpdateRoutingPolicy")
 		})
 
+		t.Run("updates routing policy when rule condition changes", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+
+			loadBalancerID := fake.UUID().V4()
+			listenerName := fake.UUID().V4()
+			policyName := listenerPolicyName(listenerName)
+			ruleName := "http-" + fake.Lorem().Word()
+			existingRule := loadbalancer.RoutingRule{
+				Name:      new(ruleName),
+				Condition: new(`http.request.headers[(i 'Host')][0] sw (i 'old-prefix.')`),
+			}
+			desiredRule := loadbalancer.RoutingRule{
+				Name:      new(ruleName),
+				Condition: new(`http.request.headers[(i 'Host')][0] sw (i 'new-prefix.')`),
+			}
+
+			ociLoadBalancerClient.EXPECT().GetRoutingPolicy(t.Context(), loadbalancer.GetRoutingPolicyRequest{
+				RoutingPolicyName: new(policyName),
+				LoadBalancerId:    &loadBalancerID,
+			}).Return(loadbalancer.GetRoutingPolicyResponse{
+				RoutingPolicy: loadbalancer.RoutingPolicy{
+					Name:                     new(policyName),
+					Rules:                    []loadbalancer.RoutingRule{existingRule},
+					ConditionLanguageVersion: loadbalancer.RoutingPolicyConditionLanguageVersionV1,
+				},
+			}, nil)
+
+			workRequestID := fake.UUID().V4()
+			ociLoadBalancerClient.EXPECT().UpdateRoutingPolicy(t.Context(), mock.MatchedBy(
+				func(req loadbalancer.UpdateRoutingPolicyRequest) bool {
+					assert.Equal(t, []loadbalancer.RoutingRule{desiredRule}, req.UpdateRoutingPolicyDetails.Rules)
+					return true
+				},
+			)).Return(loadbalancer.UpdateRoutingPolicyResponse{
+				OpcWorkRequestId: &workRequestID,
+			}, nil)
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(nil)
+
+			err := model.commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID: loadBalancerID,
+				listenerName:   listenerName,
+				policyRules:    []loadbalancer.RoutingRule{desiredRule},
+			})
+			require.NoError(t, err)
+		})
+
 		t.Run("fail when get routing policy fails", func(t *testing.T) {
 			fake := faker.New()
 			deps := makeMockDeps(t)

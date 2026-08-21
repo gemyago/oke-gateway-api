@@ -297,6 +297,14 @@ func newHTTPRouteBackendNotFoundStatusError(message string) httpRouteStatusError
 	}
 }
 
+func newHTTPRouteUnsupportedValueStatusError(message string) httpRouteStatusError {
+	return httpRouteStatusError{
+		conditionType: gatewayv1.RouteConditionAccepted,
+		reason:        gatewayv1.RouteReasonUnsupportedValue,
+		message:       message,
+	}
+}
+
 // parentRefSameTarget checks if two parent references target the same resource.
 // It ignores the section name and port.
 func parentRefSameTarget(a, b gatewayv1.ParentReference) bool {

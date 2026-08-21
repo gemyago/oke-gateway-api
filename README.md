@@ -200,24 +200,37 @@ kubectl -n oke-gw delete deployment oke-gateway-example-server
 kubectl -n oke-gw delete httproute oke-gateway-example-server
 ```
 
-## HTTPRoute matching
+## Route Matching
 
 See [deploy/manifests/examples/serverroutes.yaml](./deploy/manifests/examples/serverroutes.yaml) for a complete HTTPRoute example.
 
-Following match types are supported:
+Following HTTPRoute match types are supported:
 - path: `PathPrefix` and `Exact`
+- header: `Exact` and `RegularExpression`
+
+Following GRPCRoute match types are supported:
+- service and method: `Exact`
 - header: `Exact` and `RegularExpression`
 
 ### Notes on **RegularExpression**
 
-OCI doesn't support regexp matching, instead start with (sw) or end with (ew) matching are possible. Due to this limitations, the below patterns only are supported, they will be mapped to corresponding OCI conditions:
+OCI Load Balancer routing policies do not support arbitrary regular expressions.
+The controller supports only regex header patterns that can be translated to OCI
+starts-with (`sw`) or ends-with (`ew`) conditions. The supported patterns are:
+
 - `^foo` -> `sw 'foo'`
 - `^foo.*` -> `sw 'foo'`
+- `^foo.*$` -> `sw 'foo'`
 - `^foo\\..*` -> `sw 'foo.'`
+- `^foo\\..*$` -> `sw 'foo.'`
 - `foo$` -> `ew 'foo'`
 - `.*foo$` -> `ew 'foo'`
 
-Other patterns will result in an error.
+Other patterns will result in an error and the route will be rejected. Use route
+header matches for regex host matching; `spec.hostnames` continues to support
+only standard Gateway API exact and wildcard hostnames. See
+[deploy/manifests/examples/header-regex-matching.yaml](./deploy/manifests/examples/header-regex-matching.yaml)
+for HTTPRoute and GRPCRoute examples.
 
 ### HTTPS
 
@@ -233,7 +246,7 @@ Gateway frontend mutual TLS is supported on OCI Load Balancer HTTPS and terminat
 
 `GRPCRoute` uses the standard Gateway API CRDs and is reconciled on OCI Load Balancer with the other layer 7 routes. It is not implemented on OCI Network Load Balancer. Use `TCPRoute` if you only need gRPC passthrough to pods.
 
-The controller supports gRPC host, service, method, and exact header matching. `HTTPRoute` and `GRPCRoute` can share the same HTTPS listener and hostname; `GRPCRoute` rules require a native gRPC `content-type` and are ordered before broad `HTTPRoute` matches. Hostname conditions match both the bare host and the same host with the listener port, which covers HTTP/2 clients that send `:authority` as `api.example.com:443`.
+The controller supports gRPC host, service, method, exact header, and supported regex header matching. `HTTPRoute` and `GRPCRoute` can share the same HTTPS listener and hostname; `GRPCRoute` rules require a native gRPC `content-type` and are ordered before broad `HTTPRoute` matches. Hostname conditions match both the bare host and the same host with the listener port, which covers HTTP/2 clients that send `:authority` as `api.example.com:443`.
 
 Backend TLS is not required just because a `GRPCRoute` is present. Add a `BackendTLSPolicy` only when OCI Load Balancer should use TLS or mTLS to the backend Service port. See [deploy/manifests/examples/grpcroute.yaml](./deploy/manifests/examples/grpcroute.yaml) for a minimal route example and [deploy/manifests/examples/grpcroute-shared-listener.yaml](./deploy/manifests/examples/grpcroute-shared-listener.yaml) for HTTPRoute and GRPCRoute sharing one HTTPS listener.
 
