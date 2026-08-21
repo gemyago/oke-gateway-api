@@ -1166,8 +1166,20 @@ func TestGatewayModelImpl(t *testing.T) {
 			model := newGatewayModel(deps)
 
 			config := makeRandomGatewayConfig()
+			fake := faker.New()
+			listenerPort := 8000 + fake.Int32Between(1, 1000)
+			firstListener := makeRandomListener(
+				randomListenerWithNameOpt(gatewayv1.SectionName("listener-"+fake.UUID().V4())),
+				randomListenerWithHTTPProtocolOpt(),
+			)
+			firstListener.Port = listenerPort
+			secondListener := makeRandomListener(
+				randomListenerWithNameOpt(gatewayv1.SectionName("listener-"+fake.UUID().V4())),
+				randomListenerWithHTTPProtocolOpt(),
+			)
+			secondListener.Port = listenerPort + 1
 			gateway := newRandomGateway(
-				randomGatewayWithRandomListenersOpt(),
+				randomGatewayWithListenersOpt(firstListener, secondListener),
 			)
 			gateway.Annotations = map[string]string{
 				GatewayProgrammedCertificatesAnnotation: "previous-cert",
