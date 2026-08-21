@@ -272,7 +272,7 @@ func (r *ociLoadBalancerRoutingRulesMapperImpl) mapHTTPRouteHostnamesAndMatchesT
 				continue
 			}
 			for _, matchCondition := range matchConditions {
-				conditions = append(conditions, "all("+hostCondition+", "+matchCondition+")")
+				conditions = append(conditions, allRoutingConditions(hostCondition, matchCondition))
 			}
 		}
 	}
@@ -343,9 +343,10 @@ func grpcContentTypeConditions() []string {
 }
 
 func allRoutingConditions(conditions ...string) string {
-	filteredConditions := lo.Filter(conditions, func(condition string, _ int) bool {
-		return condition != ""
-	})
+	filteredConditions := make([]string, 0, len(conditions))
+	for _, condition := range conditions {
+		filteredConditions = appendRoutingConditionParts(filteredConditions, condition)
+	}
 	if len(filteredConditions) == 0 {
 		return ""
 	}
@@ -353,6 +354,21 @@ func allRoutingConditions(conditions ...string) string {
 		return filteredConditions[0]
 	}
 	return "all(" + strings.Join(filteredConditions, ", ") + ")"
+}
+
+func appendRoutingConditionParts(conditions []string, condition string) []string {
+	if condition == "" {
+		return conditions
+	}
+	inner, ok := strings.CutPrefix(condition, "all(")
+	if !ok {
+		return append(conditions, condition)
+	}
+	inner, ok = strings.CutSuffix(inner, ")")
+	if !ok {
+		return append(conditions, condition)
+	}
+	return append(conditions, strings.Split(inner, ", ")...)
 }
 
 func (r *ociLoadBalancerRoutingRulesMapperImpl) mapGRPCRouteMatchesToCondition(
