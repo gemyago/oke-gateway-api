@@ -141,6 +141,13 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			assert.True(t, routingPolicyDefaultRuleDrifted(loadbalancer.RoutingPolicy{
 				Rules: []loadbalancer.RoutingRule{makeRandomOCIRoutingRule()},
 			}, defaultBackendSetName))
+			driftedDefaultRule := defaultCatchAllRoutingRule(defaultBackendSetName)
+			driftedDefaultRule.Actions = append(driftedDefaultRule.Actions, loadbalancer.ForwardToBackendSet{
+				BackendSetName: new("other-" + fake.Lorem().Word()),
+			})
+			assert.True(t, routingPolicyDefaultRuleDrifted(loadbalancer.RoutingPolicy{
+				Rules: []loadbalancer.RoutingRule{driftedDefaultRule},
+			}, defaultBackendSetName))
 			assert.False(t, routingPolicyDefaultRuleDrifted(loadbalancer.RoutingPolicy{
 				Rules: []loadbalancer.RoutingRule{defaultCatchAllRoutingRule(defaultBackendSetName)},
 			}, defaultBackendSetName))
@@ -4621,6 +4628,47 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					Name: new(policyName),
 					Rules: []loadbalancer.RoutingRule{
 						defaultCatchAllRoutingRule(backendSetName),
+					},
+				},
+			}
+
+			ociLoadBalancerClient.EXPECT().GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{
+				LoadBalancerId: &loadBalancerID,
+			}).Return(loadbalancer.GetLoadBalancerResponse{
+				LoadBalancer: loadBalancer,
+			}, nil).Once()
+
+			referenced, err := model.backendSetReferenced(t.Context(), loadBalancerID, backendSetName)
+
+			require.NoError(t, err)
+			assert.True(t, referenced)
+		})
+
+		t.Run("returns true when any routing rule action forwards to backend set", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+
+			loadBalancerID := fake.UUID().V4()
+			backendSetName := "backend-" + fake.Lorem().Word()
+			otherBackendSetName := "other-backend-" + fake.Lorem().Word()
+			policyName := "policy-" + fake.Lorem().Word()
+			ruleName := "rule-" + fake.Lorem().Word()
+			condition := "any(http.request.url.path sw '/')"
+			loadBalancer := makeRandomOCILoadBalancer()
+			loadBalancer.RoutingPolicies = map[string]loadbalancer.RoutingPolicy{
+				policyName: {
+					Name: new(policyName),
+					Rules: []loadbalancer.RoutingRule{
+						{
+							Name:      new(ruleName),
+							Condition: new(condition),
+							Actions: []loadbalancer.Action{
+								loadbalancer.ForwardToBackendSet{BackendSetName: new(otherBackendSetName)},
+								loadbalancer.ForwardToBackendSet{BackendSetName: new(backendSetName)},
+							},
+						},
 					},
 				},
 			}

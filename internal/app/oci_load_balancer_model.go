@@ -768,16 +768,19 @@ func defaultCatchAllRoutingRule(defaultBackendSetName string) loadbalancer.Routi
 }
 
 func routingRuleForwardsToBackendSet(rule loadbalancer.RoutingRule, backendSetName string) bool {
-	if len(rule.Actions) != 1 {
-		return false
+	for _, action := range rule.Actions {
+		forward, ok := action.(loadbalancer.ForwardToBackendSet)
+		if ok && lo.FromPtr(forward.BackendSetName) == backendSetName {
+			return true
+		}
 	}
-	forward, ok := rule.Actions[0].(loadbalancer.ForwardToBackendSet)
-	return ok && lo.FromPtr(forward.BackendSetName) == backendSetName
+	return false
 }
 
 func defaultCatchAllRuleMatches(rule loadbalancer.RoutingRule, defaultBackendSetName string) bool {
 	return lo.FromPtr(rule.Name) == defaultCatchAllRuleName &&
 		lo.FromPtr(rule.Condition) == "any(http.request.url.path sw '/')" &&
+		len(rule.Actions) == 1 &&
 		routingRuleForwardsToBackendSet(rule, defaultBackendSetName)
 }
 
