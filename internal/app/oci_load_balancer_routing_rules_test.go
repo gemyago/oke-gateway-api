@@ -372,6 +372,30 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				}
 			},
 			func() testCase {
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
+				pathPrefix := fake.Lorem().Word()
+				pathSuffix := fake.Lorem().Word()
+				return testCase{
+					name: "regex header match - ends with escaped slash and backslash suffix",
+					match: gatewayv1.HTTPRouteMatch{
+						Headers: []gatewayv1.HTTPHeaderMatch{
+							{
+								Type:  lo.ToPtr(gatewayv1.HeaderMatchRegularExpression),
+								Name:  gatewayv1.HTTPHeaderName(headerName),
+								Value: fmt.Sprintf(`.*%s\/\\%s$`, pathPrefix, pathSuffix),
+							},
+						},
+					},
+					want: fmt.Sprintf(
+						`http.request.headers[(i '%s')][0] ew (i '%s/\%s')`,
+						headerName,
+						pathPrefix,
+						pathSuffix,
+					),
+				}
+			},
+			func() testCase {
 				return testCase{
 					name: "regex header match - rejects mixed prefix and suffix",
 					match: gatewayv1.HTTPRouteMatch{
