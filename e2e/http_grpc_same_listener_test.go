@@ -2,9 +2,12 @@ package e2e
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +19,7 @@ import (
 
 	"github.com/gemyago/oke-gateway-api/e2e/internal/diag"
 	"github.com/gemyago/oke-gateway-api/e2e/internal/e2ek8s"
+	"github.com/gemyago/oke-gateway-api/e2e/internal/probe"
 )
 
 func testHTTPGRPCSameListenerProtocol(t *testing.T, live *liveFixture) {
@@ -32,6 +36,7 @@ func testHTTPGRPCSameListenerProtocol(t *testing.T, live *liveFixture) {
 	grpcRouteName := "grpc-" + suffix
 	backendName := "backend-" + suffix
 	secretName := "tls-" + suffix
+	responseText := "grpc same listener " + suffix
 
 	logTestProgress(
 		ctx,
@@ -68,7 +73,7 @@ func testHTTPGRPCSameListenerProtocol(t *testing.T, live *liveFixture) {
 		e2ek8s.StaticHTTPDeploymentOptions{
 			Namespace:    gatewayNamespace.namespaceName,
 			Name:         backendName,
-			ResponseText: "grpc same listener " + suffix,
+			ResponseText: responseText,
 		},
 	)))
 	_, err = e2ek8s.WaitForDeploymentReady(ctx, live.kubeClient.Client, gatewayNamespace.namespaceName, backendName, nil)
@@ -159,6 +164,46 @@ func testHTTPGRPCSameListenerProtocol(t *testing.T, live *liveFixture) {
 		string(listenerName),
 		"GRPC",
 	))
+
+	rootCAs := x509.NewCertPool()
+	require.True(t, rootCAs.AppendCertsFromPEM(caBundle.certPEM))
+	probeClient, err := probe.NewClient(live.publicIP, int(listenerPort), &probe.ClientOptions{
+		Scheme: "https",
+		HTTPClient: &http.Client{
+			Timeout: 15 * time.Second,
+			Transport: &http.Transport{
+				DisableKeepAlives: true,
+				TLSClientConfig: &tls.Config{
+					MinVersion: tls.VersionTLS12,
+					RootCAs:    rootCAs,
+					ServerName: string(host),
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = probe.WaitForResponse(
+		ctx,
+		probeClient,
+		"/",
+		&probe.RequestOptions{Host: string(host)},
+		nil,
+		"wait for HTTPRoute response on shared GRPC listener",
+		func(response *probe.Response) (bool, string) {
+			switch {
+			case response == nil:
+				return false, "no response received"
+			case response.StatusCode != http.StatusOK:
+				return false, fmt.Sprintf("received status %d", response.StatusCode)
+			case response.BodyString() != responseText:
+				return false, fmt.Sprintf("received body %q", response.BodyString())
+			default:
+				return true, ""
+			}
+		},
+	)
+	require.NoError(t, err)
 }
 
 func waitForOCIListenerProtocol(

@@ -153,7 +153,6 @@ type programL7RoutePolicyParams struct {
 	makeRoutingRule     func(ruleIndex int, listenerPort gatewayv1.PortNumber) (loadbalancer.RoutingRule, error)
 	backendTLSPolicy    backendTLSPolicyModel
 	backendTLSDisabled  bool
-	backendTLSRequired  func(service v1.Service, backendRef gatewayv1.BackendRef) error
 }
 
 type programL7RouteParams struct {
@@ -170,7 +169,6 @@ type programL7RouteParams struct {
 	policyRulesAnnotation string
 	backendSetsAnnotation string
 	makeRoutingRule       func(ruleIndex int, listenerPort gatewayv1.PortNumber) (loadbalancer.RoutingRule, error)
-	backendTLSRequired    func(service v1.Service, backendRef gatewayv1.BackendRef) error
 }
 
 type setL7RouteProgrammedParams struct {
@@ -1315,7 +1313,6 @@ func programL7Route(
 		previousBackendSets: previousBackendSets,
 		backendTLSPolicy:    params.backendTLSPolicy,
 		backendTLSDisabled:  params.backendTLSDisabled,
-		backendTLSRequired:  params.backendTLSRequired,
 		ruleCount:           params.ruleCount,
 		makeRoutingRule:     params.makeRoutingRule,
 	})
@@ -1436,9 +1433,6 @@ func resolveL7BackendSSLConfig(
 	backendRef gatewayv1.BackendRef,
 ) (*loadbalancer.SslConfigurationDetails, bool, error) {
 	if params.backendTLSDisabled || params.backendTLSPolicy == nil {
-		if params.backendTLSRequired != nil {
-			return nil, false, params.backendTLSRequired(service, backendRef)
-		}
 		return nil, false, nil
 	}
 	sslConfig, err := params.backendTLSPolicy.resolveForBackendRef(ctx, resolveBackendTLSPolicyParams{
@@ -1448,20 +1442,11 @@ func resolveL7BackendSSLConfig(
 		backendRef: backendRef,
 	})
 	if errors.Is(err, errBackendTLSPolicyNotFound) {
-		if params.backendTLSRequired != nil {
-			return nil, true, params.backendTLSRequired(service, backendRef)
-		}
 		return nil, true, nil
 	}
 	var statusErr backendTLSPolicyStatusError
 	if errors.As(err, &statusErr) {
-		if params.backendTLSRequired != nil {
-			return nil, true, params.backendTLSRequired(service, backendRef)
-		}
 		return nil, true, nil
-	}
-	if err == nil && sslConfig == nil && params.backendTLSRequired != nil {
-		return nil, true, params.backendTLSRequired(service, backendRef)
 	}
 	return sslConfig, true, err
 }
