@@ -923,6 +923,173 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 		})
 	})
 
+	t.Run("allRoutingConditions", func(t *testing.T) {
+		fake := faker.New()
+		hostCondition := fmt.Sprintf(
+			"http.request.headers[(i 'host')] eq (i '%s')",
+			"api-"+fake.Internet().Domain(),
+		)
+		pathCondition := fmt.Sprintf("http.request.url.path sw '/%s'", fake.Lorem().Word())
+		headerCondition := fmt.Sprintf(
+			"http.request.headers[(i 'accept')] eq (i '%s, %s')",
+			"text/"+fake.Lorem().Word(),
+			"application/"+fake.Lorem().Word(),
+		)
+		nestedCondition := fmt.Sprintf(
+			"any(%s, %s)",
+			fmt.Sprintf("http.request.headers[(i 'x-first')] eq (i '%s')", fake.UUID().V4()),
+			fmt.Sprintf("http.request.headers[(i 'x-second')] eq (i '%s')", fake.UUID().V4()),
+		)
+
+		tests := []struct {
+			name       string
+			conditions []string
+			want       string
+		}{
+			{
+				name: "flattens simple all condition",
+				conditions: []string{
+					hostCondition,
+					fmt.Sprintf("all(%s, %s)", pathCondition, nestedCondition),
+				},
+				want: fmt.Sprintf("all(%s, %s, %s)", hostCondition, pathCondition, nestedCondition),
+			},
+			{
+				name: "does not split comma inside literal",
+				conditions: []string{
+					hostCondition,
+					fmt.Sprintf("all(%s, %s)", pathCondition, headerCondition),
+				},
+				want: fmt.Sprintf("all(%s, %s, %s)", hostCondition, pathCondition, headerCondition),
+			},
+			{
+				name: "does not split comma inside nested condition",
+				conditions: []string{
+					hostCondition,
+					fmt.Sprintf("all(%s, %s)", nestedCondition, pathCondition),
+				},
+				want: fmt.Sprintf("all(%s, %s, %s)", hostCondition, nestedCondition, pathCondition),
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				assert.Equal(t, tc.want, allRoutingConditions(tc.conditions...))
+			})
+		}
+	})
+
+	t.Run("appendRoutingConditionParts", func(t *testing.T) {
+		fake := faker.New()
+		pathCondition := fmt.Sprintf("http.request.url.path sw '/%s'", fake.Lorem().Word())
+		headerCondition := fmt.Sprintf(
+			"http.request.headers[(i 'accept')] eq (i '%s, %s')",
+			"text/"+fake.Lorem().Word(),
+			"application/"+fake.Lorem().Word(),
+		)
+		nestedCondition := fmt.Sprintf(
+			"any(%s, %s)",
+			fmt.Sprintf("http.request.headers[(i 'x-first')] eq (i '%s')", fake.UUID().V4()),
+			fmt.Sprintf("http.request.headers[(i 'x-second')] eq (i '%s')", fake.UUID().V4()),
+		)
+
+		tests := []struct {
+			name      string
+			condition string
+			want      []string
+		}{
+			{
+				name:      "flattens simple all condition",
+				condition: fmt.Sprintf("all(%s, %s)", pathCondition, headerCondition),
+				want:      []string{pathCondition, headerCondition},
+			},
+			{
+				name:      "does not split comma inside literal",
+				condition: fmt.Sprintf("all(%s, %s)", headerCondition, pathCondition),
+				want:      []string{headerCondition, pathCondition},
+			},
+			{
+				name:      "does not split comma inside nested condition",
+				condition: fmt.Sprintf("all(%s, %s)", nestedCondition, pathCondition),
+				want:      []string{nestedCondition, pathCondition},
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				assert.Equal(t, tc.want, appendRoutingConditionParts(nil, tc.condition))
+			})
+		}
+	})
+
+	t.Run("splitOCIConditionArguments", func(t *testing.T) {
+		fake := faker.New()
+		firstCondition := fmt.Sprintf("http.request.url.path sw '/%s'", fake.Lorem().Word())
+		secondCondition := fmt.Sprintf(
+			"http.request.headers[(i 'x-%s')] eq (i '%s')",
+			fake.Lorem().Word(),
+			fake.UUID().V4(),
+		)
+
+		tests := []struct {
+			name   string
+			value  string
+			want   []string
+			wantOK bool
+		}{
+			{
+				name:   "splits top level arguments",
+				value:  fmt.Sprintf("%s, %s", firstCondition, secondCondition),
+				want:   []string{firstCondition, secondCondition},
+				wantOK: true,
+			},
+			{
+				name:   "rejects empty input",
+				value:  "",
+				wantOK: false,
+			},
+			{
+				name:   "rejects comma without following space",
+				value:  fmt.Sprintf("%s,%s", firstCondition, secondCondition),
+				wantOK: false,
+			},
+			{
+				name:   "rejects empty first argument",
+				value:  ", " + secondCondition,
+				wantOK: false,
+			},
+			{
+				name:   "rejects empty final argument",
+				value:  firstCondition + ", ",
+				wantOK: false,
+			},
+			{
+				name:   "rejects unmatched literal",
+				value:  fmt.Sprintf("%s, http.request.url.path sw '/%s", firstCondition, fake.Lorem().Word()),
+				wantOK: false,
+			},
+			{
+				name:   "rejects unbalanced open paren",
+				value:  fmt.Sprintf("any(%s, %s", firstCondition, secondCondition),
+				wantOK: false,
+			},
+			{
+				name:   "rejects unbalanced close paren",
+				value:  fmt.Sprintf("%s), %s", firstCondition, secondCondition),
+				wantOK: false,
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				got, ok := splitOCIConditionArguments(tc.value)
+
+				assert.Equal(t, tc.wantOK, ok)
+				assert.Equal(t, tc.want, got)
+			})
+		}
+	})
+
 	t.Run("mapGRPCRouteHostnamesAndMatchesToCondition", func(t *testing.T) {
 		grpcBranches := func(prefix []string, suffix ...string) string {
 			branches := make([]string, 0, len(grpcContentTypeConditions()))

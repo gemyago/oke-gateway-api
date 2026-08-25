@@ -11,6 +11,8 @@ import (
 
 var errUnsupportedMatch = errors.New("unsupported match type")
 
+const conditionArgumentSeparatorLength = len(", ")
+
 // Returns the prefix and true if it matches, empty string and false otherwise.
 func parseRegexForStartsWith(pattern string) (string, bool) {
 	value, ok := strings.CutPrefix(pattern, "^")
@@ -378,7 +380,87 @@ func appendRoutingConditionParts(conditions []string, condition string) []string
 	if !ok {
 		return append(conditions, condition)
 	}
-	return append(conditions, strings.Split(inner, ", ")...)
+	parts, ok := splitOCIConditionArguments(inner)
+	if !ok {
+		return append(conditions, condition)
+	}
+	return append(conditions, parts...)
+}
+
+func splitOCIConditionArguments(value string) ([]string, bool) {
+	if value == "" {
+		return nil, false
+	}
+
+	var parts []string
+	start := 0
+	depth := 0
+	inLiteral := false
+	for index := 0; index < len(value); index++ {
+		char := value[index]
+		if char == '\'' {
+			inLiteral = !inLiteral
+			continue
+		}
+		if inLiteral {
+			continue
+		}
+
+		nextDepth, ok := updateOCIConditionDepth(depth, char)
+		if !ok {
+			return nil, false
+		}
+		depth = nextDepth
+		if char != ',' || depth != 0 {
+			continue
+		}
+
+		if !hasOCIConditionArgumentSeparator(value, index) {
+			return nil, false
+		}
+		var part string
+		part, ok = trimOCIConditionArgument(value[start:index])
+		if !ok {
+			return nil, false
+		}
+		parts = append(parts, part)
+		start = index + conditionArgumentSeparatorLength
+		index++
+	}
+	if inLiteral || depth != 0 {
+		return nil, false
+	}
+
+	part, ok := trimOCIConditionArgument(value[start:])
+	if !ok {
+		return nil, false
+	}
+	parts = append(parts, part)
+	return parts, true
+}
+
+func updateOCIConditionDepth(depth int, value byte) (int, bool) {
+	switch value {
+	case '(':
+		return depth + 1, true
+	case ')':
+		depth--
+		return depth, depth >= 0
+	default:
+		return depth, true
+	}
+}
+
+func hasOCIConditionArgumentSeparator(value string, index int) bool {
+	return index+1 < len(value) && value[index+1] == ' '
+}
+
+func trimOCIConditionArgument(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", false
+	}
+	return value, true
 }
 
 func (r *ociLoadBalancerRoutingRulesMapperImpl) mapGRPCRouteMatchesToCondition(
