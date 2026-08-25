@@ -41,6 +41,16 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 				wantOK: false,
 			},
 			{
+				name:   "rejects single quote",
+				value:  `api'admin`,
+				wantOK: false,
+			},
+			{
+				name:   "rejects control character",
+				value:  "api\nadmin",
+				wantOK: false,
+			},
+			{
 				name:   "unescapes slash dot and backslash",
 				value:  `v1\/api\.example\\internal`,
 				want:   `v1/api.example\internal`,
@@ -421,6 +431,40 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 								Type:  lo.ToPtr(gatewayv1.HeaderMatchRegularExpression),
 								Name:  gatewayv1.HTTPHeaderName(headerName),
 								Value: "^[a-z]+$",
+							},
+						},
+					},
+					wantErrIs: errUnsupportedMatch,
+				}
+			},
+			func() testCase {
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
+				return testCase{
+					name: "regex header match - rejects single quote in translated prefix",
+					match: gatewayv1.HTTPRouteMatch{
+						Headers: []gatewayv1.HTTPHeaderMatch{
+							{
+								Type:  lo.ToPtr(gatewayv1.HeaderMatchRegularExpression),
+								Name:  gatewayv1.HTTPHeaderName(headerName),
+								Value: "^tenant'" + fake.Lorem().Word() + ".*",
+							},
+						},
+					},
+					wantErrIs: errUnsupportedMatch,
+				}
+			},
+			func() testCase {
+				fake := faker.New()
+				headerName := "X-" + fake.Lorem().Word()
+				return testCase{
+					name: "regex header match - rejects control character in translated suffix",
+					match: gatewayv1.HTTPRouteMatch{
+						Headers: []gatewayv1.HTTPHeaderMatch{
+							{
+								Type:  lo.ToPtr(gatewayv1.HeaderMatchRegularExpression),
+								Name:  gatewayv1.HTTPHeaderName(headerName),
+								Value: ".*tenant\n" + fake.Lorem().Word() + "$",
 							},
 						},
 					},
@@ -1245,6 +1289,30 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 								Type:  &headerType,
 								Name:  "Host",
 								Value: `^api-[0-9]+\.example\.com$`,
+							},
+						},
+					},
+				},
+			)
+
+			require.ErrorIs(t, err, errUnsupportedMatch)
+		})
+
+		t.Run("rejects unsafe regex header matching", func(t *testing.T) {
+			fake := faker.New()
+			headerType := gatewayv1.GRPCHeaderMatchRegularExpression
+
+			rs := newOciLoadBalancerRoutingRulesMapper()
+			_, err := rs.mapGRPCRouteHostnamesAndMatchesToCondition(
+				nil,
+				0,
+				[]gatewayv1.GRPCRouteMatch{
+					{
+						Headers: []gatewayv1.GRPCHeaderMatch{
+							{
+								Type:  &headerType,
+								Name:  gatewayv1.GRPCHeaderName("x-" + fake.Lorem().Word()),
+								Value: ".*tenant'" + fake.Lorem().Word() + "$",
 							},
 						},
 					},

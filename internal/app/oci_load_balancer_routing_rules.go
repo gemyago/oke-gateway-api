@@ -42,6 +42,9 @@ func parseRegexLiteral(value string) (string, bool) {
 	var literal strings.Builder
 	for index := 0; index < len(value); index++ {
 		if value[index] != '\\' {
+			if !isOCIConditionLiteralByte(value[index]) {
+				return "", false
+			}
 			if isRegexMetaCharacter(value[index]) {
 				return "", false
 			}
@@ -55,6 +58,9 @@ func parseRegexLiteral(value string) (string, bool) {
 		}
 		switch value[index] {
 		case '.', '/', '\\':
+			if !isOCIConditionLiteralByte(value[index]) {
+				return "", false
+			}
 			literal.WriteByte(value[index])
 		default:
 			return "", false
@@ -71,6 +77,10 @@ func isRegexMetaCharacter(value byte) bool {
 	default:
 		return false
 	}
+}
+
+func isOCIConditionLiteralByte(value byte) bool {
+	return value >= 0x20 && value != 0x7f && value != '\''
 }
 
 type ociLoadBalancerRoutingRulesMapper interface {
