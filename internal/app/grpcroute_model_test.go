@@ -1553,7 +1553,6 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		listener := makeRandomListener()
 		wantErr := errors.New(fake.Lorem().Sentence(10))
 
-		ociLBModel.EXPECT().reconcileBackendSet(t.Context(), mock.Anything).Return(nil).Once()
 		ociLBModel.EXPECT().
 			makeGRPCRoutingRule(t.Context(), makeGRPCRoutingRuleParams{
 				grpcRoute:          route,
@@ -1573,6 +1572,43 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		})
 
 		require.ErrorIs(t, err, wantErr)
+	})
+
+	t.Run("programRoute does not reconcile backend sets when routing rule validation fails", func(t *testing.T) {
+		fake := faker.New()
+		deps := newMockDeps(t)
+		model := newGRPCRouteModel(deps)
+		ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+		backendRef := makeGRPCBackendRef()
+		route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+			route.Spec.Rules = []gatewayv1.GRPCRouteRule{{BackendRefs: []gatewayv1.GRPCBackendRef{backendRef}}}
+		})
+		config := makeRandomGatewayConfig()
+		service := corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Namespace: route.Namespace, Name: string(backendRef.Name)},
+		}
+		listener := makeRandomListener()
+		wantErr := fmt.Errorf("unsupported rule %s: %w", fake.Lorem().Word(), errUnsupportedMatch)
+
+		ociLBModel.EXPECT().
+			makeGRPCRoutingRule(t.Context(), makeGRPCRoutingRuleParams{
+				grpcRoute:          route,
+				grpcRouteRuleIndex: 0,
+				listenerPort:       listener.Port,
+			}).
+			Return(loadbalancer.RoutingRule{}, wantErr).
+			Once()
+
+		_, err := model.programRoute(t.Context(), programGRPCRouteParams{
+			config:        config,
+			grpcRoute:     route,
+			knownBackends: map[string]corev1.Service{service.Namespace + "/" + service.Name: service},
+			matchedListeners: []gatewayv1.Listener{
+				listener,
+			},
+		})
+
+		require.ErrorIs(t, err, errUnsupportedMatch)
 	})
 
 	t.Run("setProgrammed", func(t *testing.T) {

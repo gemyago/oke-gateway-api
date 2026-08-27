@@ -228,7 +228,9 @@ starts-with (`sw`) or ends-with (`ew`) conditions. The supported patterns are:
 
 Other patterns will result in an error and the route will be rejected. Use route
 header matches for regex host matching; `spec.hostnames` continues to support
-only standard Gateway API exact and wildcard hostnames. See
+only standard Gateway API exact and wildcard hostnames. Translated regex header
+matches use OCI case-insensitive string literals, so supported prefix and suffix
+comparisons are case-insensitive. See
 [deploy/manifests/examples/header-regex-matching.yaml](./deploy/manifests/examples/header-regex-matching.yaml)
 for HTTPRoute and GRPCRoute examples.
 

@@ -2533,6 +2533,9 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
 
+			rule := makeRandomOCIRoutingRule()
+			ociLBModel.EXPECT().makeRoutingRule(t.Context(), mock.Anything).Return(rule, nil)
+
 			wantErr := errors.New(fake.Lorem().Sentence(10))
 
 			// First service reconciliation fails
@@ -2576,9 +2579,6 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
 
-			// Backend set reconciliation succeeds
-			ociLBModel.EXPECT().reconcileBackendSet(t.Context(), mock.Anything).Return(nil)
-
 			wantErr := errors.New(fake.Lorem().Sentence(10))
 
 			// Making routing rule fails
@@ -2587,6 +2587,43 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			_, err := model.programRoute(t.Context(), params)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("does not reconcile backend sets when routing rule validation fails", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			gateway := newRandomGateway()
+			config := makeRandomGatewayConfig()
+			backendRef := makeRandomBackendRef()
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef)),
+				),
+			)
+			service := makeRandomService(randomServiceFromBackendRef(backendRef, &httpRoute))
+			services := map[string]corev1.Service{
+				types.NamespacedName{Namespace: service.Namespace, Name: service.Name}.String(): service,
+			}
+			listener := makeRandomListener()
+			wantErr := fmt.Errorf("unsupported rule %s: %w", fake.Lorem().Word(), errUnsupportedMatch)
+
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			ociLBModel.EXPECT().
+				makeRoutingRule(t.Context(), mock.Anything).
+				Return(loadbalancer.RoutingRule{}, wantErr).
+				Once()
+
+			_, err := model.programRoute(t.Context(), programRouteParams{
+				gateway:          *gateway,
+				config:           config,
+				httpRoute:        httpRoute,
+				knownBackends:    services,
+				matchedListeners: []gatewayv1.Listener{listener},
+			})
+
+			require.ErrorIs(t, err, errUnsupportedMatch)
 		})
 
 		t.Run("fails when commitRoutingPolicyV2 fails", func(t *testing.T) {

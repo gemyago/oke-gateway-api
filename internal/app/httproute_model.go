@@ -1219,18 +1219,18 @@ func programL7RoutePolicy(
 	ociLoadBalancerModel ociLoadBalancerModel,
 	params programL7RoutePolicyParams,
 ) ([]string, []string, error) {
+	if err := validateResolvedL7BackendRefs(params); err != nil {
+		return nil, nil, err
+	}
+
+	policyRulesByListener, policyRuleNames, buildErr := buildL7RoutingRulesByListener(params)
+	if buildErr != nil {
+		return nil, nil, buildErr
+	}
+
 	desiredBackendSets, reconcileErr := reconcileL7BackendSets(ctx, ociLoadBalancerModel, params)
 	if reconcileErr != nil {
 		return nil, nil, reconcileErr
-	}
-
-	policyRuleNames := make([]string, 0, params.ruleCount)
-	recordPolicyRuleName := func(rule loadbalancer.RoutingRule) {
-		ruleName := lo.FromPtr(rule.Name)
-		if ruleName == "" || lo.Contains(policyRuleNames, ruleName) {
-			return
-		}
-		policyRuleNames = append(policyRuleNames, ruleName)
 	}
 
 	prevRulesByListener := previousPolicyRulesByListener(params.previousPolicyRules, params.matchedListeners)
@@ -1242,26 +1242,11 @@ func programL7RoutePolicy(
 	)
 
 	for _, listener := range params.matchedListeners {
-		policyRules := make([]loadbalancer.RoutingRule, 0, params.ruleCount)
-		for ruleIndex := range params.ruleCount {
-			rule, err := params.makeRoutingRule(ruleIndex, listener.Port)
-			if err != nil {
-				return nil, nil, fmt.Errorf(
-					"failed to make routing rule %d for route %s: %w",
-					ruleIndex,
-					params.routeName,
-					err,
-				)
-			}
-			policyRules = append(policyRules, rule)
-			recordPolicyRuleName(rule)
-		}
-
 		listenerName := string(listener.Name)
 		err := ociLoadBalancerModel.commitRoutingPolicy(ctx, commitRoutingPolicyParams{
 			loadBalancerID:  params.loadBalancerID,
 			listenerName:    listenerName,
-			policyRules:     policyRules,
+			policyRules:     policyRulesByListener[listenerName],
 			prevPolicyRules: prevRulesByListener[listenerName],
 		})
 		if err != nil {
@@ -1295,6 +1280,57 @@ func programL7RoutePolicy(
 	return programmedHTTPRoutePolicyRulesAnnotation(params.matchedListeners, policyRuleNames),
 		programmedBackendSets,
 		nil
+}
+
+func buildL7RoutingRulesByListener(
+	params programL7RoutePolicyParams,
+) (map[string][]loadbalancer.RoutingRule, []string, error) {
+	policyRulesByListener := make(map[string][]loadbalancer.RoutingRule, len(params.matchedListeners))
+	policyRuleNames := make([]string, 0, params.ruleCount)
+	recordPolicyRuleName := func(rule loadbalancer.RoutingRule) {
+		ruleName := lo.FromPtr(rule.Name)
+		if ruleName == "" || lo.Contains(policyRuleNames, ruleName) {
+			return
+		}
+		policyRuleNames = append(policyRuleNames, ruleName)
+	}
+
+	for _, listener := range params.matchedListeners {
+		listenerName := string(listener.Name)
+		policyRules := make([]loadbalancer.RoutingRule, 0, params.ruleCount)
+		for ruleIndex := range params.ruleCount {
+			rule, err := params.makeRoutingRule(ruleIndex, listener.Port)
+			if err != nil {
+				return nil, nil, fmt.Errorf(
+					"failed to make routing rule %d for route %s: %w",
+					ruleIndex,
+					params.routeName,
+					err,
+				)
+			}
+			policyRules = append(policyRules, rule)
+			recordPolicyRuleName(rule)
+		}
+		policyRulesByListener[listenerName] = policyRules
+	}
+
+	return policyRulesByListener, policyRuleNames, nil
+}
+
+func validateResolvedL7BackendRefs(params programL7RoutePolicyParams) error {
+	processedBackendRefs := make(map[string]struct{})
+	for _, backendRef := range params.backendRefs {
+		key := l7BackendRefKey(backendRef, params.routeNamespace)
+		if _, ok := processedBackendRefs[key]; ok {
+			continue
+		}
+		serviceName := backendObjectRefName(backendRef.BackendObjectReference, params.routeNamespace).String()
+		if _, ok := params.knownBackends[serviceName]; !ok {
+			return fmt.Errorf("resolved backend service %s not found", serviceName)
+		}
+		processedBackendRefs[key] = struct{}{}
+	}
+	return nil
 }
 
 func programL7Route(
