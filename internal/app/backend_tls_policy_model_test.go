@@ -44,6 +44,7 @@ type stubCertificatesManagementClient struct {
 	createCalls        []certificatesmanagement.CreateCaBundleRequest
 	updateCalls        []certificatesmanagement.UpdateCaBundleRequest
 	deleteCalls        []certificatesmanagement.DeleteCaBundleRequest
+	listCalls          []certificatesmanagement.ListCaBundlesRequest
 	getErrByID         map[string]error
 	createErr          error
 	createErrByName    map[string]error
@@ -119,6 +120,7 @@ func (s *stubCertificatesManagementClient) ListCaBundles(
 	_ context.Context,
 	request certificatesmanagement.ListCaBundlesRequest,
 ) (certificatesmanagement.ListCaBundlesResponse, error) {
+	s.listCalls = append(s.listCalls, request)
 	if s.listErr != nil {
 		return certificatesmanagement.ListCaBundlesResponse{}, s.listErr
 	}
@@ -866,6 +868,84 @@ func TestBackendTLSPolicyModelValidationAndLifecycle(t *testing.T) {
 		assert.Equal(t, bundleID, caID)
 		assert.Empty(t, certsClient.createCalls)
 		assert.Empty(t, certsClient.updateCalls)
+	})
+
+	t.Run("caches resolved OCI CA bundle during repeated backend TLS resolution", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "cache-reuse", serviceName, "tls", baseOptions, "ca")
+		targetRef := policy.Spec.TargetRefs[0]
+		ref := policy.Spec.Validation.CACertificateRefs[0]
+		name := backendTLSCABundleName(policy, targetRef, ref)
+		caPEM := testCAPEM(t)
+		certsClient := newStubCertificatesManagementClient()
+		bundleID := "ocid1.cabundle.oc1..cachereuse"
+		certsClient.bundles[name] = certificatesmanagement.CaBundleSummary{
+			Id:           &bundleID,
+			Name:         &name,
+			FreeformTags: backendTLSCABundleTags(policy, sha256Hex(caPEM)),
+		}
+		model, _ := makeModel(t, certsClient)
+
+		firstCAID, err := model.ensureOCIManagedCABundle(t.Context(), policy, targetRef, ref, compartmentID, caPEM)
+		require.NoError(t, err)
+		secondCAID, err := model.ensureOCIManagedCABundle(t.Context(), policy, targetRef, ref, compartmentID, caPEM)
+
+		require.NoError(t, err)
+		assert.Equal(t, bundleID, firstCAID)
+		assert.Equal(t, bundleID, secondCAID)
+		assert.Len(t, certsClient.listCalls, 1)
+		assert.Empty(t, certsClient.createCalls)
+		assert.Empty(t, certsClient.updateCalls)
+	})
+
+	t.Run("re-resolves OCI CA bundle when referenced ConfigMap CA changes after cache fill", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "cache-rotate", serviceName, "tls", baseOptions, "ca")
+		targetRef := policy.Spec.TargetRefs[0]
+		ref := policy.Spec.Validation.CACertificateRefs[0]
+		name := backendTLSCABundleName(policy, targetRef, ref)
+		oldPEM := testCAPEM(t)
+		newPEM := testCAPEM(t)
+		certsClient := newStubCertificatesManagementClient()
+		bundleID := "ocid1.cabundle.oc1..cacherotate"
+		certsClient.bundles[name] = certificatesmanagement.CaBundleSummary{
+			Id:           &bundleID,
+			Name:         &name,
+			FreeformTags: backendTLSCABundleTags(policy, sha256Hex(oldPEM)),
+		}
+		model, _ := makeModel(t, certsClient)
+
+		firstCAID, err := model.ensureOCIManagedCABundle(t.Context(), policy, targetRef, ref, compartmentID, oldPEM)
+		require.NoError(t, err)
+		secondCAID, err := model.ensureOCIManagedCABundle(t.Context(), policy, targetRef, ref, compartmentID, newPEM)
+
+		require.NoError(t, err)
+		assert.Equal(t, bundleID, firstCAID)
+		assert.Equal(t, bundleID, secondCAID)
+		assert.Len(t, certsClient.listCalls, 2)
+		assert.Len(t, certsClient.updateCalls, 1)
+		assert.Equal(t, newPEM, lo.FromPtr(certsClient.updateCalls[0].UpdateCaBundleDetails.CaBundlePem))
+	})
+
+	t.Run("expires cached OCI CA bundle entries", func(t *testing.T) {
+		cache := newBackendTLSCABundleCache()
+		key := backendTLSCABundleCacheKey{
+			compartmentID: "ocid1.compartment.oc1.." + fakeData.UUID().V4(),
+			name:          "ca-" + fakeData.Lorem().Word(),
+			caHash:        fakeData.Hash().SHA256(),
+		}
+		now := time.Now()
+		cache.set(key, "", now)
+		_, matched := cache.get(key, now)
+		require.False(t, matched)
+
+		id := "ocid1.cabundle.oc1.." + fakeData.UUID().V4()
+		cache.set(key, id, now)
+		cachedID, matched := cache.get(key, now.Add(backendTLSCABundleCacheTTL-time.Second))
+		require.True(t, matched)
+		assert.Equal(t, id, cachedID)
+
+		_, matched = cache.get(key, now.Add(backendTLSCABundleCacheTTL))
+		require.False(t, matched)
+		assert.Empty(t, cache.entries)
 	})
 
 	t.Run("waits for existing owned OCI CA bundle to become active", func(t *testing.T) {

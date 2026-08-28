@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/certificatesmanagement"
@@ -42,6 +43,7 @@ const (
 	backendTLSManagedByValue             = "backend-tls-policy"
 	defaultBackendTLSVerifyDepth         = 3
 	backendTLSPolicyReasonPending        = gatewayv1.PolicyConditionReason("Pending")
+	backendTLSCABundleCacheTTL           = 2 * time.Minute
 )
 
 var (
@@ -69,6 +71,7 @@ type backendTLSPolicyModelImpl struct {
 	k8sClient          k8sClient
 	loadBalancerClient ociLoadBalancerClient
 	certsClient        ociCertificatesManagementClient
+	caBundleCache      *backendTLSCABundleCache
 }
 
 type backendTLSPolicyStatusError struct {
@@ -92,6 +95,54 @@ type backendTLSPolicyCandidate struct {
 type backendTLSResolvedCARef struct {
 	ref   gatewayv1.LocalObjectReference
 	caPEM string
+}
+
+type backendTLSCABundleCache struct {
+	mu      sync.Mutex
+	entries map[backendTLSCABundleCacheKey]backendTLSCABundleCacheEntry
+}
+
+type backendTLSCABundleCacheKey struct {
+	compartmentID string
+	name          string
+	caHash        string
+}
+
+type backendTLSCABundleCacheEntry struct {
+	id        string
+	expiresAt time.Time
+}
+
+func newBackendTLSCABundleCache() *backendTLSCABundleCache {
+	return &backendTLSCABundleCache{
+		entries: map[backendTLSCABundleCacheKey]backendTLSCABundleCacheEntry{},
+	}
+}
+
+func (c *backendTLSCABundleCache) get(key backendTLSCABundleCacheKey, now time.Time) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.entries[key]
+	if !ok {
+		return "", false
+	}
+	if !now.Before(entry.expiresAt) {
+		delete(c.entries, key)
+		return "", false
+	}
+	return entry.id, true
+}
+
+func (c *backendTLSCABundleCache) set(key backendTLSCABundleCacheKey, id string, now time.Time) {
+	if id == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries[key] = backendTLSCABundleCacheEntry{
+		id:        id,
+		expiresAt: now.Add(backendTLSCABundleCacheTTL),
+	}
 }
 
 func (m *backendTLSPolicyModelImpl) resolveForBackendRef(
@@ -528,6 +579,14 @@ func (m *backendTLSPolicyModelImpl) ensureOCIManagedCABundle(
 ) (string, error) {
 	name := backendTLSCABundleName(policy, targetRef, ref)
 	caHash := sha256Hex(caPEM)
+	cacheKey := backendTLSCABundleCacheKey{
+		compartmentID: compartmentID,
+		name:          name,
+		caHash:        caHash,
+	}
+	if caBundleID, ok := m.caBundleCache.get(cacheKey, time.Now()); ok {
+		return caBundleID, nil
+	}
 	tags := backendTLSCABundleTags(policy, caHash)
 	listResp, err := m.certsClient.ListCaBundles(ctx, certificatesmanagement.ListCaBundlesRequest{
 		CompartmentId: &compartmentID,
@@ -540,37 +599,19 @@ func (m *backendTLSPolicyModelImpl) ensureOCIManagedCABundle(
 			err,
 		)
 	}
-	for _, bundle := range listResp.Items {
-		if bundle.LifecycleState == certificatesmanagement.CaBundleLifecycleStateDeleted {
-			continue
-		}
-		if !isOwnedBackendTLSCABundle(bundle.FreeformTags, policy) {
-			return "", fmt.Errorf("OCI CA bundle %s already exists and is not owned by BackendTLSPolicy %s/%s",
-				name,
-				policy.Namespace,
-				policy.Name,
-			)
-		}
-		if usableErr := ensureBackendTLSCABundleUsable(bundle); usableErr != nil {
-			return "", usableErr
-		}
-		if bundle.FreeformTags[backendTLSCAHashTag] != caHash {
-			m.logger.InfoContext(ctx, "Updating OCI CA bundle for BackendTLSPolicy",
-				slog.String("policy", fmt.Sprintf("%s/%s", policy.Namespace, policy.Name)),
-				slog.String("caBundleName", name),
-			)
-			_, err = m.certsClient.UpdateCaBundle(ctx, certificatesmanagement.UpdateCaBundleRequest{
-				CaBundleId: bundle.Id,
-				UpdateCaBundleDetails: certificatesmanagement.UpdateCaBundleDetails{
-					CaBundlePem:  &caPEM,
-					FreeformTags: tags,
-				},
-			})
-			if err != nil {
-				return "", fmt.Errorf("failed to update OCI CA bundle %s: %w", name, err)
-			}
-		}
-		return lo.FromPtr(bundle.Id), nil
+	if caBundleID, matched, resolveErr := m.resolveListedOCIManagedCABundle(
+		ctx,
+		backendTLSListedCABundleParams{
+			policy:   policy,
+			name:     name,
+			caHash:   caHash,
+			caPEM:    caPEM,
+			tags:     tags,
+			bundles:  listResp.Items,
+			cacheKey: cacheKey,
+		},
+	); resolveErr != nil || matched {
+		return caBundleID, resolveErr
 	}
 
 	m.logger.InfoContext(ctx, "Creating OCI CA bundle for BackendTLSPolicy",
@@ -587,7 +628,12 @@ func (m *backendTLSPolicyModelImpl) ensureOCIManagedCABundle(
 	})
 	if err != nil {
 		if isBackendTLSCABundleAlreadyExists(err) {
-			return m.resolveExistingOCIManagedCABundle(ctx, policy, compartmentID, name, caHash)
+			caBundleID, resolveErr := m.resolveExistingOCIManagedCABundle(ctx, policy, compartmentID, name, caHash)
+			if resolveErr != nil {
+				return "", resolveErr
+			}
+			m.caBundleCache.set(cacheKey, caBundleID, time.Now())
+			return caBundleID, nil
 		}
 		return "", fmt.Errorf("failed to create OCI CA bundle %s: %w", name, err)
 	}
@@ -597,7 +643,60 @@ func (m *backendTLSPolicyModelImpl) ensureOCIManagedCABundle(
 			createResp.CaBundle.LifecycleState,
 		)
 	}
-	return lo.FromPtr(createResp.CaBundle.Id), nil
+	caBundleID := lo.FromPtr(createResp.CaBundle.Id)
+	m.caBundleCache.set(cacheKey, caBundleID, time.Now())
+	return caBundleID, nil
+}
+
+type backendTLSListedCABundleParams struct {
+	policy   gatewayv1.BackendTLSPolicy
+	name     string
+	caHash   string
+	caPEM    string
+	tags     map[string]string
+	bundles  []certificatesmanagement.CaBundleSummary
+	cacheKey backendTLSCABundleCacheKey
+}
+
+func (m *backendTLSPolicyModelImpl) resolveListedOCIManagedCABundle(
+	ctx context.Context,
+	params backendTLSListedCABundleParams,
+) (string, bool, error) {
+	for _, bundle := range params.bundles {
+		if bundle.LifecycleState == certificatesmanagement.CaBundleLifecycleStateDeleted {
+			continue
+		}
+		if !isOwnedBackendTLSCABundle(bundle.FreeformTags, params.policy) {
+			return "", true, fmt.Errorf("OCI CA bundle %s already exists and is not owned by BackendTLSPolicy %s/%s",
+				params.name,
+				params.policy.Namespace,
+				params.policy.Name,
+			)
+		}
+		if usableErr := ensureBackendTLSCABundleUsable(bundle); usableErr != nil {
+			return "", true, usableErr
+		}
+		if bundle.FreeformTags[backendTLSCAHashTag] != params.caHash {
+			m.logger.InfoContext(ctx, "Updating OCI CA bundle for BackendTLSPolicy",
+				slog.String("policy", fmt.Sprintf("%s/%s", params.policy.Namespace, params.policy.Name)),
+				slog.String("caBundleName", params.name),
+			)
+			_, err := m.certsClient.UpdateCaBundle(ctx, certificatesmanagement.UpdateCaBundleRequest{
+				CaBundleId: bundle.Id,
+				UpdateCaBundleDetails: certificatesmanagement.UpdateCaBundleDetails{
+					CaBundlePem:  &params.caPEM,
+					FreeformTags: params.tags,
+				},
+			})
+			if err != nil {
+				return "", true, fmt.Errorf("failed to update OCI CA bundle %s: %w", params.name, err)
+			}
+		}
+		caBundleID := lo.FromPtr(bundle.Id)
+		m.caBundleCache.set(params.cacheKey, caBundleID, time.Now())
+		return caBundleID, true, nil
+	}
+	return "", false, nil
 }
 
 func (m *backendTLSPolicyModelImpl) resolveExistingOCIManagedCABundle(
@@ -1143,5 +1242,6 @@ func newBackendTLSPolicyModel(deps backendTLSPolicyModelDeps) *backendTLSPolicyM
 		k8sClient:          deps.K8sClient,
 		loadBalancerClient: deps.OciLoadBalancerClient,
 		certsClient:        deps.OciCertificatesMgmtClient,
+		caBundleCache:      newBackendTLSCABundleCache(),
 	}
 }
