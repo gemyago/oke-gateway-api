@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/jaswdr/faker/v2"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
@@ -418,6 +419,74 @@ func TestUDPRouteModel(t *testing.T) {
 			matchedListener: gatewayv1.Listener{Name: "coap", Protocol: gatewayv1.UDPProtocolType, Port: 5684},
 		})
 		require.NoError(t, err)
+	})
+
+	t.Run("listener ownership includes ListenerSet parent refs", func(t *testing.T) {
+		fake := faker.New()
+		listenerSetKind := gatewayv1.Kind("ListenerSet")
+		listenerSetNamespace := gatewayv1.Namespace("apps")
+		listenerName := gatewayv1.SectionName("udp-" + fake.Lorem().Word())
+		listenerSet := gatewayv1.ListenerSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: string(listenerSetNamespace),
+				Name:      "extra-" + fake.Lorem().Word(),
+			},
+			Spec: gatewayv1.ListenerSetSpec{Listeners: []gatewayv1.ListenerEntry{{
+				Name:     listenerName,
+				Protocol: gatewayv1.UDPProtocolType,
+				Port:     5684,
+			}}},
+		}
+		gateway := gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "infra", Name: "edge-" + fake.Lorem().Word()},
+		}
+		effectiveListeners := effectiveListenersForGateway(gateway, []gatewayv1.ListenerSet{listenerSet})
+		matchedListener := effectiveListenerOCIListener(effectiveListeners[0])
+		currentRoute := gatewayv1.UDPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:         "apps",
+				Name:              "current-" + fake.Lorem().Word(),
+				CreationTimestamp: metav1.Unix(2, 0),
+			},
+			Spec: gatewayv1.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+				ParentRefs: []gatewayv1.ParentReference{{
+					Kind:        &listenerSetKind,
+					Namespace:   &listenerSetNamespace,
+					Name:        gatewayv1.ObjectName(listenerSet.Name),
+					SectionName: new(listenerName),
+				}},
+			}},
+		}
+		olderRoute := currentRoute.DeepCopy()
+		olderRoute.Name = "older-" + fake.Lorem().Word()
+		olderRoute.CreationTimestamp = metav1.Unix(1, 0)
+
+		mockClient := NewMockk8sClient(t)
+		mockClient.EXPECT().
+			List(t.Context(), mock.AnythingOfType("*v1.UDPRouteList")).
+			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1.UDPRouteList{
+					Items: []gatewayv1.UDPRoute{currentRoute, *olderRoute},
+				}))
+				return nil
+			})
+		model := newUDPRouteModel(udpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
+		modelImpl := mustUDPRouteModelImpl(t, model)
+
+		err := modelImpl.ensureExclusiveListenerOwner(t.Context(), resolvedUDPRouteDetails{
+			gatewayDetails:  resolvedGatewayDetails{gateway: gateway, effectiveListeners: effectiveListeners},
+			udpRoute:        currentRoute,
+			matchedListener: matchedListener,
+		})
+
+		var statusErr udpRouteStatusError
+		require.ErrorAs(t, err, &statusErr)
+		assert.Equal(t, gatewayv1.RouteReasonNotAllowedByListeners, statusErr.reason)
+		assert.Equal(
+			t,
+			"listener "+string(matchedListener.Name)+" already has an attached UDPRoute apps/"+olderRoute.Name,
+			statusErr.message,
+		)
 	})
 
 	t.Run("deprovisionRoute clears backend set and removes finalizer when no successor exists", func(t *testing.T) {

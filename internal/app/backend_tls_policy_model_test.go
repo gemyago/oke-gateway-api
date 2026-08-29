@@ -390,6 +390,39 @@ func TestBackendTLSPolicyModelValidationAndLifecycle(t *testing.T) {
 		require.ErrorIs(t, err, errBackendTLSPolicyNotFound)
 	})
 
+	t.Run("stops applying when target moves away from backend service or section", func(t *testing.T) {
+		serviceWithOtherSection := service.DeepCopy()
+		otherSectionName := "other-" + fakeData.Lorem().Word()
+		serviceWithOtherSection.Spec.Ports = append(serviceWithOtherSection.Spec.Ports, corev1.ServicePort{
+			Name: otherSectionName,
+			Port: 9443,
+		})
+		for name, tc := range map[string]struct {
+			service corev1.Service
+			policy  gatewayv1.BackendTLSPolicy
+		}{
+			"service": {
+				service: service,
+				policy:  backendTLSPolicy(namespace, "moved-service", "other-"+fakeData.Lorem().Word(), "tls", baseOptions, "ca"),
+			},
+			"section": {
+				service: *serviceWithOtherSection,
+				policy:  backendTLSPolicy(namespace, "moved-section", serviceName, otherSectionName, baseOptions, "ca"),
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				model, lbClient := makeModel(t, newStubCertificatesManagementClient(), &tc.service, &tc.policy)
+				params := resolveParams
+				params.service = tc.service
+
+				_, err := model.resolveForBackendRef(t.Context(), params)
+
+				require.ErrorIs(t, err, errBackendTLSPolicyNotFound)
+				lbClient.AssertNotCalled(t, "GetLoadBalancer", mock.Anything, mock.Anything)
+			})
+		}
+	})
+
 	t.Run("lists policies only in backend service namespace", func(t *testing.T) {
 		k8sClient := NewMockk8sClient(t)
 		model := newBackendTLSPolicyModel(backendTLSPolicyModelDeps{

@@ -394,6 +394,30 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			require.ErrorIs(t, err, wantErr)
 		})
 
+		t.Run("skips deprovision for still referenced previous backend sets", func(t *testing.T) {
+			route := &gatewayv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "api"}}
+			backendRef := makeRandomBackendRef().BackendRef
+			backendSetName := ociBackendSetNameFromBackendObjectRef(route.Namespace, backendRef.BackendObjectReference)
+			route.Annotations = map[string]string{HTTPRouteProgrammedBackendSetsAnnotation: backendSetName}
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			ociLBModel.EXPECT().
+				backendSetReferenced(t.Context(), "lb-id", backendSetName).
+				Return(true, nil).
+				Once()
+
+			err := deprovisionDetachedL7Route(t.Context(), ociLBModel, deprovisionDetachedL7RouteParams{
+				route:                 route,
+				routeKind:             "HTTPRoute",
+				loadBalancerID:        "lb-id",
+				backendRefs:           []gatewayv1.BackendRef{backendRef, backendRef},
+				backendSetsAnnotation: HTTPRouteProgrammedBackendSetsAnnotation,
+				removeFinalizer:       func(context.Context) error { return nil },
+			})
+
+			require.NoError(t, err)
+			ociLBModel.AssertNotCalled(t, "deprovisionBackendSet", mock.Anything, mock.Anything)
+		})
+
 		t.Run("detached finalizer removal ignores not found", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)

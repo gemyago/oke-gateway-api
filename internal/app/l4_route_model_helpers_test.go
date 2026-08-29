@@ -151,6 +151,57 @@ func TestL4RouteModelHelpers(t *testing.T) {
 		assert.Equal(t, "media/zzz-newer", matches[2].key)
 	})
 
+	t.Run("listener matches exclude current and deleting routes", func(t *testing.T) {
+		fake := faker.New()
+		listenerName := gatewayv1.SectionName("tls-" + fake.Lorem().Word())
+		listener := gatewayv1.Listener{
+			Name:     listenerName,
+			Protocol: gatewayv1.TLSProtocolType,
+		}
+		deleteTime := metav1.Now()
+		makeRoute := func(name string, deletionTimestamp *metav1.Time) gatewayv1.TLSRoute {
+			return gatewayv1.TLSRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace:         "media",
+					Name:              name,
+					CreationTimestamp: metav1.Unix(10, 0),
+					DeletionTimestamp: deletionTimestamp,
+				},
+				Spec: gatewayv1.TLSRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{{
+						Name:        "edge",
+						SectionName: new(listenerName),
+					}},
+				}},
+			}
+		}
+		deletedRouteName := "deleted-" + fake.Lorem().Word()
+		excludedRouteName := "excluded-" + fake.Lorem().Word()
+		matchedRouteName := "matched-" + fake.Lorem().Word()
+
+		matches := matchingL4RoutesForListener(
+			[]gatewayv1.TLSRoute{
+				makeRoute(deletedRouteName, &deleteTime),
+				makeRoute(excludedRouteName, nil),
+				makeRoute(matchedRouteName, nil),
+			},
+			resolvedGatewayDetails{
+				gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: "edge"}},
+			},
+			listener,
+			"media/"+excludedRouteName,
+			tlsRouteKey,
+			func(route gatewayv1.TLSRoute) string { return route.Namespace },
+			func(route gatewayv1.TLSRoute) metav1.Time { return route.CreationTimestamp },
+			func(route gatewayv1.TLSRoute) []gatewayv1.ParentReference { return route.Spec.ParentRefs },
+			func(route gatewayv1.TLSRoute) bool { return route.DeletionTimestamp != nil },
+			tlsRouteMatchesListener,
+		)
+
+		require.Len(t, matches, 1)
+		assert.Equal(t, "media/"+matchedRouteName, matches[0].key)
+	})
+
 	t.Run("mergeNetworkLoadBalancerBackend aggregates only identical backend addresses", func(t *testing.T) {
 		fake := faker.New()
 		ipAddress := fake.Internet().Ipv4()
