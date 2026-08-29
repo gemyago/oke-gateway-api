@@ -252,6 +252,56 @@ func TestNetworkLoadBalancerRetry(t *testing.T) {
 		require.ErrorContains(t, err, "missing work request id")
 	})
 
+	t.Run("maps network load balancer backends by ip and port", func(t *testing.T) {
+		fake := faker.New()
+		ipAddress := fake.Internet().Ipv4()
+		port1 := fake.IntBetween(1024, 32767)
+		port2 := fake.IntBetween(32768, 65535)
+		backend1 := networkloadbalancer.Backend{
+			Name:      new(fmt.Sprintf("%s:%d", ipAddress, port1)),
+			IpAddress: &ipAddress,
+			Port:      &port1,
+		}
+		backend2 := networkloadbalancer.Backend{
+			Name:      new(fmt.Sprintf("%s:%d", ipAddress, port2)),
+			IpAddress: &ipAddress,
+			Port:      &port2,
+		}
+
+		result := mapNetworkLoadBalancerBackends([]networkloadbalancer.Backend{backend1, backend2})
+
+		assert.Equal(t, map[string]networkloadbalancer.Backend{
+			fmt.Sprintf("%s:%d", ipAddress, port1): backend1,
+			fmt.Sprintf("%s:%d", ipAddress, port2): backend2,
+		}, result)
+	})
+
+	t.Run("detects network load balancer backend option drift", func(t *testing.T) {
+		fake := faker.New()
+		backendName := fmt.Sprintf("%s:%d", fake.Internet().Ipv4(), fake.IntBetween(1024, 65535))
+		current := backendFromName(backendName, fake.IntBetween(1, 99))
+		desired := backendDetailsFromName(backendName, lo.FromPtr(current.Weight), lo.FromPtr(current.IsDrain))
+		desired.IsBackup = current.IsBackup
+		desired.IsOffline = current.IsOffline
+
+		assert.True(t, networkLoadBalancerBackendDetailsEqual(current, desired))
+
+		desired.Weight = new(lo.FromPtr(current.Weight) + 1)
+		assert.False(t, networkLoadBalancerBackendDetailsEqual(current, desired))
+
+		desired.Weight = current.Weight
+		desired.IsDrain = new(!lo.FromPtr(current.IsDrain))
+		assert.False(t, networkLoadBalancerBackendDetailsEqual(current, desired))
+
+		desired.IsDrain = current.IsDrain
+		desired.IsBackup = new(!lo.FromPtr(current.IsBackup))
+		assert.False(t, networkLoadBalancerBackendDetailsEqual(current, desired))
+
+		desired.IsBackup = current.IsBackup
+		desired.IsOffline = new(!lo.FromPtr(current.IsOffline))
+		assert.False(t, networkLoadBalancerBackendDetailsEqual(current, desired))
+	})
+
 	t.Run("wraps backend set update wait errors", func(t *testing.T) {
 		fake := faker.New()
 		nlbID := "ocid1.networkloadbalancer.oc1.." + fake.UUID().V4()

@@ -2836,6 +2836,23 @@ func TestGatewayModelImpl(t *testing.T) {
 			}, result)
 		})
 
+		t.Run("normalizes repeated and blank previously programmed listeners", func(t *testing.T) {
+			fake := faker.New()
+			previousListenerName := "previous-" + fake.Lorem().Word()
+			gateway := newRandomGateway()
+			gateway.Annotations = map[string]string{
+				LoadBalancerGatewayProgrammedListenersAnnotation: fmt.Sprintf(
+					" %s, ,%s,, ",
+					previousListenerName,
+					previousListenerName,
+				),
+			}
+
+			result := gatewayCleanupListenerNames(*gateway, nil)
+
+			assert.Equal(t, map[string]struct{}{previousListenerName: {}}, result)
+		})
+
 		t.Run("returns empty cleanup scope without desired or previously programmed listeners", func(t *testing.T) {
 			gateway := newRandomGateway()
 

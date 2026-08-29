@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/jaswdr/faker/v2"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -173,6 +174,49 @@ func TestReferenceGrantPolicy(t *testing.T) {
 		assert.True(t, allowed)
 	})
 
+	t.Run("referenceGrantAllowsServiceBackend permits unnamed to target for matching kind", func(t *testing.T) {
+		fake := faker.New()
+		routeNamespace := "routes-" + fake.Lorem().Word()
+		backendNamespace := "backends-" + fake.Lorem().Word()
+		backendName := "rtmp-" + fake.Lorem().Word()
+		mockClient := NewMockk8sClient(t)
+		mockClient.EXPECT().
+			List(t.Context(), mock.AnythingOfType("*v1beta1.ReferenceGrantList"), mock.Anything).
+			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1beta1.ReferenceGrantList{
+					Items: []gatewayv1beta1.ReferenceGrant{{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: backendNamespace,
+							Name:      "allow-routes-" + fake.Lorem().Word(),
+						},
+						Spec: gatewayv1beta1.ReferenceGrantSpec{
+							From: []gatewayv1beta1.ReferenceGrantFrom{{
+								Group:     gatewayv1.Group(gatewayAPIGroup),
+								Kind:      gatewayv1.Kind("TCPRoute"),
+								Namespace: gatewayv1.Namespace(routeNamespace),
+							}},
+							To: []gatewayv1beta1.ReferenceGrantTo{{
+								Group: gatewayv1.Group(""),
+								Kind:  gatewayv1.Kind(serviceKind),
+							}},
+						},
+					}},
+				}))
+				return nil
+			})
+
+		allowed, err := referenceGrantAllowsServiceBackend(
+			t.Context(),
+			mockClient,
+			"TCPRoute",
+			routeNamespace,
+			types.NamespacedName{Namespace: backendNamespace, Name: backendName},
+		)
+
+		require.NoError(t, err)
+		assert.True(t, allowed)
+	})
+
 	t.Run("referenceGrantAllowsSecretRef permits same namespace secret", func(t *testing.T) {
 		allowed, err := referenceGrantAllowsSecretRef(
 			t.Context(),
@@ -217,6 +261,46 @@ func TestReferenceGrantPolicy(t *testing.T) {
 			"ListenerSet",
 			"apps",
 			types.NamespacedName{Namespace: "certs", Name: "tls-cert"},
+		)
+
+		require.NoError(t, err)
+		assert.True(t, allowed)
+	})
+
+	t.Run("referenceGrantAllowsSecretRef permits unnamed to target for matching kind", func(t *testing.T) {
+		fake := faker.New()
+		sourceNamespace := "apps-" + fake.Lorem().Word()
+		secretNamespace := "certs-" + fake.Lorem().Word()
+		secretName := "tls-" + fake.Lorem().Word()
+		mockClient := NewMockk8sClient(t)
+		mockClient.EXPECT().
+			List(t.Context(), mock.AnythingOfType("*v1beta1.ReferenceGrantList"), mock.Anything).
+			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				reflect.ValueOf(list).Elem().Set(reflect.ValueOf(gatewayv1beta1.ReferenceGrantList{
+					Items: []gatewayv1beta1.ReferenceGrant{{
+						ObjectMeta: metav1.ObjectMeta{Namespace: secretNamespace, Name: "allow-" + fake.Lorem().Word()},
+						Spec: gatewayv1beta1.ReferenceGrantSpec{
+							From: []gatewayv1beta1.ReferenceGrantFrom{{
+								Group:     gatewayv1.Group(gatewayAPIGroup),
+								Kind:      gatewayv1.Kind("ListenerSet"),
+								Namespace: gatewayv1.Namespace(sourceNamespace),
+							}},
+							To: []gatewayv1beta1.ReferenceGrantTo{{
+								Group: gatewayv1.Group(""),
+								Kind:  gatewayv1.Kind("Secret"),
+							}},
+						},
+					}},
+				}))
+				return nil
+			})
+
+		allowed, err := referenceGrantAllowsSecretRef(
+			t.Context(),
+			mockClient,
+			"ListenerSet",
+			sourceNamespace,
+			types.NamespacedName{Namespace: secretNamespace, Name: secretName},
 		)
 
 		require.NoError(t, err)

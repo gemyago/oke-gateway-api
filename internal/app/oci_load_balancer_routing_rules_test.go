@@ -1453,6 +1453,35 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			)
 		})
 
+		t.Run("does not append listener port to wildcard or explicit port grpc hostnames", func(t *testing.T) {
+			fake := faker.New()
+			wildcardHostname := gatewayv1.Hostname("*." + fake.Internet().Domain())
+			portHostname := gatewayv1.Hostname("grpc-" + fake.Internet().Domain() + ":9443")
+			listenerPort := 8000 + fake.Int32Between(1, 1000)
+
+			rs := newOciLoadBalancerRoutingRulesMapper()
+			actual, err := rs.mapGRPCRouteHostnamesAndMatchesToCondition(
+				[]gatewayv1.Hostname{wildcardHostname, portHostname},
+				listenerPort,
+				nil,
+			)
+
+			require.NoError(t, err)
+			wildcardHostCondition := fmt.Sprintf("http.request.headers[(i 'host')] eq (i '%s')", wildcardHostname)
+			portHostCondition := fmt.Sprintf("http.request.headers[(i 'host')] eq (i '%s')", portHostname)
+			assert.Equal(
+				t,
+				fmt.Sprintf(
+					"any(%s, %s)",
+					grpcBranches([]string{wildcardHostCondition}),
+					grpcBranches([]string{portHostCondition}),
+				),
+				actual,
+			)
+			assert.NotContains(t, actual, fmt.Sprintf("%s:%d", wildcardHostname, listenerPort))
+			assert.NotContains(t, actual, fmt.Sprintf("%s:%d", portHostname, listenerPort))
+		})
+
 		t.Run("returns native grpc content type condition when no grpc matches are configured", func(t *testing.T) {
 			rs := newOciLoadBalancerRoutingRulesMapper()
 

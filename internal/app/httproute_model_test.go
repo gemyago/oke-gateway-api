@@ -667,6 +667,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				creationTimestamp: current.identity.creationTimestamp,
 			},
 		))
+		assert.False(t, l7RouteWins(current.identity, current.identity))
 
 		wantErr := errors.New(fake.Lorem().Sentence(10))
 		_, _, err = checkL7RouteConflict(t.Context(), checkL7RouteConflictParams{
