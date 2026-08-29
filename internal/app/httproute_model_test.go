@@ -305,6 +305,22 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 
 			require.NoError(t, err)
 		})
+
+		t.Run("does not call OCI when cleanup annotation has no valid scoped rules", func(t *testing.T) {
+			fake := faker.New()
+			ociLBModel := NewMockociLoadBalancerModel(t)
+
+			err := removeL7RoutePolicyRules(
+				t.Context(),
+				ociLBModel,
+				"ocid1.loadbalancer.oc1.."+fake.UUID().V4(),
+				[]gatewayv1.Listener{makeRandomListener()},
+				" ,/missing-listener,missing-rule/,",
+			)
+
+			require.NoError(t, err)
+			ociLBModel.AssertNotCalled(t, "commitRoutingPolicy", mock.Anything, mock.Anything)
+		})
 	})
 
 	t.Run("deprovisionDetachedL7Route", func(t *testing.T) {
@@ -2964,6 +2980,34 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			})
 
 			require.ErrorContains(t, err, "resolved backend service")
+		})
+
+		t.Run("fails missing resolved backend before any OCI programming", func(t *testing.T) {
+			fake := faker.New()
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			backendRef := makeRandomBackendRef()
+
+			_, _, err := programL7RoutePolicy(t.Context(), ociLBModel, programL7RoutePolicyParams{
+				loadBalancerID:   "ocid1.loadbalancer.oc1.." + fake.UUID().V4(),
+				routeName:        "http-" + fake.Lorem().Word(),
+				routeNamespace:   "routes-" + fake.Lorem().Word(),
+				backendRefs:      []gatewayv1.BackendRef{backendRef.BackendRef},
+				knownBackends:    map[string]corev1.Service{},
+				matchedListeners: []gatewayv1.Listener{makeRandomListener()},
+				previousBackendSets: map[string]struct{}{
+					"old-backend-set-" + fake.Lorem().Word(): {},
+				},
+				ruleCount: 1,
+				makeRoutingRule: func(int, gatewayv1.PortNumber) (loadbalancer.RoutingRule, error) {
+					t.Fatal("routing rules should not be built when resolved backends are invalid")
+					return loadbalancer.RoutingRule{}, nil
+				},
+			})
+
+			require.ErrorContains(t, err, "resolved backend service")
+			ociLBModel.AssertNotCalled(t, "reconcileBackendSet", mock.Anything, mock.Anything)
+			ociLBModel.AssertNotCalled(t, "commitRoutingPolicy", mock.Anything, mock.Anything)
+			ociLBModel.AssertNotCalled(t, "deprovisionBackendSetByName", mock.Anything, mock.Anything, mock.Anything)
 		})
 
 		t.Run("fails when BackendTLSPolicy resolution fails", func(t *testing.T) {

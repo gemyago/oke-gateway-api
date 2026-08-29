@@ -6743,6 +6743,42 @@ func Test_sortRoutingRules(t *testing.T) {
 		}))
 	})
 
+	t.Run("is stable across input permutations", func(t *testing.T) {
+		fake := faker.New()
+		grpcCondition := "any(http.request.headers[(i 'content-type')][0] eq (i 'application/grpc'))"
+		httpCondition := "any(http.request.url.path sw '/')"
+		grpcRule := loadbalancer.RoutingRule{
+			Name:      new("p0003_" + fake.Numerify("########") + "_grpc"),
+			Condition: &grpcCondition,
+		}
+		firstHTTPRule := loadbalancer.RoutingRule{
+			Name:      new("p0001_" + fake.Numerify("########") + "_http"),
+			Condition: &httpCondition,
+		}
+		secondHTTPRule := loadbalancer.RoutingRule{
+			Name:      new("p0002_" + fake.Numerify("########") + "_http"),
+			Condition: &httpCondition,
+		}
+		defaultRule := defaultCatchAllRoutingRule("default-" + fake.Lorem().Word())
+		wantNames := []string{
+			lo.FromPtr(grpcRule.Name),
+			lo.FromPtr(firstHTTPRule.Name),
+			lo.FromPtr(secondHTTPRule.Name),
+			defaultCatchAllRuleName,
+		}
+
+		for _, rules := range [][]loadbalancer.RoutingRule{
+			{defaultRule, secondHTTPRule, grpcRule, firstHTTPRule},
+			{firstHTTPRule, grpcRule, defaultRule, secondHTTPRule},
+			{secondHTTPRule, firstHTTPRule, defaultRule, grpcRule},
+		} {
+			sortRoutingRules(rules)
+			assert.Equal(t, wantNames, lo.Map(rules, func(rule loadbalancer.RoutingRule, _ int) string {
+				return lo.FromPtr(rule.Name)
+			}))
+		}
+	})
+
 	t.Run("routing rule equality ignores order but detects semantic changes", func(t *testing.T) {
 		fake := faker.New()
 		firstRuleName := "p0001_" + fake.Numerify("########") + "_http"
