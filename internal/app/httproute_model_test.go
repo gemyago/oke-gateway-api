@@ -692,6 +692,15 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		assert.True(t, conflicted)
 		assert.Equal(t, oldestOpposite.identity, winner.identity)
 
+		winner, conflicted = l7RouteConflictingWinner(l7RouteConflictParams{
+			gateway:          gateway,
+			matchedListeners: []gatewayv1.Listener{grpcListener},
+			current:          latestCurrent,
+			oppositeRoutes:   []l7RouteCandidate{oldestOpposite, olderButNotOldestOpposite},
+		})
+		assert.True(t, conflicted)
+		assert.Equal(t, oldestOpposite.identity, winner.identity)
+
 		newerOpposite := olderOpposite
 		newerOpposite.identity.kind = current.identity.kind
 		newerOpposite.identity.creationTimestamp = metav1.NewTime(time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC))
