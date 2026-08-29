@@ -249,6 +249,10 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			assert.True(t, routingPolicyDefaultRuleDrifted(loadbalancer.RoutingPolicy{
 				Rules: []loadbalancer.RoutingRule{driftedDefaultRule},
 			}, defaultBackendSetName))
+			wrongBackendDefaultRule := defaultCatchAllRoutingRule("other-" + fake.Lorem().Word())
+			assert.True(t, routingPolicyDefaultRuleDrifted(loadbalancer.RoutingPolicy{
+				Rules: []loadbalancer.RoutingRule{wrongBackendDefaultRule},
+			}, defaultBackendSetName))
 			assert.False(t, routingPolicyDefaultRuleDrifted(loadbalancer.RoutingPolicy{
 				Rules: []loadbalancer.RoutingRule{defaultCatchAllRoutingRule(defaultBackendSetName)},
 			}, defaultBackendSetName))
@@ -6814,6 +6818,24 @@ func Test_sortRoutingRules(t *testing.T) {
 		assert.False(t, routingRulesEqual(
 			[]loadbalancer.RoutingRule{firstRule, secondRule},
 			[]loadbalancer.RoutingRule{changedRule, secondRule},
+		))
+
+		changedRule = firstRule
+		changedRule.Condition = new("any(http.request.url.path sw '/" + fake.Lorem().Word() + "')")
+		assert.False(t, routingRulesEqual(
+			[]loadbalancer.RoutingRule{firstRule, secondRule},
+			[]loadbalancer.RoutingRule{changedRule, secondRule},
+		))
+
+		changedRule = firstRule
+		changedRule.Name = new("p0003_" + fake.Numerify("########") + "_http")
+		assert.False(t, routingRulesEqual(
+			[]loadbalancer.RoutingRule{firstRule, secondRule},
+			[]loadbalancer.RoutingRule{changedRule, secondRule},
+		))
+		assert.False(t, routingRulesEqual(
+			[]loadbalancer.RoutingRule{firstRule, secondRule},
+			[]loadbalancer.RoutingRule{firstRule},
 		))
 	})
 }

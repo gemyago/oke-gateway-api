@@ -156,4 +156,22 @@ func TestEndpointPortForServicePort(t *testing.T) {
 
 		assert.False(t, ok)
 	})
+
+	t.Run("rejects unnamed endpoint port for named service port", func(t *testing.T) {
+		servicePortName := "service-" + fake.Lorem().Word()
+		endpointPort := rand.Int32N(65534) + 1
+
+		_, ok := endpointPortForServicePort(
+			corev1.ServicePort{
+				Name:       servicePortName,
+				Port:       rand.Int32N(65534) + 1,
+				TargetPort: intstr.FromString("target-" + fake.Lorem().Word()),
+			},
+			discoveryv1.EndpointSlice{Ports: []discoveryv1.EndpointPort{{
+				Port: &endpointPort,
+			}}},
+		)
+
+		assert.False(t, ok)
+	})
 }

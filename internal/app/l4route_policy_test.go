@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jaswdr/faker/v2"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -16,6 +17,8 @@ import (
 )
 
 func TestL4RoutePolicy(t *testing.T) {
+	fake := faker.New()
+
 	t.Run("l4RouteKindAllowed applies protocol defaults and explicit kinds", func(t *testing.T) {
 		assert.True(t, l4RouteKindAllowed(gatewayv1.Listener{Protocol: gatewayv1.TCPProtocolType}, "TCPRoute"))
 		assert.True(t, l4RouteKindAllowed(gatewayv1.Listener{Protocol: gatewayv1.UDPProtocolType}, "UDPRoute"))
@@ -33,6 +36,13 @@ func TestL4RoutePolicy(t *testing.T) {
 		}
 		assert.True(t, l4RouteKindAllowed(listener, "UDPRoute"))
 		assert.False(t, l4RouteKindAllowed(listener, "TCPRoute"))
+
+		listener.AllowedRoutes.Kinds = []gatewayv1.RouteGroupKind{
+			{Kind: "TCPRoute"},
+			{Group: lo.ToPtr(gatewayv1.Group(gatewayAPIGroup)), Kind: "UDPRoute"},
+		}
+		assert.True(t, l4RouteKindAllowed(listener, "TCPRoute"))
+		assert.True(t, l4RouteKindAllowed(listener, "UDPRoute"))
 	})
 
 	t.Run("l4RouteNamespaceAllowed handles same all none and selector policies", func(t *testing.T) {
@@ -223,11 +233,24 @@ func TestL4RoutePolicy(t *testing.T) {
 
 	t.Run("validates backend refs and weights", func(t *testing.T) {
 		require.NoError(t, l4ValidateServiceBackendRef(gatewayv1.BackendRef{}))
+		require.NoError(t, l4ValidateServiceBackendRef(gatewayv1.BackendRef{
+			BackendObjectReference: gatewayv1.BackendObjectReference{
+				Group: lo.ToPtr(gatewayv1.Group("")),
+				Kind:  lo.ToPtr(gatewayv1.Kind(serviceKind)),
+				Name:  gatewayv1.ObjectName("backend-" + fake.Lorem().Word()),
+			},
+		}))
 		require.Error(t, l4ValidateServiceBackendRef(gatewayv1.BackendRef{
 			BackendObjectReference: gatewayv1.BackendObjectReference{
 				Group: lo.ToPtr(gatewayv1.Group("apps")),
 				Kind:  lo.ToPtr(gatewayv1.Kind("Deployment")),
-				Name:  "backend",
+				Name:  gatewayv1.ObjectName("backend-" + fake.Lorem().Word()),
+			},
+		}))
+		require.Error(t, l4ValidateServiceBackendRef(gatewayv1.BackendRef{
+			BackendObjectReference: gatewayv1.BackendObjectReference{
+				Kind: lo.ToPtr(gatewayv1.Kind("Deployment")),
+				Name: gatewayv1.ObjectName("backend-" + fake.Lorem().Word()),
 			},
 		}))
 		assert.Equal(t, 1, l4BackendRefWeight(gatewayv1.BackendRef{}))
@@ -235,11 +258,47 @@ func TestL4RoutePolicy(t *testing.T) {
 	})
 
 	t.Run("parentRefTargetsGateway applies Gateway API defaults", func(t *testing.T) {
-		assert.True(t, parentRefTargetsGateway(gatewayv1.ParentReference{Name: "edge"}))
+		gatewayName := gatewayv1.ObjectName("edge-" + fake.Lorem().Word())
+		assert.True(t, parentRefTargetsGateway(gatewayv1.ParentReference{Name: gatewayName}))
 		assert.False(t, parentRefTargetsGateway(gatewayv1.ParentReference{
 			Group: lo.ToPtr(gatewayv1.Group("")),
 			Kind:  lo.ToPtr(gatewayv1.Kind(serviceKind)),
-			Name:  "edge",
+			Name:  gatewayName,
 		}))
+	})
+
+	t.Run("parentRefTargetsListenerSet requires Gateway API ListenerSet kind", func(t *testing.T) {
+		listenerSetKind := gatewayv1.Kind("ListenerSet")
+		assert.True(t, parentRefTargetsListenerSet(gatewayv1.ParentReference{
+			Group: lo.ToPtr(gatewayv1.Group(gatewayAPIGroup)),
+			Kind:  &listenerSetKind,
+			Name:  gatewayv1.ObjectName("listeners-" + fake.Lorem().Word()),
+		}))
+		assert.False(t, parentRefTargetsListenerSet(gatewayv1.ParentReference{
+			Name: gatewayv1.ObjectName("listeners-" + fake.Lorem().Word()),
+		}))
+		assert.False(t, parentRefTargetsListenerSet(gatewayv1.ParentReference{
+			Group: lo.ToPtr(gatewayv1.Group("other.example.com")),
+			Kind:  &listenerSetKind,
+			Name:  gatewayv1.ObjectName("listeners-" + fake.Lorem().Word()),
+		}))
+	})
+
+	t.Run("parentRefTargetName defaults namespace to route namespace", func(t *testing.T) {
+		routeNamespace := "routes-" + fake.Lorem().Word()
+		parentNamespace := gatewayv1.Namespace("infra-" + fake.Lorem().Word())
+		parentName := gatewayv1.ObjectName("edge-" + fake.Lorem().Word())
+
+		assert.Equal(t, types.NamespacedName{
+			Namespace: routeNamespace,
+			Name:      string(parentName),
+		}, parentRefTargetName(gatewayv1.ParentReference{Name: parentName}, routeNamespace))
+		assert.Equal(t, types.NamespacedName{
+			Namespace: string(parentNamespace),
+			Name:      string(parentName),
+		}, parentRefTargetName(gatewayv1.ParentReference{
+			Namespace: &parentNamespace,
+			Name:      parentName,
+		}, routeNamespace))
 	})
 }
