@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/jaswdr/faker/v2"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
@@ -820,6 +821,43 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 		assert.False(t, supported)
 		_, supported = networkLoadBalancerListenerProtocol(gatewayv1.ProtocolType("SCTP"))
 		assert.False(t, supported)
+	})
+
+	t.Run("desired NLB cleanup names preserve the same supported listener set", func(t *testing.T) {
+		fake := faker.New()
+		tcpListener := gatewayv1.Listener{
+			Name:     gatewayv1.SectionName("tcp-" + fake.Lorem().Word()),
+			Protocol: gatewayv1.TCPProtocolType,
+		}
+		udpListener := gatewayv1.Listener{
+			Name:     gatewayv1.SectionName("udp-" + fake.Lorem().Word()),
+			Protocol: gatewayv1.UDPProtocolType,
+		}
+		tlsListener := gatewayv1.Listener{
+			Name:     gatewayv1.SectionName("tls-" + fake.Lorem().Word()),
+			Protocol: gatewayv1.TLSProtocolType,
+		}
+		httpListener := gatewayv1.Listener{
+			Name:     gatewayv1.SectionName("http-" + fake.Lorem().Word()),
+			Protocol: gatewayv1.HTTPProtocolType,
+		}
+		listeners := []gatewayv1.Listener{httpListener, udpListener, tcpListener, tlsListener}
+
+		listenerNames := desiredNetworkLoadBalancerListenerNames(listeners)
+		backendSetNames := desiredNetworkLoadBalancerBackendSetNames(listeners)
+
+		assert.Equal(t, map[string]struct{}{
+			string(tcpListener.Name): {},
+			string(udpListener.Name): {},
+			string(tlsListener.Name): {},
+		}, listenerNames)
+		assert.Equal(t, map[string]struct{}{
+			networkLoadBalancerBackendSetName(tcpListener): {},
+			networkLoadBalancerBackendSetName(udpListener): {},
+			networkLoadBalancerBackendSetName(tlsListener): {},
+		}, backendSetNames)
+		assert.NotContains(t, listenerNames, string(httpListener.Name))
+		assert.NotContains(t, backendSetNames, networkLoadBalancerBackendSetName(httpListener))
 	})
 
 	t.Run("programs tcp and udp gateway listeners", func(t *testing.T) {

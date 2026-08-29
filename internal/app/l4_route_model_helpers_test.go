@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/jaswdr/faker/v2"
@@ -148,6 +149,45 @@ func TestL4RouteModelHelpers(t *testing.T) {
 		assert.Equal(t, "media/older", matches[0].key)
 		assert.Equal(t, "alpha/tie", matches[1].key)
 		assert.Equal(t, "media/zzz-newer", matches[2].key)
+	})
+
+	t.Run("mergeNetworkLoadBalancerBackend aggregates only identical backend addresses", func(t *testing.T) {
+		fake := faker.New()
+		ipAddress := fake.Internet().Ipv4()
+		firstPort := fake.IntBetween(1024, 30000)
+		secondPort := firstPort + 1
+		desired := map[string]networkloadbalancer.BackendDetails{}
+
+		mergeNetworkLoadBalancerBackend(desired, networkloadbalancer.BackendDetails{
+			IpAddress: new(ipAddress),
+			Port:      new(firstPort),
+			Weight:    new(3),
+			IsDrain:   new(true),
+		})
+		mergeNetworkLoadBalancerBackend(desired, networkloadbalancer.BackendDetails{
+			IpAddress: new(ipAddress),
+			Port:      new(firstPort),
+			Weight:    new(5),
+			IsDrain:   new(false),
+		})
+		mergeNetworkLoadBalancerBackend(desired, networkloadbalancer.BackendDetails{
+			IpAddress: new(ipAddress),
+			Port:      new(secondPort),
+			Weight:    new(7),
+			IsDrain:   new(true),
+		})
+
+		firstKey := fmt.Sprintf("%s:%d", ipAddress, firstPort)
+		secondKey := fmt.Sprintf("%s:%d", ipAddress, secondPort)
+		assert.Equal(t, firstKey, networkLoadBalancerBackendKey(desired[firstKey]))
+		assert.Equal(t, secondKey, networkLoadBalancerBackendKey(desired[secondKey]))
+		assert.Equal(t, firstKey, lo.FromPtr(desired[firstKey].Name))
+		assert.Equal(t, secondKey, lo.FromPtr(desired[secondKey].Name))
+		assert.Equal(t, 8, lo.FromPtr(desired[firstKey].Weight))
+		assert.False(t, lo.FromPtr(desired[firstKey].IsDrain))
+		assert.Equal(t, 7, lo.FromPtr(desired[secondKey].Weight))
+		assert.True(t, lo.FromPtr(desired[secondKey].IsDrain))
+		assert.Len(t, desired, 2)
 	})
 
 	t.Run("TCP helpers handle namespaces listeners backend equality and status errors", func(t *testing.T) {

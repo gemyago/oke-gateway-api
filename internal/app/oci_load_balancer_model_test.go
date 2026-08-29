@@ -4960,6 +4960,27 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			}, got)
 		})
 
+		t.Run("extracts certificate names deterministically across listener order", func(t *testing.T) {
+			fake := faker.New()
+			firstCertName := "cert-a-" + fake.UUID().V4()
+			secondCertName := "cert-b-" + fake.UUID().V4()
+			thirdCertName := "cert-c-" + fake.UUID().V4()
+			firstCert := loadbalancer.Certificate{CertificateName: new(firstCertName)}
+			secondCert := loadbalancer.Certificate{CertificateName: new(secondCertName)}
+			thirdCert := loadbalancer.Certificate{CertificateName: new(thirdCertName)}
+
+			got := certificateNamesFromListenerCertificates(map[string][]loadbalancer.Certificate{
+				"listener-b": {thirdCert, firstCert},
+				"listener-a": {secondCert, firstCert},
+			})
+
+			assert.Equal(t, []string{firstCertName, secondCertName, thirdCertName}, got)
+			assert.Equal(t, got, certificateNamesFromListenerCertificates(map[string][]loadbalancer.Certificate{
+				"listener-a": {firstCert, secondCert},
+				"listener-b": {firstCert, thirdCert},
+			}))
+		})
+
 		t.Run("no certificates to remove", func(t *testing.T) {
 			fake := faker.New()
 			deps := makeMockDeps(t)
