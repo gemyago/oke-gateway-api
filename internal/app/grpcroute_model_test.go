@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"reflect"
 	"strings"
 	"testing"
@@ -1443,6 +1444,42 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			})
 
 			assert.False(t, got)
+		})
+
+		t.Run("returns true when programming revision changed", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			deps.ResourcesModel = newResourcesModel(resourcesModelDeps{
+				K8sClient:  deps.K8sClient,
+				RootLogger: diag.RootTestLogger(),
+			})
+			model := newGRPCRouteModel(deps)
+			gatewayData := makeResolvedGateway()
+			parentRef := gatewayv1.ParentReference{Name: gatewayv1.ObjectName(gatewayData.gateway.Name)}
+			route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.Generation = rand.Int64N(10000) + 1
+				route.Annotations = map[string]string{
+					GRPCRouteProgrammingRevisionAnnotation:    "old-" + fake.Lorem().Word(),
+					L7RouteProgrammedLoadBalancerIDAnnotation: gatewayData.config.Spec.LoadBalancerID,
+				}
+				route.Status.Parents = []gatewayv1.RouteParentStatus{{
+					ParentRef:      parentRef,
+					ControllerName: ControllerClassName,
+					Conditions: []metav1.Condition{{
+						Type:               string(gatewayv1.RouteConditionResolvedRefs),
+						Status:             metav1.ConditionTrue,
+						ObservedGeneration: route.Generation,
+					}},
+				}}
+			})
+
+			got := model.isProgrammingRequired(resolvedGRPCRouteDetails{
+				gatewayDetails: gatewayData,
+				grpcRoute:      route,
+				matchedRef:     parentRef,
+			})
+
+			assert.True(t, got)
 		})
 
 		t.Run("returns true when matched listener set changed", func(t *testing.T) {

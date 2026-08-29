@@ -67,6 +67,31 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				Protocol: &protocol,
 				Port:     &port,
 			}))
+			assert.False(t, loadBalancerHealthCheckerMatches(&loadbalancer.HealthChecker{
+				Protocol: new("HTTP"),
+				Port:     &port,
+			}, loadbalancer.HealthCheckerDetails{
+				Protocol: &protocol,
+				Port:     &port,
+			}))
+			assert.True(t, loadBalancerHealthCheckerMatches(&loadbalancer.HealthChecker{
+				Protocol: &protocol,
+				Port:     &port,
+			}, loadbalancer.HealthCheckerDetails{
+				Protocol: &protocol,
+				Port:     &port,
+			}))
+			assert.True(t, loadBalancerBackendSetMatches(
+				loadbalancer.BackendSet{
+					Policy: new("ROUND_ROBIN"),
+					HealthChecker: &loadbalancer.HealthChecker{
+						Protocol: &protocol,
+						Port:     &port,
+					},
+				},
+				"ROUND_ROBIN",
+				loadbalancer.HealthCheckerDetails{Protocol: &protocol, Port: &port},
+			))
 			assert.False(t, loadBalancerBackendSetMatches(
 				loadbalancer.BackendSet{
 					Policy: new("IP_HASH"),
@@ -225,6 +250,20 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			changedVerifyDepth.VerifyDepth = new(2)
 			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(changedVerifyDepth, clone()))
 			assert.False(t, loadBalancerSSLConfigurationsEqual(changedVerifyDepth, clone()))
+
+			changedSessionResumption := clone()
+			changedHasSessionResumption := !lo.FromPtr(changedSessionResumption.HasSessionResumption)
+			changedSessionResumption.HasSessionResumption = &changedHasSessionResumption
+			assert.True(t, loadBalancerListenerSSLConfigurationsEqual(changedSessionResumption, clone()))
+			assert.False(t, loadBalancerSSLConfigurationsEqual(changedSessionResumption, clone()))
+
+			changedServerOrder := clone()
+			changedServerOrder.ServerOrderPreference = loadbalancer.SslConfigurationDetailsServerOrderPreferenceDisabled
+			if clone().ServerOrderPreference == loadbalancer.SslConfigurationDetailsServerOrderPreferenceDisabled {
+				changedServerOrder.ServerOrderPreference = loadbalancer.SslConfigurationDetailsServerOrderPreferenceEnabled
+			}
+			assert.True(t, loadBalancerListenerSSLConfigurationsEqual(changedServerOrder, clone()))
+			assert.False(t, loadBalancerSSLConfigurationsEqual(changedServerOrder, clone()))
 
 			changedTrustedCA := clone()
 			changedTrustedCA.TrustedCertificateAuthorityIds = []string{"ocid1.cabundle.oc1.." + fake.UUID().V4()}

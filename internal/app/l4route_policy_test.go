@@ -157,6 +157,60 @@ func TestL4RoutePolicy(t *testing.T) {
 		assert.False(t, allowed)
 	})
 
+	t.Run("parent reference helpers classify gateway and listenerset targets", func(t *testing.T) {
+		routeNamespace := "route-" + fake.Lorem().Word()
+		parentNamespace := gatewayv1.Namespace("parent-" + fake.Lorem().Word())
+		parentName := gatewayv1.ObjectName("parent-" + fake.Lorem().Word())
+		listenerSetKind := gatewayv1.Kind("ListenerSet")
+		serviceKind := gatewayv1.Kind("Service")
+		otherGroup := gatewayv1.Group("other.example.com")
+
+		assert.True(t, parentRefTargetsGateway(gatewayv1.ParentReference{Name: parentName}))
+		assert.True(t, parentRefTargetsGateway(gatewayv1.ParentReference{
+			Group: lo.ToPtr(gatewayv1.Group(gatewayAPIGroup)),
+			Kind:  lo.ToPtr(gatewayv1.Kind("Gateway")),
+			Name:  parentName,
+		}))
+		assert.False(t, parentRefTargetsGateway(gatewayv1.ParentReference{
+			Group: &otherGroup,
+			Name:  parentName,
+		}))
+		assert.False(t, parentRefTargetsGateway(gatewayv1.ParentReference{
+			Kind: &serviceKind,
+			Name: parentName,
+		}))
+
+		assert.True(t, parentRefTargetsListenerSet(gatewayv1.ParentReference{
+			Group: lo.ToPtr(gatewayv1.Group(gatewayAPIGroup)),
+			Kind:  &listenerSetKind,
+			Name:  parentName,
+		}))
+		assert.True(t, parentRefTargetsListenerSet(gatewayv1.ParentReference{
+			Kind: &listenerSetKind,
+			Name: parentName,
+		}))
+		assert.False(t, parentRefTargetsListenerSet(gatewayv1.ParentReference{
+			Name: parentName,
+		}))
+		assert.False(t, parentRefTargetsListenerSet(gatewayv1.ParentReference{
+			Group: &otherGroup,
+			Kind:  &listenerSetKind,
+			Name:  parentName,
+		}))
+
+		assert.Equal(t, types.NamespacedName{
+			Namespace: routeNamespace,
+			Name:      string(parentName),
+		}, parentRefTargetName(gatewayv1.ParentReference{Name: parentName}, routeNamespace))
+		assert.Equal(t, types.NamespacedName{
+			Namespace: string(parentNamespace),
+			Name:      string(parentName),
+		}, parentRefTargetName(gatewayv1.ParentReference{
+			Namespace: &parentNamespace,
+			Name:      parentName,
+		}, routeNamespace))
+	})
+
 	t.Run("allowedRouteListeners filters by kind and namespace policy", func(t *testing.T) {
 		same := gatewayv1.NamespacesFromSame
 		all := gatewayv1.NamespacesFromAll

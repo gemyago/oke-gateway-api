@@ -342,6 +342,49 @@ func TestListenerSetModel(t *testing.T) {
 		))
 	})
 
+	t.Run("effective OCI listeners omit conflicted gateway listeners for each load balancer type", func(t *testing.T) {
+		tlsPassthroughMode := v1.TLSModePassthrough
+		tlsTerminateMode := v1.TLSModeTerminate
+		gateway := makeGateway(func(gateway *v1.Gateway) {
+			gateway.Namespace = "infra-" + fake.Lorem().Word()
+			gateway.Name = "edge-" + fake.Lorem().Word()
+			gateway.Spec.Listeners = []v1.Listener{
+				{Name: "http", Port: 80, Protocol: v1.HTTPProtocolType},
+				{Name: "grpc", Port: 80, Protocol: v1.HTTPProtocolType},
+				{Name: "rtmp", Port: 1935, Protocol: v1.TCPProtocolType},
+				{Name: "srt", Port: 1935, Protocol: v1.UDPProtocolType},
+				{
+					Name:     "rtmps",
+					Port:     443,
+					Protocol: v1.TLSProtocolType,
+					TLS:      &v1.ListenerTLSConfig{Mode: &tlsPassthroughMode},
+				},
+				{
+					Name:     "https",
+					Port:     8443,
+					Protocol: v1.TLSProtocolType,
+					TLS:      &v1.ListenerTLSConfig{Mode: &tlsTerminateMode},
+				},
+			}
+		})
+		details := resolvedGatewayDetails{
+			gateway:            gateway,
+			effectiveListeners: effectiveListenersForGateway(gateway, nil),
+		}
+
+		albListeners := gatewayManagedOCIListenersForLoadBalancer(&details)
+		nlbListeners := gatewayManagedOCIListenersForNetworkLoadBalancer(&details)
+
+		assert.Equal(t, []v1.SectionName{"http", "rtmp"}, lo.Map(
+			albListeners,
+			func(listener v1.Listener, _ int) v1.SectionName { return listener.Name },
+		))
+		assert.Equal(t, []v1.SectionName{"rtmp"}, lo.Map(
+			nlbListeners,
+			func(listener v1.Listener, _ int) v1.SectionName { return listener.Name },
+		))
+	})
+
 	t.Run("markConflictedEffectiveListeners skips already conflicted listeners", func(t *testing.T) {
 		listeners := []effectiveListener{
 			{
@@ -358,6 +401,48 @@ func TestListenerSetModel(t *testing.T) {
 		assert.True(t, listeners[0].conflicted)
 		assert.True(t, listeners[1].conflicted)
 		assert.Equal(t, v1.ListenerReasonProtocolConflict, listeners[1].conflictReason)
+	})
+
+	t.Run("effectiveListenersForGateway orders equal timestamp listenersets by name", func(t *testing.T) {
+		gateway := makeGateway(func(gateway *v1.Gateway) {
+			gateway.Namespace = "infra-" + fake.Lorem().Word()
+			gateway.Name = "edge-" + fake.Lorem().Word()
+			gateway.Spec.Listeners = nil
+		})
+		createdAt := metav1.NewTime(time.Now())
+		laterByName := makeListenerSet(func(listenerSet *v1.ListenerSet) {
+			listenerSet.Namespace = "team-b-" + fake.Lorem().Word()
+			listenerSet.Name = "extra-b-" + fake.Lorem().Word()
+			listenerSet.CreationTimestamp = createdAt
+			listenerSet.Spec.Listeners = []v1.ListenerEntry{{
+				Name:     "https",
+				Port:     443,
+				Protocol: v1.HTTPSProtocolType,
+				Hostname: lo.ToPtr(v1.Hostname("api.example.com")),
+			}}
+		})
+		earlierByName := makeListenerSet(func(listenerSet *v1.ListenerSet) {
+			listenerSet.Namespace = "team-a-" + fake.Lorem().Word()
+			listenerSet.Name = "extra-a-" + fake.Lorem().Word()
+			listenerSet.CreationTimestamp = createdAt
+			listenerSet.Spec.Listeners = []v1.ListenerEntry{{
+				Name:     "https",
+				Port:     443,
+				Protocol: v1.HTTPSProtocolType,
+				Hostname: lo.ToPtr(v1.Hostname("api.example.com")),
+			}}
+		})
+
+		got := effectiveListenersForGateway(gateway, []v1.ListenerSet{laterByName, earlierByName})
+
+		require.Len(t, got, 2)
+		assert.Equal(t, earlierByName.Namespace, got[0].sourceNamespace)
+		assert.Equal(t, earlierByName.Name, got[0].sourceName)
+		assert.False(t, got[0].conflicted)
+		assert.Equal(t, laterByName.Namespace, got[1].sourceNamespace)
+		assert.Equal(t, laterByName.Name, got[1].sourceName)
+		assert.True(t, got[1].conflicted)
+		assert.Equal(t, v1.ListenerReasonHostnameConflict, got[1].conflictReason)
 	})
 
 	t.Run("effectiveListenerOCIListener", func(t *testing.T) {
@@ -696,6 +781,15 @@ func TestListenerSetModel(t *testing.T) {
 			v1.ListenerEntryConditionReason(v1.ListenerReasonNoConflicts),
 			listenerEntryConflictedReason(effectiveListener{}),
 		)
+	})
+
+	t.Run("supportedRouteKindNamesForProtocol returns expected route kinds by listener protocol", func(t *testing.T) {
+		assert.Equal(t, []v1.Kind{"HTTPRoute", "GRPCRoute"}, supportedRouteKindNamesForProtocol(v1.HTTPProtocolType))
+		assert.Equal(t, []v1.Kind{"HTTPRoute", "GRPCRoute"}, supportedRouteKindNamesForProtocol(v1.HTTPSProtocolType))
+		assert.Equal(t, []v1.Kind{"TLSRoute"}, supportedRouteKindNamesForProtocol(v1.TLSProtocolType))
+		assert.Equal(t, []v1.Kind{"TCPRoute"}, supportedRouteKindNamesForProtocol(v1.TCPProtocolType))
+		assert.Equal(t, []v1.Kind{"UDPRoute"}, supportedRouteKindNamesForProtocol(v1.UDPProtocolType))
+		assert.Nil(t, supportedRouteKindNamesForProtocol(v1.ProtocolType("SCTP")))
 	})
 
 	t.Run("attachedListenerSetCount only counts sets with accepted effective listeners", func(t *testing.T) {
