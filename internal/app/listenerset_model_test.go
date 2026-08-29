@@ -13,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	crfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	v1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -89,6 +90,29 @@ func TestListenerSetModel(t *testing.T) {
 		assert.False(t, ok)
 	})
 
+	t.Run("listenerSetParentGatewayTarget ignores malformed parent gateway names", func(t *testing.T) {
+		listenerSetKind := v1.Kind("ListenerSet")
+		listenerSet := makeListenerSet(func(listenerSet *v1.ListenerSet) {
+			listenerSet.Namespace = "apps-" + fake.Lorem().Word()
+			listenerSet.Name = "extra-" + fake.Lorem().Word()
+			listenerSet.Spec.ParentRef = v1.ParentGatewayReference{}
+		})
+		k8sClient := crfake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithObjects(&listenerSet).
+			Build()
+
+		_, resolved, err := listenerSetParentGatewayTarget(
+			t.Context(),
+			k8sClient,
+			listenerSet.Namespace,
+			v1.ParentReference{Kind: &listenerSetKind, Name: v1.ObjectName(listenerSet.Name)},
+		)
+
+		require.NoError(t, err)
+		assert.False(t, resolved)
+	})
+
 	t.Run("listenerSetAllowedByGateway", func(t *testing.T) {
 		listenerSet := makeListenerSet(func(listenerSet *v1.ListenerSet) {
 			listenerSet.Namespace = "apps-" + fake.Lorem().Word()
@@ -134,6 +158,9 @@ func TestListenerSetModel(t *testing.T) {
 				Values:   []string{"media"},
 			}},
 		}
+		assert.False(t, listenerSetAllowedByGateway(gateway, listenerSet, namespace))
+
+		gateway.Spec.AllowedListeners.Namespaces.From = lo.ToPtr(v1.NamespacesFromNone)
 		assert.False(t, listenerSetAllowedByGateway(gateway, listenerSet, namespace))
 
 		gateway.Spec.AllowedListeners.Namespaces.From = lo.ToPtr(v1.FromNamespaces("invalid"))
@@ -349,6 +376,28 @@ func TestListenerSetModel(t *testing.T) {
 		assert.Equal(t, v1.SectionName("ls_apps_edge_https"), got.Name)
 		assert.Equal(t, lo.ToPtr(v1.Namespace("apps")), got.TLS.CertificateRefs[0].Namespace)
 		assert.Nil(t, listener.listener.TLS.CertificateRefs[0].Namespace)
+
+		gatewayDetails := resolvedGatewayDetails{
+			gateway: makeGateway(func(gateway *v1.Gateway) {
+				gateway.Namespace = "infra"
+				gateway.Name = "edge"
+			}),
+			effectiveListeners: []effectiveListener{{
+				listener:        v1.Listener{Name: "https", Port: 443, Protocol: v1.HTTPSProtocolType},
+				sourceKind:      effectiveListenerSourceListenerSet,
+				sourceNamespace: "ignored",
+				sourceName:      "conflicted",
+				ociName:         "ls_apps_edge_https",
+				conflicted:      true,
+			}, {
+				listener:        v1.Listener{Name: "https", Port: 443, Protocol: v1.HTTPSProtocolType},
+				sourceKind:      effectiveListenerSourceListenerSet,
+				sourceNamespace: "apps",
+				sourceName:      "accepted",
+				ociName:         "ls_apps_edge_https",
+			}},
+		}
+		assert.Equal(t, "apps", effectiveListenerSourceNamespaceForOCIListener(gatewayDetails, got))
 	})
 
 	t.Run("listenerSetStatusForGateway", func(t *testing.T) {
@@ -516,6 +565,20 @@ func TestListenerSetModel(t *testing.T) {
 			})
 		assert.Equal(t, metav1.ConditionFalse, httpAccepted.Status)
 		assert.Equal(t, string(v1.ListenerReasonUnsupportedProtocol), httpAccepted.Reason)
+
+		passthrough := v1.TLSModePassthrough
+		reason, message, unsupported := listenerSetListenerUnsupported(
+			v1.Listener{
+				Name:     "tls-passthrough",
+				Port:     9443,
+				Protocol: v1.TLSProtocolType,
+				TLS:      &v1.ListenerTLSConfig{Mode: &passthrough},
+			},
+			v1.GatewayController(NetworkLoadBalancerControllerClassName),
+		)
+		assert.False(t, unsupported)
+		assert.Empty(t, reason)
+		assert.Empty(t, message)
 
 		assert.False(t, listenerSetStatusSemanticallyEqual(got, status))
 		assert.False(t, routeGroupKindsEqual(status.Listeners[0].SupportedKinds, nil))

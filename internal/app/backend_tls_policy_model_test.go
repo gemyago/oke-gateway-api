@@ -1109,6 +1109,94 @@ func TestBackendTLSPolicyModelValidationAndLifecycle(t *testing.T) {
 		assert.Empty(t, certsClient.updateCalls)
 	})
 
+	t.Run("returns clear error when create conflict relist only sees deleted OCI CA bundle", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "create-conflict-deleted-only", serviceName, "tls", baseOptions, "ca")
+		targetRef := policy.Spec.TargetRefs[0]
+		ref := policy.Spec.Validation.CACertificateRefs[0]
+		name := backendTLSCABundleName(policy, targetRef, ref)
+		caPEM := testCAPEM(t)
+		bundleID := "ocid1.cabundle.oc1..deletedonly"
+		certsClient := newStubCertificatesManagementClient()
+		certsClient.createErr = ociapi.NewRandomServiceError(
+			ociapi.RandomServiceErrorWithStatusCode(http.StatusBadRequest),
+			ociapi.RandomServiceErrorWithCode("InvalidParameter"),
+			ociapi.RandomServiceErrorWithMessage("A CA bundle with the name '"+name+"' already exists."),
+		)
+		certsClient.listEmptyResponses = 1
+		certsClient.bundles[name] = certificatesmanagement.CaBundleSummary{
+			Id:             &bundleID,
+			Name:           &name,
+			LifecycleState: certificatesmanagement.CaBundleLifecycleStateDeleted,
+			FreeformTags:   backendTLSCABundleTags(policy, sha256Hex(caPEM)),
+		}
+		model, _ := makeModel(t, certsClient)
+
+		_, err := model.ensureOCIManagedCABundle(t.Context(), policy, targetRef, ref, compartmentID, caPEM)
+
+		require.ErrorContains(t, err, "already exists but was not visible in list response")
+		assert.Len(t, certsClient.createCalls, 1)
+		assert.Empty(t, certsClient.updateCalls)
+	})
+
+	t.Run("rejects stale owned OCI CA bundle after create already exists conflict", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "create-conflict-stale", serviceName, "tls", baseOptions, "ca")
+		targetRef := policy.Spec.TargetRefs[0]
+		ref := policy.Spec.Validation.CACertificateRefs[0]
+		name := backendTLSCABundleName(policy, targetRef, ref)
+		currentPEM := testCAPEM(t)
+		stalePEM := testCAPEM(t)
+		bundleID := "ocid1.cabundle.oc1..stale"
+		certsClient := newStubCertificatesManagementClient()
+		certsClient.createErr = ociapi.NewRandomServiceError(
+			ociapi.RandomServiceErrorWithStatusCode(http.StatusBadRequest),
+			ociapi.RandomServiceErrorWithCode("InvalidParameter"),
+			ociapi.RandomServiceErrorWithMessage("A CA bundle with the name '"+name+"' already exists."),
+		)
+		certsClient.listEmptyResponses = 1
+		certsClient.bundles[name] = certificatesmanagement.CaBundleSummary{
+			Id:             &bundleID,
+			Name:           &name,
+			LifecycleState: certificatesmanagement.CaBundleLifecycleStateActive,
+			FreeformTags:   backendTLSCABundleTags(policy, sha256Hex(stalePEM)),
+		}
+		model, _ := makeModel(t, certsClient)
+
+		_, err := model.ensureOCIManagedCABundle(t.Context(), policy, targetRef, ref, compartmentID, currentPEM)
+
+		require.ErrorContains(t, err, "already exists with stale CA data")
+		assert.Len(t, certsClient.createCalls, 1)
+		assert.Empty(t, certsClient.updateCalls)
+	})
+
+	t.Run("waits for owned OCI CA bundle after create already exists conflict", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "create-conflict-creating", serviceName, "tls", baseOptions, "ca")
+		targetRef := policy.Spec.TargetRefs[0]
+		ref := policy.Spec.Validation.CACertificateRefs[0]
+		name := backendTLSCABundleName(policy, targetRef, ref)
+		caPEM := testCAPEM(t)
+		bundleID := "ocid1.cabundle.oc1..creatingconflict"
+		certsClient := newStubCertificatesManagementClient()
+		certsClient.createErr = ociapi.NewRandomServiceError(
+			ociapi.RandomServiceErrorWithStatusCode(http.StatusBadRequest),
+			ociapi.RandomServiceErrorWithCode("InvalidParameter"),
+			ociapi.RandomServiceErrorWithMessage("A CA bundle with the name '"+name+"' already exists."),
+		)
+		certsClient.listEmptyResponses = 1
+		certsClient.bundles[name] = certificatesmanagement.CaBundleSummary{
+			Id:             &bundleID,
+			Name:           &name,
+			LifecycleState: certificatesmanagement.CaBundleLifecycleStateCreating,
+			FreeformTags:   backendTLSCABundleTags(policy, sha256Hex(caPEM)),
+		}
+		model, _ := makeModel(t, certsClient)
+
+		_, err := model.ensureOCIManagedCABundle(t.Context(), policy, targetRef, ref, compartmentID, caPEM)
+
+		require.ErrorContains(t, err, "not ready")
+		assert.Len(t, certsClient.createCalls, 1)
+		assert.Empty(t, certsClient.updateCalls)
+	})
+
 	t.Run("updates OCI CA bundle when referenced ConfigMap CA changes", func(t *testing.T) {
 		policy := backendTLSPolicy(namespace, "rotate", serviceName, "tls", baseOptions, "ca")
 		oldPEM := testCAPEM(t)
@@ -1542,6 +1630,34 @@ func TestBackendTLSPolicyModelValidationAndLifecycle(t *testing.T) {
 
 		require.ErrorContains(t, err, "cannot be resolved")
 		assert.Empty(t, certsClient.createCalls)
+	})
+
+	t.Run("tracks cleanup compartments idempotently", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "track-compartments", serviceName, "tls", baseOptions, "ca")
+		firstCompartment := "ocid1.compartment.oc1.." + fakeData.UUID().V4()
+		secondCompartment := "ocid1.compartment.oc1.." + fakeData.UUID().V4()
+
+		assert.False(t, addBackendTLSPolicyCompartment(&policy, ""))
+		assert.True(t, addBackendTLSPolicyCompartment(&policy, secondCompartment))
+		assert.True(t, addBackendTLSPolicyCompartment(&policy, firstCompartment))
+		assert.False(t, addBackendTLSPolicyCompartment(&policy, firstCompartment))
+		assert.ElementsMatch(
+			t,
+			[]string{firstCompartment, secondCompartment},
+			strings.Split(policy.Annotations[BackendTLSPolicyCompartmentsAnnotation], ","),
+		)
+
+		policy.Annotations[BackendTLSPolicyCompartmentsAnnotation] = fmt.Sprintf(
+			" %s,,%s,%s ",
+			secondCompartment,
+			firstCompartment,
+			secondCompartment,
+		)
+		assert.ElementsMatch(
+			t,
+			[]string{firstCompartment, secondCompartment},
+			backendTLSPolicyCompartmentIDs(policy),
+		)
 	})
 
 	t.Run("accepts pre-managed OCI CA bundle option without ConfigMap CA refs", func(t *testing.T) {

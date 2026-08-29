@@ -32,6 +32,7 @@ import (
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 	k8sapi "github.com/gemyago/oke-gateway-api/internal/services/k8sapi"
 	"github.com/gemyago/oke-gateway-api/internal/services/ociapi"
+	configtypes "github.com/gemyago/oke-gateway-api/internal/types"
 )
 
 func TestHTTPRouteModelImpl(t *testing.T) {
@@ -81,7 +82,9 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			}, parseProgrammedHTTPRoutePolicyRules(
 				fmt.Sprintf(" %s/%s , %s ,,", listenerName, scopedRule, legacyRule),
 			))
+			assert.Nil(t, parseProgrammedHTTPRoutePolicyRules(""))
 			assert.Empty(t, parseProgrammedHTTPRoutePolicyRules(" ,, "))
+			assert.Empty(t, parseProgrammedHTTPRoutePolicyRules("/missing-listener,missing-rule/"))
 		})
 	})
 
@@ -411,9 +414,18 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		assert.Empty(t, winner)
 
 		assert.False(t, l7RouteHostnamesIntersect([]gatewayv1.Hostname{}, []gatewayv1.Hostname{"api.example.com"}))
+		assert.False(t, l7RouteHostnamesIntersect(
+			[]gatewayv1.Hostname{"api.example.com"},
+			[]gatewayv1.Hostname{"web.example.com"},
+		))
 		assert.True(t, l7HostnamePatternsIntersect("API.EXAMPLE.COM", "api.example.com"))
+		assert.True(t, l7HostnamePatternsIntersect("", "api.example.com"))
 		assert.False(t, l7HostnamePatternsIntersect("*.example.com", "example.com"))
 		assert.False(t, l7HostnamePatternsIntersect("api.example.com", "web.example.com"))
+		assert.True(t, l7HostnamePatternsIntersect("*.example.com", "api.example.com"))
+		assert.True(t, l7HostnamePatternsIntersect("api.example.com", "*.example.com"))
+		assert.True(t, l7HostnamePatternsIntersect("*.EXAMPLE.COM", "api.example.com"))
+		assert.False(t, l7HostnamePatternsIntersect("*.example.com", "api.badexample.com"))
 		assert.True(t, l7HostnamePatternsIntersect("*.foo.example.com", "*.example.com"))
 		assert.ElementsMatch(t, []gatewayv1.SectionName{grpcListener.Name}, l7RouteAttachedListenerNames(
 			gateway,
@@ -441,6 +453,11 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			[]gatewayv1.Hostname{""},
 			l7RouteHostnamesForListener(nil, webListener),
 		)
+		assert.Equal(
+			t,
+			[]gatewayv1.Hostname{"api.example.com"},
+			l7RouteHostnamesForListener([]gatewayv1.Hostname{"api.example.com"}, webListener),
+		)
 		assert.Empty(t, l7RouteHostnamesForListener(
 			[]gatewayv1.Hostname{"api.other.test"},
 			grpcListener,
@@ -459,6 +476,38 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			current,
 			olderOpposite,
 		))
+		disjointHostnameRoute := olderOpposite
+		disjointHostnameRoute.identity.kind = current.identity.kind
+		disjointHostnameRoute.hostnames = []gatewayv1.Hostname{"web.example.com"}
+		assert.False(t, l7RoutesShareListenerHostname(
+			gateway,
+			nil,
+			[]gatewayv1.Listener{grpcListener},
+			current,
+			disjointHostnameRoute,
+		))
+		unsharedListenerRoute := olderOpposite
+		unsharedListenerRoute.identity.kind = current.identity.kind
+		unsharedListenerRoute.parentRefs = []gatewayv1.ParentReference{{
+			Namespace:   &parentNamespace,
+			Name:        gatewayv1.ObjectName(gateway.Name),
+			SectionName: &webListener.Name,
+		}}
+		assert.False(t, l7RoutesShareListenerHostname(
+			gateway,
+			nil,
+			[]gatewayv1.Listener{grpcListener},
+			current,
+			unsharedListenerRoute,
+		))
+		winner, conflicted = l7RouteConflictingWinner(l7RouteConflictParams{
+			gateway:          gateway,
+			matchedListeners: []gatewayv1.Listener{grpcListener},
+			current:          current,
+			oppositeRoutes:   []l7RouteCandidate{disjointHostnameRoute, unsharedListenerRoute},
+		})
+		assert.False(t, conflicted)
+		assert.Empty(t, winner)
 		listenerSetKind := gatewayv1.Kind("ListenerSet")
 		listenerSet := gatewayv1.ListenerSet{
 			ObjectMeta: metav1.ObjectMeta{
@@ -594,6 +643,82 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 
 		require.NoError(t, err)
+	})
+
+	t.Run("rejectL7Route returns status update errors", func(t *testing.T) {
+		fake := faker.New()
+		k8sClient := NewMockk8sClient(t)
+		statusWriter := k8sapi.NewMockSubResourceWriter(t)
+		route := makeRandomHTTPRoute()
+		parentStatuses := []gatewayv1.RouteParentStatus{}
+		wantErr := errors.New("status-" + fake.Lorem().Sentence(4))
+
+		k8sClient.EXPECT().Status().Return(statusWriter)
+		statusWriter.EXPECT().
+			Update(t.Context(), &route).
+			Return(wantErr).
+			Once()
+
+		err := rejectL7Route(t.Context(), k8sClient, rejectL7RouteParams{
+			resource:       &route,
+			parentStatuses: &parentStatuses,
+			gatewayClass: gatewayv1.GatewayClass{
+				Spec: gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName},
+			},
+			matchedRef: makeRandomParentRef(),
+			message:    "conflicted",
+			routeKind:  "HTTPRoute",
+		})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to update rejected status for HTTPRoute")
+	})
+
+	t.Run("setL7RoutePending", func(t *testing.T) {
+		fake := faker.New()
+		parentRef := makeRandomParentRef()
+		route := makeRandomHTTPRoute()
+		gateway := gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "gw-" + fake.Lorem().Word()}}
+		gatewayClass := gatewayv1.GatewayClass{Spec: gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName}}
+
+		t.Run("returns an error when parent status is missing", func(t *testing.T) {
+			resourcesModel := NewMockresourcesModel(t)
+
+			err := setL7RoutePending(t.Context(), resourcesModel, setL7RouteProgrammedParams{
+				resource:       &route,
+				parentStatuses: nil,
+				gatewayClass:   gatewayClass,
+				gateway:        gateway,
+				matchedRef:     parentRef,
+			})
+
+			require.ErrorContains(t, err, "parent status not found")
+		})
+
+		t.Run("returns status update errors", func(t *testing.T) {
+			resourcesModel := NewMockresourcesModel(t)
+			wantErr := errors.New("status update failed")
+			parentStatuses := []gatewayv1.RouteParentStatus{{
+				ParentRef:      parentRef,
+				ControllerName: ControllerClassName,
+			}}
+			resourcesModel.EXPECT().setCondition(t.Context(), mock.MatchedBy(func(params setConditionParams) bool {
+				return params.resource.GetName() == route.Name &&
+					params.conditionType == string(gatewayv1.RouteConditionResolvedRefs) &&
+					params.status == metav1.ConditionUnknown &&
+					params.reason == string(gatewayv1.RouteReasonPending)
+			})).Return(wantErr).Once()
+
+			err := setL7RoutePending(t.Context(), resourcesModel, setL7RouteProgrammedParams{
+				resource:       &route,
+				parentStatuses: parentStatuses,
+				gatewayClass:   gatewayClass,
+				gateway:        gateway,
+				matchedRef:     parentRef,
+			})
+
+			require.ErrorIs(t, err, wantErr)
+		})
 	})
 
 	t.Run("resolveRequest", func(t *testing.T) {
@@ -942,6 +1067,41 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			assert.Equal(t, gatewayv1.HTTPSProtocolType, receiver.matchedListeners[0].Protocol)
 		})
 
+		t.Run("ignores ListenerSet parent refs whose parent Gateway is unresolved", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			listenerSetKind := gatewayv1.Kind("ListenerSet")
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithNamespaceOpt("apps-"+fake.Lorem().Word()),
+				randomHTTPRouteWithRandomParentRefOpt(gatewayv1.ParentReference{
+					Kind: &listenerSetKind,
+					Name: gatewayv1.ObjectName("extra-" + fake.Lorem().Word()),
+				}),
+			)
+			req := reconcile.Request{NamespacedName: types.NamespacedName{
+				Namespace: route.Namespace,
+				Name:      route.Name,
+			}}
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			setupClientGet(t, k8sClient, req.NamespacedName, route)
+			k8sClient.EXPECT().
+				Get(
+					t.Context(),
+					types.NamespacedName{Namespace: route.Namespace, Name: string(route.Spec.ParentRefs[0].Name)},
+					mock.AnythingOfType("*v1.ListenerSet"),
+				).
+				Return(apierrors.NewNotFound(schema.GroupResource{
+					Group:    gatewayv1.GroupName,
+					Resource: "listenersets",
+				}, string(route.Spec.ParentRefs[0].Name)))
+
+			results, err := model.resolveRequest(t.Context(), req)
+
+			require.NoError(t, err)
+			assert.Empty(t, results)
+		})
+
 		t.Run("Gateway and ListenerSet parents keep independent results", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
@@ -1254,6 +1414,51 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			assert.Empty(t, results, "parent should not resolve when section name does not match any listener")
 		})
 
+		t.Run("no relevant parent when effective listeners are conflicted", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			parentRef := makeRandomParentRef()
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithNamespaceOpt("apps-"+fake.Lorem().Word()),
+				randomHTTPRouteWithRandomParentRefOpt(parentRef),
+			)
+			req := reconcile.Request{NamespacedName: types.NamespacedName{
+				Namespace: route.Namespace,
+				Name:      route.Name,
+			}}
+			gatewayData := makeRandomAcceptedGatewayDetails(
+				randomResolvedGatewayDetailsWithGatewayOpts(randomGatewayWithNameFromParentRefOpt(parentRef)),
+			)
+			gatewayData.effectiveListeners = []effectiveListener{{
+				listener:   makeRandomListener(randomListenerWithHTTPProtocolOpt()),
+				sourceKind: effectiveListenerSourceGateway,
+				conflicted: true,
+			}}
+			setupClientGet(t, deps.K8sClient, req.NamespacedName, route)
+			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+			gatewayModel.EXPECT().resolveReconcileRequest(
+				t.Context(),
+				reconcile.Request{NamespacedName: types.NamespacedName{
+					Namespace: string(lo.FromPtr(parentRef.Namespace)),
+					Name:      string(parentRef.Name),
+				}},
+				mock.Anything,
+			).RunAndReturn(func(
+				_ context.Context,
+				_ reconcile.Request,
+				receiver *resolvedGatewayDetails,
+			) (bool, error) {
+				*receiver = *gatewayData
+				return true, nil
+			})
+
+			results, err := model.resolveRequest(t.Context(), req)
+
+			require.NoError(t, err)
+			assert.Empty(t, results)
+		})
+
 		t.Run("no relevant parent", func(t *testing.T) {
 			fake := faker.New()
 			deps := newMockDeps(t)
@@ -1389,6 +1594,220 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			require.ErrorIs(t, err, expectedErr)
 			assert.Nil(t, results, "should return nil results on error")
 		})
+
+		t.Run("unsupported parent ref kind is ignored", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			unsupportedGroup := gatewayv1.Group("example.com")
+			unsupportedKind := gatewayv1.Kind("CustomParent")
+			parentRef := gatewayv1.ParentReference{
+				Group: &unsupportedGroup,
+				Kind:  &unsupportedKind,
+				Name:  gatewayv1.ObjectName("parent-" + fake.Lorem().Word()),
+			}
+			route := makeRandomHTTPRoute(randomHTTPRouteWithRandomParentRefOpt(parentRef))
+			req := reconcile.Request{NamespacedName: types.NamespacedName{
+				Namespace: route.Namespace,
+				Name:      route.Name,
+			}}
+
+			setupClientGet(t, deps.K8sClient, req.NamespacedName, route)
+
+			results, err := model.resolveRequest(t.Context(), req)
+
+			require.NoError(t, err)
+			assert.Empty(t, results)
+		})
+
+		t.Run("returns allowedRoutes namespace selector errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			fromSelector := gatewayv1.NamespacesFromSelector
+			parentRef := makeRandomParentRef()
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithNamespaceOpt("routes-"+fake.Lorem().Word()),
+				randomHTTPRouteWithRandomParentRefOpt(parentRef),
+			)
+			req := reconcile.Request{NamespacedName: types.NamespacedName{
+				Namespace: route.Namespace,
+				Name:      route.Name,
+			}}
+			gatewayData := makeRandomAcceptedGatewayDetails(
+				randomResolvedGatewayDetailsWithGatewayOpts(
+					randomGatewayWithNameFromParentRefOpt(parentRef),
+					randomGatewayWithListenersOpt(gatewayv1.Listener{
+						Name:     "https",
+						Port:     443,
+						Protocol: gatewayv1.HTTPSProtocolType,
+						AllowedRoutes: &gatewayv1.AllowedRoutes{
+							Namespaces: &gatewayv1.RouteNamespaces{
+								From: &fromSelector,
+								Selector: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+									Key:      "team",
+									Operator: metav1.LabelSelectorOperator("invalid"),
+									Values:   []string{"api"},
+								}}},
+							},
+						},
+					}),
+				),
+			)
+
+			setupClientGet(t, deps.K8sClient, req.NamespacedName, route)
+			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+			gatewayModel.EXPECT().resolveReconcileRequest(
+				t.Context(),
+				reconcile.Request{NamespacedName: types.NamespacedName{
+					Namespace: string(lo.FromPtr(parentRef.Namespace)),
+					Name:      string(parentRef.Name),
+				}},
+				mock.Anything,
+			).RunAndReturn(func(
+				_ context.Context,
+				_ reconcile.Request,
+				receiver *resolvedGatewayDetails,
+			) (bool, error) {
+				*receiver = *gatewayData
+				return true, nil
+			})
+
+			results, err := model.resolveRequest(t.Context(), req)
+
+			require.ErrorContains(t, err, "invalid allowedRoutes namespace selector")
+			assert.Nil(t, results)
+		})
+
+		t.Run("returns section listener allowedRoutes namespace selector errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			fromSelector := gatewayv1.NamespacesFromSelector
+			sectionName := gatewayv1.SectionName("https-" + fake.Lorem().Word())
+			parentRef := makeRandomParentRef(
+				func(ref *gatewayv1.ParentReference) {
+					ref.SectionName = &sectionName
+				},
+			)
+			route := makeRandomHTTPRoute(
+				randomHTTPRouteWithNamespaceOpt("routes-"+fake.Lorem().Word()),
+				randomHTTPRouteWithRandomParentRefOpt(parentRef),
+			)
+			req := reconcile.Request{NamespacedName: types.NamespacedName{
+				Namespace: route.Namespace,
+				Name:      route.Name,
+			}}
+			gatewayData := makeRandomAcceptedGatewayDetails(
+				randomResolvedGatewayDetailsWithGatewayOpts(
+					randomGatewayWithNameFromParentRefOpt(parentRef),
+					randomGatewayWithListenersOpt(gatewayv1.Listener{
+						Name:     sectionName,
+						Port:     443,
+						Protocol: gatewayv1.HTTPSProtocolType,
+						AllowedRoutes: &gatewayv1.AllowedRoutes{
+							Namespaces: &gatewayv1.RouteNamespaces{
+								From: &fromSelector,
+								Selector: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+									Key:      "team",
+									Operator: metav1.LabelSelectorOperator("invalid"),
+									Values:   []string{"api"},
+								}}},
+							},
+						},
+					}),
+				),
+			)
+
+			setupClientGet(t, deps.K8sClient, req.NamespacedName, route)
+			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+			gatewayModel.EXPECT().resolveReconcileRequest(
+				t.Context(),
+				reconcile.Request{NamespacedName: types.NamespacedName{
+					Namespace: string(lo.FromPtr(parentRef.Namespace)),
+					Name:      string(parentRef.Name),
+				}},
+				mock.Anything,
+			).RunAndReturn(func(
+				_ context.Context,
+				_ reconcile.Request,
+				receiver *resolvedGatewayDetails,
+			) (bool, error) {
+				*receiver = *gatewayData
+				return true, nil
+			})
+
+			results, err := model.resolveRequest(t.Context(), req)
+
+			require.ErrorContains(t, err, "invalid allowedRoutes namespace selector")
+			assert.Nil(t, results)
+		})
+
+		t.Run("returns ListenerSet effective listener population errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+			listenerSetKind := gatewayv1.Kind("ListenerSet")
+			parentNamespace := gatewayv1.Namespace("infra-" + fake.Lorem().Word())
+			parentRef := gatewayv1.ParentReference{
+				Kind: &listenerSetKind,
+				Name: gatewayv1.ObjectName("extra-" + fake.Lorem().Word()),
+			}
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "apps-" + fake.Lorem().Word(), Name: string(parentRef.Name)},
+				Spec: gatewayv1.ListenerSetSpec{
+					ParentRef: gatewayv1.ParentGatewayReference{
+						Namespace: &parentNamespace,
+						Name:      "edge",
+					},
+				},
+			}
+			wantErr := errors.New("listenerset-list-" + fake.Lorem().Sentence(4))
+
+			setupClientGet(t, k8sClient, types.NamespacedName{
+				Namespace: listenerSet.Namespace,
+				Name:      listenerSet.Name,
+			}, listenerSet)
+			gatewayModel.EXPECT().
+				resolveReconcileRequest(
+					t.Context(),
+					reconcile.Request{NamespacedName: types.NamespacedName{
+						Namespace: string(parentNamespace),
+						Name:      "edge",
+					}},
+					mock.Anything,
+				).
+				RunAndReturn(func(
+					_ context.Context,
+					_ reconcile.Request,
+					receiver *resolvedGatewayDetails,
+				) (bool, error) {
+					*receiver = resolvedGatewayDetails{
+						gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{
+							Namespace: string(parentNamespace),
+							Name:      "edge",
+						}},
+					}
+					return true, nil
+				}).
+				Once()
+			k8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.ListenerSetList{}).
+				Return(wantErr).
+				Once()
+
+			_, resolved, err := resolveL7ParentGateway(
+				t.Context(),
+				k8sClient,
+				gatewayModel,
+				parentRef,
+				listenerSet.Namespace,
+			)
+
+			require.ErrorIs(t, err, wantErr)
+			require.False(t, resolved)
+		})
 	})
 
 	t.Run("listGRPCRouteConflictCandidates", func(t *testing.T) {
@@ -1487,6 +1906,77 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				LastTransitionTime: gotCondition.LastTransitionTime,
 				Message:            fmt.Sprintf("Route accepted by %s", routeData.gatewayDetails.gateway.Name),
 			}, gotCondition)
+		})
+
+		t.Run("rejects when matched listeners deny attachment", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			statusWriter := k8sapi.NewMockSubResourceWriter(t)
+			route := makeRandomHTTPRoute()
+			gatewayClass := newRandomGatewayClass()
+
+			k8sClient.EXPECT().Status().Return(statusWriter)
+			statusWriter.EXPECT().
+				Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+					updated, ok := obj.(*gatewayv1.HTTPRoute)
+					if !ok {
+						return false
+					}
+					require.Len(t, updated.Status.Parents, 1)
+					condition := meta.FindStatusCondition(
+						updated.Status.Parents[0].Conditions,
+						string(gatewayv1.RouteConditionAccepted),
+					)
+					return condition != nil &&
+						condition.Status == metav1.ConditionFalse &&
+						condition.Reason == string(routeReasonConflicted) &&
+						strings.Contains(condition.Message, "matched listeners do not allow HTTPRoute")
+				})).
+				Return(nil).
+				Once()
+
+			acceptedRoute, err := model.acceptRoute(t.Context(), resolvedRouteDetails{
+				attachmentDenied: true,
+				httpRoute:        route,
+				matchedRef:       makeRandomParentRef(),
+				gatewayDetails: resolvedGatewayDetails{
+					gatewayClass: *gatewayClass,
+				},
+			})
+
+			require.NoError(t, err)
+			assert.Nil(t, acceptedRoute)
+		})
+
+		t.Run("returns GRPCRoute conflict lookup errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			wantErr := errors.New("grpc-route-list-" + fake.Lorem().Sentence(4))
+			route := makeRandomHTTPRoute()
+
+			k8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.GRPCRouteList{}).
+				Return(wantErr).
+				Once()
+
+			acceptedRoute, err := model.acceptRoute(t.Context(), resolvedRouteDetails{
+				httpRoute:        route,
+				matchedRef:       makeRandomParentRef(),
+				matchedListeners: []gatewayv1.Listener{makeRandomListener()},
+				gatewayDetails: resolvedGatewayDetails{
+					gateway: *newRandomGateway(),
+					gatewayClass: gatewayv1.GatewayClass{
+						Spec: gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName},
+					},
+				},
+			})
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to list GRPCRoutes for conflict detection")
+			assert.Nil(t, acceptedRoute)
 		})
 
 		t.Run("accepts when an older GRPCRoute has an overlapping listener hostname", func(t *testing.T) {
@@ -1607,6 +2097,83 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			}, wantMessage)
 
 			require.NoError(t, err)
+		})
+
+		t.Run("rejectRoute removes programmed policy rules before updating status", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+			loadBalancerID := "ocid1.loadbalancer.oc1.." + fake.UUID().V4()
+			listener := gatewayv1.Listener{Name: gatewayv1.SectionName("https-" + fake.Lorem().Word())}
+			ruleName := "rule-" + fake.Lorem().Word()
+			parentRef := makeRandomParentRef()
+			httpRoute := makeRandomHTTPRoute()
+			httpRoute.Annotations = map[string]string{
+				HTTPRouteProgrammedPolicyRulesAnnotation: fmt.Sprintf("%s/%s", listener.Name, ruleName),
+			}
+
+			cleanupCall := ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  loadBalancerID,
+				listenerName:    string(listener.Name),
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{ruleName},
+			}).Return(nil).Once()
+			k8sClient.EXPECT().Status().Return(mockStatusWriter).NotBefore(cleanupCall)
+			mockStatusWriter.EXPECT().Update(t.Context(), mock.Anything).Return(nil).Once()
+
+			err := model.rejectRoute(t.Context(), resolvedRouteDetails{
+				gatewayDetails: resolvedGatewayDetails{
+					gatewayClass: gatewayv1.GatewayClass{
+						Spec: gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName},
+					},
+					config: configtypes.GatewayConfig{
+						Spec: configtypes.GatewayConfigSpec{LoadBalancerID: loadBalancerID},
+					},
+				},
+				httpRoute:        httpRoute,
+				matchedRef:       parentRef,
+				matchedListeners: []gatewayv1.Listener{listener},
+			}, "conflicted")
+
+			require.NoError(t, err)
+		})
+
+		t.Run("rejectRoute wraps programmed policy rule cleanup errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			loadBalancerID := "ocid1.loadbalancer.oc1.." + fake.UUID().V4()
+			listener := gatewayv1.Listener{Name: gatewayv1.SectionName("https-" + fake.Lorem().Word())}
+			ruleName := "rule-" + fake.Lorem().Word()
+			wantErr := errors.New("policy cleanup failed")
+			httpRoute := makeRandomHTTPRoute()
+			httpRoute.Annotations = map[string]string{
+				HTTPRouteProgrammedPolicyRulesAnnotation: fmt.Sprintf("%s/%s", listener.Name, ruleName),
+			}
+
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  loadBalancerID,
+				listenerName:    string(listener.Name),
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{ruleName},
+			}).Return(wantErr).Once()
+
+			err := model.rejectRoute(t.Context(), resolvedRouteDetails{
+				gatewayDetails: resolvedGatewayDetails{
+					config: configtypes.GatewayConfig{
+						Spec: configtypes.GatewayConfigSpec{LoadBalancerID: loadBalancerID},
+					},
+				},
+				httpRoute:        httpRoute,
+				matchedListeners: []gatewayv1.Listener{listener},
+			}, "conflicted")
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to remove rejected HTTPRoute policy rules")
 		})
 
 		t.Run("setRejected sets resolved refs condition false", func(t *testing.T) {
@@ -2332,6 +2899,39 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			require.ErrorContains(t, err, "resolved backend service")
 		})
 
+		t.Run("fails when BackendTLSPolicy resolution fails", func(t *testing.T) {
+			fake := faker.New()
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			wantErr := errors.New("backend-tls-" + fake.Lorem().Sentence(4))
+
+			config := makeRandomGatewayConfig()
+			routeNamespace := "routes-" + fake.Lorem().Word()
+			service := makeRandomService()
+			backendRef := makeRandomBackendRef(
+				randomBackendRefWithNameOpt(service.Name),
+				randomBackendRefWithNamespaceOpt(service.Namespace),
+			)
+			serviceKey := types.NamespacedName{Namespace: service.Namespace, Name: service.Name}.String()
+
+			_, _, err := programL7RoutePolicy(t.Context(), ociLBModel, programL7RoutePolicyParams{
+				loadBalancerID:   config.Spec.LoadBalancerID,
+				config:           config,
+				routeName:        "http-" + fake.Lorem().Word(),
+				routeNamespace:   routeNamespace,
+				backendRefs:      []gatewayv1.BackendRef{backendRef.BackendRef},
+				knownBackends:    map[string]corev1.Service{serviceKey: service},
+				matchedListeners: []gatewayv1.Listener{makeRandomListener()},
+				backendTLSPolicy: &stubBackendTLSPolicyModel{resolveErr: wantErr},
+				ruleCount:        1,
+				makeRoutingRule: func(int, gatewayv1.PortNumber) (loadbalancer.RoutingRule, error) {
+					return makeRandomOCIRoutingRule(), nil
+				},
+			})
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to resolve BackendTLSPolicy")
+		})
+
 		t.Run("program with previously programmed annotations passes stale rules for cleanup", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
@@ -2774,6 +3374,103 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				map[string]struct{}{},
 				map[string]struct{}{staleBackendSetName: {}},
 			)
+
+			require.ErrorIs(t, err, wantErr)
+		})
+	})
+
+	t.Run("programL7RoutePolicy", func(t *testing.T) {
+		t.Run("returns missing known backend errors", func(t *testing.T) {
+			fake := faker.New()
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			backendRef := makeRandomBackendRef()
+
+			_, _, err := programL7RoutePolicy(t.Context(), ociLBModel, programL7RoutePolicyParams{
+				loadBalancerID:   "lb-" + fake.UUID().V4(),
+				routeName:        "http-" + fake.Lorem().Word(),
+				routeNamespace:   "routes-" + fake.Lorem().Word(),
+				backendRefs:      []gatewayv1.BackendRef{backendRef.BackendRef},
+				knownBackends:    map[string]corev1.Service{},
+				matchedListeners: nil,
+				ruleCount:        0,
+				makeRoutingRule: func(int, gatewayv1.PortNumber) (loadbalancer.RoutingRule, error) {
+					require.Fail(t, "routing rules should not be built when ruleCount is zero")
+					return loadbalancer.RoutingRule{}, nil
+				},
+			})
+
+			require.ErrorContains(t, err, "resolved backend service")
+		})
+
+		t.Run("returns stale routing policy cleanup errors", func(t *testing.T) {
+			fake := faker.New()
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			loadBalancerID := "lb-" + fake.UUID().V4()
+			currentListener := makeRandomListener()
+			staleListenerName := "stale-" + fake.Lorem().Word()
+			staleRule := "rule-" + fake.Lorem().Word()
+			wantErr := errors.New("stale-policy-" + fake.Lorem().Sentence(4))
+
+			currentCommit := ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID: loadBalancerID,
+				listenerName:   string(currentListener.Name),
+				policyRules:    []loadbalancer.RoutingRule{},
+			}).Return(nil).Once()
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  loadBalancerID,
+				listenerName:    staleListenerName,
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{staleRule},
+			}).Return(wantErr).Once().NotBefore(currentCommit)
+
+			_, _, err := programL7RoutePolicy(t.Context(), ociLBModel, programL7RoutePolicyParams{
+				loadBalancerID:   loadBalancerID,
+				routeName:        "http-" + fake.Lorem().Word(),
+				routeNamespace:   "routes-" + fake.Lorem().Word(),
+				matchedListeners: []gatewayv1.Listener{currentListener},
+				previousPolicyRules: []programmedHTTPRoutePolicyRule{{
+					listenerName: staleListenerName,
+					ruleName:     staleRule,
+				}},
+				ruleCount: 0,
+				makeRoutingRule: func(int, gatewayv1.PortNumber) (loadbalancer.RoutingRule, error) {
+					require.Fail(t, "routing rules should not be built when ruleCount is zero")
+					return loadbalancer.RoutingRule{}, nil
+				},
+			})
+
+			require.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("returns stale backend set cleanup errors", func(t *testing.T) {
+			fake := faker.New()
+			ociLBModel := NewMockociLoadBalancerModel(t)
+			loadBalancerID := "lb-" + fake.UUID().V4()
+			staleBackendSetName := "stale-" + fake.Lorem().Word()
+			wantErr := errors.New("stale-backend-" + fake.Lorem().Sentence(4))
+
+			ociLBModel.EXPECT().
+				deprovisionBackendSetByName(t.Context(), loadBalancerID, staleBackendSetName).
+				Return(wantErr).
+				Once()
+
+			_, _, err := programL7RoutePolicy(t.Context(), ociLBModel, programL7RoutePolicyParams{
+				loadBalancerID:      loadBalancerID,
+				routeName:           "http-" + fake.Lorem().Word(),
+				routeNamespace:      "routes-" + fake.Lorem().Word(),
+				matchedListeners:    nil,
+				previousBackendSets: map[string]struct{}{staleBackendSetName: {}},
+				ruleCount:           0,
+				previousPolicyRules: nil,
+				backendTLSPolicy:    nil,
+				backendTLSDisabled:  false,
+				backendRefs:         nil,
+				knownBackends:       nil,
+				makeRoutingRule: func(int, gatewayv1.PortNumber) (loadbalancer.RoutingRule, error) {
+					require.Fail(t, "routing rules should not be built when ruleCount is zero")
+					return loadbalancer.RoutingRule{}, nil
+				},
+			})
 
 			require.ErrorIs(t, err, wantErr)
 		})
@@ -3568,6 +4265,147 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				}, httpRoute.Name))
 
 			err := model.deprovisionRoute(t.Context(), params)
+			require.NoError(t, err)
+		})
+
+		t.Run("returns update errors when removing finalizer after cleanup", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			config := makeRandomGatewayConfig()
+			backendRef := makeRandomBackendRef()
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(makeRandomHTTPRouteRule(
+					randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef),
+				)),
+			)
+			httpRoute.Finalizers = []string{HTTPRouteProgrammedFinalizer}
+			listener := makeRandomListener()
+			previousRule := "rule-" + fake.Lorem().Word()
+			httpRoute.Annotations = map[string]string{
+				HTTPRouteProgrammedPolicyRulesAnnotation: fmt.Sprintf("%s/%s", listener.Name, previousRule),
+			}
+			wantErr := errors.New("update-" + fake.Lorem().Sentence(4))
+
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			commitCall := ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  config.Spec.LoadBalancerID,
+				listenerName:    string(listener.Name),
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{previousRule},
+			}).Return(nil).Once()
+			ociLBModel.EXPECT().deprovisionBackendSet(t.Context(), deprovisionBackendSetParams{
+				loadBalancerID: config.Spec.LoadBalancerID,
+				routeNamespace: httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
+			}).Return(nil).Once().NotBefore(commitCall)
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().Update(t.Context(), mock.Anything).Return(wantErr)
+
+			err := model.deprovisionRoute(t.Context(), deprovisionRouteParams{
+				gateway:          *newRandomGateway(),
+				config:           config,
+				httpRoute:        httpRoute,
+				matchedListeners: []gatewayv1.Listener{listener},
+			})
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to update HTTPRoute")
+		})
+
+		t.Run("returns backend set reference check errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			config := makeRandomGatewayConfig()
+			listener := makeRandomListener()
+			previousRule := "rule-" + fake.Lorem().Word()
+			backendRef := makeRandomBackendRef()
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(makeRandomHTTPRouteRule(
+					randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef),
+				)),
+			)
+			backendSetName := ociBackendSetNameFromBackendObjectRef(
+				httpRoute.Namespace,
+				backendRef.BackendObjectReference,
+			)
+			httpRoute.Finalizers = []string{HTTPRouteProgrammedFinalizer}
+			httpRoute.Annotations = map[string]string{
+				HTTPRouteProgrammedPolicyRulesAnnotation: fmt.Sprintf("%s/%s", listener.Name, previousRule),
+				HTTPRouteProgrammedBackendSetsAnnotation: backendSetName,
+			}
+			wantErr := errors.New("reference-" + fake.Lorem().Sentence(4))
+
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  config.Spec.LoadBalancerID,
+				listenerName:    string(listener.Name),
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{previousRule},
+			}).Return(nil).Once()
+			ociLBModel.EXPECT().
+				backendSetReferenced(t.Context(), config.Spec.LoadBalancerID, backendSetName).
+				Return(false, wantErr).
+				Once()
+
+			err := model.deprovisionRoute(t.Context(), deprovisionRouteParams{
+				gateway:          *newRandomGateway(),
+				config:           config,
+				httpRoute:        httpRoute,
+				matchedListeners: []gatewayv1.Listener{listener},
+			})
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to check backend set")
+		})
+
+		t.Run("deduplicates backend refs during cleanup", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newHTTPRouteModel(deps)
+
+			config := makeRandomGatewayConfig()
+			listener := makeRandomListener()
+			previousRule := "rule-" + fake.Lorem().Word()
+			backendRef := makeRandomBackendRef()
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithRulesOpt(
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef)),
+					makeRandomHTTPRouteRule(randomHTTPRouteRuleWithRandomBackendRefsOpt(backendRef)),
+				),
+			)
+			httpRoute.Finalizers = []string{HTTPRouteProgrammedFinalizer}
+			httpRoute.Annotations = map[string]string{
+				HTTPRouteProgrammedPolicyRulesAnnotation: fmt.Sprintf("%s/%s", listener.Name, previousRule),
+			}
+
+			ociLBModel, _ := deps.OciLBModel.(*MockociLoadBalancerModel)
+			commitCall := ociLBModel.EXPECT().commitRoutingPolicy(t.Context(), commitRoutingPolicyParams{
+				loadBalancerID:  config.Spec.LoadBalancerID,
+				listenerName:    string(listener.Name),
+				policyRules:     []loadbalancer.RoutingRule{},
+				prevPolicyRules: []string{previousRule},
+			}).Return(nil).Once()
+			ociLBModel.EXPECT().deprovisionBackendSet(t.Context(), deprovisionBackendSetParams{
+				loadBalancerID: config.Spec.LoadBalancerID,
+				routeNamespace: httpRoute.Namespace,
+				backendRef:     backendRef.BackendRef,
+			}).Return(nil).Once().NotBefore(commitCall)
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().Update(t.Context(), mock.Anything).Return(nil)
+
+			err := model.deprovisionRoute(t.Context(), deprovisionRouteParams{
+				gateway:          *newRandomGateway(),
+				config:           config,
+				httpRoute:        httpRoute,
+				matchedListeners: []gatewayv1.Listener{listener},
+			})
+
 			require.NoError(t, err)
 		})
 

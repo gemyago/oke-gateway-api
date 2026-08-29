@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"reflect"
 	"testing"
 
@@ -1933,7 +1934,9 @@ func TestWatchesModel(t *testing.T) {
 			indexKey := fmt.Sprintf("%s/%s", secret.Namespace, secret.Name)
 			parentNamespace := gatewayv1.Namespace("infra-" + faker.New().Lorem().Word())
 			parentName := gatewayv1.ObjectName("edge-" + faker.New().Lorem().Word())
-			listenerSets := []gatewayv1.ListenerSet{{
+			deletedAt := metav1.Now()
+			gateway := *newRandomGateway()
+			listenerSet := gatewayv1.ListenerSet{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "apps-" + faker.New().Lorem().Word(),
 					Name:      "listeners-" + faker.New().Lorem().Word(),
@@ -1942,7 +1945,10 @@ func TestWatchesModel(t *testing.T) {
 					Namespace: &parentNamespace,
 					Name:      parentName,
 				}},
-			}}
+			}
+			deletingListenerSet := listenerSet
+			deletingListenerSet.Name = "deleting-" + faker.New().Lorem().Word()
+			deletingListenerSet.DeletionTimestamp = &deletedAt
 
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
 			mockK8sClient.EXPECT().List(
@@ -1950,7 +1956,7 @@ func TestWatchesModel(t *testing.T) {
 				&gatewayv1.GatewayList{},
 				client.MatchingFields{gatewayCertificateIndexKey: indexKey},
 			).RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-				reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.Gateway{}))
+				reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.Gateway{gateway}))
 				return nil
 			})
 			mockK8sClient.EXPECT().List(
@@ -1958,13 +1964,18 @@ func TestWatchesModel(t *testing.T) {
 				&gatewayv1.ListenerSetList{},
 				client.MatchingFields{listenerSetCertificateIndexKey: indexKey},
 			).RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-				reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf(listenerSets))
+				reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.ListenerSet{
+					listenerSet,
+					deletingListenerSet,
+				}))
 				return nil
 			})
 
 			result := model.MapSecretToGatewayWithListenerSets(t.Context(), &secret)
 
 			require.ElementsMatch(t, []reconcile.Request{{
+				NamespacedName: client.ObjectKeyFromObject(&gateway),
+			}, {
 				NamespacedName: apitypes.NamespacedName{
 					Namespace: string(parentNamespace),
 					Name:      string(parentName),
@@ -2220,12 +2231,19 @@ func TestWatchesModel(t *testing.T) {
 			model := NewWatchesModel(deps)
 			namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "apps"}}
 			listenerSet := gatewayv1.ListenerSet{ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"}}
+			deletedAt := metav1.Now()
+			deletingListenerSet := gatewayv1.ListenerSet{ObjectMeta: metav1.ObjectMeta{
+				Namespace:         "apps",
+				Name:              "deleting",
+				DeletionTimestamp: &deletedAt,
+			}}
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
 			mockK8sClient.EXPECT().
 				List(t.Context(), &gatewayv1.ListenerSetList{}, client.InNamespace("apps")).
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.ListenerSet{
 						listenerSet,
+						deletingListenerSet,
 					}))
 					return nil
 				})
@@ -2291,12 +2309,21 @@ func TestWatchesModel(t *testing.T) {
 					}},
 				},
 			}
+			deletedAt := metav1.Now()
+			deletingListenerSet := listenerSet
+			deletingListenerSet.Name = "deleting"
+			deletingListenerSet.DeletionTimestamp = &deletedAt
+			noTLSListenerSet := *listenerSet.DeepCopy()
+			noTLSListenerSet.Name = "no-tls"
+			noTLSListenerSet.Spec.Listeners[0].TLS = nil
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
 			mockK8sClient.EXPECT().
 				List(t.Context(), &gatewayv1.ListenerSetList{}).
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.ListenerSet{
 						listenerSet,
+						deletingListenerSet,
+						noTLSListenerSet,
 					}))
 					return nil
 				})
@@ -2336,6 +2363,10 @@ func TestWatchesModel(t *testing.T) {
 				Return(errors.New("listenerset list failed"))
 
 			require.Nil(t, model.MapReferenceGrantToGatewayWithListenerSets(t.Context(), secretGrant))
+
+			wrongFromGrant := secretGrant.DeepCopy()
+			wrongFromGrant.Spec.From[0].Namespace = gatewayv1.Namespace("other")
+			require.Nil(t, model.MapReferenceGrantToGatewayWithListenerSets(t.Context(), wrongFromGrant))
 		})
 	})
 
@@ -2424,6 +2455,84 @@ func TestWatchesModel(t *testing.T) {
 
 			require.Nil(t, model.MapReferenceGrantToListenerSet(t.Context(), secretGrant))
 		})
+
+		t.Run("matches only cross namespace ListenerSet certificate refs allowed by grant", func(t *testing.T) {
+			fakeData := faker.New()
+			listenerSetNamespace := "apps-" + fakeData.Lorem().Word()
+			certNamespace := gatewayv1.Namespace("certs-" + fakeData.Lorem().Word())
+			certName := gatewayv1.ObjectName("tls-" + fakeData.Lorem().Word())
+			otherCertName := gatewayv1.ObjectName("tls-other-" + fakeData.Lorem().Word())
+			grant := gatewayv1beta1.ReferenceGrant{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: string(certNamespace),
+					Name:      "allow-" + fakeData.Lorem().Word(),
+				},
+				Spec: gatewayv1beta1.ReferenceGrantSpec{
+					From: []gatewayv1beta1.ReferenceGrantFrom{{
+						Group:     gatewayv1.Group(gatewayAPIGroup),
+						Kind:      gatewayv1.Kind("ListenerSet"),
+						Namespace: gatewayv1.Namespace(listenerSetNamespace),
+					}},
+					To: []gatewayv1beta1.ReferenceGrantTo{{
+						Group: gatewayv1.Group(""),
+						Kind:  gatewayv1.Kind("Secret"),
+						Name:  &certName,
+					}},
+				},
+			}
+			listenerSet := gatewayv1.ListenerSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: listenerSetNamespace,
+					Name:      "listeners-" + fakeData.Lorem().Word(),
+				},
+				Spec: gatewayv1.ListenerSetSpec{Listeners: []gatewayv1.ListenerEntry{{
+					Name:     "https",
+					Protocol: gatewayv1.HTTPSProtocolType,
+					Port:     443,
+					TLS: &gatewayv1.ListenerTLSConfig{CertificateRefs: []gatewayv1.SecretObjectReference{{
+						Namespace: &certNamespace,
+						Name:      certName,
+					}}},
+				}}},
+			}
+			sameNamespaceListenerSet := *listenerSet.DeepCopy()
+			sameNamespaceListenerSet.Spec.Listeners[0].TLS.CertificateRefs[0].Namespace = nil
+			wrongNameListenerSet := *listenerSet.DeepCopy()
+			wrongNameListenerSet.Spec.Listeners[0].TLS.CertificateRefs[0].Name = otherCertName
+
+			require.True(t, listenerSetReferencesGrantedSecret(listenerSet, grant))
+			require.False(t, listenerSetReferencesGrantedSecret(sameNamespaceListenerSet, grant))
+			require.False(t, listenerSetReferencesGrantedSecret(wrongNameListenerSet, grant))
+		})
+	})
+
+	t.Run("ReferenceGrant matching helpers require Gateway API from and core to kinds", func(t *testing.T) {
+		fakeData := faker.New()
+		namespace := gatewayv1.Namespace("apps-" + fakeData.Lorem().Word())
+		matchingGrant := gatewayv1beta1.ReferenceGrant{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "certs-" + fakeData.Lorem().Word()},
+			Spec: gatewayv1beta1.ReferenceGrantSpec{
+				From: []gatewayv1beta1.ReferenceGrantFrom{{
+					Group:     gatewayv1.Group(gatewayAPIGroup),
+					Kind:      gatewayv1.Kind("ListenerSet"),
+					Namespace: namespace,
+				}},
+				To: []gatewayv1beta1.ReferenceGrantTo{{
+					Group: gatewayv1.Group(""),
+					Kind:  gatewayv1.Kind("Secret"),
+				}},
+			},
+		}
+		wrongFromGroup := matchingGrant.DeepCopy()
+		wrongFromGroup.Spec.From[0].Group = gatewayv1.Group("example.com")
+		wrongToGroup := matchingGrant.DeepCopy()
+		wrongToGroup.Spec.To[0].Group = gatewayv1.Group("example.com")
+
+		require.True(t, referenceGrantMayAllowListenerSetSecret(matchingGrant))
+		require.False(t, referenceGrantMayAllowListenerSetSecret(*wrongFromGroup))
+		require.False(t, referenceGrantMayAllowListenerSetSecret(*wrongToGroup))
+		require.False(t, referenceGrantHasMatchingFromKind(matchingGrant, gatewayv1.Kind("Gateway")))
+		require.False(t, referenceGrantHasMatchingCoreToKind(matchingGrant, gatewayv1.Kind("ConfigMap")))
 	})
 
 	t.Run("MapListenerSetToRoutes", func(t *testing.T) {
@@ -2463,20 +2572,26 @@ func TestWatchesModel(t *testing.T) {
 				List(t.Context(), &gatewayv1.GRPCRouteList{},
 					client.MatchingFields{grpcRouteParentGatewayIndexKey: listenerSetKey}).
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					deletingRoute := grpcRoute
+					deletingRoute.Name = "grpc-deleting"
+					deletingRoute.DeletionTimestamp = &deletedAt
 					reflect.ValueOf(list).
 						Elem().
 						FieldByName("Items").
-						Set(reflect.ValueOf([]gatewayv1.GRPCRoute{grpcRoute}))
+						Set(reflect.ValueOf([]gatewayv1.GRPCRoute{grpcRoute, deletingRoute}))
 					return nil
 				})
 			mockK8sClient.EXPECT().
 				List(t.Context(), &gatewayv1.TLSRouteList{},
 					client.MatchingFields{tlsRouteParentGatewayIndexKey: listenerSetKey}).
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					deletingRoute := tlsRoute
+					deletingRoute.Name = "tls-deleting"
+					deletingRoute.DeletionTimestamp = &deletedAt
 					reflect.ValueOf(list).
 						Elem().
 						FieldByName("Items").
-						Set(reflect.ValueOf([]gatewayv1.TLSRoute{tlsRoute}))
+						Set(reflect.ValueOf([]gatewayv1.TLSRoute{tlsRoute, deletingRoute}))
 					return nil
 				})
 
@@ -2495,11 +2610,20 @@ func TestWatchesModel(t *testing.T) {
 			require.Nil(t, model.MapListenerSetToHTTPRoute(t.Context(), &corev1.Service{}))
 		})
 
+		t.Run("ignores malformed ListenerSet parent Gateway annotations", func(t *testing.T) {
+			requestsByKey := map[client.ObjectKey]reconcile.Request{}
+
+			addListenerSetParentGatewayRequest(requestsByKey, faker.New().Lorem().Word())
+
+			require.Empty(t, requestsByKey)
+		})
+
 		t.Run("queues L4 routes with ListenerSet parent refs", func(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 			listenerSet := makeListenerSet()
 			otherName := gatewayv1.ObjectName("other-" + faker.New().Lorem().Word())
+			deletedAt := metav1.Now()
 			tcpRoute := gatewayv1.TCPRoute{
 				ObjectMeta: metav1.ObjectMeta{Namespace: listenerSet.Namespace, Name: "tcp"},
 				Spec: gatewayv1.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
@@ -2509,6 +2633,10 @@ func TestWatchesModel(t *testing.T) {
 					}},
 				}},
 			}
+			deletingTCPRoute := tcpRoute
+			deletingTCPRoute.Name = "tcp-deleting"
+			deletingTCPRoute.DeletionTimestamp = &deletedAt
+			deletingTCPRoute.Finalizers = []string{"test-finalizer"}
 			udpRoute := gatewayv1.UDPRoute{
 				ObjectMeta: metav1.ObjectMeta{Namespace: listenerSet.Namespace, Name: "udp"},
 				Spec: gatewayv1.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
@@ -2518,10 +2646,20 @@ func TestWatchesModel(t *testing.T) {
 					}},
 				}},
 			}
+			deletingUDPRoute := udpRoute
+			deletingUDPRoute.Name = "udp-deleting"
+			deletingUDPRoute.DeletionTimestamp = &deletedAt
+			deletingUDPRoute.Finalizers = []string{"test-finalizer"}
 			otherTCPRoute := gatewayv1.TCPRoute{
 				ObjectMeta: metav1.ObjectMeta{Namespace: listenerSet.Namespace, Name: "other"},
 				Spec: gatewayv1.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
 					ParentRefs: []gatewayv1.ParentReference{{Kind: &listenerSetKind, Name: otherName}},
+				}},
+			}
+			wrongKindTCPRoute := gatewayv1.TCPRoute{
+				ObjectMeta: metav1.ObjectMeta{Namespace: listenerSet.Namespace, Name: "gateway-parent"},
+				Spec: gatewayv1.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{{Name: gatewayv1.ObjectName(listenerSet.Name)}},
 				}},
 			}
 
@@ -2530,7 +2668,9 @@ func TestWatchesModel(t *testing.T) {
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 					reflect.ValueOf(list).Elem().FieldByName("Items").Set(reflect.ValueOf([]gatewayv1.TCPRoute{
 						tcpRoute,
+						deletingTCPRoute,
 						otherTCPRoute,
+						wrongKindTCPRoute,
 					}))
 					return nil
 				})
@@ -2539,7 +2679,7 @@ func TestWatchesModel(t *testing.T) {
 					reflect.ValueOf(list).
 						Elem().
 						FieldByName("Items").
-						Set(reflect.ValueOf([]gatewayv1.UDPRoute{udpRoute}))
+						Set(reflect.ValueOf([]gatewayv1.UDPRoute{udpRoute, deletingUDPRoute}))
 					return nil
 				})
 
@@ -2558,15 +2698,46 @@ func TestWatchesModel(t *testing.T) {
 			deps := makeMockDeps(t)
 			model := NewWatchesModel(deps)
 			listenerSet := makeListenerSet()
+			listenerSetKey := client.ObjectKeyFromObject(listenerSet).String()
 			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
 			mockK8sClient.EXPECT().
 				List(t.Context(), &gatewayv1.HTTPRouteList{},
 					client.MatchingFields{
-						httpRouteParentGatewayIndexKey: client.ObjectKeyFromObject(listenerSet).String(),
+						httpRouteParentGatewayIndexKey: listenerSetKey,
 					}).
 				Return(errors.New(faker.New().Lorem().Sentence(10)))
 
 			require.Nil(t, model.MapListenerSetToHTTPRoute(t.Context(), listenerSet))
+
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.GRPCRouteList{},
+					client.MatchingFields{
+						grpcRouteParentGatewayIndexKey: listenerSetKey,
+					}).
+				Return(errors.New(faker.New().Lorem().Sentence(10)))
+
+			require.Nil(t, model.MapListenerSetToGRPCRoute(t.Context(), listenerSet))
+
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.TLSRouteList{},
+					client.MatchingFields{
+						tlsRouteParentGatewayIndexKey: listenerSetKey,
+					}).
+				Return(errors.New(faker.New().Lorem().Sentence(10)))
+
+			require.Nil(t, model.MapListenerSetToTLSRoute(t.Context(), listenerSet))
+
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.TCPRouteList{}).
+				Return(errors.New(faker.New().Lorem().Sentence(10)))
+
+			require.Nil(t, model.MapListenerSetToTCPRoute(t.Context(), listenerSet))
+
+			mockK8sClient.EXPECT().
+				List(t.Context(), &gatewayv1.UDPRouteList{}).
+				Return(errors.New(faker.New().Lorem().Sentence(10)))
+
+			require.Nil(t, model.MapListenerSetToUDPRoute(t.Context(), listenerSet))
 		})
 	})
 
@@ -2976,12 +3147,36 @@ func TestWatchesModel(t *testing.T) {
 						ParentRefs: []gatewayv1.ParentReference{{Name: "other"}},
 					}},
 				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "listenerset-parent"},
+					Spec: gatewayv1.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+						ParentRefs: []gatewayv1.ParentReference{{
+							Kind: lo.ToPtr(gatewayv1.Kind("ListenerSet")),
+							Name: "edge",
+						}},
+					}},
+				},
 			}
 			udpRoutes := []gatewayv1.UDPRoute{
 				{
 					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "coap"},
 					Spec: gatewayv1.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
 						ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
+					}},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "listenerset-parent"},
+					Spec: gatewayv1.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+						ParentRefs: []gatewayv1.ParentReference{{
+							Kind: lo.ToPtr(gatewayv1.Kind("ListenerSet")),
+							Name: "edge",
+						}},
+					}},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "other"},
+					Spec: gatewayv1.UDPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+						ParentRefs: []gatewayv1.ParentReference{{Name: "other"}},
 					}},
 				},
 			}
@@ -3447,7 +3642,19 @@ func TestWatchesModel(t *testing.T) {
 			Finalizers:        []string{"test-finalizer"},
 		}}
 		grpcRoute := &gatewayv1.GRPCRoute{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "grpc"}}
+		deletingGRPCRoute := &gatewayv1.GRPCRoute{ObjectMeta: metav1.ObjectMeta{
+			Namespace:         namespace,
+			Name:              "grpc-deleting",
+			DeletionTimestamp: &deletionTime,
+			Finalizers:        []string{"test-finalizer"},
+		}}
 		tlsRoute := &gatewayv1.TLSRoute{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "tls"}}
+		deletingTLSRoute := &gatewayv1.TLSRoute{ObjectMeta: metav1.ObjectMeta{
+			Namespace:         namespace,
+			Name:              "tls-deleting",
+			DeletionTimestamp: &deletionTime,
+			Finalizers:        []string{"test-finalizer"},
+		}}
 		policy := &gatewayv1.BackendTLSPolicy{
 			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "backend-tls"},
 			Spec: gatewayv1.BackendTLSPolicySpec{
@@ -3469,7 +3676,7 @@ func TestWatchesModel(t *testing.T) {
 		}
 		k8sClient := fake.NewClientBuilder().
 			WithScheme(newL4TestScheme(t)).
-			WithObjects(httpRoute, deletingHTTPRoute, grpcRoute, tlsRoute, policy).
+			WithObjects(httpRoute, deletingHTTPRoute, grpcRoute, deletingGRPCRoute, tlsRoute, deletingTLSRoute, policy).
 			WithIndex(&gatewayv1.HTTPRoute{}, httpRouteBackendServiceIndexKey, func(_ client.Object) []string {
 				return []string{serviceKey}
 			}).
@@ -3505,6 +3712,10 @@ func TestWatchesModel(t *testing.T) {
 		require.ElementsMatch(t, []reconcile.Request{{
 			NamespacedName: apitypes.NamespacedName{Namespace: namespace, Name: "tls"},
 		}}, model.MapConfigMapToTLSRoute(t.Context(), configMap))
+		require.Empty(t, model.MapConfigMapToHTTPRoute(
+			t.Context(),
+			&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "other-ca"}},
+		))
 
 		service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: serviceName}}
 		require.ElementsMatch(t, []reconcile.Request{{
@@ -3522,6 +3733,74 @@ func TestWatchesModel(t *testing.T) {
 		require.Nil(t, model.MapServiceToHTTPRoute(t.Context(), &corev1.ConfigMap{}))
 		require.False(t, backendTLSPolicyReferencesConfigMap(*policy, "other"))
 		require.Nil(t, objectListItems(&corev1.ServiceList{}))
+	})
+
+	t.Run("BackendTLSPolicy watches deduplicate routes across multiple target refs and CA refs", func(t *testing.T) {
+		fakeData := faker.New()
+		namespace := "ns-" + fakeData.Lorem().Word()
+		serviceNameA := "svc-a-" + fakeData.Lorem().Word()
+		serviceNameB := "svc-b-" + fakeData.Lorem().Word()
+		serviceKeyA := path.Join(namespace, serviceNameA)
+		serviceKeyB := path.Join(namespace, serviceNameB)
+		caNameA := "ca-a-" + fakeData.Lorem().Word()
+		caNameB := "ca-b-" + fakeData.Lorem().Word()
+		httpRouteA := &gatewayv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+			Name:      "http-a-" + fakeData.Lorem().Word(),
+		}}
+		httpRouteB := &gatewayv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+			Name:      "http-b-" + fakeData.Lorem().Word(),
+		}}
+		policy := &gatewayv1.BackendTLSPolicy{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "backend-tls-" + fakeData.Lorem().Word()},
+			Spec: gatewayv1.BackendTLSPolicySpec{
+				TargetRefs: []gatewayv1.LocalPolicyTargetReferenceWithSectionName{
+					{LocalPolicyTargetReference: gatewayv1.LocalPolicyTargetReference{
+						Group: "",
+						Kind:  "Service",
+						Name:  gatewayv1.ObjectName(serviceNameA),
+					}},
+					{LocalPolicyTargetReference: gatewayv1.LocalPolicyTargetReference{
+						Group: "",
+						Kind:  "Service",
+						Name:  gatewayv1.ObjectName(serviceNameB),
+					}},
+				},
+				Validation: gatewayv1.BackendTLSPolicyValidation{
+					CACertificateRefs: []gatewayv1.LocalObjectReference{
+						{Group: "", Kind: "ConfigMap", Name: gatewayv1.ObjectName(caNameA)},
+						{Group: "", Kind: "ConfigMap", Name: gatewayv1.ObjectName(caNameB)},
+					},
+				},
+			},
+		}
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithObjects(httpRouteA, httpRouteB, policy).
+			WithIndex(&gatewayv1.HTTPRoute{}, httpRouteBackendServiceIndexKey, func(obj client.Object) []string {
+				if obj.GetName() == httpRouteA.Name {
+					return []string{serviceKeyA, serviceKeyB}
+				}
+				return []string{serviceKeyB}
+			}).
+			Build()
+		model := NewWatchesModel(WatchesModelDeps{
+			K8sClient: k8sClient,
+			Logger:    diag.RootTestLogger(),
+		})
+
+		wantRequests := []reconcile.Request{
+			{NamespacedName: client.ObjectKeyFromObject(httpRouteA)},
+			{NamespacedName: client.ObjectKeyFromObject(httpRouteB)},
+		}
+		require.ElementsMatch(t, wantRequests, model.MapBackendTLSPolicyToHTTPRoute(t.Context(), policy))
+		require.ElementsMatch(t, wantRequests, model.MapConfigMapToHTTPRoute(
+			t.Context(),
+			&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: caNameB}},
+		))
+		require.True(t, backendTLSPolicyReferencesConfigMap(*policy, caNameA))
+		require.True(t, backendTLSPolicyReferencesConfigMap(*policy, caNameB))
 	})
 
 	t.Run("BackendTLSPolicy watch error and skip paths", func(t *testing.T) {
@@ -3760,6 +4039,7 @@ func TestWatchesModel(t *testing.T) {
 		wrongToGrant := grant.DeepCopy()
 		wrongToGrant.Spec.To[0].Kind = gatewayv1.Kind("Secret")
 		require.False(t, gatewayFrontendMTLSReferencesGrantedConfigMap(*gateway, *wrongToGrant))
+		require.Nil(t, model.MapReferenceGrantToGatewayFrontendMTLS(t.Context(), wrongToGrant))
 
 		perPortGateway := gateway.DeepCopy()
 		perPortGateway.Spec.TLS.Frontend.Default.Validation = nil
@@ -3775,5 +4055,18 @@ func TestWatchesModel(t *testing.T) {
 			}},
 		}}
 		require.True(t, gatewayFrontendMTLSReferencesGrantedConfigMap(*perPortGateway, *grant))
+
+		nilPerPortValidationGateway := perPortGateway.DeepCopy()
+		nilPerPortValidationGateway.Spec.TLS.Frontend.PerPort[0].TLS.Validation = nil
+		require.False(t, gatewayFrontendMTLSReferencesGrantedConfigMap(*nilPerPortValidationGateway, *grant))
+
+		deps := makeMockDeps(t)
+		model = NewWatchesModel(deps)
+		mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+		mockK8sClient.EXPECT().
+			List(t.Context(), &gatewayv1.GatewayList{}).
+			Return(errors.New("gateway list failed"))
+
+		require.Nil(t, model.MapReferenceGrantToGatewayFrontendMTLS(t.Context(), grant))
 	})
 }

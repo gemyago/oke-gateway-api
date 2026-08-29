@@ -44,4 +44,22 @@ func TestLoad(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 2*time.Minute, cfg.GetDuration("reconcile.drift-interval"))
 	})
+	t.Run("should keep default env when WithEnv is empty", func(t *testing.T) {
+		cfg := New()
+		err := Load(cfg, NewLoadOpts().WithEnv(""))
+
+		require.NoError(t, err)
+		require.Equal(t, "DEBUG", cfg.GetString("defaultLogLevel"))
+	})
+	t.Run("should expose CLI aliases after load", func(t *testing.T) {
+		t.Setenv("APP_LOG_LEVEL", "INFO")
+		t.Setenv("APP_JSON_LOGS", "true")
+
+		cfg := New()
+		err := Load(cfg, NewLoadOpts())
+
+		require.NoError(t, err)
+		require.Equal(t, "INFO", cfg.GetString("defaultLogLevel"))
+		require.True(t, cfg.GetBool("jsonLogs"))
+	})
 }

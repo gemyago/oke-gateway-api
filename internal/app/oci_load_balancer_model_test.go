@@ -120,6 +120,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			got := sslConfigurationDetailsFromBackendSet(&config)
 
 			require.NotNil(t, got)
+			assert.Nil(t, firstSSLConfig(nil))
+			assert.Equal(t, got, firstSSLConfig([]*loadbalancer.SslConfigurationDetails{got}))
 			assert.Equal(t, config.VerifyDepth, got.VerifyDepth)
 			assert.Equal(t, config.VerifyPeerCertificate, got.VerifyPeerCertificate)
 			assert.Equal(t, config.HasSessionResumption, got.HasSessionResumption)
@@ -129,6 +131,84 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			assert.Equal(t, config.Protocols, got.Protocols)
 			assert.Equal(t, config.CipherSuiteName, got.CipherSuiteName)
 			assert.Equal(t, loadbalancer.SslConfigurationDetailsServerOrderPreferenceEnabled, got.ServerOrderPreference)
+		})
+
+		t.Run("compares listener ssl config drift with optional desired fields", func(t *testing.T) {
+			fake := faker.New()
+			base := &loadbalancer.SslConfigurationDetails{
+				CertificateName:                new("cert-" + fake.Lorem().Word()),
+				CertificateIds:                 []string{"ocid1.certificate.oc1.." + fake.UUID().V4()},
+				CipherSuiteName:                new("cipher-" + fake.Lorem().Word()),
+				Protocols:                      []string{"TLSv1.2", "TLSv1.3"},
+				VerifyPeerCertificate:          new(true),
+				VerifyDepth:                    new(4),
+				TrustedCertificateAuthorityIds: []string{"ocid1.cabundle.oc1.." + fake.UUID().V4()},
+			}
+			clone := func() *loadbalancer.SslConfigurationDetails {
+				return &loadbalancer.SslConfigurationDetails{
+					CertificateName:                base.CertificateName,
+					CertificateIds:                 slices.Clone(base.CertificateIds),
+					CipherSuiteName:                base.CipherSuiteName,
+					Protocols:                      slices.Clone(base.Protocols),
+					VerifyPeerCertificate:          base.VerifyPeerCertificate,
+					VerifyDepth:                    base.VerifyDepth,
+					TrustedCertificateAuthorityIds: slices.Clone(base.TrustedCertificateAuthorityIds),
+				}
+			}
+
+			assert.True(t, loadBalancerListenerSSLConfigurationsEqual(clone(), clone()))
+			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(
+				clone(),
+				&loadbalancer.SslConfigurationDetails{
+					CertificateName:       base.CertificateName,
+					CertificateIds:        slices.Clone(base.CertificateIds),
+					VerifyPeerCertificate: base.VerifyPeerCertificate,
+				},
+			))
+			assert.True(t, loadBalancerListenerSSLConfigurationsEqual(
+				&loadbalancer.SslConfigurationDetails{
+					CertificateName:                base.CertificateName,
+					CertificateIds:                 []string{base.CertificateIds[0]},
+					TrustedCertificateAuthorityIds: []string{base.TrustedCertificateAuthorityIds[0]},
+					VerifyPeerCertificate:          base.VerifyPeerCertificate,
+				},
+				&loadbalancer.SslConfigurationDetails{
+					CertificateName:                base.CertificateName,
+					CertificateIds:                 []string{base.CertificateIds[0]},
+					TrustedCertificateAuthorityIds: []string{base.TrustedCertificateAuthorityIds[0]},
+					VerifyPeerCertificate:          base.VerifyPeerCertificate,
+				},
+			))
+			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(nil, clone()))
+			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(clone(), nil))
+
+			changedCertName := clone()
+			changedCertName.CertificateName = new("cert-other-" + fake.Lorem().Word())
+			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(changedCertName, clone()))
+
+			changedCertID := clone()
+			changedCertID.CertificateIds = []string{"ocid1.certificate.oc1.." + fake.UUID().V4()}
+			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(changedCertID, clone()))
+
+			changedCipher := clone()
+			changedCipher.CipherSuiteName = new("cipher-other-" + fake.Lorem().Word())
+			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(changedCipher, clone()))
+
+			changedProtocols := clone()
+			changedProtocols.Protocols = []string{"TLSv1.1"}
+			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(changedProtocols, clone()))
+
+			changedPeerVerification := clone()
+			changedPeerVerification.VerifyPeerCertificate = new(false)
+			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(changedPeerVerification, clone()))
+
+			changedVerifyDepth := clone()
+			changedVerifyDepth.VerifyDepth = new(2)
+			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(changedVerifyDepth, clone()))
+
+			changedTrustedCA := clone()
+			changedTrustedCA.TrustedCertificateAuthorityIds = []string{"ocid1.cabundle.oc1.." + fake.UUID().V4()}
+			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(changedTrustedCA, clone()))
 		})
 
 		t.Run("detects routing default rule shape", func(t *testing.T) {
@@ -2002,6 +2082,51 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			ociLoadBalancerClient.AssertNotCalled(t, "CreateListener")
 		})
 
+		t.Run("fails when routing policy default rule update wait fails", func(t *testing.T) {
+			fake := faker.New()
+			deps := makeMockDeps(t)
+			model := newOciLoadBalancerModel(deps)
+			gwListener := makeRandomListener(
+				randomListenerWithHTTPProtocolOpt(),
+			)
+
+			routingPolicyName := listenerPolicyName(string(gwListener.Name))
+			existingPolicy := loadbalancer.RoutingPolicy{
+				Name:                     new(routingPolicyName),
+				ConditionLanguageVersion: loadbalancer.RoutingPolicyConditionLanguageVersionV1,
+				Rules:                    []loadbalancer.RoutingRule{defaultCatchAllRoutingRule(fake.UUID().V4())},
+			}
+			params := reconcileHTTPListenerParams{
+				loadBalancerID: fake.UUID().V4(),
+				knownRoutingPolicies: map[string]loadbalancer.RoutingPolicy{
+					routingPolicyName: existingPolicy,
+				},
+				defaultBackendSetName: fake.UUID().V4(),
+				listenerSpec:          &gwListener,
+			}
+			workRequestID := fake.UUID().V4()
+			wantErr := errors.New("wait failed")
+
+			ociLoadBalancerClient, _ := deps.OciClient.(*MockociLoadBalancerClient)
+			workRequestsWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+			ociLoadBalancerClient.EXPECT().GetRoutingPolicy(t.Context(), loadbalancer.GetRoutingPolicyRequest{
+				LoadBalancerId:    &params.loadBalancerID,
+				RoutingPolicyName: &routingPolicyName,
+			}).Return(loadbalancer.GetRoutingPolicyResponse{
+				RoutingPolicy: existingPolicy,
+			}, nil)
+			ociLoadBalancerClient.EXPECT().
+				UpdateRoutingPolicy(t.Context(), mock.Anything).
+				Return(loadbalancer.UpdateRoutingPolicyResponse{OpcWorkRequestId: &workRequestID}, nil)
+			workRequestsWatcher.EXPECT().WaitFor(t.Context(), workRequestID).Return(wantErr)
+
+			err := model.reconcileHTTPListener(t.Context(), params)
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to wait for routing policy")
+			ociLoadBalancerClient.AssertNotCalled(t, "CreateListener")
+		})
+
 		t.Run("when create routing policy fails", func(t *testing.T) {
 			fake := faker.New()
 			deps := makeMockDeps(t)
@@ -2197,6 +2322,8 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			backendRef.Port = nil
 			service.Spec.Ports[0].TargetPort = intstr.FromInt(int(targetPort))
 			assert.Equal(t, int(targetPort), healthCheckerPortForBackendRef(service, backendRef))
+			service.Spec.Ports[0].TargetPort = intstr.FromInt(0)
+			assert.Equal(t, int(servicePort), healthCheckerPortForBackendRef(service, backendRef))
 			assert.Equal(t, 0, healthCheckerPortForBackendRef(corev1.Service{}, gatewayv1.BackendRef{}))
 		})
 
@@ -4796,6 +4923,21 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			cert.CertificateName = new(certName)
 			return cert
 		}
+
+		t.Run("extracts unique listener certificate names", func(t *testing.T) {
+			firstCert := makeRandomOCICertificate()
+			secondCert := makeRandomOCICertificate()
+
+			got := certificateNamesFromListenerCertificates(map[string][]loadbalancer.Certificate{
+				"listener-a": {firstCert, {CertificateName: nil}, secondCert},
+				"listener-b": {firstCert},
+			})
+
+			assert.ElementsMatch(t, []string{
+				lo.FromPtr(firstCert.CertificateName),
+				lo.FromPtr(secondCert.CertificateName),
+			}, got)
+		})
 
 		t.Run("no certificates to remove", func(t *testing.T) {
 			fake := faker.New()

@@ -914,12 +914,31 @@ func TestFrontendMTLSModel(t *testing.T) {
 		require.NoError(t, model.ensureFrontendMTLSCompartment(t.Context(), gateway, "existing"))
 		require.NoError(t, model.ensureFrontendMTLSCompartment(t.Context(), gateway, ""))
 
-		pendingName := "pending-" + fakeData.Lorem().Word()
-		err = ensureFrontendMTLSCABundleUsable(certificatesmanagement.CaBundleSummary{
-			Name:           &pendingName,
-			LifecycleState: certificatesmanagement.CaBundleLifecycleStateFailed,
-		})
-		require.ErrorContains(t, err, "not ready")
+		activeName := "active-" + fakeData.Lorem().Word()
+		require.NoError(t, ensureFrontendMTLSCABundleUsable(certificatesmanagement.CaBundleSummary{
+			Name:           &activeName,
+			LifecycleState: certificatesmanagement.CaBundleLifecycleStateActive,
+		}))
+		require.NoError(t, ensureFrontendMTLSCABundleUsable(certificatesmanagement.CaBundleSummary{
+			Name: &activeName,
+		}))
+
+		for _, lifecycleState := range []certificatesmanagement.CaBundleLifecycleStateEnum{
+			certificatesmanagement.CaBundleLifecycleStateCreating,
+			certificatesmanagement.CaBundleLifecycleStateUpdating,
+			certificatesmanagement.CaBundleLifecycleStateDeleted,
+			certificatesmanagement.CaBundleLifecycleStateFailed,
+			certificatesmanagement.CaBundleLifecycleStateEnum("UNKNOWN"),
+		} {
+			t.Run("rejects CA bundle state "+string(lifecycleState), func(t *testing.T) {
+				pendingName := "pending-" + fakeData.Lorem().Word()
+				err = ensureFrontendMTLSCABundleUsable(certificatesmanagement.CaBundleSummary{
+					Name:           &pendingName,
+					LifecycleState: lifecycleState,
+				})
+				require.ErrorContains(t, err, "not ready")
+			})
+		}
 	})
 
 	t.Run("direct existing CA bundle resolver handles list and deleted-only failures", func(t *testing.T) {

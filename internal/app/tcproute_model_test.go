@@ -14,11 +14,13 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -231,6 +233,33 @@ func TestTCPRouteModel(t *testing.T) {
 			assert.False(t, resolved)
 		})
 
+		t.Run("ignores ListenerSet refs whose parent Gateway is unresolved", func(t *testing.T) {
+			listenerSetKind := gatewayv1.Kind("ListenerSet")
+			parentNamespace := gatewayv1.Namespace("infra")
+			k8sClient := fake.NewClientBuilder().
+				WithScheme(newL4TestScheme(t)).
+				WithObjects(&gatewayv1.ListenerSet{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra"},
+					Spec: gatewayv1.ListenerSetSpec{
+						ParentRef: gatewayv1.ParentGatewayReference{
+							Namespace: &parentNamespace,
+							Name:      "missing",
+						},
+					},
+				}).
+				Build()
+
+			_, resolved, err := resolveL4ParentGatewayForRouteParentRef(
+				t.Context(),
+				k8sClient,
+				"apps",
+				gatewayv1.ParentReference{Kind: &listenerSetKind, Name: "extra"},
+			)
+
+			require.NoError(t, err)
+			assert.False(t, resolved)
+		})
+
 		t.Run("ignores unsupported parent refs", func(t *testing.T) {
 			serviceKind := gatewayv1.Kind("Service")
 			k8sClient := NewMockk8sClient(t)
@@ -436,6 +465,35 @@ func TestTCPRouteModel(t *testing.T) {
 		}
 	})
 
+	t.Run("resolveRequest ignores missing GatewayClass", func(t *testing.T) {
+		route := gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
+			Spec: gatewayv1.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+				ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
+			}},
+		}
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithObjects(
+				&route,
+				&gatewayv1.Gateway{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "edge"},
+					Spec: gatewayv1.GatewaySpec{
+						GatewayClassName: "missing",
+					},
+				},
+			).
+			Build()
+		model := newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: k8sClient})
+
+		resolved, err := model.resolveRequest(t.Context(), reconcile.Request{
+			NamespacedName: apitypes.NamespacedName{Namespace: "iot", Name: "rtmp"},
+		})
+
+		require.NoError(t, err)
+		assert.Empty(t, resolved)
+	})
+
 	t.Run("resolveRequest returns status update errors for unmatched listener", func(t *testing.T) {
 		route := gatewayv1.TCPRoute{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
@@ -534,6 +592,39 @@ func TestTCPRouteModel(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Empty(t, resolved)
+	})
+
+	t.Run("resolveRequest returns unresolved finalized route cleanup errors", func(t *testing.T) {
+		otherGroup := gatewayv1.Group("example.com")
+		route := gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "iot",
+				Name:       "rtmp",
+				Finalizers: []string{NetworkLoadBalancerTCPRouteProgrammedFinalizer},
+			},
+			Spec: gatewayv1.TCPRouteSpec{CommonRouteSpec: gatewayv1.CommonRouteSpec{
+				ParentRefs: []gatewayv1.ParentReference{{Group: &otherGroup, Name: "edge"}},
+			}},
+		}
+		mockClient := NewMockk8sClient(t)
+		mockClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Namespace: "iot", Name: "rtmp"}, mock.AnythingOfType("*v1.TCPRoute")).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				*(mustTCPRoute(t, obj)) = route
+				return nil
+			})
+		wantErr := errors.New("cleanup update failed")
+		mockClient.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
+			Return(wantErr)
+		model := newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
+
+		_, err := model.resolveRequest(t.Context(), reconcile.Request{
+			NamespacedName: apitypes.NamespacedName{Namespace: "iot", Name: "rtmp"},
+		})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to remove finalizer from detached TCPRoute")
 	})
 
 	t.Run("programRoute rejects route when listener is already owned", func(t *testing.T) {
@@ -863,6 +954,113 @@ func TestTCPRouteModel(t *testing.T) {
 			},
 		})
 		require.ErrorContains(t, err, "failed to get service")
+	})
+
+	t.Run("endpointBackendsForRoute returns ReferenceGrant lookup errors", func(t *testing.T) {
+		port := gatewayv1.PortNumber(1935)
+		backendNamespace := gatewayv1.Namespace("media")
+		wantErr := errors.New("referencegrant list failed")
+		mockClient := NewMockk8sClient(t)
+		mockClient.EXPECT().
+			List(t.Context(), mock.AnythingOfType("*v1beta1.ReferenceGrantList"), mock.Anything).
+			Return(wantErr)
+		model := newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: mockClient})
+		modelImpl := mustTCPRouteModelImpl(t, model)
+
+		_, err := modelImpl.endpointBackendsForRoute(t.Context(), gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
+			Spec: gatewayv1.TCPRouteSpec{Rules: []gatewayv1.TCPRouteRule{{
+				BackendRefs: []gatewayv1.BackendRef{{
+					BackendObjectReference: gatewayv1.BackendObjectReference{
+						Namespace: &backendNamespace,
+						Name:      "backend",
+						Port:      &port,
+					},
+				}},
+			}}},
+		})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to list ReferenceGrants")
+	})
+
+	t.Run("endpointBackendsForRoute rejects missing service port", func(t *testing.T) {
+		port := gatewayv1.PortNumber(1935)
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithObjects(&corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "backend"},
+				Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{{
+					Name: "rtmp",
+					Port: 8080,
+				}}},
+			}).
+			Build()
+		model := newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: k8sClient})
+		modelImpl := mustTCPRouteModelImpl(t, model)
+
+		_, err := modelImpl.endpointBackendsForRoute(t.Context(), gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
+			Spec: gatewayv1.TCPRouteSpec{Rules: []gatewayv1.TCPRouteRule{{
+				BackendRefs: []gatewayv1.BackendRef{{
+					BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
+				}},
+			}}},
+		})
+
+		var statusErr tcpRouteStatusError
+		require.ErrorAs(t, err, &statusErr)
+		assert.Equal(t, gatewayv1.RouteReasonInvalidKind, statusErr.reason)
+		assert.Equal(t, "backendRef service backend has no port 1935", statusErr.message)
+	})
+
+	t.Run("endpointBackendsForRoute skips slices without matching named target port", func(t *testing.T) {
+		port := gatewayv1.PortNumber(1935)
+		endpointPort := int32(8080)
+		mismatchedName := "other"
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithObjects(
+				&corev1.Service{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "backend"},
+					Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{{
+						Name:       "rtmp",
+						Port:       port,
+						TargetPort: intstr.FromString("rtmp"),
+					}}},
+				},
+				&discoveryv1.EndpointSlice{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "iot",
+						Name:      "backend-slice",
+						Labels: map[string]string{
+							discoveryv1.LabelServiceName: "backend",
+						},
+					},
+					Ports: []discoveryv1.EndpointPort{{
+						Name: &mismatchedName,
+						Port: &endpointPort,
+					}},
+					Endpoints: []discoveryv1.Endpoint{{
+						Addresses: []string{"10.0.0.10"},
+					}},
+				},
+			).
+			Build()
+		model := newTCPRouteModel(tcpRouteModelDeps{RootLogger: diag.RootTestLogger(), K8sClient: k8sClient})
+		modelImpl := mustTCPRouteModelImpl(t, model)
+
+		backends, err := modelImpl.endpointBackendsForRoute(t.Context(), gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
+			Spec: gatewayv1.TCPRouteSpec{Rules: []gatewayv1.TCPRouteRule{{
+				BackendRefs: []gatewayv1.BackendRef{{
+					BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
+				}},
+			}}},
+		})
+
+		require.NoError(t, err)
+		assert.Empty(t, backends)
 	})
 
 	t.Run("setProgrammed adds finalizer and backend set annotation", func(t *testing.T) {
@@ -2587,6 +2785,153 @@ func TestTCPRouteModel(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
+	})
+
+	t.Run("clearStaleBackendSets clears only undesired backend sets", func(t *testing.T) {
+		desiredBackendSet := "bs_rtmp"
+		staleBackendSet := "bs_old_rtmp"
+		route := gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "iot",
+				Name:      "rtmp",
+				Annotations: map[string]string{
+					NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation: desiredBackendSet + "," + staleBackendSet,
+				},
+			},
+			Spec: gatewayv1.TCPRouteSpec{
+				CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
+				},
+			},
+		}
+		nlbClient := &stubNetworkLoadBalancerClient{}
+		model := newTCPRouteModel(tcpRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{
+				networkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id: new("nlb-id"),
+					BackendSets: map[string]networkloadbalancer.BackendSet{
+						desiredBackendSet: {Name: &desiredBackendSet},
+						staleBackendSet:   {Name: &staleBackendSet},
+					},
+				},
+			},
+			OciNetworkLoadBalancerAPI: nlbClient,
+			WorkRequestsWatcher:       &stubWorkRequestsWatcher{},
+		})
+		modelImpl := mustTCPRouteModelImpl(t, model)
+
+		err := modelImpl.clearStaleBackendSets(t.Context(), resolvedTCPRouteDetails{
+			tcpRoute: route,
+			gatewayDetails: resolvedGatewayDetails{
+				gateway: gatewayv1.Gateway{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "edge"},
+					Spec: gatewayv1.GatewaySpec{Listeners: []gatewayv1.Listener{
+						{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: 1935},
+					}},
+				},
+			},
+		})
+
+		require.NoError(t, err)
+		require.Len(t, nlbClient.updateBackendSetRequests, 1)
+		assert.Equal(t, staleBackendSet, lo.FromPtr(nlbClient.updateBackendSetRequests[0].BackendSetName))
+	})
+
+	t.Run("clearStaleBackendSets returns stale backend set cleanup errors", func(t *testing.T) {
+		route := gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "iot",
+				Name:      "rtmp",
+				Annotations: map[string]string{
+					NetworkLoadBalancerTCPRouteProgrammedBackendSetsAnnotation: "bs_old_rtmp",
+				},
+			},
+			Spec: gatewayv1.TCPRouteSpec{
+				CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
+				},
+			},
+		}
+		backendSetName := "bs_old_rtmp"
+		model := newTCPRouteModel(tcpRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{
+				networkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id: new("nlb-id"),
+					BackendSets: map[string]networkloadbalancer.BackendSet{
+						backendSetName: {Name: &backendSetName},
+					},
+				},
+			},
+			OciNetworkLoadBalancerAPI: &stubNetworkLoadBalancerClient{updateBackendSetErr: errors.New("clear failed")},
+			WorkRequestsWatcher:       &stubWorkRequestsWatcher{},
+		})
+		modelImpl := mustTCPRouteModelImpl(t, model)
+
+		err := modelImpl.clearStaleBackendSets(t.Context(), resolvedTCPRouteDetails{
+			tcpRoute: route,
+			gatewayDetails: resolvedGatewayDetails{
+				gateway: gatewayv1.Gateway{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "edge"},
+				},
+			},
+		})
+
+		require.ErrorContains(t, err, "failed to clear Network Load Balancer backend set bs_old_rtmp")
+	})
+
+	t.Run("rejectNoMatchingListener ignores unresolved parent Gateway", func(t *testing.T) {
+		model := newTCPRouteModel(tcpRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient: fake.NewClientBuilder().
+				WithScheme(newL4TestScheme(t)).
+				Build(),
+		})
+		modelImpl := mustTCPRouteModelImpl(t, model)
+
+		err := modelImpl.rejectNoMatchingListener(t.Context(), gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
+		}, gatewayv1.ParentReference{Name: "edge"})
+
+		require.NoError(t, err)
+	})
+
+	t.Run("removeDeletingRouteFinalizer returns update errors", func(t *testing.T) {
+		mockClient := NewMockk8sClient(t)
+		mockClient.EXPECT().
+			Update(t.Context(), mock.AnythingOfType("*v1.TCPRoute")).
+			Return(errors.New("update failed"))
+		model := newTCPRouteModel(tcpRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  mockClient,
+		})
+		modelImpl := mustTCPRouteModelImpl(t, model)
+
+		err := modelImpl.removeDeletingRouteFinalizer(t.Context(), gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:   "iot",
+				Name:        "rtmp",
+				Finalizers:  []string{NetworkLoadBalancerTCPRouteProgrammedFinalizer},
+				Annotations: map[string]string{L4RouteProgrammedNetworkLoadBalancerIDAnnotation: "nlb-id"},
+			},
+		})
+
+		require.ErrorContains(t, err, "failed to remove finalizer from deleting TCPRoute iot/rtmp")
+	})
+
+	t.Run("updateBackendSet returns Network Load Balancer ensure errors", func(t *testing.T) {
+		model := newTCPRouteModel(tcpRouteModelDeps{
+			RootLogger:               diag.RootTestLogger(),
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{err: errors.New("ensure failed")},
+		})
+		modelImpl := mustTCPRouteModelImpl(t, model)
+
+		err := modelImpl.updateBackendSet(t.Context(), resolvedTCPRouteDetails{
+			tcpRoute: gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"}},
+		}, "bs_rtmp", nil)
+
+		require.ErrorContains(t, err, "ensure failed")
 	})
 
 	t.Run("deprovisionDetachedRoute skips unresolved gateway references", func(t *testing.T) {

@@ -120,6 +120,24 @@ func TestListenerSetController(t *testing.T) {
 		assertAcceptedReason(t, status, metav1.ConditionFalse, gatewayv1.ListenerSetReasonInvalid)
 	})
 
+	t.Run("builds invalid status for malformed parent Gateway name", func(t *testing.T) {
+		listenerSet := gatewayv1.ListenerSet{
+			ObjectMeta: metav1.ObjectMeta{Generation: 2},
+			Spec: gatewayv1.ListenerSetSpec{
+				ParentRef: gatewayv1.ParentGatewayReference{},
+			},
+		}
+		controller := NewListenerSetController(ListenerSetControllerDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  NewMockk8sClient(t),
+		})
+
+		status, err := controller.statusForListenerSet(t.Context(), listenerSet)
+
+		require.NoError(t, err)
+		assertAcceptedReason(t, status, metav1.ConditionFalse, gatewayv1.ListenerSetReasonInvalid)
+	})
+
 	t.Run("sets parent not accepted status when parent Gateway is missing", func(t *testing.T) {
 		listenerSet := &gatewayv1.ListenerSet{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra", Generation: 3},
@@ -506,6 +524,53 @@ func TestListenerSetController(t *testing.T) {
 		result, err := controller.Reconcile(t.Context(), makeRequest(&listenerSet))
 
 		require.ErrorIs(t, err, wantErr)
+		assert.Zero(t, result)
+	})
+
+	t.Run("returns annotation update errors after status update", func(t *testing.T) {
+		wantErr := errors.New("annotation update failed")
+		listenerSet := gatewayv1.ListenerSet{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "extra", Generation: 4},
+			Spec: gatewayv1.ListenerSetSpec{
+				ParentRef: gatewayv1.ParentGatewayReference{Name: "edge"},
+			},
+		}
+		gateway := gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "edge"},
+			Spec: gatewayv1.GatewaySpec{
+				GatewayClassName: "oci",
+				AllowedListeners: &gatewayv1.AllowedListeners{
+					Namespaces: &gatewayv1.ListenerNamespaces{From: lo.ToPtr(gatewayv1.NamespacesFromAll)},
+				},
+			},
+		}
+		gatewayClass := gatewayv1.GatewayClass{
+			ObjectMeta: metav1.ObjectMeta{Name: "oci"},
+			Spec: gatewayv1.GatewayClassSpec{
+				ControllerName: gatewayv1.GatewayController(ControllerClassName),
+			},
+		}
+		namespace := corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "apps"}}
+		mockClient := NewMockk8sClient(t)
+		statusWriter := k8sapi.NewMockSubResourceWriter(t)
+		req := makeRequest(&listenerSet)
+		setupClientGet(t, mockClient, req.NamespacedName, listenerSet)
+		setupClientGet(t, mockClient, client.ObjectKey{Namespace: "apps", Name: "edge"}, gateway)
+		setupClientGet(t, mockClient, client.ObjectKey{Name: "oci"}, gatewayClass)
+		setupClientGet(t, mockClient, client.ObjectKey{Name: "apps"}, namespace)
+		mockClient.EXPECT().Status().Return(statusWriter)
+		statusWriter.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.ListenerSet")).Return(nil)
+		setupClientGet(t, mockClient, req.NamespacedName, listenerSet)
+		mockClient.EXPECT().Update(t.Context(), mock.AnythingOfType("*v1.ListenerSet")).Return(wantErr)
+		controller := NewListenerSetController(ListenerSetControllerDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  mockClient,
+		})
+
+		result, err := controller.Reconcile(t.Context(), req)
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to update ListenerSet apps/extra parent Gateway annotation")
 		assert.Zero(t, result)
 	})
 

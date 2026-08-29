@@ -154,6 +154,52 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			assert.Equal(t, []gatewayv1.Listener{grpcListener}, gotListeners)
 		})
 
+		t.Run("returns section listener allowedRoutes errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newGRPCRouteModel(deps)
+			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+			fromSelector := gatewayv1.NamespacesFromSelector
+			route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.Namespace = "routes-" + fake.Lorem().Word()
+			})
+			sectionName := gatewayv1.SectionName("grpc")
+			parentRef := gatewayv1.ParentReference{Name: "gw", SectionName: &sectionName}
+			gatewayData := makeResolvedGateway(gatewayv1.Listener{
+				Name:     sectionName,
+				Port:     50051,
+				Protocol: gatewayv1.HTTPSProtocolType,
+				AllowedRoutes: &gatewayv1.AllowedRoutes{
+					Namespaces: &gatewayv1.RouteNamespaces{
+						From: &fromSelector,
+						Selector: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+							Key:      "team",
+							Operator: metav1.LabelSelectorOperator("invalid"),
+							Values:   []string{"api"},
+						}}},
+					},
+				},
+			})
+			gatewayData.gateway.Namespace = route.Namespace
+			gatewayData.gateway.Name = string(parentRef.Name)
+
+			gatewayModel.EXPECT().
+				resolveReconcileRequest(t.Context(), mock.Anything, mock.Anything).
+				RunAndReturn(func(_ context.Context, _ reconcile.Request, receiver *resolvedGatewayDetails) (bool, error) {
+					*receiver = gatewayData
+					return true, nil
+				})
+
+			_, _, _, err := model.resolveRouteParentRefData(
+				t.Context(),
+				route,
+				parentRef,
+				route.Namespace,
+			)
+
+			require.ErrorContains(t, err, "invalid allowedRoutes namespace selector")
+		})
+
 		t.Run("resolves ListenerSet parent refs by logical section name", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newGRPCRouteModel(deps)
@@ -263,6 +309,85 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			require.NoError(t, err)
 			assert.Nil(t, gotGatewayData)
 			assert.Nil(t, gotListeners)
+		})
+
+		t.Run("returns nil when all listener protocols are unsupported", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGRPCRouteModel(deps)
+			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+			route := makeGRPCRoute()
+			parentRef := gatewayv1.ParentReference{Name: "gw"}
+			gatewayData := makeResolvedGateway(gatewayv1.Listener{
+				Name:     "tcp",
+				Port:     50051,
+				Protocol: gatewayv1.TCPProtocolType,
+			})
+			gatewayData.gateway.Namespace = route.Namespace
+			gatewayData.gateway.Name = string(parentRef.Name)
+
+			gatewayModel.EXPECT().
+				resolveReconcileRequest(t.Context(), mock.Anything, mock.Anything).
+				RunAndReturn(func(_ context.Context, _ reconcile.Request, receiver *resolvedGatewayDetails) (bool, error) {
+					*receiver = gatewayData
+					return true, nil
+				})
+
+			gotGatewayData, gotListeners, attachmentDenied, err := model.resolveRouteParentRefData(
+				t.Context(),
+				route,
+				parentRef,
+				route.Namespace,
+			)
+
+			require.NoError(t, err)
+			assert.Nil(t, gotGatewayData)
+			assert.Nil(t, gotListeners)
+			assert.False(t, attachmentDenied)
+		})
+
+		t.Run("returns listener allowedRoutes errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newGRPCRouteModel(deps)
+			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+			fromSelector := gatewayv1.NamespacesFromSelector
+			route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.Namespace = "routes-" + fake.Lorem().Word()
+			})
+			parentRef := gatewayv1.ParentReference{Name: "gw"}
+			gatewayData := makeResolvedGateway(gatewayv1.Listener{
+				Name:     "grpc",
+				Port:     50051,
+				Protocol: gatewayv1.HTTPSProtocolType,
+				AllowedRoutes: &gatewayv1.AllowedRoutes{
+					Namespaces: &gatewayv1.RouteNamespaces{
+						From: &fromSelector,
+						Selector: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+							Key:      "team",
+							Operator: metav1.LabelSelectorOperator("invalid"),
+							Values:   []string{"api"},
+						}}},
+					},
+				},
+			})
+			gatewayData.gateway.Namespace = route.Namespace
+			gatewayData.gateway.Name = string(parentRef.Name)
+
+			gatewayModel.EXPECT().
+				resolveReconcileRequest(t.Context(), mock.Anything, mock.Anything).
+				RunAndReturn(func(_ context.Context, _ reconcile.Request, receiver *resolvedGatewayDetails) (bool, error) {
+					*receiver = gatewayData
+					return true, nil
+				})
+
+			_, _, _, err := model.resolveRouteParentRefData(
+				t.Context(),
+				route,
+				parentRef,
+				route.Namespace,
+			)
+
+			require.ErrorContains(t, err, "invalid allowedRoutes namespace selector")
 		})
 
 		t.Run("uses parent ref namespace when provided", func(t *testing.T) {
@@ -520,6 +645,34 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			require.NoError(t, err)
 			assert.Empty(t, got)
 		})
+
+		t.Run("returns parent resolution errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newGRPCRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			gatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
+			route := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.Spec.ParentRefs = []gatewayv1.ParentReference{{Name: "gw"}}
+			})
+			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&route)}
+			wantErr := errors.New("gateway-" + fake.Lorem().Sentence(4))
+
+			k8sClient.EXPECT().Get(t.Context(), req.NamespacedName, mock.Anything).
+				RunAndReturn(func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+					*obj.(*gatewayv1.GRPCRoute) = route
+					return nil
+				})
+			gatewayModel.EXPECT().
+				resolveReconcileRequest(t.Context(), mock.Anything, mock.Anything).
+				Return(false, wantErr).
+				Once()
+
+			got, err := model.resolveRequest(t.Context(), req)
+
+			require.ErrorIs(t, err, wantErr)
+			assert.Nil(t, got)
+		})
 	})
 
 	t.Run("acceptRoute", func(t *testing.T) {
@@ -555,6 +708,45 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			)
 			require.NotNil(t, gotCondition)
 			assert.Equal(t, metav1.ConditionTrue, gotCondition.Status)
+		})
+
+		t.Run("rejects when matched listeners deny attachment", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGRPCRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			statusWriter := k8sapi.NewMockSubResourceWriter(t)
+			route := makeGRPCRoute()
+			gatewayData := makeResolvedGateway()
+
+			k8sClient.EXPECT().Status().Return(statusWriter)
+			statusWriter.EXPECT().
+				Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+					updated, ok := obj.(*gatewayv1.GRPCRoute)
+					if !ok {
+						return false
+					}
+					require.Len(t, updated.Status.Parents, 1)
+					condition := meta.FindStatusCondition(
+						updated.Status.Parents[0].Conditions,
+						string(gatewayv1.RouteConditionAccepted),
+					)
+					return condition != nil &&
+						condition.Status == metav1.ConditionFalse &&
+						condition.Reason == string(routeReasonConflicted) &&
+						strings.Contains(condition.Message, "matched listeners do not allow GRPCRoute")
+				})).
+				Return(nil).
+				Once()
+
+			got, err := model.acceptRoute(t.Context(), resolvedGRPCRouteDetails{
+				attachmentDenied: true,
+				gatewayDetails:   gatewayData,
+				grpcRoute:        route,
+				matchedRef:       gatewayv1.ParentReference{Name: gatewayv1.ObjectName(gatewayData.gateway.Name)},
+			})
+
+			require.NoError(t, err)
+			assert.Nil(t, got)
 		})
 
 		t.Run("accepts when an older HTTPRoute shares the same Gateway listener and hostname", func(t *testing.T) {
@@ -738,6 +930,31 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			})
 
 			require.ErrorIs(t, err, wantErr)
+		})
+
+		t.Run("returns status update errors", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			model := newGRPCRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			statusWriter := k8sapi.NewMockSubResourceWriter(t)
+			wantErr := errors.New("status-" + fake.Lorem().Sentence(4))
+
+			k8sClient.EXPECT().Status().Return(statusWriter)
+			statusWriter.EXPECT().
+				Update(t.Context(), mock.AnythingOfType("*v1.GRPCRoute")).
+				Return(wantErr).
+				Once()
+
+			got, err := model.acceptRoute(t.Context(), resolvedGRPCRouteDetails{
+				gatewayDetails: makeResolvedGateway(),
+				grpcRoute:      makeGRPCRoute(),
+				matchedRef:     makeRandomParentRef(),
+			})
+
+			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to update status for GRPCRoute")
+			assert.Nil(t, got)
 		})
 	})
 
@@ -1865,6 +2082,33 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 		})
 
 		require.NoError(t, err)
+	})
+
+	t.Run("setPending returns status update errors", func(t *testing.T) {
+		fake := faker.New()
+		deps := newMockDeps(t)
+		model := newGRPCRouteModel(deps)
+		resourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+		gateway := gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "gw-" + fake.Lorem().Word()}}
+		parentRef := gatewayv1.ParentReference{Name: gatewayv1.ObjectName(gateway.Name)}
+		wantErr := errors.New("status update failed")
+
+		resourcesModel.EXPECT().setCondition(t.Context(), mock.Anything).Return(wantErr).Once()
+
+		err := model.setPending(t.Context(), setGRPCRouteProgrammedParams{
+			grpcRoute: makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.Status.Parents = []gatewayv1.RouteParentStatus{{
+					ParentRef:      parentRef,
+					ControllerName: ControllerClassName,
+				}}
+			}),
+			gatewayClass: gatewayv1.GatewayClass{Spec: gatewayv1.GatewayClassSpec{ControllerName: ControllerClassName}},
+			gateway:      gateway,
+			matchedRef:   parentRef,
+		})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to update pending status for GRPCRoute")
 	})
 }
 

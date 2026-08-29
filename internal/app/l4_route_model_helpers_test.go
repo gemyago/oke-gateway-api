@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -14,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -293,6 +295,341 @@ func TestL4RouteModelHelpers(t *testing.T) {
 			}},
 		))
 		assert.False(t, loadBalancerBackendsEqual(nil, []loadbalancer.BackendDetails{{}}))
+	})
+
+	t.Run("programL4Route clears programmed backend set when listener rejects route", func(t *testing.T) {
+		same := gatewayv1.NamespacesFromSame
+		route := &gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "routes",
+				Name:       "rtmp",
+				Finalizers: []string{NetworkLoadBalancerTCPRouteProgrammedFinalizer},
+			},
+		}
+		k8sClient := fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).Build()
+		acceptedErr := errors.New("route rejected")
+		clearCalls := 0
+
+		err := programL4Route(t.Context(), programL4RouteParams{
+			k8sClient:         k8sClient,
+			routeKind:         "TCPRoute",
+			route:             route,
+			listenerNamespace: "gateway",
+			listener: gatewayv1.Listener{
+				Name:     "rtmp",
+				Protocol: gatewayv1.TCPProtocolType,
+				AllowedRoutes: &gatewayv1.AllowedRoutes{
+					Namespaces: &gatewayv1.RouteNamespaces{From: &same},
+				},
+			},
+			finalizer: NetworkLoadBalancerTCPRouteProgrammedFinalizer,
+			clearBackendSet: func() error {
+				clearCalls++
+				return nil
+			},
+			ensureExclusiveListenerOwner: func() error {
+				t.Fatal("exclusive owner check should not run for rejected listener")
+				return nil
+			},
+			clearStaleBackendSets: func() error {
+				t.Fatal("stale backend set cleanup should not run for rejected listener")
+				return nil
+			},
+			endpointBackendsForRoute: func() ([]networkloadbalancer.BackendDetails, error) {
+				t.Fatal("backend resolution should not run for rejected listener")
+				return nil, nil
+			},
+			acceptedStatusError: func(reason gatewayv1.RouteConditionReason, message string) error {
+				assert.Equal(t, gatewayv1.RouteReasonNotAllowedByListeners, reason)
+				assert.Contains(t, message, "listener rtmp does not allow TCPRoute routes/rtmp")
+				return acceptedErr
+			},
+		})
+
+		require.ErrorIs(t, err, acceptedErr)
+		assert.Equal(t, 1, clearCalls)
+	})
+
+	t.Run("programL4Route clears programmed backend set after backend resolution status error", func(t *testing.T) {
+		route := &gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "gateway",
+				Name:       "rtmp",
+				Finalizers: []string{NetworkLoadBalancerTCPRouteProgrammedFinalizer},
+			},
+		}
+		k8sClient := fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).Build()
+		resolveErr := newTCPRouteResolvedRefsStatusError(gatewayv1.RouteReasonBackendNotFound, "backend missing")
+		clearCalls := 0
+
+		err := programL4Route(t.Context(), programL4RouteParams{
+			k8sClient:         k8sClient,
+			routeKind:         "TCPRoute",
+			route:             route,
+			listenerNamespace: "gateway",
+			listener: gatewayv1.Listener{
+				Name:     "rtmp",
+				Protocol: gatewayv1.TCPProtocolType,
+			},
+			finalizer: NetworkLoadBalancerTCPRouteProgrammedFinalizer,
+			clearBackendSet: func() error {
+				clearCalls++
+				return nil
+			},
+			ensureExclusiveListenerOwner: func() error {
+				return nil
+			},
+			clearStaleBackendSets: func() error {
+				return nil
+			},
+			endpointBackendsForRoute: func() ([]networkloadbalancer.BackendDetails, error) {
+				return nil, resolveErr
+			},
+			backendResolutionStatusError: func(err error) bool {
+				var statusErr tcpRouteStatusError
+				return errors.As(err, &statusErr) &&
+					statusErr.conditionType == gatewayv1.RouteConditionResolvedRefs
+			},
+			updateBackendSet: func(string, []networkloadbalancer.BackendDetails) error {
+				t.Fatal("backend set update should not run after backend resolution error")
+				return nil
+			},
+		})
+
+		var statusErr tcpRouteStatusError
+		require.ErrorAs(t, err, &statusErr)
+		assert.Equal(t, gatewayv1.RouteConditionResolvedRefs, statusErr.conditionType)
+		assert.Equal(t, 1, clearCalls)
+	})
+
+	t.Run("programL4Route wraps cleanup failure after listener rejection", func(t *testing.T) {
+		same := gatewayv1.NamespacesFromSame
+		route := &gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "routes",
+				Name:       "rtmp",
+				Finalizers: []string{NetworkLoadBalancerTCPRouteProgrammedFinalizer},
+			},
+		}
+		k8sClient := fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).Build()
+		cleanupErr := errors.New("delete backend set failed")
+
+		err := programL4Route(t.Context(), programL4RouteParams{
+			k8sClient:         k8sClient,
+			routeKind:         "TCPRoute",
+			route:             route,
+			listenerNamespace: "gateway",
+			listener: gatewayv1.Listener{
+				Name:     "rtmp",
+				Protocol: gatewayv1.TCPProtocolType,
+				AllowedRoutes: &gatewayv1.AllowedRoutes{
+					Namespaces: &gatewayv1.RouteNamespaces{From: &same},
+				},
+			},
+			finalizer: NetworkLoadBalancerTCPRouteProgrammedFinalizer,
+			clearBackendSet: func() error {
+				return cleanupErr
+			},
+		})
+
+		require.ErrorIs(t, err, cleanupErr)
+		require.ErrorContains(t, err, "failed to clear backend set after TCPRoute attachment was rejected")
+	})
+
+	t.Run("programL4Route wraps cleanup failure after backend resolution status error", func(t *testing.T) {
+		route := &gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "gateway",
+				Name:       "rtmp",
+				Finalizers: []string{NetworkLoadBalancerTCPRouteProgrammedFinalizer},
+			},
+		}
+		k8sClient := fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).Build()
+		resolveErr := newTCPRouteResolvedRefsStatusError(gatewayv1.RouteReasonBackendNotFound, "backend missing")
+		cleanupErr := errors.New("delete backend set failed")
+
+		err := programL4Route(t.Context(), programL4RouteParams{
+			k8sClient:         k8sClient,
+			routeKind:         "TCPRoute",
+			route:             route,
+			listenerNamespace: "gateway",
+			listener: gatewayv1.Listener{
+				Name:     "rtmp",
+				Protocol: gatewayv1.TCPProtocolType,
+			},
+			finalizer: NetworkLoadBalancerTCPRouteProgrammedFinalizer,
+			clearBackendSet: func() error {
+				return cleanupErr
+			},
+			ensureExclusiveListenerOwner: func() error {
+				return nil
+			},
+			clearStaleBackendSets: func() error {
+				return nil
+			},
+			endpointBackendsForRoute: func() ([]networkloadbalancer.BackendDetails, error) {
+				return nil, resolveErr
+			},
+			backendResolutionStatusError: func(err error) bool {
+				var statusErr tcpRouteStatusError
+				return errors.As(err, &statusErr) &&
+					statusErr.conditionType == gatewayv1.RouteConditionResolvedRefs
+			},
+		})
+
+		require.ErrorIs(t, err, cleanupErr)
+		require.ErrorContains(t, err, "failed to clear backend set after TCPRoute backend resolution error")
+	})
+
+	t.Run("programL4Route clears stale backend sets before updating already programmed route", func(t *testing.T) {
+		route := &gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "gateway",
+				Name:       "rtmp",
+				Finalizers: []string{NetworkLoadBalancerTCPRouteProgrammedFinalizer},
+			},
+		}
+		k8sClient := fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).Build()
+		backends := []networkloadbalancer.BackendDetails{{
+			IpAddress: new("10.0.3.20"),
+			Port:      new(1935),
+		}}
+		events := make([]string, 0, 3)
+
+		err := programL4Route(t.Context(), programL4RouteParams{
+			k8sClient:         k8sClient,
+			routeKind:         "TCPRoute",
+			route:             route,
+			listenerNamespace: "gateway",
+			listener: gatewayv1.Listener{
+				Name:     "rtmp",
+				Protocol: gatewayv1.TCPProtocolType,
+			},
+			finalizer: NetworkLoadBalancerTCPRouteProgrammedFinalizer,
+			clearBackendSet: func() error {
+				t.Fatal("current backend set cleanup should not run for successful backend resolution")
+				return nil
+			},
+			ensureExclusiveListenerOwner: func() error {
+				events = append(events, "owner")
+				return nil
+			},
+			clearStaleBackendSets: func() error {
+				events = append(events, "clear-stale")
+				return nil
+			},
+			endpointBackendsForRoute: func() ([]networkloadbalancer.BackendDetails, error) {
+				events = append(events, "resolve")
+				return backends, nil
+			},
+			backendResolutionStatusError: func(error) bool {
+				return false
+			},
+			updateBackendSet: func(name string, gotBackends []networkloadbalancer.BackendDetails) error {
+				events = append(events, "update")
+				assert.Equal(t, "bs_rtmp", name)
+				assert.Equal(t, backends, gotBackends)
+				return nil
+			},
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{"owner", "clear-stale", "resolve", "update"}, events)
+	})
+
+	t.Run("programL4Route returns listener namespace selector errors", func(t *testing.T) {
+		fromSelector := gatewayv1.NamespacesFromSelector
+		route := &gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{Namespace: "routes", Name: "rtmp"}}
+		k8sClient := fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).Build()
+
+		err := programL4Route(t.Context(), programL4RouteParams{
+			k8sClient:         k8sClient,
+			routeKind:         "TCPRoute",
+			route:             route,
+			listenerNamespace: "gateway",
+			listener: gatewayv1.Listener{
+				Name:     "rtmp",
+				Protocol: gatewayv1.TCPProtocolType,
+				AllowedRoutes: &gatewayv1.AllowedRoutes{
+					Namespaces: &gatewayv1.RouteNamespaces{
+						From: &fromSelector,
+						Selector: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+							Key:      "team",
+							Operator: metav1.LabelSelectorOperator("invalid"),
+							Values:   []string{"iot"},
+						}}},
+					},
+				},
+			},
+		})
+
+		require.ErrorContains(t, err, "invalid allowedRoutes namespace selector")
+	})
+
+	t.Run("programL4Route returns stale backend set cleanup errors", func(t *testing.T) {
+		route := &gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "gateway",
+				Name:       "rtmp",
+				Finalizers: []string{NetworkLoadBalancerTCPRouteProgrammedFinalizer},
+			},
+		}
+		k8sClient := fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).Build()
+		staleErr := errors.New("stale cleanup failed")
+
+		err := programL4Route(t.Context(), programL4RouteParams{
+			k8sClient:         k8sClient,
+			routeKind:         "TCPRoute",
+			route:             route,
+			listenerNamespace: "gateway",
+			listener: gatewayv1.Listener{
+				Name:     "rtmp",
+				Protocol: gatewayv1.TCPProtocolType,
+			},
+			finalizer: NetworkLoadBalancerTCPRouteProgrammedFinalizer,
+			ensureExclusiveListenerOwner: func() error {
+				return nil
+			},
+			clearStaleBackendSets: func() error {
+				return staleErr
+			},
+		})
+
+		require.ErrorIs(t, err, staleErr)
+	})
+
+	t.Run("deprovisionL4Route wraps next route programmed status errors", func(t *testing.T) {
+		statusErr := errors.New("status failed")
+		route := &gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{
+			Namespace:  "iot",
+			Name:       "old-rtmp",
+			Finalizers: []string{NetworkLoadBalancerTCPRouteProgrammedFinalizer},
+		}}
+		nextRoute := resolvedTCPRouteDetails{
+			tcpRoute: gatewayv1.TCPRoute{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "new-rtmp"}},
+		}
+
+		err := deprovisionL4Route(t.Context(), deprovisionL4RouteParams[resolvedTCPRouteDetails]{
+			k8sClient:     fake.NewClientBuilder().WithScheme(newL4TestScheme(t)).Build(),
+			routeKind:     "TCPRoute",
+			routeToUpdate: route,
+			finalizer:     NetworkLoadBalancerTCPRouteProgrammedFinalizer,
+			nextRoute: func() (*resolvedTCPRouteDetails, error) {
+				return &nextRoute, nil
+			},
+			programRoute: func(resolvedTCPRouteDetails) error {
+				return nil
+			},
+			setProgrammed: func(resolvedTCPRouteDetails) error {
+				return statusErr
+			},
+			routeObject: func(route resolvedTCPRouteDetails) client.Object {
+				return &route.tcpRoute
+			},
+		})
+
+		require.ErrorIs(t, err, statusErr)
+		require.ErrorContains(t, err, "failed to set next TCPRoute iot/new-rtmp programmed status")
 	})
 }
 

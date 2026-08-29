@@ -626,6 +626,77 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 			1935,
 			"bs_rtmp",
 		))
+		assert.False(t, networkLoadBalancerListenerMatches(
+			networkloadbalancer.Listener{
+				Protocol:              networkloadbalancer.ListenerProtocolsTcp,
+				Port:                  new(1936),
+				DefaultBackendSetName: new("bs_rtmp"),
+				TcpIdleTimeout:        new(networkLoadBalancerTCPIdleTimeoutSeconds),
+			},
+			networkloadbalancer.ListenerProtocolsTcp,
+			1935,
+			"bs_rtmp",
+		))
+		assert.False(t, networkLoadBalancerListenerMatches(
+			networkloadbalancer.Listener{
+				Protocol:              networkloadbalancer.ListenerProtocolsTcp,
+				Port:                  new(1935),
+				DefaultBackendSetName: new("bs_other"),
+				TcpIdleTimeout:        new(networkLoadBalancerTCPIdleTimeoutSeconds),
+			},
+			networkloadbalancer.ListenerProtocolsTcp,
+			1935,
+			"bs_rtmp",
+		))
+		assert.False(t, networkLoadBalancerListenerMatches(
+			networkloadbalancer.Listener{
+				Protocol:              networkloadbalancer.ListenerProtocolsTcp,
+				Port:                  new(1935),
+				DefaultBackendSetName: new("bs_rtmp"),
+				TcpIdleTimeout:        new(1),
+			},
+			networkloadbalancer.ListenerProtocolsTcp,
+			1935,
+			"bs_rtmp",
+		))
+		assert.True(t, networkLoadBalancerListenerMatches(
+			networkloadbalancer.Listener{
+				Protocol:              networkloadbalancer.ListenerProtocolsUdp,
+				Port:                  new(5684),
+				DefaultBackendSetName: new("bs_coap"),
+				UdpIdleTimeout:        new(networkLoadBalancerUDPIdleTimeoutSeconds),
+			},
+			networkloadbalancer.ListenerProtocolsUdp,
+			5684,
+			"bs_coap",
+		))
+		assert.False(t, networkLoadBalancerListenerMatches(
+			networkloadbalancer.Listener{
+				Protocol:              networkloadbalancer.ListenerProtocolsUdp,
+				Port:                  new(5684),
+				DefaultBackendSetName: new("bs_coap"),
+				UdpIdleTimeout:        new(1),
+			},
+			networkloadbalancer.ListenerProtocolsUdp,
+			5684,
+			"bs_coap",
+		))
+
+		tcpDetails := networkLoadBalancerListenerDetails(
+			"bs_rtmp",
+			1935,
+			networkloadbalancer.ListenerProtocolsTcp,
+		)
+		assert.Equal(t, networkLoadBalancerTCPIdleTimeoutSeconds, lo.FromPtr(tcpDetails.TcpIdleTimeout))
+		assert.Nil(t, tcpDetails.UdpIdleTimeout)
+
+		udpDetails := networkLoadBalancerListenerDetails(
+			"bs_coap",
+			5684,
+			networkloadbalancer.ListenerProtocolsUdp,
+		)
+		assert.Equal(t, networkLoadBalancerUDPIdleTimeoutSeconds, lo.FromPtr(udpDetails.UdpIdleTimeout))
+		assert.Nil(t, udpDetails.TcpIdleTimeout)
 	})
 
 	newDetails := func() *resolvedGatewayDetails {
@@ -1345,6 +1416,33 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 		err := model.setProgrammed(t.Context(), newDetails(), nil)
 
 		require.ErrorContains(t, err, "failed to set programmed condition")
+	})
+
+	t.Run("wraps gateway refresh errors before setting programmed condition", func(t *testing.T) {
+		k8sClient := NewMockk8sClient(t)
+		wantErr := errors.New("gateway refresh failed")
+		gateway := gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "iot",
+				Name:      "edge",
+			},
+		}
+		k8sClient.EXPECT().
+			Get(
+				t.Context(),
+				k8stypes.NamespacedName{Namespace: gateway.Namespace, Name: gateway.Name},
+				mock.AnythingOfType("*v1.Gateway"),
+			).
+			Return(wantErr)
+		model := newNetworkLoadBalancerGatewayModel(networkLoadBalancerGatewayModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  k8sClient,
+		})
+
+		err := model.setProgrammed(t.Context(), &resolvedGatewayDetails{gateway: gateway}, nil)
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to refresh Gateway")
 	})
 
 	t.Run("deprovisions gateway without deleting existing network load balancer", func(t *testing.T) {

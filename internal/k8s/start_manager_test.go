@@ -1,6 +1,7 @@
 package k8s
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -11,7 +12,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/gemyago/oke-gateway-api/internal/app"
@@ -153,6 +156,11 @@ func TestGatewayObjectPredicate(t *testing.T) {
 
 		assert.False(t, result)
 	})
+
+	t.Run("ignores nil update event objects", func(t *testing.T) {
+		assert.False(t, gatewayDeletionStarted(event.UpdateEvent{}))
+		assert.False(t, gatewayControllerAnnotationChanged(event.UpdateEvent{}))
+	})
 }
 
 func TestL7RouteObjectPredicate(t *testing.T) {
@@ -254,6 +262,131 @@ func TestStartManager(t *testing.T) {
 
 			assert.True(t, result)
 		})
+	})
+}
+
+func TestRunControllerSetupTasks(t *testing.T) {
+	fake := faker.New()
+
+	t.Run("skips disabled tasks and runs enabled tasks", func(t *testing.T) {
+		calls := make([]string, 0, 1)
+		err := runControllerSetupTasks(t.Context(), diag.RootTestLogger(), []controllerSetupTask{
+			{
+				enabled:     false,
+				disabledLog: "disabled " + fake.Lorem().Word(),
+				setup: func() error {
+					t.Fatal("disabled task should not run")
+					return nil
+				},
+				setupErr: "disabled failed: %w",
+			},
+			{
+				enabled:     true,
+				disabledLog: "enabled " + fake.Lorem().Word(),
+				setup: func() error {
+					calls = append(calls, "enabled")
+					return nil
+				},
+				setupErr: "enabled failed: %w",
+			},
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{"enabled"}, calls)
+	})
+
+	t.Run("wraps enabled task setup errors", func(t *testing.T) {
+		wantErr := errors.New("setup failed")
+
+		err := runControllerSetupTasks(t.Context(), diag.RootTestLogger(), []controllerSetupTask{{
+			enabled: true,
+			setup: func() error {
+				return wantErr
+			},
+			setupErr: "failed to setup controller: %w",
+		}})
+
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "failed to setup controller")
+	})
+}
+
+func TestControllerSetupTasks(t *testing.T) {
+	t.Run("core controllers follow feature flags", func(t *testing.T) {
+		tasks := coreControllerSetupTasks(nil, StartManagerDeps{
+			ReconcileGatewayClass:               true,
+			ReconcileGateway:                    false,
+			ReconcileNetworkLoadBalancerGateway: true,
+		}, resolvedExperimentalRouteCapabilities{listenerSetAvailable: true}, nil)
+
+		require.Len(t, tasks, 3)
+		assert.True(t, tasks[0].enabled)
+		assert.False(t, tasks[1].enabled)
+		assert.True(t, tasks[2].enabled)
+	})
+
+	t.Run("ListenerSet controller follows CRD availability", func(t *testing.T) {
+		disabledTasks := listenerSetControllerSetupTasks(
+			nil,
+			StartManagerDeps{},
+			resolvedExperimentalRouteCapabilities{},
+			nil,
+		)
+		enabledTasks := listenerSetControllerSetupTasks(
+			nil,
+			StartManagerDeps{},
+			resolvedExperimentalRouteCapabilities{listenerSetAvailable: true},
+			nil,
+		)
+
+		require.Len(t, disabledTasks, 1)
+		require.Len(t, enabledTasks, 1)
+		assert.False(t, disabledTasks[0].enabled)
+		assert.True(t, enabledTasks[0].enabled)
+	})
+
+	t.Run("L7 and TLS controllers follow feature flags and optional CRDs", func(t *testing.T) {
+		tasks := l7AndTLSControllerSetupTasks(nil, StartManagerDeps{
+			ReconcileHTTPRoute:        true,
+			ReconcileGRPCRoute:        false,
+			ReconcileTLSRoute:         true,
+			ReconcileBackendTLSPolicy: true,
+		}, resolvedExperimentalRouteCapabilities{
+			reconcileTLSRoute:         true,
+			reconcileBackendTLSPolicy: true,
+			backendTLSPolicyAvailable: true,
+			listenerSetAvailable:      true,
+		}, nil)
+
+		require.Len(t, tasks, 4)
+		assert.True(t, tasks[0].enabled)
+		assert.False(t, tasks[1].enabled)
+		assert.True(t, tasks[2].enabled)
+		assert.True(t, tasks[3].enabled)
+	})
+
+	t.Run("L4 route controllers follow optional CRDs", func(t *testing.T) {
+		tasks := l4RouteControllerSetupTasks(nil, StartManagerDeps{
+			ReconcileTCPRoute: true,
+			ReconcileUDPRoute: true,
+		}, resolvedExperimentalRouteCapabilities{
+			reconcileTCPRoute:    true,
+			reconcileUDPRoute:    false,
+			listenerSetAvailable: true,
+		}, nil)
+
+		require.Len(t, tasks, 2)
+		assert.True(t, tasks[0].enabled)
+		assert.False(t, tasks[1].enabled)
+	})
+
+	t.Run("ListenerSet mapper is only set when enabled", func(t *testing.T) {
+		mapper := func(context.Context, client.Object) []reconcile.Request {
+			return []reconcile.Request{{NamespacedName: client.ObjectKey{Namespace: "ns", Name: "name"}}}
+		}
+
+		require.Nil(t, listenerSetMapper(false, mapper))
+		require.NotNil(t, listenerSetMapper(true, mapper))
 	})
 }
 
@@ -385,6 +518,34 @@ func TestDetectExperimentalRouteCapabilities(t *testing.T) {
 		assert.False(t, got.BackendTLSPolicy)
 		assert.False(t, got.ListenerSet)
 	})
+
+	t.Run("wraps discovery errors for each optional resource", func(t *testing.T) {
+		wantErr := errors.New("discovery failed")
+		for _, tc := range []struct {
+			kind    string
+			message string
+		}{
+			{kind: "UDPRoute", message: "failed to detect UDPRoute availability"},
+			{kind: "TLSRoute", message: "failed to detect TLSRoute availability"},
+			{kind: "BackendTLSPolicy", message: "failed to detect BackendTLSPolicy availability"},
+			{kind: "ListenerSet", message: "failed to detect ListenerSet availability"},
+		} {
+			t.Run(tc.kind, func(t *testing.T) {
+				got, err := detectExperimentalRouteCapabilities(selectiveRESTMapper{
+					failKind: tc.kind,
+					err:      wantErr,
+				})
+
+				require.ErrorIs(t, err, wantErr)
+				require.ErrorContains(t, err, tc.message)
+				assert.False(t, got.TCPRoute)
+				assert.False(t, got.UDPRoute)
+				assert.False(t, got.TLSRoute)
+				assert.False(t, got.BackendTLSPolicy)
+				assert.False(t, got.ListenerSet)
+			})
+		}
+	})
 }
 
 func TestResolveExperimentalRouteCapabilities(t *testing.T) {
@@ -499,4 +660,30 @@ type failingRESTMapper struct {
 
 func (m failingRESTMapper) RESTMapping(_ schema.GroupKind, _ ...string) (*meta.RESTMapping, error) {
 	return nil, m.err
+}
+
+type selectiveRESTMapper struct {
+	meta.RESTMapper
+
+	failKind string
+	err      error
+}
+
+func (m selectiveRESTMapper) RESTMapping(groupKind schema.GroupKind, versions ...string) (*meta.RESTMapping, error) {
+	if groupKind.Kind == m.failKind {
+		return nil, m.err
+	}
+	version := gatewayv1.GroupVersion.Version
+	if len(versions) > 0 {
+		version = versions[0]
+	}
+	mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{
+		{Group: groupKind.Group, Version: version},
+	})
+	mapper.Add(schema.GroupVersionKind{
+		Group:   groupKind.Group,
+		Version: version,
+		Kind:    groupKind.Kind,
+	}, meta.RESTScopeNamespace)
+	return mapper.RESTMapping(groupKind, versions...)
 }
