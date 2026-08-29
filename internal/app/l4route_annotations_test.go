@@ -44,6 +44,24 @@ func TestResourceNameAnnotations(t *testing.T) {
 		assert.Equal(t, joinedAnnotationNames(wantNames), route.GetAnnotations()[annotation])
 	})
 
+	t.Run("setting empty route annotation names clears stale annotation", func(t *testing.T) {
+		fake := faker.New()
+		annotation := "oke-gateway-api.gemyago.github.io/" + fake.Internet().Slug()
+		route := &gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					annotation:                     "stale_" + fake.Numerify("########"),
+					"other.example.com/annotation": "value-" + fake.Lorem().Word(),
+				},
+			},
+		}
+
+		setAnnotatedBackendSetNames(route, annotation, map[string]struct{}{})
+
+		assert.NotContains(t, route.GetAnnotations(), annotation)
+		assert.Contains(t, route.GetAnnotations(), "other.example.com/annotation")
+	})
+
 	t.Run("gateway annotation names trim blanks and deduplicate", func(t *testing.T) {
 		fake := faker.New()
 		annotation := "oke-gateway-api.gemyago.github.io/" + fake.Internet().Slug()

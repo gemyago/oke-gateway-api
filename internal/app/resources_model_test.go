@@ -1320,6 +1320,12 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 		gatewayClass := newRandomResource(
 			randomResourceWithGeneration(generation),
 			randomResourceWithAnnotations(map[string]string{}),
+			randomResourceWithConditions(
+				newRandomConditions(
+					randomConditionWithType(conditionType),
+					randomConditionWithObservedGeneration(generation),
+				),
+			),
 		)
 		params := isConditionSetParams{
 			resource:      gatewayClass,
@@ -1343,6 +1349,12 @@ func TestResourcesModelImpl_isConditionSet(t *testing.T) {
 		gatewayClass := newRandomResource(
 			randomResourceWithGeneration(generation),
 			randomResourceWithAnnotations(map[string]string{key: fake.Lorem().Sentence(10)}),
+			randomResourceWithConditions(
+				newRandomConditions(
+					randomConditionWithType(conditionType),
+					randomConditionWithObservedGeneration(generation),
+				),
+			),
 		)
 		params := isConditionSetParams{
 			resource:      gatewayClass,
