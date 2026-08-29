@@ -326,6 +326,8 @@ func makeTargetOnlyParentRef(parentRef gatewayv1.ParentReference) gatewayv1.Pare
 }
 
 func l7RouteConflictingWinner(params l7RouteConflictParams) (l7RouteCandidate, bool) {
+	var winner l7RouteCandidate
+	found := false
 	for _, oppositeRoute := range params.oppositeRoutes {
 		if params.current.identity.kind != oppositeRoute.identity.kind {
 			continue
@@ -340,10 +342,13 @@ func l7RouteConflictingWinner(params l7RouteConflictParams) (l7RouteCandidate, b
 			continue
 		}
 		if l7RouteWins(oppositeRoute.identity, params.current.identity) {
-			return oppositeRoute, true
+			if !found || l7RouteWins(oppositeRoute.identity, winner.identity) {
+				winner = oppositeRoute
+				found = true
+			}
 		}
 	}
-	return l7RouteCandidate{}, false
+	return winner, found
 }
 
 func checkL7RouteConflict(ctx context.Context, params checkL7RouteConflictParams) (l7RouteCandidate, bool, error) {
