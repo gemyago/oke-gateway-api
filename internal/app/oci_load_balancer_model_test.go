@@ -276,6 +276,34 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				got,
 			)
 		})
+
+		t.Run("keeps http and grpc policy rule names distinct for same route identity", func(t *testing.T) {
+			fake := faker.New()
+			namespace := "routes-" + fake.Lorem().Word()
+			routeName := "api-" + fake.Lorem().Word()
+			ruleName := gatewayv1.SectionName("root-" + fake.Lorem().Word())
+			httpRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithNamespaceOpt(namespace),
+				randomHTTPRouteWithNameOpt(routeName),
+				randomHTTPRouteWithRulesOpt(makeRandomHTTPRouteRule(func(rule *gatewayv1.HTTPRouteRule) {
+					rule.Name = &ruleName
+				})),
+			)
+			grpcRoute := makeRandomGRPCRoute(randomGRPCRouteWithRulesOpt(
+				makeRandomGRPCRouteRule(func(rule *gatewayv1.GRPCRouteRule) {
+					rule.Name = &ruleName
+				}),
+			))
+			grpcRoute.Namespace = namespace
+			grpcRoute.Name = routeName
+
+			httpRuleName := ociListerPolicyRuleName(httpRoute, 0)
+			grpcRuleName := ociGRPCListenerPolicyRuleName(grpcRoute, 0)
+
+			assert.NotEqual(t, httpRuleName, grpcRuleName)
+			assert.True(t, isValidOCIRoutingPolicyName(httpRuleName))
+			assert.True(t, isValidOCIRoutingPolicyName(grpcRuleName))
+		})
 	})
 
 	t.Run("updateBackendSetConfig", func(t *testing.T) {
@@ -6539,6 +6567,53 @@ func Test_ociListerPolicyRuleName(t *testing.T) {
 			assert.Len(t, got, maxListenerPolicyNameLength)
 			assert.False(t, invalidCharsForPolicyNamePattern.MatchString(got))
 		})
+	})
+}
+
+func Test_ociBackendSetNameFromBackendObjectRef(t *testing.T) {
+	t.Run("includes backend port in identity", func(t *testing.T) {
+		fake := faker.New()
+		namespace := "apps" + fake.Numerify("###")
+		backendName := gatewayv1.ObjectName("svc" + fake.Numerify("###"))
+		oldPort := gatewayv1.PortNumber(fake.IntBetween(1024, 32767))
+		newPort := gatewayv1.PortNumber(fake.IntBetween(32768, 65535))
+
+		oldName := ociBackendSetNameFromBackendObjectRef(namespace, gatewayv1.BackendObjectReference{
+			Name: backendName,
+			Port: &oldPort,
+		})
+		newName := ociBackendSetNameFromBackendObjectRef(namespace, gatewayv1.BackendObjectReference{
+			Name: backendName,
+			Port: &newPort,
+		})
+
+		assert.NotEqual(t, oldName, newName)
+		assert.Contains(t, oldName, fmt.Sprintf("-%d", oldPort))
+		assert.Contains(t, newName, fmt.Sprintf("-%d", newPort))
+		assert.LessOrEqual(t, len(oldName), maxBackendSetNameLength)
+		assert.LessOrEqual(t, len(newName), maxBackendSetNameLength)
+	})
+
+	t.Run("defaults backend namespace before constructing identity", func(t *testing.T) {
+		fake := faker.New()
+		defaultNamespace := "default" + fake.Numerify("###")
+		explicitNamespace := gatewayv1.Namespace("explicit" + fake.Numerify("###"))
+		backendName := gatewayv1.ObjectName("svc" + fake.Numerify("###"))
+		port := gatewayv1.PortNumber(fake.IntBetween(1024, 65535))
+
+		defaulted := ociBackendSetNameFromBackendObjectRef(defaultNamespace, gatewayv1.BackendObjectReference{
+			Name: backendName,
+			Port: &port,
+		})
+		explicit := ociBackendSetNameFromBackendObjectRef(defaultNamespace, gatewayv1.BackendObjectReference{
+			Namespace: &explicitNamespace,
+			Name:      backendName,
+			Port:      &port,
+		})
+
+		assert.NotEqual(t, defaulted, explicit)
+		assert.Contains(t, defaulted, defaultNamespace)
+		assert.Contains(t, explicit, string(explicitNamespace))
 	})
 }
 

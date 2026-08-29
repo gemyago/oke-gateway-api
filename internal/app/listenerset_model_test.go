@@ -247,6 +247,13 @@ func TestListenerSetModel(t *testing.T) {
 		assert.True(t, got[3].conflicted)
 		assert.Equal(t, v1.ListenerReasonPortUnavailable, got[3].conflictReason)
 
+		reversed := effectiveListenersForGateway(gateway, []v1.ListenerSet{listenerSet1, listenerSet2, listenerSet3})
+		require.Len(t, reversed, 4)
+		assert.Equal(t, got[1].sourceNamespace, reversed[1].sourceNamespace)
+		assert.Equal(t, got[1].sourceName, reversed[1].sourceName)
+		assert.Equal(t, got[2].conflictReason, reversed[2].conflictReason)
+		assert.Equal(t, got[3].conflictReason, reversed[3].conflictReason)
+
 		conflictingProtocol := makeListenerSet(func(listenerSet *v1.ListenerSet) {
 			listenerSet.Namespace = "team-d"
 			listenerSet.Name = "edge-tcp"
