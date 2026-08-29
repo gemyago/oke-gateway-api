@@ -136,13 +136,19 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 		t.Run("compares listener ssl config drift with optional desired fields", func(t *testing.T) {
 			fake := faker.New()
 			base := &loadbalancer.SslConfigurationDetails{
-				CertificateName:                new("cert-" + fake.Lorem().Word()),
-				CertificateIds:                 []string{"ocid1.certificate.oc1.." + fake.UUID().V4()},
-				CipherSuiteName:                new("cipher-" + fake.Lorem().Word()),
-				Protocols:                      []string{"TLSv1.2", "TLSv1.3"},
-				VerifyPeerCertificate:          new(true),
-				VerifyDepth:                    new(4),
-				TrustedCertificateAuthorityIds: []string{"ocid1.cabundle.oc1.." + fake.UUID().V4()},
+				CertificateName: new("cert-" + fake.Lorem().Word()),
+				CertificateIds: []string{
+					"ocid1.certificate.oc1.." + fake.UUID().V4(),
+					"ocid1.certificate.oc1.." + fake.UUID().V4(),
+				},
+				CipherSuiteName:       new("cipher-" + fake.Lorem().Word()),
+				Protocols:             []string{"TLSv1.2", "TLSv1.3"},
+				VerifyPeerCertificate: new(true),
+				VerifyDepth:           new(4),
+				TrustedCertificateAuthorityIds: []string{
+					"ocid1.cabundle.oc1.." + fake.UUID().V4(),
+					"ocid1.cabundle.oc1.." + fake.UUID().V4(),
+				},
 			}
 			clone := func() *loadbalancer.SslConfigurationDetails {
 				return &loadbalancer.SslConfigurationDetails{
@@ -179,36 +185,51 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 					VerifyPeerCertificate:          base.VerifyPeerCertificate,
 				},
 			))
+			reorderedCurrent := clone()
+			slices.Reverse(reorderedCurrent.CertificateIds)
+			slices.Reverse(reorderedCurrent.Protocols)
+			slices.Reverse(reorderedCurrent.TrustedCertificateAuthorityIds)
+			assert.True(t, loadBalancerListenerSSLConfigurationsEqual(reorderedCurrent, clone()))
+			assert.True(t, loadBalancerSSLConfigurationsEqual(reorderedCurrent, clone()))
 			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(nil, clone()))
 			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(clone(), nil))
+			assert.False(t, loadBalancerSSLConfigurationsEqual(nil, clone()))
+			assert.False(t, loadBalancerSSLConfigurationsEqual(clone(), nil))
 
 			changedCertName := clone()
 			changedCertName.CertificateName = new("cert-other-" + fake.Lorem().Word())
 			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(changedCertName, clone()))
+			assert.False(t, loadBalancerSSLConfigurationsEqual(changedCertName, clone()))
 
 			changedCertID := clone()
 			changedCertID.CertificateIds = []string{"ocid1.certificate.oc1.." + fake.UUID().V4()}
 			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(changedCertID, clone()))
+			assert.False(t, loadBalancerSSLConfigurationsEqual(changedCertID, clone()))
 
 			changedCipher := clone()
 			changedCipher.CipherSuiteName = new("cipher-other-" + fake.Lorem().Word())
 			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(changedCipher, clone()))
+			assert.False(t, loadBalancerSSLConfigurationsEqual(changedCipher, clone()))
 
 			changedProtocols := clone()
 			changedProtocols.Protocols = []string{"TLSv1.1"}
 			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(changedProtocols, clone()))
+			assert.False(t, loadBalancerSSLConfigurationsEqual(changedProtocols, clone()))
 
 			changedPeerVerification := clone()
 			changedPeerVerification.VerifyPeerCertificate = new(false)
 			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(changedPeerVerification, clone()))
+			assert.False(t, loadBalancerSSLConfigurationsEqual(changedPeerVerification, clone()))
 
 			changedVerifyDepth := clone()
 			changedVerifyDepth.VerifyDepth = new(2)
 			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(changedVerifyDepth, clone()))
+			assert.False(t, loadBalancerSSLConfigurationsEqual(changedVerifyDepth, clone()))
 
 			changedTrustedCA := clone()
 			changedTrustedCA.TrustedCertificateAuthorityIds = []string{"ocid1.cabundle.oc1.." + fake.UUID().V4()}
 			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(changedTrustedCA, clone()))
+			assert.False(t, loadBalancerSSLConfigurationsEqual(changedTrustedCA, clone()))
 		})
 
 		t.Run("detects routing default rule shape", func(t *testing.T) {
@@ -6624,6 +6645,44 @@ func Test_sortRoutingRules(t *testing.T) {
 		}, lo.Map(rules, func(rule loadbalancer.RoutingRule, _ int) string {
 			return lo.FromPtr(rule.Name)
 		}))
+	})
+
+	t.Run("routing rule equality ignores order but detects semantic changes", func(t *testing.T) {
+		fake := faker.New()
+		firstRuleName := "p0001_" + fake.Numerify("########") + "_http"
+		secondRuleName := "p0002_" + fake.Numerify("########") + "_http"
+		firstCondition := "any(http.request.url.path sw '/" + fake.Lorem().Word() + "')"
+		secondCondition := "any(http.request.url.path sw '/" + fake.Lorem().Word() + "')"
+		firstBackendSet := "backend_" + fake.Numerify("########")
+		secondBackendSet := "backend_" + fake.Numerify("########")
+		firstRule := loadbalancer.RoutingRule{
+			Name:      new(firstRuleName),
+			Condition: new(firstCondition),
+			Actions: []loadbalancer.Action{loadbalancer.ForwardToBackendSet{
+				BackendSetName: new(firstBackendSet),
+			}},
+		}
+		secondRule := loadbalancer.RoutingRule{
+			Name:      new(secondRuleName),
+			Condition: new(secondCondition),
+			Actions: []loadbalancer.Action{loadbalancer.ForwardToBackendSet{
+				BackendSetName: new(secondBackendSet),
+			}},
+		}
+
+		assert.True(t, routingRulesEqual(
+			[]loadbalancer.RoutingRule{firstRule, secondRule},
+			[]loadbalancer.RoutingRule{secondRule, firstRule},
+		))
+
+		changedRule := firstRule
+		changedRule.Actions = []loadbalancer.Action{loadbalancer.ForwardToBackendSet{
+			BackendSetName: new(secondBackendSet),
+		}}
+		assert.False(t, routingRulesEqual(
+			[]loadbalancer.RoutingRule{firstRule, secondRule},
+			[]loadbalancer.RoutingRule{changedRule, secondRule},
+		))
 	})
 }
 

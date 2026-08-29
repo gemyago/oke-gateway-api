@@ -956,6 +956,36 @@ func TestOciLoadBalancerRoutingRulesMapper(t *testing.T) {
 			assert.Equal(t, want, actual)
 		})
 
+		t.Run("does not append listener port to wildcard or explicit port hostnames", func(t *testing.T) {
+			fake := faker.New()
+			wildcardHostname := gatewayv1.Hostname("*." + fake.Internet().Domain())
+			portHostname := gatewayv1.Hostname("api-" + fake.Internet().Domain() + ":8443")
+			listenerPort := 8000 + fake.Int32Between(1, 1000)
+
+			rs := newOciLoadBalancerRoutingRulesMapper()
+			actual, err := rs.mapHTTPRouteHostnamesAndMatchesToCondition(
+				[]gatewayv1.Hostname{wildcardHostname, portHostname},
+				listenerPort,
+				nil,
+			)
+
+			require.NoError(t, err)
+			assert.Equal(
+				t,
+				fmt.Sprintf(
+					"any("+
+						"http.request.headers[(i 'host')] eq (i '%s'), "+
+						"http.request.headers[(i 'host')] eq (i '%s')"+
+						")",
+					wildcardHostname,
+					portHostname,
+				),
+				actual,
+			)
+			assert.NotContains(t, actual, fmt.Sprintf("%s:%d", wildcardHostname, listenerPort))
+			assert.NotContains(t, actual, fmt.Sprintf("%s:%d", portHostname, listenerPort))
+		})
+
 		t.Run("flattens hostname with path and regex header conditions", func(t *testing.T) {
 			fake := faker.New()
 			hostname := gatewayv1.Hostname("api-" + fake.Internet().Domain())

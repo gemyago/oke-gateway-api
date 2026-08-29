@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jaswdr/faker/v2"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"github.com/samber/lo"
@@ -150,6 +151,7 @@ func TestL4RouteModelHelpers(t *testing.T) {
 	})
 
 	t.Run("TCP helpers handle namespaces listeners backend equality and status errors", func(t *testing.T) {
+		fake := faker.New()
 		routeNamespace := gatewayv1.Namespace("media")
 		port := gatewayv1.PortNumber(1935)
 		backendRef := gatewayv1.BackendRef{BackendObjectReference: gatewayv1.BackendObjectReference{
@@ -191,12 +193,31 @@ func TestL4RouteModelHelpers(t *testing.T) {
 			[]networkloadbalancer.Backend{{IpAddress: new("10.0.0.10"), Port: new(1935)}},
 			[]networkloadbalancer.BackendDetails{{IpAddress: new("10.0.0.11"), Port: new(1935)}},
 		))
+		firstIP := fake.Internet().Ipv4()
+		secondIP := fake.Internet().Ipv4()
+		firstPort := fake.IntBetween(1024, 30000)
+		secondPort := firstPort + 1
+		assert.True(t, tcpBackendsEqual(
+			[]networkloadbalancer.Backend{
+				{IpAddress: new(firstIP), Port: new(firstPort), Weight: new(2), IsDrain: new(false)},
+				{IpAddress: new(secondIP), Port: new(secondPort), Weight: new(3), IsDrain: new(true)},
+			},
+			[]networkloadbalancer.BackendDetails{
+				{IpAddress: new(secondIP), Port: new(secondPort), Weight: new(3), IsDrain: new(true)},
+				{IpAddress: new(firstIP), Port: new(firstPort), Weight: new(2), IsDrain: new(false)},
+			},
+		))
+		assert.False(t, tcpBackendsEqual(
+			[]networkloadbalancer.Backend{{IpAddress: new(firstIP), Port: new(firstPort)}},
+			[]networkloadbalancer.BackendDetails{{IpAddress: new(firstIP), Port: new(secondPort)}},
+		))
 		assert.Equal(t, "rejected", tcpRouteStatusError{message: "rejected"}.Error())
 		assert.Equal(t, "bad refs",
 			newTCPRouteResolvedRefsStatusError(gatewayv1.RouteReasonInvalidKind, "bad refs").Error())
 	})
 
 	t.Run("UDP helpers handle namespaces listeners backend equality and status errors", func(t *testing.T) {
+		fake := faker.New()
 		routeNamespace := gatewayv1.Namespace("media")
 		port := gatewayv1.PortNumber(5684)
 		backendRef := gatewayv1.BackendRef{BackendObjectReference: gatewayv1.BackendObjectReference{
@@ -238,12 +259,31 @@ func TestL4RouteModelHelpers(t *testing.T) {
 			[]networkloadbalancer.Backend{{IpAddress: new("10.0.0.10"), Port: new(5684)}},
 			[]networkloadbalancer.BackendDetails{{IpAddress: new("10.0.0.11"), Port: new(5684)}},
 		))
+		firstIP := fake.Internet().Ipv4()
+		secondIP := fake.Internet().Ipv4()
+		firstPort := fake.IntBetween(1024, 30000)
+		secondPort := firstPort + 1
+		assert.True(t, udpBackendsEqual(
+			[]networkloadbalancer.Backend{
+				{IpAddress: new(firstIP), Port: new(firstPort), Weight: new(2), IsDrain: new(false)},
+				{IpAddress: new(secondIP), Port: new(secondPort), Weight: new(3), IsDrain: new(true)},
+			},
+			[]networkloadbalancer.BackendDetails{
+				{IpAddress: new(secondIP), Port: new(secondPort), Weight: new(3), IsDrain: new(true)},
+				{IpAddress: new(firstIP), Port: new(firstPort), Weight: new(2), IsDrain: new(false)},
+			},
+		))
+		assert.False(t, udpBackendsEqual(
+			[]networkloadbalancer.Backend{{IpAddress: new(firstIP), Port: new(firstPort)}},
+			[]networkloadbalancer.BackendDetails{{IpAddress: new(firstIP), Port: new(secondPort)}},
+		))
 		assert.Equal(t, "rejected", udpRouteStatusError{message: "rejected"}.Error())
 		assert.Equal(t, "bad refs",
 			newUDPRouteResolvedRefsStatusError(gatewayv1.RouteReasonInvalidKind, "bad refs").Error())
 	})
 
 	t.Run("TLS helpers handle listeners modes backend equality and status errors", func(t *testing.T) {
+		fake := faker.New()
 		routeNamespace := gatewayv1.Namespace("media")
 		port := gatewayv1.PortNumber(443)
 		backendRef := gatewayv1.BackendRef{BackendObjectReference: gatewayv1.BackendObjectReference{
@@ -295,6 +335,24 @@ func TestL4RouteModelHelpers(t *testing.T) {
 			}},
 		))
 		assert.False(t, loadBalancerBackendsEqual(nil, []loadbalancer.BackendDetails{{}}))
+		firstIP := fake.Internet().Ipv4()
+		secondIP := fake.Internet().Ipv4()
+		firstPort := fake.IntBetween(1024, 30000)
+		secondPort := firstPort + 1
+		assert.True(t, loadBalancerBackendsEqual(
+			[]loadbalancer.Backend{
+				{IpAddress: new(firstIP), Port: new(firstPort), Weight: new(2), Drain: new(false)},
+				{IpAddress: new(secondIP), Port: new(secondPort), Weight: new(3), Drain: new(true)},
+			},
+			[]loadbalancer.BackendDetails{
+				{IpAddress: new(secondIP), Port: new(secondPort), Weight: new(3), Drain: new(true)},
+				{IpAddress: new(firstIP), Port: new(firstPort), Weight: new(2), Drain: new(false)},
+			},
+		))
+		assert.False(t, loadBalancerBackendsEqual(
+			[]loadbalancer.Backend{{IpAddress: new(firstIP), Port: new(firstPort)}},
+			[]loadbalancer.BackendDetails{{IpAddress: new(firstIP), Port: new(secondPort)}},
+		))
 	})
 
 	t.Run("programL4Route clears programmed backend set when listener rejects route", func(t *testing.T) {

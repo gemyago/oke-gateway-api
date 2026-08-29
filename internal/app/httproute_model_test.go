@@ -427,6 +427,23 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		assert.True(t, l7HostnamePatternsIntersect("*.EXAMPLE.COM", "api.example.com"))
 		assert.False(t, l7HostnamePatternsIntersect("*.example.com", "api.badexample.com"))
 		assert.True(t, l7HostnamePatternsIntersect("*.foo.example.com", "*.example.com"))
+		for _, pair := range [][2]gatewayv1.Hostname{
+			{"API.EXAMPLE.COM", "api.example.com"},
+			{"*.example.com", "api.example.com"},
+			{"api.example.com", "*.example.com"},
+			{"*.foo.example.com", "*.example.com"},
+			{"api.example.com", "web.example.com"},
+			{"*.example.com", "api.badexample.com"},
+		} {
+			assert.Equal(
+				t,
+				l7HostnamePatternsIntersect(pair[0], pair[1]),
+				l7HostnamePatternsIntersect(pair[1], pair[0]),
+				"hostname intersection must be symmetric for %q and %q",
+				pair[0],
+				pair[1],
+			)
+		}
 		assert.ElementsMatch(t, []gatewayv1.SectionName{grpcListener.Name}, l7RouteAttachedListenerNames(
 			gateway,
 			nil,
