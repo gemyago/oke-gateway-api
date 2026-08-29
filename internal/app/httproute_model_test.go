@@ -126,6 +126,24 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				[]string{fmt.Sprintf("%s/%s", listenerSetListenerName, newListenerSetRule)},
 			))
 		})
+
+		t.Run("is idempotent for already merged listener scoped rules", func(t *testing.T) {
+			fake := faker.New()
+			gatewayListenerName := "gateway-" + fake.Lorem().Word()
+			listenerSetListenerName := "listenerset-" + fake.Lorem().Word()
+			gatewayRule := "gateway-rule-" + fake.Lorem().Word()
+			listenerSetRule := "listenerset-rule-" + fake.Lorem().Word()
+			mergedRules := []string{
+				fmt.Sprintf("%s/%s", gatewayListenerName, gatewayRule),
+				fmt.Sprintf("%s/%s", listenerSetListenerName, listenerSetRule),
+			}
+
+			assert.Equal(
+				t,
+				mergedRules,
+				mergeL7ProgrammedPolicyRules(strings.Join(mergedRules, ","), mergedRules),
+			)
+		})
 	})
 
 	t.Run("l7ProgrammedListenersChanged", func(t *testing.T) {
@@ -181,6 +199,37 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				"legacy-rule-"+fake.Lorem().Word(),
 				[]gatewayv1.Listener{{Name: listenerA}},
 			))
+		})
+
+		t.Run("ignores rule name changes when listener membership is unchanged", func(t *testing.T) {
+			assert.False(t, l7ProgrammedListenersChanged(
+				strings.Join([]string{
+					string(listenerA) + "/" + ruleA,
+					string(listenerB) + "/" + ruleB,
+				}, ","),
+				[]gatewayv1.Listener{{Name: listenerA}, {Name: listenerB}},
+			))
+		})
+	})
+
+	t.Run("previousPolicyRulesByListener", func(t *testing.T) {
+		t.Run("expands legacy rules to current listeners and preserves scoped rules", func(t *testing.T) {
+			fake := faker.New()
+			listenerA := gatewayv1.SectionName("listener-a-" + fake.Lorem().Word())
+			listenerB := gatewayv1.SectionName("listener-b-" + fake.Lorem().Word())
+			legacyRule := "legacy-rule-" + fake.Lorem().Word()
+			scopedRule := "scoped-rule-" + fake.Lorem().Word()
+
+			got := previousPolicyRulesByListener(
+				[]programmedHTTPRoutePolicyRule{
+					{ruleName: legacyRule},
+					{listenerName: string(listenerA), ruleName: scopedRule},
+				},
+				[]gatewayv1.Listener{{Name: listenerA}, {Name: listenerB}},
+			)
+
+			assert.ElementsMatch(t, []string{legacyRule, scopedRule}, got[string(listenerA)])
+			assert.Equal(t, []string{legacyRule}, got[string(listenerB)])
 		})
 	})
 

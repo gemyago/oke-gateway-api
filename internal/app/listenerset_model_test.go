@@ -449,6 +449,15 @@ func TestListenerSetModel(t *testing.T) {
 			Kind:  "GRPCRoute",
 		}}, got.Listeners[0].SupportedKinds)
 		assert.True(t, listenerSetStatusSemanticallyEqual(got, got))
+		reordered := got.DeepCopy()
+		if len(reordered.Conditions) > 1 {
+			reordered.Conditions[0], reordered.Conditions[1] = reordered.Conditions[1], reordered.Conditions[0]
+		}
+		if len(reordered.Listeners[0].Conditions) > 1 {
+			reordered.Listeners[0].Conditions[0], reordered.Listeners[0].Conditions[1] =
+				reordered.Listeners[0].Conditions[1], reordered.Listeners[0].Conditions[0]
+		}
+		assert.True(t, listenerSetStatusSemanticallyEqual(got, *reordered))
 
 		changed := got.DeepCopy()
 		changed.Listeners[0].Conditions[0].Reason = "Other"
