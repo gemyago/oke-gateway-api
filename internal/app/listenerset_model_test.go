@@ -469,6 +469,15 @@ func TestListenerSetModel(t *testing.T) {
 		changed := got.DeepCopy()
 		changed.Listeners[0].Conditions[0].Reason = "Other"
 		assert.False(t, listenerSetStatusSemanticallyEqual(got, *changed))
+		changed = got.DeepCopy()
+		changed.Listeners[0].AttachedRoutes++
+		assert.False(t, listenerSetStatusSemanticallyEqual(got, *changed))
+		changed = got.DeepCopy()
+		changed.Listeners[0].Name = "other"
+		assert.False(t, listenerSetStatusSemanticallyEqual(got, *changed))
+		changed = got.DeepCopy()
+		changed.Listeners = append(changed.Listeners, v1.ListenerEntryStatus{Name: "extra"})
+		assert.False(t, listenerSetStatusSemanticallyEqual(got, *changed))
 
 		acceptedListenerSet := makeListenerSet(func(listenerSet *v1.ListenerSet) {
 			listenerSet.Namespace = "apps"
