@@ -6563,6 +6563,68 @@ func Test_listenerPolicyName(t *testing.T) {
 		assert.True(t, isValidOCIRoutingPolicyName(other))
 		assert.NotEqual(t, got, other)
 	})
+
+	t.Run("always returns deterministic OCI safe names for unsafe inputs", func(t *testing.T) {
+		fake := faker.New()
+		listenerNames := []string{
+			"valid_" + fake.Numerify("########"),
+			"hyphen-" + fake.Numerify("########"),
+			"dot." + fake.Numerify("########"),
+			"slash/" + fake.Numerify("########"),
+			"space " + fake.Numerify("########"),
+			"9digit_" + fake.Numerify("########"),
+			"long-" + fake.Numerify("################################################"),
+		}
+		seen := map[string]string{}
+
+		for _, listenerName := range listenerNames {
+			got := listenerPolicyName(listenerName)
+			assert.Equal(t, got, listenerPolicyName(listenerName))
+			assert.True(t, isValidOCIRoutingPolicyName(got))
+			assert.False(t, invalidCharsForPolicyNamePattern.MatchString(got))
+			assert.LessOrEqual(t, len(got), maxListenerPolicyNameLength)
+
+			previousInput, exists := seen[got]
+			assert.False(
+				t,
+				exists,
+				"listener names %q and %q generated the same OCI policy name %q",
+				previousInput,
+				listenerName,
+				got,
+			)
+			seen[got] = listenerName
+		}
+	})
+}
+
+func Test_sortRoutingRules(t *testing.T) {
+	t.Run("keeps native grpc rules before http rules and catch all last", func(t *testing.T) {
+		fake := faker.New()
+		httpRuleName := "p0010_" + fake.Numerify("########") + "_http"
+		grpcRuleName := "p0011_" + fake.Numerify("########") + "_grpc"
+		firstHTTPRuleName := "p0001_" + fake.Numerify("########") + "_http"
+		httpCondition := "any(http.request.url.path sw '/')"
+		grpcCondition := "any(http.request.headers[(i 'content-type')][0] eq (i 'application/grpc'))"
+
+		rules := []loadbalancer.RoutingRule{
+			{Name: new(defaultCatchAllRuleName), Condition: new(httpCondition)},
+			{Name: new(httpRuleName), Condition: new(httpCondition)},
+			{Name: new(grpcRuleName), Condition: new(grpcCondition)},
+			{Name: new(firstHTTPRuleName), Condition: new(httpCondition)},
+		}
+
+		sortRoutingRules(rules)
+
+		assert.Equal(t, []string{
+			grpcRuleName,
+			firstHTTPRuleName,
+			httpRuleName,
+			defaultCatchAllRuleName,
+		}, lo.Map(rules, func(rule loadbalancer.RoutingRule, _ int) string {
+			return lo.FromPtr(rule.Name)
+		}))
+	})
 }
 
 func Test_ociBackendSetNameFromBackendRef(t *testing.T) {
@@ -6661,6 +6723,36 @@ func Test_ociBackendSetNameFromBackendRef(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 		})
 	}
+
+	t.Run("keeps backend refs unique by namespace name and port", func(t *testing.T) {
+		fake := faker.New()
+		namespace := fake.Lorem().Word() + "-ns"
+		serviceName := fake.Internet().Slug() + "-svc"
+		firstPort := gatewayv1.PortNumber(fake.IntBetween(1024, 30000))
+		secondPort := firstPort + 1
+		httpRoute := makeRandomHTTPRoute(
+			randomHTTPRouteWithNamespaceOpt(namespace),
+		)
+		firstBackendRef := makeRandomBackendRef(func(br *gatewayv1.HTTPBackendRef) {
+			br.Name = gatewayv1.ObjectName(serviceName)
+			br.Namespace = nil
+			br.Port = &firstPort
+		})
+		secondBackendRef := makeRandomBackendRef(func(br *gatewayv1.HTTPBackendRef) {
+			br.Name = gatewayv1.ObjectName(serviceName)
+			br.Namespace = nil
+			br.Port = &secondPort
+		})
+
+		firstName := ociBackendSetNameFromBackendRef(httpRoute, firstBackendRef)
+		secondName := ociBackendSetNameFromBackendRef(httpRoute, secondBackendRef)
+
+		assert.Equal(t, firstName, ociBackendSetNameFromBackendRef(httpRoute, firstBackendRef))
+		assert.Equal(t, secondName, ociBackendSetNameFromBackendRef(httpRoute, secondBackendRef))
+		assert.NotEqual(t, firstName, secondName)
+		assert.LessOrEqual(t, len(firstName), maxBackendSetNameLength)
+		assert.LessOrEqual(t, len(secondName), maxBackendSetNameLength)
+	})
 }
 
 func Test_ociBackendSetNameFromService(t *testing.T) {
