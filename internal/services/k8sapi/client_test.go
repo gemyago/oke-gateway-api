@@ -43,6 +43,19 @@ func TestNewConfigErrors(t *testing.T) {
 		require.Nil(t, cfg)
 		require.Error(t, err)
 	})
+
+	t.Run("uses default kubeconfig path when kubeconfig env is empty", func(t *testing.T) {
+		t.Setenv("KUBECONFIG", "")
+		t.Setenv("HOME", t.TempDir())
+
+		cfg, err := newConfig(ConfigDeps{
+			RootLogger: diag.RootTestLogger(),
+		})
+
+		require.Nil(t, cfg)
+		require.Error(t, err)
+		require.ErrorContains(t, err, filepath.Join(".kube", "config"))
+	})
 }
 
 func TestNewManager(t *testing.T) {
