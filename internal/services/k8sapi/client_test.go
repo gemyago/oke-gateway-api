@@ -1,10 +1,13 @@
 package k8sapi
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/rest"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
 )
@@ -39,5 +42,89 @@ func TestNewConfigErrors(t *testing.T) {
 
 		require.Nil(t, cfg)
 		require.Error(t, err)
+	})
+}
+
+func TestNewManager(t *testing.T) {
+	t.Run("creates manager and client", func(t *testing.T) {
+		manager, err := newManager(&rest.Config{
+			Host: "https://127.0.0.1",
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, manager)
+
+		k8sClient := newClient(manager)
+		require.NotNil(t, k8sClient)
+		require.NotNil(t, k8sClient.Client)
+	})
+
+	t.Run("returns manager creation errors", func(t *testing.T) {
+		manager, err := newManager(&rest.Config{
+			Host: "://invalid-url",
+		})
+
+		require.Nil(t, manager)
+		require.Error(t, err)
+	})
+
+	t.Run("wraps scheme registration errors", func(t *testing.T) {
+		noopInstaller := func(*runtime.Scheme) error {
+			return nil
+		}
+		failingInstaller := func(wantErr error) func(*runtime.Scheme) error {
+			return func(*runtime.Scheme) error {
+				return wantErr
+			}
+		}
+
+		tests := []struct {
+			name    string
+			index   int
+			message string
+		}{
+			{
+				name:    "kubernetes scheme",
+				index:   0,
+				message: "failed to add kubernetes scheme",
+			},
+			{
+				name:    "known types scheme",
+				index:   1,
+				message: "failed to add gateway api scheme",
+			},
+			{
+				name:    "gateway v1 scheme",
+				index:   2,
+				message: "failed to add gateway api scheme",
+			},
+			{
+				name:    "gateway v1beta1 scheme",
+				index:   3,
+				message: "failed to add gateway api v1beta1 scheme",
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				wantErr := errors.New("scheme install failed")
+				installers := []func(*runtime.Scheme) error{
+					noopInstaller,
+					noopInstaller,
+					noopInstaller,
+					noopInstaller,
+				}
+				installers[tc.index] = failingInstaller(wantErr)
+
+				manager, err := newManagerWithSchemeInstallers(
+					&rest.Config{Host: "https://127.0.0.1"},
+					installers,
+				)
+
+				require.Nil(t, manager)
+				require.ErrorIs(t, err, wantErr)
+				require.ErrorContains(t, err, tc.message)
+			})
+		}
 	})
 }

@@ -1,5 +1,3 @@
-// coverage-ignore
-
 package k8sapi
 
 import (
@@ -66,22 +64,30 @@ func newConfig(deps ConfigDeps) (*rest.Config, error) {
 }
 
 func newManager(config *rest.Config) (*controllerManager, error) {
+	return newManagerWithSchemeInstallers(config, []func(*runtime.Scheme) error{
+		clientgoscheme.AddToScheme,
+		types.AddKnownTypes,
+		gatewayv1.Install,
+		gatewayv1beta1.Install,
+	})
+}
+
+func newManagerWithSchemeInstallers(
+	config *rest.Config,
+	installers []func(*runtime.Scheme) error,
+) (*controllerManager, error) {
 	scheme := runtime.NewScheme()
-
-	if err := clientgoscheme.AddToScheme(scheme); err != nil {
-		return nil, fmt.Errorf("failed to add kubernetes scheme: %w", err)
+	errorMessages := []string{
+		"failed to add kubernetes scheme",
+		"failed to add gateway api scheme",
+		"failed to add gateway api scheme",
+		"failed to add gateway api v1beta1 scheme",
 	}
 
-	if err := types.AddKnownTypes(scheme); err != nil {
-		return nil, fmt.Errorf("failed to add gateway api scheme: %w", err)
-	}
-
-	if err := gatewayv1.Install(scheme); err != nil {
-		return nil, fmt.Errorf("failed to add gateway api scheme: %w", err)
-	}
-
-	if err := gatewayv1beta1.Install(scheme); err != nil {
-		return nil, fmt.Errorf("failed to add gateway api v1beta1 scheme: %w", err)
+	for idx, installer := range installers {
+		if err := installer(scheme); err != nil {
+			return nil, fmt.Errorf("%s: %w", errorMessages[idx], err)
+		}
 	}
 
 	mgr, err := manager.New(config, manager.Options{
