@@ -329,6 +329,9 @@ func l7RouteConflictingWinner(params l7RouteConflictParams) (l7RouteCandidate, b
 	var winner l7RouteCandidate
 	found := false
 	for _, oppositeRoute := range params.oppositeRoutes {
+		if params.current.identity.kind != oppositeRoute.identity.kind {
+			continue
+		}
 		if !l7RoutesShareListenerHostname(
 			params.gateway,
 			params.effectiveListeners,

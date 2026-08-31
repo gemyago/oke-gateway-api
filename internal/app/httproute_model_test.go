@@ -499,8 +499,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		assert.True(t, conflicted)
-		assert.Equal(t, olderOpposite.identity, winner.identity)
+		assert.False(t, conflicted)
+		assert.Empty(t, winner)
 
 		assert.False(t, l7RouteHostnamesIntersect([]gatewayv1.Hostname{}, []gatewayv1.Hostname{"api.example.com"}))
 		assert.False(t, l7RouteHostnamesIntersect(
@@ -672,11 +672,13 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			time.Date(2026, 1, 4, 0, 0, 0, 0, time.UTC),
 		)
 		olderButNotOldestOpposite := olderOpposite
+		olderButNotOldestOpposite.identity.kind = current.identity.kind
 		olderButNotOldestOpposite.identity.name = "zzz"
 		olderButNotOldestOpposite.identity.creationTimestamp = metav1.NewTime(
 			time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
 		)
 		oldestOpposite := olderOpposite
+		oldestOpposite.identity.kind = current.identity.kind
 		oldestOpposite.identity.name = "aaa"
 		oldestOpposite.identity.creationTimestamp = metav1.NewTime(
 			time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
@@ -700,6 +702,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		assert.Equal(t, oldestOpposite.identity, winner.identity)
 
 		newerOpposite := olderOpposite
+		newerOpposite.identity.kind = current.identity.kind
 		newerOpposite.identity.creationTimestamp = metav1.NewTime(time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC))
 		winner, conflicted = l7RouteConflictingWinner(l7RouteConflictParams{
 			gateway:          gateway,
@@ -2117,7 +2120,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			assert.Nil(t, acceptedRoute)
 		})
 
-		t.Run("conflicts when an older GRPCRoute has an overlapping listener hostname", func(t *testing.T) {
+		t.Run("accepts when an older GRPCRoute has an overlapping listener hostname", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newHTTPRouteModel(deps)
 			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
@@ -2171,10 +2174,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				parentStatus := route.Status.Parents[0]
 				condition := meta.FindStatusCondition(parentStatus.Conditions, string(gatewayv1.RouteConditionAccepted))
 				return condition != nil &&
-					condition.Status == metav1.ConditionFalse &&
-					condition.Reason == string(routeReasonConflicted) &&
-					condition.Message == "Route conflicts with GRPCRoute "+gateway.Namespace+
-						"/grpc-route on an overlapping listener hostname"
+					condition.Status == metav1.ConditionTrue &&
+					condition.Reason == string(gatewayv1.RouteReasonAccepted)
 			})).Return(nil)
 
 			got, err := model.acceptRoute(t.Context(), resolvedRouteDetails{
@@ -2191,8 +2192,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			})
 
 			require.NoError(t, err)
-			assert.NotNil(t, updatedRoute)
-			assert.Nil(t, got)
+			assert.Same(t, updatedRoute, got)
 		})
 
 		t.Run("rejectRoute sets conflicted condition", func(t *testing.T) {
