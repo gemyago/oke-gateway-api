@@ -1033,8 +1033,10 @@ func (m *httpRouteModelImpl) acceptRoute(
 			parentRefs: routeDetails.httpRoute.Spec.ParentRefs,
 			hostnames:  routeDetails.httpRoute.Spec.Hostnames,
 		},
-		oppositeRouteListName: "GRPCRoutes",
-		listOppositeRoutes:    m.listGRPCRouteConflictCandidates,
+		oppositeRouteListName: "HTTPRoutes",
+		listOppositeRoutes: func(ctx context.Context) ([]l7RouteCandidate, error) {
+			return m.listHTTPRouteConflictCandidates(ctx, routeDetails.httpRoute)
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -1104,18 +1106,21 @@ func (m *httpRouteModelImpl) acceptRoute(
 	return httpRoute, nil
 }
 
-func (m *httpRouteModelImpl) listGRPCRouteConflictCandidates(ctx context.Context) ([]l7RouteCandidate, error) {
-	var grpcRoutes gatewayv1.GRPCRouteList
-	if err := m.client.List(ctx, &grpcRoutes); err != nil {
+func (m *httpRouteModelImpl) listHTTPRouteConflictCandidates(
+	ctx context.Context,
+	current gatewayv1.HTTPRoute,
+) ([]l7RouteCandidate, error) {
+	var httpRoutes gatewayv1.HTTPRouteList
+	if err := m.client.List(ctx, &httpRoutes); err != nil {
 		return nil, err
 	}
-	return lo.FilterMap(grpcRoutes.Items, func(route gatewayv1.GRPCRoute, _ int) (l7RouteCandidate, bool) {
-		if route.DeletionTimestamp != nil {
+	return lo.FilterMap(httpRoutes.Items, func(route gatewayv1.HTTPRoute, _ int) (l7RouteCandidate, bool) {
+		if route.DeletionTimestamp != nil || route.Namespace == current.Namespace && route.Name == current.Name {
 			return l7RouteCandidate{}, false
 		}
 		return l7RouteCandidate{
 			identity: l7RouteIdentity{
-				kind:              l7GRPCRouteKind,
+				kind:              l7HTTPRouteKind,
 				namespace:         route.Namespace,
 				name:              route.Name,
 				creationTimestamp: route.CreationTimestamp,
