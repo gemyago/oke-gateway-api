@@ -329,7 +329,7 @@ func l7RouteConflictingWinner(params l7RouteConflictParams) (l7RouteCandidate, b
 	var winner l7RouteCandidate
 	found := false
 	for _, oppositeRoute := range params.oppositeRoutes {
-		if params.current.identity.kind != oppositeRoute.identity.kind {
+		if params.current.identity.kind == oppositeRoute.identity.kind {
 			continue
 		}
 		if !l7RoutesShareListenerHostname(
@@ -1033,9 +1033,9 @@ func (m *httpRouteModelImpl) acceptRoute(
 			parentRefs: routeDetails.httpRoute.Spec.ParentRefs,
 			hostnames:  routeDetails.httpRoute.Spec.Hostnames,
 		},
-		oppositeRouteListName: "HTTPRoutes",
+		oppositeRouteListName: "GRPCRoutes",
 		listOppositeRoutes: func(ctx context.Context) ([]l7RouteCandidate, error) {
-			return m.listHTTPRouteConflictCandidates(ctx, routeDetails.httpRoute)
+			return m.listGRPCRouteConflictCandidates(ctx)
 		},
 	})
 	if err != nil {
@@ -1121,6 +1121,30 @@ func (m *httpRouteModelImpl) listHTTPRouteConflictCandidates(
 		return l7RouteCandidate{
 			identity: l7RouteIdentity{
 				kind:              l7HTTPRouteKind,
+				namespace:         route.Namespace,
+				name:              route.Name,
+				creationTimestamp: route.CreationTimestamp,
+			},
+			parentRefs: route.Spec.ParentRefs,
+			hostnames:  route.Spec.Hostnames,
+		}, true
+	}), nil
+}
+
+func (m *httpRouteModelImpl) listGRPCRouteConflictCandidates(
+	ctx context.Context,
+) ([]l7RouteCandidate, error) {
+	var grpcRoutes gatewayv1.GRPCRouteList
+	if err := m.client.List(ctx, &grpcRoutes); err != nil {
+		return nil, err
+	}
+	return lo.FilterMap(grpcRoutes.Items, func(route gatewayv1.GRPCRoute, _ int) (l7RouteCandidate, bool) {
+		if route.DeletionTimestamp != nil {
+			return l7RouteCandidate{}, false
+		}
+		return l7RouteCandidate{
+			identity: l7RouteIdentity{
+				kind:              l7GRPCRouteKind,
 				namespace:         route.Namespace,
 				name:              route.Name,
 				creationTimestamp: route.CreationTimestamp,

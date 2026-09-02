@@ -750,7 +750,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			assert.Nil(t, got)
 		})
 
-		t.Run("accepts when an older HTTPRoute shares the same Gateway listener and hostname", func(t *testing.T) {
+		t.Run("conflicts when an older HTTPRoute has an overlapping listener hostname", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newGRPCRouteModel(deps)
 			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
@@ -785,10 +785,94 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 					}},
 				}}
 			})
+			olderRoute := makeRandomHTTPRoute(
+				randomHTTPRouteWithNamespaceOpt(gatewayData.gateway.Namespace),
+				randomHTTPRouteWithRandomParentRefOpt(parentRef),
+			)
+			olderRoute.Name = "older-http-route"
+			olderRoute.CreationTimestamp = metav1.NewTime(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+			olderRoute.Spec.Hostnames = []gatewayv1.Hostname{hostname}
 
-			k8sClient.EXPECT().List(t.Context(), &gatewayv1.GRPCRouteList{}).
+			k8sClient.EXPECT().List(t.Context(), &gatewayv1.HTTPRouteList{}).
 				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-					list.(*gatewayv1.GRPCRouteList).Items = nil
+					list.(*gatewayv1.HTTPRouteList).Items = []gatewayv1.HTTPRoute{olderRoute}
+					return nil
+				})
+			k8sClient.EXPECT().Status().Return(mockStatusWriter)
+			var updatedRoute *gatewayv1.GRPCRoute
+			mockStatusWriter.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
+				route, ok := obj.(*gatewayv1.GRPCRoute)
+				if !ok {
+					return false
+				}
+				updatedRoute = route
+				parentStatus := route.Status.Parents[0]
+				condition := meta.FindStatusCondition(parentStatus.Conditions, string(gatewayv1.RouteConditionAccepted))
+				return condition != nil &&
+					condition.Status == metav1.ConditionFalse &&
+					condition.Reason == string(routeReasonConflicted) &&
+					condition.Message == "Route conflicts with HTTPRoute "+gatewayData.gateway.Namespace+
+						"/older-http-route on an overlapping listener hostname"
+			})).Return(nil)
+
+			got, err := model.acceptRoute(t.Context(), resolvedGRPCRouteDetails{
+				gatewayDetails:   gatewayData,
+				grpcRoute:        currentRoute,
+				matchedRef:       parentRef,
+				matchedListeners: gatewayData.gateway.Spec.Listeners,
+			})
+
+			require.NoError(t, err)
+			assert.NotNil(t, updatedRoute)
+			assert.Nil(t, got)
+		})
+
+		t.Run("accepts when an older GRPCRoute has an overlapping listener hostname", func(t *testing.T) {
+			deps := newMockDeps(t)
+			model := newGRPCRouteModel(deps)
+			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
+			listenerName := gatewayv1.SectionName("https")
+			hostname := gatewayv1.Hostname("grpc.example.com")
+			gatewayData := makeResolvedGateway(gatewayv1.Listener{
+				Name:     listenerName,
+				Hostname: &hostname,
+				Port:     443,
+				Protocol: gatewayv1.HTTPSProtocolType,
+			})
+			gatewayNamespace := gatewayv1.Namespace(gatewayData.gateway.Namespace)
+			parentRef := gatewayv1.ParentReference{
+				Namespace:   &gatewayNamespace,
+				Name:        gatewayv1.ObjectName(gatewayData.gateway.Name),
+				SectionName: &listenerName,
+			}
+			currentRoute := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.Namespace = gatewayData.gateway.Namespace
+				route.CreationTimestamp = metav1.NewTime(time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
+				route.Spec.ParentRefs = []gatewayv1.ParentReference{parentRef}
+				route.Spec.Hostnames = []gatewayv1.Hostname{hostname}
+				route.Spec.Rules = []gatewayv1.GRPCRouteRule{{
+					BackendRefs: []gatewayv1.GRPCBackendRef{{
+						BackendRef: gatewayv1.BackendRef{
+							BackendObjectReference: gatewayv1.BackendObjectReference{
+								Name: gatewayv1.ObjectName("ripster"),
+								Port: lo.ToPtr(gatewayv1.PortNumber(6553)),
+							},
+						},
+					}},
+				}}
+			})
+			olderRoute := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
+				route.Namespace = gatewayData.gateway.Namespace
+				route.Name = "older-grpc-route"
+				route.CreationTimestamp = metav1.NewTime(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+				route.Spec.ParentRefs = []gatewayv1.ParentReference{parentRef}
+				route.Spec.Hostnames = []gatewayv1.Hostname{hostname}
+			})
+
+			k8sClient.EXPECT().List(t.Context(), &gatewayv1.HTTPRouteList{}).
+				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					list.(*gatewayv1.HTTPRouteList).Items = nil
 					return nil
 				})
 			k8sClient.EXPECT().Status().Return(mockStatusWriter)
@@ -815,73 +899,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Same(t, updatedRoute, got)
-		})
-
-		t.Run("conflicts when an older GRPCRoute has an overlapping listener hostname", func(t *testing.T) {
-			deps := newMockDeps(t)
-			model := newGRPCRouteModel(deps)
-			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
-			mockStatusWriter := k8sapi.NewMockSubResourceWriter(t)
-			listenerName := gatewayv1.SectionName("https")
-			hostname := gatewayv1.Hostname("grpc.example.com")
-			gatewayData := makeResolvedGateway(gatewayv1.Listener{
-				Name:     listenerName,
-				Hostname: &hostname,
-				Port:     443,
-				Protocol: gatewayv1.HTTPSProtocolType,
-			})
-			gatewayNamespace := gatewayv1.Namespace(gatewayData.gateway.Namespace)
-			parentRef := gatewayv1.ParentReference{
-				Namespace:   &gatewayNamespace,
-				Name:        gatewayv1.ObjectName(gatewayData.gateway.Name),
-				SectionName: &listenerName,
-			}
-			currentRoute := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
-				route.Namespace = gatewayData.gateway.Namespace
-				route.CreationTimestamp = metav1.NewTime(time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
-				route.Spec.ParentRefs = []gatewayv1.ParentReference{parentRef}
-				route.Spec.Hostnames = []gatewayv1.Hostname{hostname}
-			})
-			olderRoute := makeGRPCRoute(func(route *gatewayv1.GRPCRoute) {
-				route.Namespace = gatewayData.gateway.Namespace
-				route.Name = "older-grpc-route"
-				route.CreationTimestamp = metav1.NewTime(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
-				route.Spec.ParentRefs = []gatewayv1.ParentReference{parentRef}
-				route.Spec.Hostnames = []gatewayv1.Hostname{hostname}
-			})
-
-			k8sClient.EXPECT().List(t.Context(), &gatewayv1.GRPCRouteList{}).
-				RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-					list.(*gatewayv1.GRPCRouteList).Items = []gatewayv1.GRPCRoute{currentRoute, olderRoute}
-					return nil
-				})
-			k8sClient.EXPECT().Status().Return(mockStatusWriter)
-			var updatedRoute *gatewayv1.GRPCRoute
-			mockStatusWriter.EXPECT().Update(t.Context(), mock.MatchedBy(func(obj client.Object) bool {
-				route, ok := obj.(*gatewayv1.GRPCRoute)
-				if !ok {
-					return false
-				}
-				updatedRoute = route
-				parentStatus := route.Status.Parents[0]
-				condition := meta.FindStatusCondition(parentStatus.Conditions, string(gatewayv1.RouteConditionAccepted))
-				return condition != nil &&
-					condition.Status == metav1.ConditionFalse &&
-					condition.Reason == string(routeReasonConflicted) &&
-					condition.Message == "Route conflicts with GRPCRoute "+gatewayData.gateway.Namespace+
-						"/older-grpc-route on an overlapping listener hostname"
-			})).Return(nil)
-
-			got, err := model.acceptRoute(t.Context(), resolvedGRPCRouteDetails{
-				gatewayDetails:   gatewayData,
-				grpcRoute:        currentRoute,
-				matchedRef:       parentRef,
-				matchedListeners: gatewayData.gateway.Spec.Listeners,
-			})
-
-			require.NoError(t, err)
-			assert.NotNil(t, updatedRoute)
-			assert.Nil(t, got)
+			assert.NotEqual(t, olderRoute.Name, got.Name)
 		})
 
 		t.Run("returns existing route when already accepted for generation", func(t *testing.T) {
@@ -957,12 +975,12 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			assert.Equal(t, route.Generation, condition.ObservedGeneration)
 		})
 
-		t.Run("returns conflict list errors", func(t *testing.T) {
+		t.Run("returns HTTPRoute conflict list errors", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newGRPCRouteModel(deps)
 			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
 			wantErr := errors.New(faker.New().Lorem().Sentence(10))
-			k8sClient.EXPECT().List(t.Context(), &gatewayv1.GRPCRouteList{}).Return(wantErr)
+			k8sClient.EXPECT().List(t.Context(), &gatewayv1.HTTPRouteList{}).Return(wantErr)
 
 			_, err := model.acceptRoute(t.Context(), resolvedGRPCRouteDetails{
 				gatewayDetails:   makeResolvedGateway(),
@@ -971,6 +989,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			})
 
 			require.ErrorIs(t, err, wantErr)
+			require.ErrorContains(t, err, "failed to list HTTPRoutes for conflict detection")
 		})
 
 		t.Run("returns status update errors", func(t *testing.T) {
