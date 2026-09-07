@@ -12,21 +12,6 @@ reconcile:
   # Periodic OCI drift reconciliation interval. Use 0s to disable.
   drift-interval: 0s
 
-ociapi:
-  # Maximum concurrent OCI SDK HTTP requests per OCI service client.
-  # Use -1 to disable controller-side request limiting.
-  max-concurrent-requests: 4
-  # Maximum concurrent mutating OCI SDK HTTP requests per OCI service client.
-  # Use -1 to disable the mutating request limit.
-  max-concurrent-mutating-requests: 1
-  retry:
-    # Enable OCI SDK retries for throttling, transient 5xx, and eventual consistency.
-    enabled: true
-    # Maximum attempts per OCI API operation.
-    max-attempts: 8
-    # Maximum backoff sleep between retry attempts.
-    max-sleep: 30s
-
 serviceAccount:
   # Specifies whether a service account should be created
   create: true

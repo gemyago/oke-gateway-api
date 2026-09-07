@@ -1,10 +1,8 @@
 package ociapi
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/certificatesmanagement"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -12,8 +10,6 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"go.uber.org/dig"
 )
-
-const ociRetryExponentialBackoffBase = 2.0
 
 type LoadBalancerConfigDeps struct {
 	dig.In
@@ -24,12 +20,6 @@ type LoadBalancerConfigDeps struct {
 
 	// This can be set via APP_OCIAPI_NOOP env variable
 	Noop bool `name:"config.ociapi.noop"`
-
-	RetryEnabled     bool          `name:"config.ociapi.retry.enabled"`
-	RetryMaxAttempts int           `name:"config.ociapi.retry.max-attempts"`
-	RetryMaxSleep    time.Duration `name:"config.ociapi.retry.max-sleep"`
-
-	RequestLimiter *ociRequestLimiter
 }
 
 func newLoadBalancerClient(
@@ -44,8 +34,7 @@ func newLoadBalancerClient(
 	if err != nil {
 		return loadbalancer.LoadBalancerClient{}, fmt.Errorf("failed to create load balancer client: %w", err)
 	}
-	configureOCIRetryPolicy(&client.BaseClient, "loadBalancer", deps)
-	configureOCIRequestLimiter(&client.BaseClient, "loadBalancer", deps.RequestLimiter)
+	configureOCIRetryPolicy(&client.BaseClient)
 	return client, nil
 }
 
@@ -64,8 +53,7 @@ func newNetworkLoadBalancerClient(
 			err,
 		)
 	}
-	configureOCIRetryPolicy(&client.BaseClient, "networkLoadBalancer", deps)
-	configureOCIRequestLimiter(&client.BaseClient, "networkLoadBalancer", deps.RequestLimiter)
+	configureOCIRetryPolicy(&client.BaseClient)
 	return client, nil
 }
 
@@ -84,65 +72,13 @@ func newCertificatesManagementClient(
 			err,
 		)
 	}
-	configureOCIRetryPolicy(&client.BaseClient, "certificatesManagement", deps)
-	configureOCIRequestLimiter(&client.BaseClient, "certificatesManagement", deps.RequestLimiter)
+	configureOCIRetryPolicy(&client.BaseClient)
 	return client, nil
 }
 
-func configureOCIRetryPolicy(client *common.BaseClient, serviceName string, deps LoadBalancerConfigDeps) {
-	if !deps.RetryEnabled {
-		return
-	}
-
-	retryPolicy := makeOCIRetryPolicy(serviceName, deps)
-	client.SetCustomClientConfiguration(common.CustomClientConfiguration{
-		RetryPolicy: &retryPolicy,
-	})
-}
-
-func makeOCIRetryPolicy(serviceName string, deps LoadBalancerConfigDeps) common.RetryPolicy {
+func configureOCIRetryPolicy(client *common.BaseClient) {
 	retryPolicy := common.DefaultRetryPolicy()
-	shouldRetry := retryPolicy.ShouldRetryOperation
-	options := []common.RetryPolicyOption{
-		common.ReplaceWithValuesFromRetryPolicy(retryPolicy),
-		common.WithShouldRetryOperation(func(response common.OCIOperationResponse) bool {
-			retryable := shouldRetry(response)
-			if retryable && deps.RootLogger != nil {
-				logRetryableOCIError(deps.RootLogger, serviceName, response)
-			}
-			return retryable
-		}),
-	}
-	if deps.RetryMaxAttempts > 0 {
-		options = append(options, common.WithMaximumNumberAttempts(uint(deps.RetryMaxAttempts)))
-	}
-	if deps.RetryMaxSleep > 0 {
-		options = append(options, common.WithExponentialBackoff(deps.RetryMaxSleep, ociRetryExponentialBackoffBase))
-	}
-	return common.NewRetryPolicyWithOptions(options...)
-}
-
-func logRetryableOCIError(logger *slog.Logger, serviceName string, response common.OCIOperationResponse) {
-	attrs := []any{
-		slog.String("serviceName", serviceName),
-		slog.Int("attemptNumber", int(response.AttemptNumber)),
-	}
-
-	var serviceErr common.ServiceError
-	if errors.As(response.Error, &serviceErr) {
-		attrs = append(attrs,
-			slog.Int("statusCode", serviceErr.GetHTTPStatusCode()),
-			slog.String("errorCode", serviceErr.GetCode()),
-			slog.String("opcRequestID", serviceErr.GetOpcRequestID()),
-		)
-	}
-
-	if response.Error != nil {
-		attrs = append(attrs, slog.String("error", response.Error.Error()))
-	}
-
-	logger.WithGroup("oci-retry").Warn(
-		"Retrying OCI request after retryable error",
-		attrs...,
-	)
+	config := client.Configuration
+	config.RetryPolicy = &retryPolicy
+	client.SetCustomClientConfiguration(config)
 }

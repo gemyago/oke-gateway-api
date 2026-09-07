@@ -61,11 +61,6 @@ func Provide(container *dig.Container, cfg *viper.Viper) error {
 		provideConfigValue(cfg, "k8sapi.inCluster").asBool(),
 		// ociapi config
 		provideConfigValue(cfg, "ociapi.noop").asBool(),
-		provideConfigValue(cfg, "ociapi.retry.enabled").asBool(),
-		provideConfigValue(cfg, "ociapi.retry.max-attempts").asInt(),
-		provideConfigValue(cfg, "ociapi.retry.max-sleep").asDuration(),
-		provideConfigValue(cfg, "ociapi.max-concurrent-requests").asInt(),
-		provideConfigValue(cfg, "ociapi.max-concurrent-mutating-requests").asInt(),
 
 		// reconcile config
 		provideConfigValue(cfg, "reconcile.drift-interval").asDuration(),

@@ -51,16 +51,6 @@ spec:
           value: /etc/oci/config
         - name: APP_RECONCILE_DRIFT_INTERVAL
           value: {{ index .Values.reconcile "drift-interval" | quote }}
-        - name: APP_OCIAPI_RETRY_ENABLED
-          value: {{ .Values.ociapi.retry.enabled | quote }}
-        - name: APP_OCIAPI_RETRY_MAX_ATTEMPTS
-          value: {{ index .Values.ociapi.retry "max-attempts" | quote }}
-        - name: APP_OCIAPI_RETRY_MAX_SLEEP
-          value: {{ index .Values.ociapi.retry "max-sleep" | quote }}
-        - name: APP_OCIAPI_MAX_CONCURRENT_REQUESTS
-          value: {{ index .Values.ociapi "max-concurrent-requests" | quote }}
-        - name: APP_OCIAPI_MAX_CONCURRENT_MUTATING_REQUESTS
-          value: {{ index .Values.ociapi "max-concurrent-mutating-requests" | quote }}
         volumeMounts:
         - name: oci-config-volume
           mountPath: "/etc/oci"
