@@ -485,8 +485,56 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		})
 
 		require.NoError(t, err)
-		assert.True(t, conflicted)
-		assert.Equal(t, olderOpposite.identity, winner.identity)
+		assert.False(t, conflicted)
+		assert.Empty(t, winner)
+
+		for _, tc := range []struct {
+			name      string
+			kindA     l7RouteKind
+			kindB     l7RouteKind
+			wantShare bool
+		}{
+			{
+				name:      "http and grpc routes can share a listener",
+				kindA:     l7HTTPRouteKind,
+				kindB:     l7GRPCRouteKind,
+				wantShare: true,
+			},
+			{
+				name:      "grpc and http routes can share a listener",
+				kindA:     l7GRPCRouteKind,
+				kindB:     l7HTTPRouteKind,
+				wantShare: true,
+			},
+			{
+				name:      "http routes are not whole-route shareable with each other",
+				kindA:     l7HTTPRouteKind,
+				kindB:     l7HTTPRouteKind,
+				wantShare: false,
+			},
+			{
+				name:      "grpc routes are not whole-route shareable with each other",
+				kindA:     l7GRPCRouteKind,
+				kindB:     l7GRPCRouteKind,
+				wantShare: false,
+			},
+			{
+				name:      "unknown route kinds are not shareable with http routes",
+				kindA:     l7RouteKind("UnsupportedL7Route"),
+				kindB:     l7HTTPRouteKind,
+				wantShare: false,
+			},
+			{
+				name:      "unknown route kinds are not shareable with grpc routes",
+				kindA:     l7RouteKind("UnsupportedL7Route"),
+				kindB:     l7GRPCRouteKind,
+				wantShare: false,
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				assert.Equal(t, tc.wantShare, l7RouteKindsCanShareListener(tc.kindA, tc.kindB))
+			})
+		}
 
 		olderOpposite.identity.kind = l7HTTPRouteKind
 		winner, conflicted, err = checkL7RouteConflict(t.Context(), checkL7RouteConflictParams{
@@ -501,6 +549,21 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, conflicted)
 		assert.Empty(t, winner)
+
+		unsupportedOpposite := olderOpposite
+		unsupportedOpposite.identity.kind = l7RouteKind("UnsupportedL7Route")
+		winner, conflicted, err = checkL7RouteConflict(t.Context(), checkL7RouteConflictParams{
+			gateway:               gateway,
+			matchedListeners:      []gatewayv1.Listener{grpcListener},
+			current:               current,
+			oppositeRouteListName: "UnsupportedL7Routes",
+			listOppositeRoutes: func(context.Context) ([]l7RouteCandidate, error) {
+				return []l7RouteCandidate{unsupportedOpposite}, nil
+			},
+		})
+		require.NoError(t, err)
+		assert.True(t, conflicted)
+		assert.Equal(t, unsupportedOpposite.identity, winner.identity)
 
 		assert.False(t, l7RouteHostnamesIntersect([]gatewayv1.Hostname{}, []gatewayv1.Hostname{"api.example.com"}))
 		assert.False(t, l7RouteHostnamesIntersect(
@@ -583,7 +646,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			olderOpposite,
 		))
 		disjointHostnameRoute := olderOpposite
-		disjointHostnameRoute.identity.kind = l7GRPCRouteKind
+		disjointHostnameRoute.identity.kind = l7RouteKind("UnsupportedL7Route")
 		disjointHostnameRoute.hostnames = []gatewayv1.Hostname{"web.example.com"}
 		assert.False(t, l7RoutesShareListenerHostname(
 			gateway,
@@ -593,7 +656,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			disjointHostnameRoute,
 		))
 		unsharedListenerRoute := olderOpposite
-		unsharedListenerRoute.identity.kind = l7GRPCRouteKind
+		unsharedListenerRoute.identity.kind = l7RouteKind("UnsupportedL7Route")
 		unsharedListenerRoute.parentRefs = []gatewayv1.ParentReference{{
 			Namespace:   &parentNamespace,
 			Name:        gatewayv1.ObjectName(gateway.Name),
@@ -652,7 +715,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		listenerSetCurrent.parentRefs = []gatewayv1.ParentReference{listenerSetParentRef}
 		listenerSetCurrent.hostnames = []gatewayv1.Hostname{"api.example.com"}
 		olderListenerSetRoute := listenerSetCurrent
-		olderListenerSetRoute.identity.kind = l7GRPCRouteKind
+		olderListenerSetRoute.identity.kind = l7RouteKind("UnsupportedL7Route")
 		olderListenerSetRoute.identity.name = "aaa"
 		olderListenerSetRoute.identity.creationTimestamp = metav1.NewTime(
 			time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
@@ -673,13 +736,13 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			time.Date(2026, 1, 4, 0, 0, 0, 0, time.UTC),
 		)
 		olderButNotOldestOpposite := olderOpposite
-		olderButNotOldestOpposite.identity.kind = l7GRPCRouteKind
+		olderButNotOldestOpposite.identity.kind = l7RouteKind("UnsupportedL7Route")
 		olderButNotOldestOpposite.identity.name = "zzz"
 		olderButNotOldestOpposite.identity.creationTimestamp = metav1.NewTime(
 			time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
 		)
 		oldestOpposite := olderOpposite
-		oldestOpposite.identity.kind = l7GRPCRouteKind
+		oldestOpposite.identity.kind = l7RouteKind("UnsupportedL7Route")
 		oldestOpposite.identity.name = "aaa"
 		oldestOpposite.identity.creationTimestamp = metav1.NewTime(
 			time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
@@ -703,7 +766,7 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		assert.Equal(t, oldestOpposite.identity, winner.identity)
 
 		newerOpposite := olderOpposite
-		newerOpposite.identity.kind = l7GRPCRouteKind
+		newerOpposite.identity.kind = l7RouteKind("UnsupportedL7Route")
 		newerOpposite.identity.creationTimestamp = metav1.NewTime(time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC))
 		winner, conflicted = l7RouteConflictingWinner(l7RouteConflictParams{
 			gateway:          gateway,
@@ -1988,6 +2051,40 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 		assert.Equal(t, activeRoute.Spec.Hostnames, got[0].hostnames)
 	})
 
+	t.Run("listGRPCRouteConflictCandidates", func(t *testing.T) {
+		deps := newMockDeps(t)
+		model := newHTTPRouteModel(deps)
+		k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+		deletionTimestamp := metav1.Now()
+		activeRoute := makeRandomGRPCRoute()
+		activeRoute.Spec.ParentRefs = []gatewayv1.ParentReference{makeRandomParentRef()}
+		activeRoute.Spec.Hostnames = []gatewayv1.Hostname{"api.example.com"}
+		deletedRoute := makeRandomGRPCRoute()
+		deletedRoute.DeletionTimestamp = &deletionTimestamp
+
+		k8sClient.EXPECT().List(t.Context(), &gatewayv1.GRPCRouteList{}).
+			RunAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				list.(*gatewayv1.GRPCRouteList).Items = []gatewayv1.GRPCRoute{
+					activeRoute,
+					deletedRoute,
+				}
+				return nil
+			})
+
+		got, err := model.listGRPCRouteConflictCandidates(t.Context())
+
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, l7RouteIdentity{
+			kind:              l7GRPCRouteKind,
+			namespace:         activeRoute.Namespace,
+			name:              activeRoute.Name,
+			creationTimestamp: activeRoute.CreationTimestamp,
+		}, got[0].identity)
+		assert.Equal(t, activeRoute.Spec.ParentRefs, got[0].parentRefs)
+		assert.Equal(t, activeRoute.Spec.Hostnames, got[0].hostnames)
+	})
+
 	t.Run("acceptRoute", func(t *testing.T) {
 		t.Run("add new accepted parent", func(t *testing.T) {
 			fake := faker.New()
@@ -2174,10 +2271,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 				parentStatus := route.Status.Parents[0]
 				condition := meta.FindStatusCondition(parentStatus.Conditions, string(gatewayv1.RouteConditionAccepted))
 				return condition != nil &&
-					condition.Status == metav1.ConditionFalse &&
-					condition.Reason == string(routeReasonConflicted) &&
-					condition.Message == "Route conflicts with GRPCRoute "+gateway.Namespace+
-						"/older-grpc-route on an overlapping listener hostname"
+					condition.Status == metav1.ConditionTrue &&
+					condition.Reason == string(gatewayv1.RouteReasonAccepted)
 			})).Return(nil)
 
 			got, err := model.acceptRoute(t.Context(), resolvedRouteDetails{
@@ -2194,8 +2289,8 @@ func TestHTTPRouteModelImpl(t *testing.T) {
 			})
 
 			require.NoError(t, err)
-			assert.NotNil(t, updatedRoute)
-			assert.Nil(t, got)
+			assert.Same(t, updatedRoute, got)
+			assert.NotEqual(t, olderRoute.Name, got.Name)
 		})
 
 		t.Run("accepts when an older HTTPRoute has an overlapping listener hostname", func(t *testing.T) {

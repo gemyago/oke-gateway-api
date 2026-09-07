@@ -332,6 +332,9 @@ func l7RouteConflictingWinner(params l7RouteConflictParams) (l7RouteCandidate, b
 		if params.current.identity.kind == oppositeRoute.identity.kind {
 			continue
 		}
+		if l7RouteKindsCanShareListener(params.current.identity.kind, oppositeRoute.identity.kind) {
+			continue
+		}
 		if !l7RoutesShareListenerHostname(
 			params.gateway,
 			params.effectiveListeners,
@@ -349,6 +352,11 @@ func l7RouteConflictingWinner(params l7RouteConflictParams) (l7RouteCandidate, b
 		}
 	}
 	return winner, found
+}
+
+func l7RouteKindsCanShareListener(a, b l7RouteKind) bool {
+	return a == l7HTTPRouteKind && b == l7GRPCRouteKind ||
+		a == l7GRPCRouteKind && b == l7HTTPRouteKind
 }
 
 func checkL7RouteConflict(ctx context.Context, params checkL7RouteConflictParams) (l7RouteCandidate, bool, error) {

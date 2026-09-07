@@ -750,7 +750,7 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			assert.Nil(t, got)
 		})
 
-		t.Run("conflicts when an older HTTPRoute has an overlapping listener hostname", func(t *testing.T) {
+		t.Run("accepts when an older HTTPRoute has an overlapping listener hostname", func(t *testing.T) {
 			deps := newMockDeps(t)
 			model := newGRPCRouteModel(deps)
 			k8sClient, _ := deps.K8sClient.(*Mockk8sClient)
@@ -809,10 +809,8 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 				parentStatus := route.Status.Parents[0]
 				condition := meta.FindStatusCondition(parentStatus.Conditions, string(gatewayv1.RouteConditionAccepted))
 				return condition != nil &&
-					condition.Status == metav1.ConditionFalse &&
-					condition.Reason == string(routeReasonConflicted) &&
-					condition.Message == "Route conflicts with HTTPRoute "+gatewayData.gateway.Namespace+
-						"/older-http-route on an overlapping listener hostname"
+					condition.Status == metav1.ConditionTrue &&
+					condition.Reason == string(gatewayv1.RouteReasonAccepted)
 			})).Return(nil)
 
 			got, err := model.acceptRoute(t.Context(), resolvedGRPCRouteDetails{
@@ -823,8 +821,8 @@ func TestGRPCRouteModelImpl(t *testing.T) {
 			})
 
 			require.NoError(t, err)
-			assert.NotNil(t, updatedRoute)
-			assert.Nil(t, got)
+			assert.Same(t, updatedRoute, got)
+			assert.NotEqual(t, olderRoute.Name, got.Name)
 		})
 
 		t.Run("accepts when an older GRPCRoute has an overlapping listener hostname", func(t *testing.T) {
