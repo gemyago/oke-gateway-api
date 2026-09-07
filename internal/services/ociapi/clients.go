@@ -34,6 +34,7 @@ func newLoadBalancerClient(
 	if err != nil {
 		return loadbalancer.LoadBalancerClient{}, fmt.Errorf("failed to create load balancer client: %w", err)
 	}
+	configureOCIRetryPolicy(&client.BaseClient)
 	return client, nil
 }
 
@@ -52,6 +53,7 @@ func newNetworkLoadBalancerClient(
 			err,
 		)
 	}
+	configureOCIRetryPolicy(&client.BaseClient)
 	return client, nil
 }
 
@@ -70,5 +72,13 @@ func newCertificatesManagementClient(
 			err,
 		)
 	}
+	configureOCIRetryPolicy(&client.BaseClient)
 	return client, nil
+}
+
+func configureOCIRetryPolicy(client *common.BaseClient) {
+	retryPolicy := common.DefaultRetryPolicy()
+	config := client.Configuration
+	config.RetryPolicy = &retryPolicy
+	client.SetCustomClientConfiguration(config)
 }

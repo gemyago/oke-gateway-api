@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/gemyago/oke-gateway-api/internal/diag"
@@ -67,22 +68,39 @@ func TestClients(t *testing.T) {
 		ConfigProvider: testConfigurationProvider{key: key},
 	}
 
-	t.Run("creates load balancer client", func(t *testing.T) {
-		_, clientErr := newLoadBalancerClient(deps)
+	t.Run("creates load balancer client with retry policy", func(t *testing.T) {
+		client, clientErr := newLoadBalancerClient(deps)
 
 		require.NoError(t, clientErr)
+		require.NotNil(t, client.RetryPolicy())
 	})
 
-	t.Run("creates network load balancer client", func(t *testing.T) {
-		_, clientErr := newNetworkLoadBalancerClient(deps)
+	t.Run("creates network load balancer client with retry policy", func(t *testing.T) {
+		client, clientErr := newNetworkLoadBalancerClient(deps)
 
 		require.NoError(t, clientErr)
+		require.NotNil(t, client.RetryPolicy())
 	})
 
-	t.Run("creates certificates management client", func(t *testing.T) {
-		_, clientErr := newCertificatesManagementClient(deps)
+	t.Run("creates certificates management client with retry policy", func(t *testing.T) {
+		client, clientErr := newCertificatesManagementClient(deps)
 
 		require.NoError(t, clientErr)
+		require.NotNil(t, client.RetryPolicy())
+	})
+
+	t.Run("preserves existing client configuration when setting retry policy", func(t *testing.T) {
+		realmSpecificEndpointsEnabled := true
+		client := common.BaseClient{
+			Configuration: common.CustomClientConfiguration{
+				RealmSpecificServiceEndpointTemplateEnabled: &realmSpecificEndpointsEnabled,
+			},
+		}
+
+		configureOCIRetryPolicy(&client)
+
+		require.NotNil(t, client.RetryPolicy())
+		assert.Same(t, &realmSpecificEndpointsEnabled, client.Configuration.RealmSpecificServiceEndpointTemplateEnabled)
 	})
 }
 
