@@ -49,6 +49,44 @@ func TestUDPRouteModel(t *testing.T) {
 		))
 	})
 
+	t.Run("isProgrammingRequired returns false for current NLB status", func(t *testing.T) {
+		fake := faker.New()
+		loadBalancerID := "ocid1.networkloadbalancer.oc1..test"
+		parentRef := gatewayv1.ParentReference{Name: gatewayv1.ObjectName(fake.Lorem().Word())}
+		route := gatewayv1.UDPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "iot",
+				Name:       fake.Lorem().Word(),
+				Generation: 9,
+				Annotations: map[string]string{
+					L4RouteProgrammedNetworkLoadBalancerIDAnnotation: loadBalancerID,
+				},
+			},
+			Status: gatewayv1.UDPRouteStatus{RouteStatus: gatewayv1.RouteStatus{
+				Parents: []gatewayv1.RouteParentStatus{{
+					ParentRef:      parentRef,
+					ControllerName: NetworkLoadBalancerControllerClassName,
+					Conditions: []metav1.Condition{{
+						Type:               string(gatewayv1.RouteConditionResolvedRefs),
+						Status:             metav1.ConditionTrue,
+						ObservedGeneration: 9,
+					}},
+				}},
+			}},
+		}
+		model := &udpRouteModelImpl{}
+
+		assert.False(t, model.isProgrammingRequired(resolvedUDPRouteDetails{
+			udpRoute:   route,
+			matchedRef: parentRef,
+			gatewayDetails: resolvedGatewayDetails{
+				config: types.GatewayConfig{
+					Spec: types.GatewayConfigSpec{LoadBalancerID: loadBalancerID},
+				},
+			},
+		}))
+	})
+
 	t.Run("desired backend sets ignore non gateway parent refs", func(t *testing.T) {
 		otherGroup := gatewayv1.Group("example.com")
 		details := resolvedUDPRouteDetails{

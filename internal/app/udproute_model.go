@@ -36,6 +36,7 @@ type udpRouteModel interface {
 	deprovisionRoute(ctx context.Context, details resolvedUDPRouteDetails) error
 	setPending(ctx context.Context, details resolvedUDPRouteDetails) error
 	setProgrammed(ctx context.Context, details resolvedUDPRouteDetails) error
+	isProgrammingRequired(details resolvedUDPRouteDetails) bool
 	setRejected(ctx context.Context, details resolvedUDPRouteDetails, statusErr udpRouteStatusError) error
 }
 
@@ -888,6 +889,17 @@ func (m *udpRouteModelImpl) setPending(ctx context.Context, details resolvedUDPR
 				matchedListener: details.matchedListener,
 			}, conditions)
 		},
+	})
+}
+
+func (m *udpRouteModelImpl) isProgrammingRequired(details resolvedUDPRouteDetails) bool {
+	return isL4RouteProgrammingRequired(isL4RouteProgrammingRequiredParams{
+		route:                &details.udpRoute,
+		parentStatuses:       details.udpRoute.Status.Parents,
+		matchedRef:           details.matchedRef,
+		controllerName:       NetworkLoadBalancerControllerClassName,
+		loadBalancerAnnotKey: L4RouteProgrammedNetworkLoadBalancerIDAnnotation,
+		loadBalancerID:       details.gatewayDetails.config.Spec.LoadBalancerID,
 	})
 }
 

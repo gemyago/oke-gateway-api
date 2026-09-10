@@ -94,6 +94,81 @@ func (s stubNetworkLoadBalancerGatewayModel) setProgrammed(
 	panic("not implemented")
 }
 
+func TestIsL4RouteProgrammingRequired(t *testing.T) {
+	fake := faker.New()
+	routeName := fake.Lorem().Word()
+	gatewayName := fake.Lorem().Word()
+	loadBalancerID := "ocid1.networkloadbalancer.oc1..test"
+	parentRef := gatewayv1.ParentReference{Name: gatewayv1.ObjectName(gatewayName)}
+	resolvedRefs := metav1.Condition{
+		Type:               string(gatewayv1.RouteConditionResolvedRefs),
+		Status:             metav1.ConditionTrue,
+		ObservedGeneration: 7,
+	}
+	route := gatewayv1.TCPRoute{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:  "iot",
+			Name:       routeName,
+			Generation: 7,
+			Annotations: map[string]string{
+				L4RouteProgrammedNetworkLoadBalancerIDAnnotation: loadBalancerID,
+			},
+		},
+		Status: gatewayv1.TCPRouteStatus{RouteStatus: gatewayv1.RouteStatus{
+			Parents: []gatewayv1.RouteParentStatus{{
+				ParentRef:      parentRef,
+				ControllerName: NetworkLoadBalancerControllerClassName,
+				Conditions:     []metav1.Condition{resolvedRefs},
+			}},
+		}},
+	}
+
+	baseParams := func(route gatewayv1.TCPRoute) isL4RouteProgrammingRequiredParams {
+		return isL4RouteProgrammingRequiredParams{
+			route:                &route,
+			parentStatuses:       route.Status.Parents,
+			matchedRef:           parentRef,
+			controllerName:       NetworkLoadBalancerControllerClassName,
+			loadBalancerAnnotKey: L4RouteProgrammedNetworkLoadBalancerIDAnnotation,
+			loadBalancerID:       loadBalancerID,
+		}
+	}
+
+	t.Run("returns false when status and load balancer annotation match", func(t *testing.T) {
+		assert.False(t, isL4RouteProgrammingRequired(baseParams(route)))
+	})
+
+	t.Run("returns true when parent status is missing", func(t *testing.T) {
+		candidate := route
+		candidate.Status.Parents = nil
+
+		assert.True(t, isL4RouteProgrammingRequired(baseParams(candidate)))
+	})
+
+	t.Run("returns true when programmed load balancer annotation differs", func(t *testing.T) {
+		candidate := route
+		candidate.Annotations = map[string]string{
+			L4RouteProgrammedNetworkLoadBalancerIDAnnotation: "ocid1.networkloadbalancer.oc1..other",
+		}
+
+		assert.True(t, isL4RouteProgrammingRequired(baseParams(candidate)))
+	})
+
+	t.Run("returns true when resolved refs condition is stale", func(t *testing.T) {
+		candidate := route
+		candidate.Status.Parents[0].Conditions[0].ObservedGeneration = 6
+
+		assert.True(t, isL4RouteProgrammingRequired(baseParams(candidate)))
+	})
+
+	t.Run("returns true when resolved refs condition is not true", func(t *testing.T) {
+		candidate := route
+		candidate.Status.Parents[0].Conditions[0].Status = metav1.ConditionFalse
+
+		assert.True(t, isL4RouteProgrammingRequired(baseParams(candidate)))
+	})
+}
+
 func TestTCPRouteModel(t *testing.T) {
 	t.Run("tcpBackendsEqual detects port changes", func(t *testing.T) {
 		assert.False(t, tcpBackendsEqual(
@@ -110,6 +185,44 @@ func TestTCPRouteModel(t *testing.T) {
 				Weight:    new(1),
 			}},
 		))
+	})
+
+	t.Run("isProgrammingRequired returns false for current NLB status", func(t *testing.T) {
+		fake := faker.New()
+		loadBalancerID := "ocid1.networkloadbalancer.oc1..test"
+		parentRef := gatewayv1.ParentReference{Name: gatewayv1.ObjectName(fake.Lorem().Word())}
+		route := gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "iot",
+				Name:       fake.Lorem().Word(),
+				Generation: 9,
+				Annotations: map[string]string{
+					L4RouteProgrammedNetworkLoadBalancerIDAnnotation: loadBalancerID,
+				},
+			},
+			Status: gatewayv1.TCPRouteStatus{RouteStatus: gatewayv1.RouteStatus{
+				Parents: []gatewayv1.RouteParentStatus{{
+					ParentRef:      parentRef,
+					ControllerName: NetworkLoadBalancerControllerClassName,
+					Conditions: []metav1.Condition{{
+						Type:               string(gatewayv1.RouteConditionResolvedRefs),
+						Status:             metav1.ConditionTrue,
+						ObservedGeneration: 9,
+					}},
+				}},
+			}},
+		}
+		model := &tcpRouteModelImpl{}
+
+		assert.False(t, model.isProgrammingRequired(resolvedTCPRouteDetails{
+			tcpRoute:   route,
+			matchedRef: parentRef,
+			gatewayDetails: resolvedGatewayDetails{
+				config: types.GatewayConfig{
+					Spec: types.GatewayConfigSpec{LoadBalancerID: loadBalancerID},
+				},
+			},
+		}))
 	})
 
 	t.Run("desired backend sets ignore non gateway parent refs", func(t *testing.T) {

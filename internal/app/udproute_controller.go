@@ -36,19 +36,20 @@ func NewUDPRouteController(deps UDPRouteControllerDeps) *UDPRouteController {
 
 func (r *UDPRouteController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	return reconcileL4Route(ctx, reconcileL4RouteParams[resolvedUDPRouteDetails]{
-		logger:        r.logger,
-		req:           req,
-		routeKind:     "UDPRoute",
-		routeAttr:     "udpRoute",
-		finalizer:     NetworkLoadBalancerUDPRouteProgrammedFinalizer,
-		resolve:       r.udpRouteModel.resolveRequest,
-		route:         func(details resolvedUDPRouteDetails) client.Object { return &details.udpRoute },
-		deprovision:   r.udpRouteModel.deprovisionRoute,
-		program:       r.udpRouteModel.programRoute,
-		setPending:    r.udpRouteModel.setPending,
-		setProgrammed: r.udpRouteModel.setProgrammed,
-		driftInterval: r.driftInterval,
-		setRejected:   r.setRejected(ctx),
+		logger:                r.logger,
+		req:                   req,
+		routeKind:             "UDPRoute",
+		routeAttr:             "udpRoute",
+		finalizer:             NetworkLoadBalancerUDPRouteProgrammedFinalizer,
+		resolve:               r.udpRouteModel.resolveRequest,
+		route:                 func(details resolvedUDPRouteDetails) client.Object { return &details.udpRoute },
+		deprovision:           r.udpRouteModel.deprovisionRoute,
+		program:               r.udpRouteModel.programRoute,
+		setPending:            r.udpRouteModel.setPending,
+		setProgrammed:         r.udpRouteModel.setProgrammed,
+		isProgrammingRequired: r.udpRouteModel.isProgrammingRequired,
+		driftInterval:         r.driftInterval,
+		setRejected:           r.setRejected(ctx),
 	})
 }
 

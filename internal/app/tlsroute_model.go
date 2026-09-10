@@ -45,6 +45,7 @@ type tlsRouteModel interface {
 	deprovisionRoute(ctx context.Context, details resolvedTLSRouteDetails) error
 	setPending(ctx context.Context, details resolvedTLSRouteDetails) error
 	setProgrammed(ctx context.Context, details resolvedTLSRouteDetails) error
+	isProgrammingRequired(details resolvedTLSRouteDetails) bool
 	setRejected(ctx context.Context, details resolvedTLSRouteDetails, statusErr tlsRouteStatusError) error
 }
 
@@ -1717,6 +1718,23 @@ func (m *tlsRouteModelImpl) setPending(ctx context.Context, details resolvedTLSR
 				matchedListener: details.matchedListener,
 			}, conditions)
 		},
+	})
+}
+
+func (m *tlsRouteModelImpl) isProgrammingRequired(details resolvedTLSRouteDetails) bool {
+	annotationKey := ""
+	loadBalancerID := ""
+	if details.gatewayDetails.gatewayClass.Spec.ControllerName == NetworkLoadBalancerControllerClassName {
+		annotationKey = L4RouteProgrammedNetworkLoadBalancerIDAnnotation
+		loadBalancerID = details.gatewayDetails.config.Spec.LoadBalancerID
+	}
+	return isL4RouteProgrammingRequired(isL4RouteProgrammingRequiredParams{
+		route:                &details.tlsRoute,
+		parentStatuses:       details.tlsRoute.Status.Parents,
+		matchedRef:           details.matchedRef,
+		controllerName:       details.gatewayDetails.gatewayClass.Spec.ControllerName,
+		loadBalancerAnnotKey: annotationKey,
+		loadBalancerID:       loadBalancerID,
 	})
 }
 

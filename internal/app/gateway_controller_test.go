@@ -330,8 +330,8 @@ func TestGatewayController(t *testing.T) {
 			req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(gateway)}
 			deps := newMockDeps(t)
 			controller := NewGatewayController(deps)
-			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 			mockResourcesModel, _ := deps.ResourcesModel.(*MockresourcesModel)
+			mockGatewayModel, _ := deps.GatewayModel.(*MockgatewayModel)
 			wantErr := &resourceStatusError{
 				conditionType: string(gatewayv1.GatewayConditionProgrammed),
 				reason:        fake.Lorem().Word(),
@@ -795,8 +795,6 @@ func TestGatewayController(t *testing.T) {
 				}).
 				Return(true).Once()
 
-			expectGatewayProgrammingProtection(mockResourcesModel, gateway, nil)
-
 			mockGatewayModel.EXPECT().
 				programGateway(t.Context(), &resolvedGatewayDetails{
 					gateway: *gateway,
@@ -812,6 +810,7 @@ func TestGatewayController(t *testing.T) {
 			result, err := controller.Reconcile(t.Context(), req)
 
 			require.NoError(t, err)
+			mockResourcesModel.AssertNotCalled(t, "setCondition", mock.Anything, mock.Anything)
 			assertDriftRequeue(t, result, driftInterval)
 		})
 
