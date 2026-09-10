@@ -35,6 +35,7 @@ const defaultCatchAllRuleName = "default_catch_all"
 const loadBalancerHealthCheckRetries = 3
 const loadBalancerHealthCheckTimeoutMillis = 3000
 const loadBalancerHealthCheckIntervalMillis = 10000
+const loadBalancerHealthCheckResponseBodyRegex = ".*"
 const maxBackendSetNameLength = 32
 const maxListenerPolicyNameLength = 32
 const listenerPolicyNameHashLength = 16
@@ -257,13 +258,30 @@ func loadBalancerHealthCheckerMatches(
 			desired.IntervalInMillis,
 			new(loadBalancerHealthCheckIntervalMillis),
 		) &&
-		lo.FromPtr(current.ResponseBodyRegex) == lo.FromPtr(desired.ResponseBodyRegex) &&
+		loadBalancerHealthCheckerStringMatches(
+			current.ResponseBodyRegex,
+			desired.ResponseBodyRegex,
+			new(loadBalancerHealthCheckResponseBodyRegex),
+		) &&
 		lo.FromPtr(current.IsForcePlainText) == lo.FromPtr(desired.IsForcePlainText)
 }
 
 func loadBalancerHealthCheckerIntMatches(current, desired, defaultValue *int) bool {
 	if desired == nil {
 		return current == nil
+	}
+	if current == nil && defaultValue != nil {
+		return *desired == *defaultValue
+	}
+	return current != nil && *current == *desired
+}
+
+func loadBalancerHealthCheckerStringMatches(current, desired, defaultValue *string) bool {
+	if desired == nil {
+		if current == nil {
+			return true
+		}
+		return defaultValue != nil && *current == *defaultValue
 	}
 	if current == nil && defaultValue != nil {
 		return *desired == *defaultValue

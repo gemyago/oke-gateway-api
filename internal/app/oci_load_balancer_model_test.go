@@ -88,6 +88,31 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				Protocol: &protocol,
 				Port:     &port,
 			}))
+			assert.True(t, loadBalancerHealthCheckerMatches(&loadbalancer.HealthChecker{
+				Protocol:          &protocol,
+				Port:              &port,
+				Retries:           new(loadBalancerHealthCheckRetries),
+				TimeoutInMillis:   new(loadBalancerHealthCheckTimeoutMillis),
+				IntervalInMillis:  new(loadBalancerHealthCheckIntervalMillis),
+				ResponseBodyRegex: new(".*"),
+			}, loadBalancerBackendSetHealthChecker(port)))
+			assert.True(t, loadBalancerHealthCheckerStringMatches(
+				nil,
+				new(loadBalancerHealthCheckResponseBodyRegex),
+				new(loadBalancerHealthCheckResponseBodyRegex),
+			))
+			nonDefaultResponseBodyRegex := "not-default-" + fake.Lorem().Word()
+			assert.False(t, loadBalancerHealthCheckerStringMatches(
+				new(nonDefaultResponseBodyRegex),
+				new(loadBalancerHealthCheckResponseBodyRegex),
+				new(loadBalancerHealthCheckResponseBodyRegex),
+			))
+			explicitResponseBodyRegex := fake.Lorem().Word()
+			assert.True(t, loadBalancerHealthCheckerStringMatches(
+				new(explicitResponseBodyRegex),
+				new(explicitResponseBodyRegex),
+				new(loadBalancerHealthCheckResponseBodyRegex),
+			))
 			assert.True(t, loadBalancerBackendSetMatches(
 				loadbalancer.BackendSet{
 					Policy: new("ROUND_ROBIN"),
