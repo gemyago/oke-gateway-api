@@ -697,6 +697,121 @@ func TestHTTPBackendModel(t *testing.T) {
 			require.NoError(t, err)
 		})
 
+		t.Run("uses resolved named target port for health checker drift", func(t *testing.T) {
+			fake := faker.New()
+			deps := newMockDeps(t)
+			deps.self = nil
+			model := newHTTPBackendModel(deps)
+
+			routeNamespace := "ns-" + fake.UUID().V4()[:8]
+			serviceName := "svc-" + fake.UUID().V4()[:8]
+			portName := "web-" + fake.UUID().V4()[:8]
+			servicePort := int32(fake.IntBetween(1, 1023))
+			resolvedPort := int32(fake.IntBetween(1024, 65535))
+			endpointIP := fmt.Sprintf("10.0.%d.%d", fake.IntBetween(0, 255), fake.IntBetween(1, 254))
+			config := makeRandomGatewayConfig()
+			backendRef := gatewayv1.BackendRef{
+				BackendObjectReference: gatewayv1.BackendObjectReference{
+					Name: gatewayv1.ObjectName(serviceName),
+					Port: &servicePort,
+				},
+			}
+			backendSetName := ociBackendSetNameFromBackendObjectRef(routeNamespace, backendRef.BackendObjectReference)
+			existingBackendSet := makeRandomOCIBackendSet(
+				randomOCIBackendSetWithNameOpt(backendSetName),
+				randomOCIBackendSetWithBackendsOpt([]loadbalancer.Backend{{
+					IpAddress: &endpointIP,
+					Port:      new(int(resolvedPort)),
+					Drain:     new(false),
+				}}),
+				randomOCIBackendSetWithHealthCheckerOpt(loadBalancerBackendSetHealthChecker(int(servicePort))),
+				func(bs *loadbalancer.BackendSet) {
+					bs.Policy = new("ROUND_ROBIN")
+				},
+			)
+
+			mockK8sClient, _ := deps.K8sClient.(*Mockk8sClient)
+			mockK8sClient.EXPECT().List(
+				t.Context(),
+				mock.Anything,
+				client.MatchingLabels{discoveryv1.LabelServiceName: serviceName},
+				client.InNamespace(routeNamespace),
+			).RunAndReturn(func(_ context.Context, ol client.ObjectList, _ ...client.ListOption) error {
+				epSliceList, ok := ol.(*discoveryv1.EndpointSliceList)
+				require.True(t, ok, "expected an EndpointSliceList")
+				epSliceList.Items = []discoveryv1.EndpointSlice{{
+					Ports: []discoveryv1.EndpointPort{{
+						Name: &portName,
+						Port: &resolvedPort,
+					}},
+					Endpoints: []discoveryv1.Endpoint{
+						{
+							Addresses: []string{endpointIP},
+							Conditions: discoveryv1.EndpointConditions{
+								Ready:       new(true),
+								Terminating: new(false),
+							},
+						},
+					},
+				}}
+				return nil
+			}).Once()
+			mockK8sClient.EXPECT().Get(
+				t.Context(),
+				client.ObjectKey{Name: serviceName, Namespace: routeNamespace},
+				mock.AnythingOfType("*v1.Service"),
+			).RunAndReturn(func(
+				_ context.Context,
+				_ client.ObjectKey,
+				obj client.Object,
+				_ ...client.GetOption,
+			) error {
+				service, ok := obj.(*corev1.Service)
+				require.True(t, ok)
+				service.Spec.Ports = []corev1.ServicePort{{
+					Name:       portName,
+					Port:       servicePort,
+					TargetPort: intstr.FromString(portName),
+				}}
+				return nil
+			}).Once()
+
+			mockOciClient, _ := deps.OciLoadBalancerClient.(*MockociLoadBalancerClient)
+			mockOciClient.EXPECT().GetBackendSet(
+				t.Context(),
+				loadbalancer.GetBackendSetRequest{
+					LoadBalancerId: &config.Spec.LoadBalancerID,
+					BackendSetName: &backendSetName,
+				},
+			).Return(loadbalancer.GetBackendSetResponse{BackendSet: existingBackendSet}, nil).Once()
+			wantOperationID := fake.UUID().V4()
+			mockOciClient.EXPECT().UpdateBackendSet(
+				t.Context(),
+				mock.MatchedBy(func(req loadbalancer.UpdateBackendSetRequest) bool {
+					return assert.Equal(t, int(resolvedPort), lo.FromPtr(req.HealthChecker.Port)) &&
+						assert.Equal(t, []loadbalancer.BackendDetails{{
+							IpAddress: &endpointIP,
+							Port:      new(int(resolvedPort)),
+							Drain:     new(false),
+						}}, req.Backends)
+				}),
+			).Return(loadbalancer.UpdateBackendSetResponse{
+				OpcWorkRequestId: &wantOperationID,
+			}, nil).Once()
+			mockWatcher, _ := deps.WorkRequestsWatcher.(*MockworkRequestsWatcher)
+			mockWatcher.EXPECT().WaitFor(t.Context(), wantOperationID).Return(nil).Once()
+
+			err := model.syncRouteBackendRefEndpoints(t.Context(), syncRouteBackendRefEndpointsParams{
+				routeKind:  "HTTPRoute",
+				routeName:  "route-" + fake.UUID().V4()[:8],
+				routeNS:    routeNamespace,
+				config:     config,
+				backendRef: backendRef,
+			})
+
+			require.NoError(t, err)
+		})
+
 		t.Run("returns backend sync errors", func(t *testing.T) {
 			for name, setup := range map[string]func(
 				deps httpBackendModelDeps,
@@ -957,6 +1072,92 @@ func TestHTTPBackendModel(t *testing.T) {
 				{IpAddress: &secondEndpoint.Addresses[0], Port: new(int(secondPort)), Drain: new(false)},
 			}, result.updatedBackends)
 			assert.True(t, result.updateRequired)
+		})
+
+		t.Run("keeps existing health checker when named target port has no resolved backends", func(t *testing.T) {
+			fake := faker.New()
+			portName := "web-" + fake.UUID().V4()[:8]
+			servicePort := corev1.ServicePort{
+				Name:       portName,
+				Port:       int32(fake.IntBetween(1, 65535)),
+				TargetPort: intstr.FromString(portName),
+			}
+			existingHealthChecker := loadbalancer.HealthChecker{
+				Protocol:         new("TCP"),
+				Port:             new(fake.IntBetween(1, 65535)),
+				Retries:          new(fake.IntBetween(1, 5)),
+				TimeoutInMillis:  new(fake.IntBetween(1000, 5000)),
+				IntervalInMillis: new(fake.IntBetween(5000, 30000)),
+			}
+
+			healthChecker := l7BackendSetHealthChecker(servicePort, nil, loadbalancer.BackendSet{
+				HealthChecker: &existingHealthChecker,
+			})
+
+			assert.Equal(t, healthCheckerDetailsFromExisting(&existingHealthChecker), healthChecker)
+		})
+
+		t.Run("uses single resolved backend port for health checker", func(t *testing.T) {
+			fake := faker.New()
+			servicePort := corev1.ServicePort{
+				Port:       int32(fake.IntBetween(1, 65535)),
+				TargetPort: intstr.FromString("web-" + fake.UUID().V4()[:8]),
+			}
+			resolvedPort := fake.IntBetween(1, 65535)
+
+			healthChecker := l7BackendSetHealthChecker(
+				servicePort,
+				[]loadbalancer.BackendDetails{
+					{Port: new(resolvedPort)},
+					{Port: new(resolvedPort)},
+				},
+				loadbalancer.BackendSet{},
+			)
+
+			assert.Equal(t, resolvedPort, lo.FromPtr(healthChecker.Port))
+		})
+
+		t.Run("uses numeric service target port when resolved ports are unavailable", func(t *testing.T) {
+			fake := faker.New()
+			targetPort := int32(fake.IntBetween(1, 65535))
+
+			healthChecker := l7BackendSetHealthChecker(
+				corev1.ServicePort{Port: int32(fake.IntBetween(1, 65535)), TargetPort: intstr.FromInt32(targetPort)},
+				nil,
+				loadbalancer.BackendSet{},
+			)
+
+			assert.Equal(t, int(targetPort), lo.FromPtr(healthChecker.Port))
+		})
+
+		t.Run("does not choose health checker port from ambiguous resolved backend ports", func(t *testing.T) {
+			fake := faker.New()
+			firstPort := fake.IntBetween(1, 32000)
+			secondPort := firstPort + fake.IntBetween(1, 1000)
+
+			port, ok := healthCheckerPortForResolvedBackends([]loadbalancer.BackendDetails{
+				{Port: &firstPort},
+				{Port: nil},
+				{Port: &secondPort},
+			})
+
+			assert.False(t, ok)
+			assert.Zero(t, port)
+		})
+
+		t.Run("uses empty health checker when named target port cannot resolve", func(t *testing.T) {
+			fake := faker.New()
+
+			healthChecker := l7BackendSetHealthChecker(
+				corev1.ServicePort{
+					Port:       int32(fake.IntBetween(1, 65535)),
+					TargetPort: intstr.FromString("web-" + fake.UUID().V4()[:8]),
+				},
+				nil,
+				loadbalancer.BackendSet{},
+			)
+
+			assert.Equal(t, loadbalancer.HealthCheckerDetails{}, healthChecker)
 		})
 
 		t.Run("happy path - add new backends", func(t *testing.T) {
