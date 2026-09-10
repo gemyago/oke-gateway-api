@@ -35,6 +35,7 @@ const defaultCatchAllRuleName = "default_catch_all"
 const loadBalancerHealthCheckRetries = 3
 const loadBalancerHealthCheckTimeoutMillis = 3000
 const loadBalancerHealthCheckIntervalMillis = 10000
+const loadBalancerHealthCheckReturnCode = 200
 const loadBalancerHealthCheckResponseBodyRegex = ".*"
 const maxBackendSetNameLength = 32
 const maxListenerPolicyNameLength = 32
@@ -242,7 +243,11 @@ func loadBalancerHealthCheckerMatches(
 	return lo.FromPtr(current.Protocol) == lo.FromPtr(desired.Protocol) &&
 		loadBalancerHealthCheckerIntMatches(current.Port, desired.Port, nil) &&
 		lo.FromPtr(current.UrlPath) == lo.FromPtr(desired.UrlPath) &&
-		lo.FromPtr(current.ReturnCode) == lo.FromPtr(desired.ReturnCode) &&
+		loadBalancerHealthCheckerIntMatches(
+			current.ReturnCode,
+			desired.ReturnCode,
+			new(loadBalancerHealthCheckReturnCode),
+		) &&
 		loadBalancerHealthCheckerIntMatches(
 			current.Retries,
 			desired.Retries,
@@ -268,7 +273,10 @@ func loadBalancerHealthCheckerMatches(
 
 func loadBalancerHealthCheckerIntMatches(current, desired, defaultValue *int) bool {
 	if desired == nil {
-		return current == nil
+		if current == nil {
+			return true
+		}
+		return defaultValue != nil && *current == *defaultValue
 	}
 	if current == nil && defaultValue != nil {
 		return *desired == *defaultValue

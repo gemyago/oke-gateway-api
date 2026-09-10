@@ -95,6 +95,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				TimeoutInMillis:   new(loadBalancerHealthCheckTimeoutMillis),
 				IntervalInMillis:  new(loadBalancerHealthCheckIntervalMillis),
 				ResponseBodyRegex: new(".*"),
+				ReturnCode:        new(200),
 			}, loadBalancerBackendSetHealthChecker(port)))
 			assert.True(t, loadBalancerHealthCheckerStringMatches(
 				nil,
