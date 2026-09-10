@@ -2083,6 +2083,7 @@ func TestUDPRouteModel(t *testing.T) {
 			WithRuntimeObjects(objects...).
 			Build()
 		nlbClient := &stubNetworkLoadBalancerClient{}
+		healthChecker := networkLoadBalancerHealthCheckerDetails(listener.Protocol, new(5684))
 		model := newUDPRouteModel(udpRouteModelDeps{
 			RootLogger: diag.RootTestLogger(),
 			K8sClient:  k8sClient,
@@ -2093,10 +2094,7 @@ func TestUDPRouteModel(t *testing.T) {
 						"bs_coap": {
 							Name:             new("bs_coap"),
 							IsPreserveSource: new(false),
-							HealthChecker: &networkloadbalancer.HealthChecker{
-								Protocol: networkloadbalancer.HealthCheckProtocolsTcp,
-								Port:     new(5684),
-							},
+							HealthChecker:    nlbHealthCheckerFromDetails(healthChecker),
 							Backends: []networkloadbalancer.Backend{{
 								IpAddress: new("10.0.0.10"),
 								Port:      new(5684),
@@ -2120,6 +2118,77 @@ func TestUDPRouteModel(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Empty(t, nlbClient.updateBackendSetRequests)
+	})
+
+	t.Run("programRoute repairs backend set health checker drift", func(t *testing.T) {
+		port := gatewayv1.PortNumber(5684)
+		listener := gatewayv1.Listener{Name: "coap", Protocol: gatewayv1.UDPProtocolType, Port: port}
+		route := &gatewayv1.UDPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "iot",
+				Name:      "coap",
+				Annotations: map[string]string{
+					NetworkLoadBalancerUDPRouteHealthCheckPortAnnotation: "5684",
+				},
+			},
+			Spec: gatewayv1.UDPRouteSpec{
+				CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
+				},
+				Rules: []gatewayv1.UDPRouteRule{{
+					BackendRefs: []gatewayv1.BackendRef{{
+						BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
+					}},
+				}},
+			},
+		}
+		objects := append(l4GatewayObjects(listener), route)
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithRuntimeObjects(objects...).
+			Build()
+		staleHealthChecker := networkLoadBalancerHealthCheckerDetails(listener.Protocol, new(5684))
+		staleHealthChecker.IntervalInMillis = new(networkLoadBalancerHealthCheckIntervalMillis + 1)
+		nlbClient := &stubNetworkLoadBalancerClient{}
+		model := newUDPRouteModel(udpRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  k8sClient,
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{
+				networkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id: new("nlb-id"),
+					BackendSets: map[string]networkloadbalancer.BackendSet{
+						"bs_coap": {
+							Name:             new("bs_coap"),
+							IsPreserveSource: new(false),
+							HealthChecker:    nlbHealthCheckerFromDetails(staleHealthChecker),
+							Backends: []networkloadbalancer.Backend{{
+								IpAddress: new("10.0.0.10"),
+								Port:      new(5684),
+								IsDrain:   new(false),
+								Weight:    new(1),
+							}},
+						},
+					},
+				},
+			},
+			OciNetworkLoadBalancerAPI: nlbClient,
+			WorkRequestsWatcher:       &stubWorkRequestsWatcher{},
+		})
+
+		err := model.programRoute(t.Context(), resolvedUDPRouteDetails{
+			udpRoute: *route,
+			gatewayDetails: resolvedGatewayDetails{
+				gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "edge"}},
+			},
+			matchedListener: listener,
+		})
+
+		require.NoError(t, err)
+		require.Len(t, nlbClient.updateBackendSetRequests, 1)
+		assert.Equal(t,
+			networkLoadBalancerHealthCheckIntervalMillis,
+			lo.FromPtr(nlbClient.updateBackendSetRequests[0].UpdateBackendSetDetails.HealthChecker.IntervalInMillis),
+		)
 	})
 
 	t.Run("clearBackendSetByName skips missing load balancer and backend set", func(t *testing.T) {

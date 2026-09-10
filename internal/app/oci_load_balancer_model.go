@@ -32,6 +32,9 @@ import (
 
 const defaultBackendSetPort = 80
 const defaultCatchAllRuleName = "default_catch_all"
+const loadBalancerHealthCheckRetries = 3
+const loadBalancerHealthCheckTimeoutMillis = 3000
+const loadBalancerHealthCheckIntervalMillis = 10000
 const maxBackendSetNameLength = 32
 const maxListenerPolicyNameLength = 32
 const listenerPolicyNameHashLength = 16
@@ -236,7 +239,36 @@ func loadBalancerHealthCheckerMatches(
 		return false
 	}
 	return lo.FromPtr(current.Protocol) == lo.FromPtr(desired.Protocol) &&
-		lo.FromPtr(current.Port) == lo.FromPtr(desired.Port)
+		loadBalancerHealthCheckerIntMatches(current.Port, desired.Port, nil) &&
+		lo.FromPtr(current.UrlPath) == lo.FromPtr(desired.UrlPath) &&
+		lo.FromPtr(current.ReturnCode) == lo.FromPtr(desired.ReturnCode) &&
+		loadBalancerHealthCheckerIntMatches(
+			current.Retries,
+			desired.Retries,
+			new(loadBalancerHealthCheckRetries),
+		) &&
+		loadBalancerHealthCheckerIntMatches(
+			current.TimeoutInMillis,
+			desired.TimeoutInMillis,
+			new(loadBalancerHealthCheckTimeoutMillis),
+		) &&
+		loadBalancerHealthCheckerIntMatches(
+			current.IntervalInMillis,
+			desired.IntervalInMillis,
+			new(loadBalancerHealthCheckIntervalMillis),
+		) &&
+		lo.FromPtr(current.ResponseBodyRegex) == lo.FromPtr(desired.ResponseBodyRegex) &&
+		lo.FromPtr(current.IsForcePlainText) == lo.FromPtr(desired.IsForcePlainText)
+}
+
+func loadBalancerHealthCheckerIntMatches(current, desired, defaultValue *int) bool {
+	if desired == nil {
+		return current == nil
+	}
+	if current == nil && defaultValue != nil {
+		return *desired == *defaultValue
+	}
+	return current != nil && *current == *desired
 }
 
 func loadBalancerBackendSetMatches(
@@ -318,8 +350,11 @@ func stringSlicesEqual(left []string, right []string) bool {
 
 func loadBalancerBackendSetHealthChecker(port int) loadbalancer.HealthCheckerDetails {
 	return loadbalancer.HealthCheckerDetails{
-		Protocol: new("TCP"),
-		Port:     new(port),
+		Protocol:         new("TCP"),
+		Port:             new(port),
+		Retries:          new(loadBalancerHealthCheckRetries),
+		TimeoutInMillis:  new(loadBalancerHealthCheckTimeoutMillis),
+		IntervalInMillis: new(loadBalancerHealthCheckIntervalMillis),
 	}
 }
 

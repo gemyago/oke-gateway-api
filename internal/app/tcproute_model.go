@@ -1056,10 +1056,12 @@ func (m *tcpRouteModelImpl) updateBackendSet(
 		if err = networkLoadBalancerBusyErrorFromState(nlb); err != nil {
 			return err
 		}
+		healthChecker := networkLoadBalancerHealthCheckerDetails(details.matchedListener.Protocol, nil)
 		if nlb.BackendSets != nil {
 			currentBackendSet, ok := nlb.BackendSets[backendSetName]
 			if ok &&
 				tcpBackendsEqual(currentBackendSet.Backends, backends) &&
+				networkLoadBalancerHealthCheckerMatches(currentBackendSet.HealthChecker, healthChecker) &&
 				currentBackendSet.IsPreserveSource != nil &&
 				!*currentBackendSet.IsPreserveSource {
 				m.logger.DebugContext(ctx, "TCPRoute backend set is already up-to-date",
@@ -1070,7 +1072,6 @@ func (m *tcpRouteModelImpl) updateBackendSet(
 			}
 		}
 
-		healthChecker := networkLoadBalancerHealthCheckerDetails(details.matchedListener.Protocol, nil)
 		m.logger.InfoContext(ctx, "Updating TCPRoute backend set",
 			slog.String("tcpRoute", details.tcpRoute.Name),
 			slog.String("backendSetName", backendSetName),

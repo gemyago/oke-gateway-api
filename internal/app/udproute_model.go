@@ -527,13 +527,8 @@ func udpBackendSetUsesHealthChecker(
 	backendSet networkloadbalancer.BackendSet,
 	healthChecker networkloadbalancer.HealthCheckerDetails,
 ) bool {
-	if !udpBackendSetUsesTCPHealthChecker(backendSet) {
-		return false
-	}
-	if healthChecker.Port == nil {
-		return backendSet.HealthChecker.Port == nil
-	}
-	return backendSet.HealthChecker.Port != nil && *backendSet.HealthChecker.Port == *healthChecker.Port
+	return udpBackendSetUsesTCPHealthChecker(backendSet) &&
+		networkLoadBalancerHealthCheckerMatches(backendSet.HealthChecker, healthChecker)
 }
 
 func (m *udpRouteModelImpl) clearStaleBackendSets(

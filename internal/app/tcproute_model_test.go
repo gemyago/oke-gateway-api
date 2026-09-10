@@ -2757,6 +2757,7 @@ func TestTCPRouteModel(t *testing.T) {
 			WithRuntimeObjects(objects...).
 			Build()
 		nlbClient := &stubNetworkLoadBalancerClient{}
+		healthChecker := networkLoadBalancerHealthCheckerDetails(listener.Protocol, nil)
 		model := newTCPRouteModel(tcpRouteModelDeps{
 			RootLogger: diag.RootTestLogger(),
 			K8sClient:  k8sClient,
@@ -2767,6 +2768,7 @@ func TestTCPRouteModel(t *testing.T) {
 						"bs_rtmp": {
 							Name:             new("bs_rtmp"),
 							IsPreserveSource: new(false),
+							HealthChecker:    nlbHealthCheckerFromDetails(healthChecker),
 							Backends: []networkloadbalancer.Backend{{
 								IpAddress: new("10.0.0.10"),
 								Port:      new(1935),
@@ -2790,6 +2792,71 @@ func TestTCPRouteModel(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Empty(t, nlbClient.updateBackendSetRequests)
+	})
+
+	t.Run("programRoute repairs backend set health checker drift", func(t *testing.T) {
+		port := gatewayv1.PortNumber(1935)
+		listener := gatewayv1.Listener{Name: "rtmp", Protocol: gatewayv1.TCPProtocolType, Port: port}
+		route := &gatewayv1.TCPRoute{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "rtmp"},
+			Spec: gatewayv1.TCPRouteSpec{
+				CommonRouteSpec: gatewayv1.CommonRouteSpec{
+					ParentRefs: []gatewayv1.ParentReference{{Name: "edge"}},
+				},
+				Rules: []gatewayv1.TCPRouteRule{{
+					BackendRefs: []gatewayv1.BackendRef{{
+						BackendObjectReference: gatewayv1.BackendObjectReference{Name: "backend", Port: &port},
+					}},
+				}},
+			},
+		}
+		objects := append(l4GatewayObjects(listener), route)
+		k8sClient := fake.NewClientBuilder().
+			WithScheme(newL4TestScheme(t)).
+			WithRuntimeObjects(objects...).
+			Build()
+		staleHealthChecker := networkLoadBalancerHealthCheckerDetails(listener.Protocol, nil)
+		staleHealthChecker.IntervalInMillis = new(networkLoadBalancerHealthCheckIntervalMillis + 1)
+		nlbClient := &stubNetworkLoadBalancerClient{}
+		model := newTCPRouteModel(tcpRouteModelDeps{
+			RootLogger: diag.RootTestLogger(),
+			K8sClient:  k8sClient,
+			NetworkLoadBalancerModel: stubNetworkLoadBalancerGatewayModel{
+				networkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id: new("nlb-id"),
+					BackendSets: map[string]networkloadbalancer.BackendSet{
+						"bs_rtmp": {
+							Name:             new("bs_rtmp"),
+							IsPreserveSource: new(false),
+							HealthChecker:    nlbHealthCheckerFromDetails(staleHealthChecker),
+							Backends: []networkloadbalancer.Backend{{
+								IpAddress: new("10.0.0.10"),
+								Port:      new(1935),
+								IsDrain:   new(false),
+								Weight:    new(1),
+							}},
+						},
+					},
+				},
+			},
+			OciNetworkLoadBalancerAPI: nlbClient,
+			WorkRequestsWatcher:       &stubWorkRequestsWatcher{},
+		})
+
+		err := model.programRoute(t.Context(), resolvedTCPRouteDetails{
+			tcpRoute: *route,
+			gatewayDetails: resolvedGatewayDetails{
+				gateway: gatewayv1.Gateway{ObjectMeta: metav1.ObjectMeta{Namespace: "iot", Name: "edge"}},
+			},
+			matchedListener: listener,
+		})
+
+		require.NoError(t, err)
+		require.Len(t, nlbClient.updateBackendSetRequests, 1)
+		assert.Equal(t,
+			networkLoadBalancerHealthCheckIntervalMillis,
+			lo.FromPtr(nlbClient.updateBackendSetRequests[0].UpdateBackendSetDetails.HealthChecker.IntervalInMillis),
+		)
 	})
 
 	t.Run("clearBackendSetByName skips missing load balancer and backend set", func(t *testing.T) {
