@@ -32,6 +32,11 @@ import (
 
 const defaultBackendSetPort = 80
 const defaultCatchAllRuleName = "default_catch_all"
+const loadBalancerHealthCheckRetries = 3
+const loadBalancerHealthCheckTimeoutMillis = 3000
+const loadBalancerHealthCheckIntervalMillis = 10000
+const loadBalancerHealthCheckReturnCode = 200
+const loadBalancerHealthCheckResponseBodyRegex = ".*"
 const maxBackendSetNameLength = 32
 const maxListenerPolicyNameLength = 32
 const listenerPolicyNameHashLength = 16
@@ -236,7 +241,60 @@ func loadBalancerHealthCheckerMatches(
 		return false
 	}
 	return lo.FromPtr(current.Protocol) == lo.FromPtr(desired.Protocol) &&
-		lo.FromPtr(current.Port) == lo.FromPtr(desired.Port)
+		loadBalancerHealthCheckerIntMatches(current.Port, desired.Port, nil) &&
+		lo.FromPtr(current.UrlPath) == lo.FromPtr(desired.UrlPath) &&
+		loadBalancerHealthCheckerIntMatches(
+			current.ReturnCode,
+			desired.ReturnCode,
+			new(loadBalancerHealthCheckReturnCode),
+		) &&
+		loadBalancerHealthCheckerIntMatches(
+			current.Retries,
+			desired.Retries,
+			new(loadBalancerHealthCheckRetries),
+		) &&
+		loadBalancerHealthCheckerIntMatches(
+			current.TimeoutInMillis,
+			desired.TimeoutInMillis,
+			new(loadBalancerHealthCheckTimeoutMillis),
+		) &&
+		loadBalancerHealthCheckerIntMatches(
+			current.IntervalInMillis,
+			desired.IntervalInMillis,
+			new(loadBalancerHealthCheckIntervalMillis),
+		) &&
+		loadBalancerHealthCheckerStringMatches(
+			current.ResponseBodyRegex,
+			desired.ResponseBodyRegex,
+			new(loadBalancerHealthCheckResponseBodyRegex),
+		) &&
+		lo.FromPtr(current.IsForcePlainText) == lo.FromPtr(desired.IsForcePlainText)
+}
+
+func loadBalancerHealthCheckerIntMatches(current, desired, defaultValue *int) bool {
+	if desired == nil {
+		if current == nil {
+			return true
+		}
+		return defaultValue != nil && *current == *defaultValue
+	}
+	if current == nil && defaultValue != nil {
+		return *desired == *defaultValue
+	}
+	return current != nil && *current == *desired
+}
+
+func loadBalancerHealthCheckerStringMatches(current, desired, defaultValue *string) bool {
+	if desired == nil {
+		if current == nil {
+			return true
+		}
+		return defaultValue != nil && *current == *defaultValue
+	}
+	if current == nil && defaultValue != nil {
+		return *desired == *defaultValue
+	}
+	return current != nil && *current == *desired
 }
 
 func loadBalancerBackendSetMatches(
@@ -268,15 +326,32 @@ func loadBalancerSSLConfigurationsEqual(
 	if current == nil || desired == nil {
 		return current == nil && desired == nil
 	}
-	return lo.FromPtr(current.VerifyDepth) == lo.FromPtr(desired.VerifyDepth) &&
-		lo.FromPtr(current.VerifyPeerCertificate) == lo.FromPtr(desired.VerifyPeerCertificate) &&
-		lo.FromPtr(current.HasSessionResumption) == lo.FromPtr(desired.HasSessionResumption) &&
-		lo.FromPtr(current.CertificateName) == lo.FromPtr(desired.CertificateName) &&
-		lo.FromPtr(current.CipherSuiteName) == lo.FromPtr(desired.CipherSuiteName) &&
-		current.ServerOrderPreference == desired.ServerOrderPreference &&
-		stringSlicesEqual(current.Protocols, desired.Protocols) &&
-		stringSlicesEqual(current.CertificateIds, desired.CertificateIds) &&
-		stringSlicesEqual(current.TrustedCertificateAuthorityIds, desired.TrustedCertificateAuthorityIds)
+	if lo.FromPtr(current.CertificateName) != lo.FromPtr(desired.CertificateName) ||
+		!stringSlicesEqual(current.CertificateIds, desired.CertificateIds) ||
+		!stringSlicesEqual(current.TrustedCertificateAuthorityIds, desired.TrustedCertificateAuthorityIds) {
+		return false
+	}
+	if desired.CipherSuiteName != nil && lo.FromPtr(current.CipherSuiteName) != lo.FromPtr(desired.CipherSuiteName) {
+		return false
+	}
+	if len(desired.Protocols) > 0 && !stringSlicesEqual(current.Protocols, desired.Protocols) {
+		return false
+	}
+	if desired.VerifyPeerCertificate != nil &&
+		lo.FromPtr(current.VerifyPeerCertificate) != lo.FromPtr(desired.VerifyPeerCertificate) {
+		return false
+	}
+	if desired.VerifyDepth != nil && lo.FromPtr(current.VerifyDepth) != lo.FromPtr(desired.VerifyDepth) {
+		return false
+	}
+	if desired.HasSessionResumption != nil &&
+		lo.FromPtr(current.HasSessionResumption) != lo.FromPtr(desired.HasSessionResumption) {
+		return false
+	}
+	if desired.ServerOrderPreference != "" && current.ServerOrderPreference != desired.ServerOrderPreference {
+		return false
+	}
+	return true
 }
 
 func loadBalancerListenerSSLConfigurationsEqual(
@@ -318,8 +393,11 @@ func stringSlicesEqual(left []string, right []string) bool {
 
 func loadBalancerBackendSetHealthChecker(port int) loadbalancer.HealthCheckerDetails {
 	return loadbalancer.HealthCheckerDetails{
-		Protocol: new("TCP"),
-		Port:     new(port),
+		Protocol:         new("TCP"),
+		Port:             new(port),
+		Retries:          new(loadBalancerHealthCheckRetries),
+		TimeoutInMillis:  new(loadBalancerHealthCheckTimeoutMillis),
+		IntervalInMillis: new(loadBalancerHealthCheckIntervalMillis),
 	}
 }
 

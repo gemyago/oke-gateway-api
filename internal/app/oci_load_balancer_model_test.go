@@ -74,6 +74,13 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				Protocol: &protocol,
 				Port:     &port,
 			}))
+			assert.False(t, loadBalancerHealthCheckerMatches(&loadbalancer.HealthChecker{
+				Protocol:         &protocol,
+				Port:             &port,
+				Retries:          new(loadBalancerHealthCheckRetries),
+				TimeoutInMillis:  new(loadBalancerHealthCheckTimeoutMillis),
+				IntervalInMillis: new(loadBalancerHealthCheckIntervalMillis + 1),
+			}, loadBalancerBackendSetHealthChecker(port)))
 			assert.True(t, loadBalancerHealthCheckerMatches(&loadbalancer.HealthChecker{
 				Protocol: &protocol,
 				Port:     &port,
@@ -81,6 +88,32 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				Protocol: &protocol,
 				Port:     &port,
 			}))
+			assert.True(t, loadBalancerHealthCheckerMatches(&loadbalancer.HealthChecker{
+				Protocol:          &protocol,
+				Port:              &port,
+				Retries:           new(loadBalancerHealthCheckRetries),
+				TimeoutInMillis:   new(loadBalancerHealthCheckTimeoutMillis),
+				IntervalInMillis:  new(loadBalancerHealthCheckIntervalMillis),
+				ResponseBodyRegex: new(".*"),
+				ReturnCode:        new(200),
+			}, loadBalancerBackendSetHealthChecker(port)))
+			assert.True(t, loadBalancerHealthCheckerStringMatches(
+				nil,
+				new(loadBalancerHealthCheckResponseBodyRegex),
+				new(loadBalancerHealthCheckResponseBodyRegex),
+			))
+			nonDefaultResponseBodyRegex := "not-default-" + fake.Lorem().Word()
+			assert.False(t, loadBalancerHealthCheckerStringMatches(
+				new(nonDefaultResponseBodyRegex),
+				new(loadBalancerHealthCheckResponseBodyRegex),
+				new(loadBalancerHealthCheckResponseBodyRegex),
+			))
+			explicitResponseBodyRegex := fake.Lorem().Word()
+			assert.True(t, loadBalancerHealthCheckerStringMatches(
+				new(explicitResponseBodyRegex),
+				new(explicitResponseBodyRegex),
+				new(loadBalancerHealthCheckResponseBodyRegex),
+			))
 			assert.True(t, loadBalancerBackendSetMatches(
 				loadbalancer.BackendSet{
 					Policy: new("ROUND_ROBIN"),
@@ -255,7 +288,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			changedHasSessionResumption := !lo.FromPtr(changedSessionResumption.HasSessionResumption)
 			changedSessionResumption.HasSessionResumption = &changedHasSessionResumption
 			assert.True(t, loadBalancerListenerSSLConfigurationsEqual(changedSessionResumption, clone()))
-			assert.False(t, loadBalancerSSLConfigurationsEqual(changedSessionResumption, clone()))
+			assert.True(t, loadBalancerSSLConfigurationsEqual(changedSessionResumption, clone()))
 
 			changedServerOrder := clone()
 			changedServerOrder.ServerOrderPreference = loadbalancer.SslConfigurationDetailsServerOrderPreferenceDisabled
@@ -263,12 +296,32 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				changedServerOrder.ServerOrderPreference = loadbalancer.SslConfigurationDetailsServerOrderPreferenceEnabled
 			}
 			assert.True(t, loadBalancerListenerSSLConfigurationsEqual(changedServerOrder, clone()))
-			assert.False(t, loadBalancerSSLConfigurationsEqual(changedServerOrder, clone()))
+			assert.True(t, loadBalancerSSLConfigurationsEqual(changedServerOrder, clone()))
 
 			changedTrustedCA := clone()
 			changedTrustedCA.TrustedCertificateAuthorityIds = []string{"ocid1.cabundle.oc1.." + fake.UUID().V4()}
 			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(changedTrustedCA, clone()))
 			assert.False(t, loadBalancerSSLConfigurationsEqual(changedTrustedCA, clone()))
+
+			backendTLSDesired := &loadbalancer.SslConfigurationDetails{
+				Protocols:             []string{"TLSv1.2", "TLSv1.3"},
+				VerifyDepth:           new(3),
+				VerifyPeerCertificate: new(true),
+				TrustedCertificateAuthorityIds: []string{
+					"ocid1.cabundle.oc1.." + fake.UUID().V4(),
+				},
+			}
+			backendTLSCurrent := &loadbalancer.SslConfigurationDetails{
+				CertificateIds:                 []string{},
+				CipherSuiteName:                new("oci-tls-12-ssl-cipher-suite-v3"),
+				Protocols:                      []string{"TLSv1.2", "TLSv1.3"},
+				ServerOrderPreference:          loadbalancer.SslConfigurationDetailsServerOrderPreferenceEnabled,
+				VerifyDepth:                    new(3),
+				VerifyPeerCertificate:          new(true),
+				HasSessionResumption:           new(false),
+				TrustedCertificateAuthorityIds: slices.Clone(backendTLSDesired.TrustedCertificateAuthorityIds),
+			}
+			assert.True(t, loadBalancerSSLConfigurationsEqual(backendTLSCurrent, backendTLSDesired))
 		})
 
 		t.Run("detects routing default rule shape", func(t *testing.T) {
@@ -531,12 +584,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			ociLoadBalancerClient.EXPECT().CreateBackendSet(t.Context(), loadbalancer.CreateBackendSetRequest{
 				LoadBalancerId: &params.loadBalancerID,
 				CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
-					Name: &wantBsName,
-					HealthChecker: &loadbalancer.HealthCheckerDetails{
-						Port:     new(int(80)),
-						Protocol: new("TCP"),
-					},
-					Policy: new("ROUND_ROBIN"),
+					Name:          &wantBsName,
+					HealthChecker: new(loadBalancerBackendSetHealthChecker(defaultBackendSetPort)),
+					Policy:        new("ROUND_ROBIN"),
 				},
 			}).Return(loadbalancer.CreateBackendSetResponse{
 				OpcWorkRequestId: &workRequestID,
@@ -576,12 +626,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			ociLoadBalancerClient.EXPECT().CreateBackendSet(t.Context(), loadbalancer.CreateBackendSetRequest{
 				LoadBalancerId: &params.loadBalancerID,
 				CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
-					Name: &wantBsName,
-					HealthChecker: &loadbalancer.HealthCheckerDetails{
-						Port:     new(int(80)),
-						Protocol: new("TCP"),
-					},
-					Policy: new("ROUND_ROBIN"),
+					Name:          &wantBsName,
+					HealthChecker: new(loadBalancerBackendSetHealthChecker(defaultBackendSetPort)),
+					Policy:        new("ROUND_ROBIN"),
 				},
 			}).Return(loadbalancer.CreateBackendSetResponse{}, wantErr)
 
@@ -610,12 +657,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			ociLoadBalancerClient.EXPECT().CreateBackendSet(t.Context(), loadbalancer.CreateBackendSetRequest{
 				LoadBalancerId: &params.loadBalancerID,
 				CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
-					Name: &wantBsName,
-					HealthChecker: &loadbalancer.HealthCheckerDetails{
-						Port:     new(int(80)),
-						Protocol: new("TCP"),
-					},
-					Policy: new("ROUND_ROBIN"),
+					Name:          &wantBsName,
+					HealthChecker: new(loadBalancerBackendSetHealthChecker(defaultBackendSetPort)),
+					Policy:        new("ROUND_ROBIN"),
 				},
 			}).Return(loadbalancer.CreateBackendSetResponse{
 				OpcWorkRequestId: &workRequestID,
@@ -643,12 +687,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			ociLoadBalancerClient.EXPECT().CreateBackendSet(t.Context(), loadbalancer.CreateBackendSetRequest{
 				LoadBalancerId: &params.loadBalancerID,
 				CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
-					Name: &wantBsName,
-					HealthChecker: &loadbalancer.HealthCheckerDetails{
-						Port:     new(int(80)),
-						Protocol: new("TCP"),
-					},
-					Policy: new("ROUND_ROBIN"),
+					Name:          &wantBsName,
+					HealthChecker: new(loadBalancerBackendSetHealthChecker(defaultBackendSetPort)),
+					Policy:        new("ROUND_ROBIN"),
 				},
 			}).Return(loadbalancer.CreateBackendSetResponse{}, nil)
 
@@ -677,12 +718,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			ociLoadBalancerClient.EXPECT().CreateBackendSet(t.Context(), loadbalancer.CreateBackendSetRequest{
 				LoadBalancerId: &params.loadBalancerID,
 				CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
-					Name: &wantBsName,
-					HealthChecker: &loadbalancer.HealthCheckerDetails{
-						Port:     new(int(80)),
-						Protocol: new("TCP"),
-					},
-					Policy: new("ROUND_ROBIN"),
+					Name:          &wantBsName,
+					HealthChecker: new(loadBalancerBackendSetHealthChecker(defaultBackendSetPort)),
+					Policy:        new("ROUND_ROBIN"),
 				},
 			}).Return(loadbalancer.CreateBackendSetResponse{
 				OpcWorkRequestId: &workRequestID,
@@ -2472,10 +2510,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				LoadBalancerId: &params.loadBalancerID,
 				CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
 					Name: &wantBsName,
-					HealthChecker: &loadbalancer.HealthCheckerDetails{
-						Protocol: new("TCP"),
-						Port:     new(healthCheckerPortForBackendRef(params.service, params.backendRef)),
-					},
+					HealthChecker: new(loadBalancerBackendSetHealthChecker(
+						healthCheckerPortForBackendRef(params.service, params.backendRef),
+					)),
 					Policy: new("ROUND_ROBIN"),
 				},
 			}).Return(loadbalancer.CreateBackendSetResponse{
@@ -2518,12 +2555,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			ociLoadBalancerClient.EXPECT().CreateBackendSet(t.Context(), loadbalancer.CreateBackendSetRequest{
 				LoadBalancerId: &params.loadBalancerID,
 				CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
-					Name: &wantBsName,
-					HealthChecker: &loadbalancer.HealthCheckerDetails{
-						Protocol: new("TCP"),
-						Port:     new(int(service.Spec.Ports[0].Port)),
-					},
-					Policy: new("ROUND_ROBIN"),
+					Name:          &wantBsName,
+					HealthChecker: new(loadBalancerBackendSetHealthChecker(int(service.Spec.Ports[0].Port))),
+					Policy:        new("ROUND_ROBIN"),
 				},
 			}).Return(loadbalancer.CreateBackendSetResponse{
 				OpcWorkRequestId: &workRequestID,
@@ -2723,10 +2757,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				LoadBalancerId: &params.loadBalancerID,
 				CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
 					Name: &wantBsName,
-					HealthChecker: &loadbalancer.HealthCheckerDetails{
-						Protocol: new("TCP"),
-						Port:     new(healthCheckerPortForBackendRef(params.service, params.backendRef)),
-					},
+					HealthChecker: new(loadBalancerBackendSetHealthChecker(
+						healthCheckerPortForBackendRef(params.service, params.backendRef),
+					)),
 					Policy: new("ROUND_ROBIN"),
 				},
 			}).Return(loadbalancer.CreateBackendSetResponse{}, wantErr).Once()
@@ -2756,10 +2789,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				LoadBalancerId: &params.loadBalancerID,
 				CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
 					Name: &wantBsName,
-					HealthChecker: &loadbalancer.HealthCheckerDetails{
-						Protocol: new("TCP"),
-						Port:     new(healthCheckerPortForBackendRef(params.service, params.backendRef)),
-					},
+					HealthChecker: new(loadBalancerBackendSetHealthChecker(
+						healthCheckerPortForBackendRef(params.service, params.backendRef),
+					)),
 					Policy: new("ROUND_ROBIN"),
 				},
 			}).Return(loadbalancer.CreateBackendSetResponse{}, nil).Once()
@@ -2792,10 +2824,9 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				LoadBalancerId: &params.loadBalancerID,
 				CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
 					Name: &wantBsName,
-					HealthChecker: &loadbalancer.HealthCheckerDetails{
-						Protocol: new("TCP"),
-						Port:     new(healthCheckerPortForBackendRef(params.service, params.backendRef)),
-					},
+					HealthChecker: new(loadBalancerBackendSetHealthChecker(
+						healthCheckerPortForBackendRef(params.service, params.backendRef),
+					)),
 					Policy: new("ROUND_ROBIN"),
 				},
 			}).Return(loadbalancer.CreateBackendSetResponse{

@@ -409,9 +409,10 @@ func TestNetworkLoadBalancerGatewayController(t *testing.T) {
 			alreadyDone: true,
 			nlb:         nlb,
 		}
+		resourcesModel := &stubResourcesModel{conditionSet: true}
 		controller := NewNetworkLoadBalancerGatewayController(NetworkLoadBalancerGatewayControllerDeps{
 			RootLogger:     diag.RootTestLogger(),
-			ResourcesModel: &stubResourcesModel{conditionSet: true},
+			ResourcesModel: resourcesModel,
 			GatewayModel:   gatewayModel,
 			DriftInterval:  driftInterval,
 		})
@@ -420,6 +421,7 @@ func TestNetworkLoadBalancerGatewayController(t *testing.T) {
 
 		require.NoError(t, err)
 		assertDriftRequeue(t, result, driftInterval)
+		assert.False(t, resourcesModel.setCalled)
 		assert.True(t, gatewayModel.programmedNow)
 		assert.Same(t, nlb, gatewayModel.programmedNLB)
 	})

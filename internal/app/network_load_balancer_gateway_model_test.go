@@ -816,6 +816,30 @@ func TestNetworkLoadBalancerGatewayModel(t *testing.T) {
 		assert.Equal(t, "frontend mTLS is not supported by OCI Network Load Balancer gateways", statusErr.message)
 	})
 
+	t.Run("rejects unsupported listener protocol through programGateway", func(t *testing.T) {
+		model := newModel(&stubNetworkLoadBalancerClient{
+			getResponse: networkloadbalancer.GetNetworkLoadBalancerResponse{
+				NetworkLoadBalancer: networkloadbalancer.NetworkLoadBalancer{
+					Id: new("ocid1.networkloadbalancer.oc1..existing"),
+				},
+			},
+		}, &stubWorkRequestsWatcher{})
+		details := newDetails()
+		details.gateway.Spec.Listeners = []gatewayv1.Listener{{
+			Name:     "web",
+			Protocol: gatewayv1.HTTPProtocolType,
+			Port:     80,
+		}}
+
+		err := model.programGateway(t.Context(), details)
+
+		var statusErr *resourceStatusError
+		require.ErrorAs(t, err, &statusErr)
+		assert.Equal(t, string(gatewayv1.GatewayConditionAccepted), statusErr.conditionType)
+		assert.Equal(t, string(gatewayv1.GatewayReasonInvalid), statusErr.reason)
+		assert.Equal(t, "listener web uses unsupported protocol HTTP for OCI Network Load Balancer", statusErr.message)
+	})
+
 	t.Run("covers unsupported listener protocols", func(t *testing.T) {
 		_, supported := networkLoadBalancerListenerProtocol(gatewayv1.HTTPProtocolType)
 		assert.False(t, supported)

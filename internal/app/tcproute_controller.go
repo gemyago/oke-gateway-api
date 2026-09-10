@@ -38,19 +38,20 @@ func NewTCPRouteController(deps TCPRouteControllerDeps) *TCPRouteController {
 
 func (r *TCPRouteController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	return reconcileL4Route(ctx, reconcileL4RouteParams[resolvedTCPRouteDetails]{
-		logger:        r.logger,
-		req:           req,
-		routeKind:     "TCPRoute",
-		routeAttr:     "tcpRoute",
-		finalizer:     NetworkLoadBalancerTCPRouteProgrammedFinalizer,
-		resolve:       r.tcpRouteModel.resolveRequest,
-		route:         func(details resolvedTCPRouteDetails) client.Object { return &details.tcpRoute },
-		deprovision:   r.tcpRouteModel.deprovisionRoute,
-		program:       r.tcpRouteModel.programRoute,
-		setPending:    r.tcpRouteModel.setPending,
-		setProgrammed: r.tcpRouteModel.setProgrammed,
-		driftInterval: r.driftInterval,
-		setRejected:   r.setRejected(ctx),
+		logger:                r.logger,
+		req:                   req,
+		routeKind:             "TCPRoute",
+		routeAttr:             "tcpRoute",
+		finalizer:             NetworkLoadBalancerTCPRouteProgrammedFinalizer,
+		resolve:               r.tcpRouteModel.resolveRequest,
+		route:                 func(details resolvedTCPRouteDetails) client.Object { return &details.tcpRoute },
+		deprovision:           r.tcpRouteModel.deprovisionRoute,
+		program:               r.tcpRouteModel.programRoute,
+		setPending:            r.tcpRouteModel.setPending,
+		setProgrammed:         r.tcpRouteModel.setProgrammed,
+		isProgrammingRequired: r.tcpRouteModel.isProgrammingRequired,
+		driftInterval:         r.driftInterval,
+		setRejected:           r.setRejected(ctx),
 	})
 }
 
@@ -67,19 +68,20 @@ func (r *TCPRouteController) setRejected(
 }
 
 type reconcileL4RouteParams[D any] struct {
-	logger        *slog.Logger
-	req           reconcile.Request
-	routeKind     string
-	routeAttr     string
-	finalizer     string
-	resolve       func(context.Context, reconcile.Request) ([]D, error)
-	route         func(D) client.Object
-	deprovision   func(context.Context, D) error
-	program       func(context.Context, D) error
-	setPending    func(context.Context, D) error
-	setProgrammed func(context.Context, D) error
-	driftInterval time.Duration
-	setRejected   func(D, error) (bool, error)
+	logger                *slog.Logger
+	req                   reconcile.Request
+	routeKind             string
+	routeAttr             string
+	finalizer             string
+	resolve               func(context.Context, reconcile.Request) ([]D, error)
+	route                 func(D) client.Object
+	deprovision           func(context.Context, D) error
+	program               func(context.Context, D) error
+	setPending            func(context.Context, D) error
+	setProgrammed         func(context.Context, D) error
+	isProgrammingRequired func(D) bool
+	driftInterval         time.Duration
+	setRejected           func(D, error) (bool, error)
 }
 
 func reconcileL4Route[D any](ctx context.Context, params reconcileL4RouteParams[D]) (reconcile.Result, error) {
@@ -132,8 +134,16 @@ func reconcileResolvedL4Route[D any](
 		return nil
 	}
 
-	if err := params.setPending(ctx, resolvedRoute); err != nil {
-		return fmt.Errorf("failed to set %s %s pending status: %w", params.routeKind, params.req.NamespacedName, err)
+	programmingRequired := params.isProgrammingRequired == nil || params.isProgrammingRequired(resolvedRoute)
+	if shouldSetPendingForReconcile(programmingRequired, params.driftInterval) {
+		if err := params.setPending(ctx, resolvedRoute); err != nil {
+			return fmt.Errorf(
+				"failed to set %s %s pending status: %w",
+				params.routeKind,
+				params.req.NamespacedName,
+				err,
+			)
+		}
 	}
 
 	if err := params.program(ctx, resolvedRoute); err != nil {

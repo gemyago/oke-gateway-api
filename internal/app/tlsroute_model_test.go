@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/jaswdr/faker/v2"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"github.com/samber/lo"
@@ -204,6 +205,49 @@ func TestTLSRouteModelResolveAndProgramALBTerminate(t *testing.T) {
 	)
 	require.NotNil(t, acceptedCondition)
 	assert.Equal(t, fmt.Sprintf("TLSRoute rtmps accepted by %s", ControllerClassName), acceptedCondition.Message)
+}
+
+func TestTLSRouteModelIsProgrammingRequired(t *testing.T) {
+	fake := faker.New()
+	loadBalancerID := "ocid1.networkloadbalancer.oc1..test"
+	parentRef := gatewayv1.ParentReference{Name: gatewayv1.ObjectName(fake.Lorem().Word())}
+	route := gatewayv1.TLSRoute{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:  "media",
+			Name:       fake.Lorem().Word(),
+			Generation: 9,
+			Annotations: map[string]string{
+				L4RouteProgrammedNetworkLoadBalancerIDAnnotation: loadBalancerID,
+			},
+		},
+		Status: gatewayv1.TLSRouteStatus{RouteStatus: gatewayv1.RouteStatus{
+			Parents: []gatewayv1.RouteParentStatus{{
+				ParentRef:      parentRef,
+				ControllerName: NetworkLoadBalancerControllerClassName,
+				Conditions: []metav1.Condition{{
+					Type:               string(gatewayv1.RouteConditionResolvedRefs),
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: 9,
+				}},
+			}},
+		}},
+	}
+	model := &tlsRouteModelImpl{}
+
+	assert.False(t, model.isProgrammingRequired(resolvedTLSRouteDetails{
+		tlsRoute:   route,
+		matchedRef: parentRef,
+		gatewayDetails: resolvedGatewayDetails{
+			gatewayClass: gatewayv1.GatewayClass{
+				Spec: gatewayv1.GatewayClassSpec{
+					ControllerName: gatewayv1.GatewayController(NetworkLoadBalancerControllerClassName),
+				},
+			},
+			config: types.GatewayConfig{
+				Spec: types.GatewayConfigSpec{LoadBalancerID: loadBalancerID},
+			},
+		},
+	}))
 }
 
 func TestTLSRouteModelValidation(t *testing.T) {
