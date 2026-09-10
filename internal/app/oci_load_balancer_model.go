@@ -326,15 +326,32 @@ func loadBalancerSSLConfigurationsEqual(
 	if current == nil || desired == nil {
 		return current == nil && desired == nil
 	}
-	return lo.FromPtr(current.VerifyDepth) == lo.FromPtr(desired.VerifyDepth) &&
-		lo.FromPtr(current.VerifyPeerCertificate) == lo.FromPtr(desired.VerifyPeerCertificate) &&
-		lo.FromPtr(current.HasSessionResumption) == lo.FromPtr(desired.HasSessionResumption) &&
-		lo.FromPtr(current.CertificateName) == lo.FromPtr(desired.CertificateName) &&
-		lo.FromPtr(current.CipherSuiteName) == lo.FromPtr(desired.CipherSuiteName) &&
-		current.ServerOrderPreference == desired.ServerOrderPreference &&
-		stringSlicesEqual(current.Protocols, desired.Protocols) &&
-		stringSlicesEqual(current.CertificateIds, desired.CertificateIds) &&
-		stringSlicesEqual(current.TrustedCertificateAuthorityIds, desired.TrustedCertificateAuthorityIds)
+	if lo.FromPtr(current.CertificateName) != lo.FromPtr(desired.CertificateName) ||
+		!stringSlicesEqual(current.CertificateIds, desired.CertificateIds) ||
+		!stringSlicesEqual(current.TrustedCertificateAuthorityIds, desired.TrustedCertificateAuthorityIds) {
+		return false
+	}
+	if desired.CipherSuiteName != nil && lo.FromPtr(current.CipherSuiteName) != lo.FromPtr(desired.CipherSuiteName) {
+		return false
+	}
+	if len(desired.Protocols) > 0 && !stringSlicesEqual(current.Protocols, desired.Protocols) {
+		return false
+	}
+	if desired.VerifyPeerCertificate != nil &&
+		lo.FromPtr(current.VerifyPeerCertificate) != lo.FromPtr(desired.VerifyPeerCertificate) {
+		return false
+	}
+	if desired.VerifyDepth != nil && lo.FromPtr(current.VerifyDepth) != lo.FromPtr(desired.VerifyDepth) {
+		return false
+	}
+	if desired.HasSessionResumption != nil &&
+		lo.FromPtr(current.HasSessionResumption) != lo.FromPtr(desired.HasSessionResumption) {
+		return false
+	}
+	if desired.ServerOrderPreference != "" && current.ServerOrderPreference != desired.ServerOrderPreference {
+		return false
+	}
+	return true
 }
 
 func loadBalancerListenerSSLConfigurationsEqual(

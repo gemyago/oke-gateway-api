@@ -288,7 +288,7 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 			changedHasSessionResumption := !lo.FromPtr(changedSessionResumption.HasSessionResumption)
 			changedSessionResumption.HasSessionResumption = &changedHasSessionResumption
 			assert.True(t, loadBalancerListenerSSLConfigurationsEqual(changedSessionResumption, clone()))
-			assert.False(t, loadBalancerSSLConfigurationsEqual(changedSessionResumption, clone()))
+			assert.True(t, loadBalancerSSLConfigurationsEqual(changedSessionResumption, clone()))
 
 			changedServerOrder := clone()
 			changedServerOrder.ServerOrderPreference = loadbalancer.SslConfigurationDetailsServerOrderPreferenceDisabled
@@ -296,12 +296,32 @@ func TestOciLoadBalancerModelImpl(t *testing.T) {
 				changedServerOrder.ServerOrderPreference = loadbalancer.SslConfigurationDetailsServerOrderPreferenceEnabled
 			}
 			assert.True(t, loadBalancerListenerSSLConfigurationsEqual(changedServerOrder, clone()))
-			assert.False(t, loadBalancerSSLConfigurationsEqual(changedServerOrder, clone()))
+			assert.True(t, loadBalancerSSLConfigurationsEqual(changedServerOrder, clone()))
 
 			changedTrustedCA := clone()
 			changedTrustedCA.TrustedCertificateAuthorityIds = []string{"ocid1.cabundle.oc1.." + fake.UUID().V4()}
 			assert.False(t, loadBalancerListenerSSLConfigurationsEqual(changedTrustedCA, clone()))
 			assert.False(t, loadBalancerSSLConfigurationsEqual(changedTrustedCA, clone()))
+
+			backendTLSDesired := &loadbalancer.SslConfigurationDetails{
+				Protocols:             []string{"TLSv1.2", "TLSv1.3"},
+				VerifyDepth:           new(3),
+				VerifyPeerCertificate: new(true),
+				TrustedCertificateAuthorityIds: []string{
+					"ocid1.cabundle.oc1.." + fake.UUID().V4(),
+				},
+			}
+			backendTLSCurrent := &loadbalancer.SslConfigurationDetails{
+				CertificateIds:                 []string{},
+				CipherSuiteName:                new("oci-tls-12-ssl-cipher-suite-v3"),
+				Protocols:                      []string{"TLSv1.2", "TLSv1.3"},
+				ServerOrderPreference:          loadbalancer.SslConfigurationDetailsServerOrderPreferenceEnabled,
+				VerifyDepth:                    new(3),
+				VerifyPeerCertificate:          new(true),
+				HasSessionResumption:           new(false),
+				TrustedCertificateAuthorityIds: slices.Clone(backendTLSDesired.TrustedCertificateAuthorityIds),
+			}
+			assert.True(t, loadBalancerSSLConfigurationsEqual(backendTLSCurrent, backendTLSDesired))
 		})
 
 		t.Run("detects routing default rule shape", func(t *testing.T) {
