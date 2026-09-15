@@ -306,7 +306,7 @@ func loadBalancerBackendSetMatches(
 	desiredSSLConfig := firstSSLConfig(sslConfig)
 	return lo.FromPtr(current.Policy) == policy &&
 		loadBalancerHealthCheckerMatches(current.HealthChecker, healthChecker) &&
-		loadBalancerSSLConfigurationsEqual(
+		loadBalancerSSLConfigurationMatchesDesired(
 			sslConfigurationDetailsFromBackendSet(current.SslConfiguration),
 			desiredSSLConfig,
 		)
@@ -320,6 +320,24 @@ func firstSSLConfig(configs []*loadbalancer.SslConfigurationDetails) *loadbalanc
 }
 
 func loadBalancerSSLConfigurationsEqual(
+	current *loadbalancer.SslConfigurationDetails,
+	desired *loadbalancer.SslConfigurationDetails,
+) bool {
+	if current == nil || desired == nil {
+		return current == nil && desired == nil
+	}
+	return lo.FromPtr(current.CertificateName) == lo.FromPtr(desired.CertificateName) &&
+		stringSlicesEqual(current.CertificateIds, desired.CertificateIds) &&
+		lo.FromPtr(current.CipherSuiteName) == lo.FromPtr(desired.CipherSuiteName) &&
+		stringSlicesEqual(current.Protocols, desired.Protocols) &&
+		lo.FromPtr(current.VerifyPeerCertificate) == lo.FromPtr(desired.VerifyPeerCertificate) &&
+		lo.FromPtr(current.VerifyDepth) == lo.FromPtr(desired.VerifyDepth) &&
+		lo.FromPtr(current.HasSessionResumption) == lo.FromPtr(desired.HasSessionResumption) &&
+		current.ServerOrderPreference == desired.ServerOrderPreference &&
+		stringSlicesEqual(current.TrustedCertificateAuthorityIds, desired.TrustedCertificateAuthorityIds)
+}
+
+func loadBalancerSSLConfigurationMatchesDesired(
 	current *loadbalancer.SslConfigurationDetails,
 	desired *loadbalancer.SslConfigurationDetails,
 ) bool {

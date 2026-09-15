@@ -388,19 +388,21 @@ func (m *backendTLSPolicyModelImpl) resolveAcceptedPolicy(
 			policy.Name,
 		)
 	}
-	if err = m.setPolicyPendingConditions(ctx, policy, params.gateway); err != nil {
-		return nil, err
-	}
 	policyToFinalize := policy
-	if err = m.k8sClient.Get(ctx, apitypes.NamespacedName{
-		Namespace: policy.Namespace,
-		Name:      policy.Name,
-	}, &policyToFinalize); err != nil {
-		return nil, fmt.Errorf("failed to get BackendTLSPolicy %s/%s after pending status update: %w",
-			policy.Namespace,
-			policy.Name,
-			err,
-		)
+	if !backendTLSPolicyResolvedForGateway(policy, params.gateway) {
+		if err = m.setPolicyPendingConditions(ctx, policy, params.gateway); err != nil {
+			return nil, err
+		}
+		if err = m.k8sClient.Get(ctx, apitypes.NamespacedName{
+			Namespace: policy.Namespace,
+			Name:      policy.Name,
+		}, &policyToFinalize); err != nil {
+			return nil, fmt.Errorf("failed to get BackendTLSPolicy %s/%s after pending status update: %w",
+				policy.Namespace,
+				policy.Name,
+				err,
+			)
+		}
 	}
 	if err = m.ensurePolicyFinalizerAndCompartment(ctx, policyToFinalize, compartmentID); err != nil {
 		return nil, err
@@ -994,6 +996,36 @@ func (m *backendTLSPolicyModelImpl) setPolicyPendingConditions(
 			"BackendTLSPolicy reconciliation is in progress.",
 		),
 	)
+}
+
+func backendTLSPolicyResolvedForGateway(policy gatewayv1.BackendTLSPolicy, gateway gatewayv1.Gateway) bool {
+	gatewayNamespace := gatewayv1.Namespace(gateway.Namespace)
+	ancestorRef := gatewayv1.ParentReference{
+		Group:     lo.ToPtr(gatewayv1.Group(gatewayv1.GroupName)),
+		Kind:      lo.ToPtr(gatewayv1.Kind("Gateway")),
+		Namespace: &gatewayNamespace,
+		Name:      gatewayv1.ObjectName(gateway.Name),
+	}
+	controllerName := gatewayv1.GatewayController(ControllerClassName)
+	for _, ancestor := range policy.Status.Ancestors {
+		if ancestor.ControllerName != controllerName || !parentRefsEqual(ancestor.AncestorRef, ancestorRef) {
+			continue
+		}
+		accepted := meta.FindStatusCondition(ancestor.Conditions, string(gatewayv1.PolicyConditionAccepted))
+		resolvedRefs := meta.FindStatusCondition(
+			ancestor.Conditions,
+			string(gatewayv1.BackendTLSPolicyConditionResolvedRefs),
+		)
+		return conditionObservedTrue(accepted, policy.Generation) &&
+			conditionObservedTrue(resolvedRefs, policy.Generation)
+	}
+	return false
+}
+
+func conditionObservedTrue(condition *metav1.Condition, generation int64) bool {
+	return condition != nil &&
+		condition.Status == metav1.ConditionTrue &&
+		condition.ObservedGeneration == generation
 }
 
 func backendTLSPolicyCondition(

@@ -1265,6 +1265,87 @@ func TestBackendTLSPolicyModelValidationAndLifecycle(t *testing.T) {
 		assert.Equal(t, newPEM, lo.FromPtr(certsClient.updateCalls[0].UpdateCaBundleDetails.CaBundlePem))
 	})
 
+	t.Run("resolveAcceptedPolicy preserves resolved status during drift-only resolution", func(t *testing.T) {
+		policy := backendTLSPolicy(namespace, "stable", serviceName, "tls", baseOptions, "ca")
+		policy.Generation = 3
+		policy.Finalizers = []string{BackendTLSPolicyProgrammedFinalizer}
+		policy.Annotations = map[string]string{
+			BackendTLSPolicyCompartmentsAnnotation: compartmentID,
+		}
+		gatewayNamespace := gatewayv1.Namespace(gateway.Namespace)
+		policy.Status.Ancestors = []gatewayv1.PolicyAncestorStatus{{
+			AncestorRef: gatewayv1.ParentReference{
+				Group:     lo.ToPtr(gatewayv1.Group(gatewayv1.GroupName)),
+				Kind:      lo.ToPtr(gatewayv1.Kind("Gateway")),
+				Namespace: &gatewayNamespace,
+				Name:      gatewayv1.ObjectName(gateway.Name),
+			},
+			ControllerName: gatewayv1.GatewayController(ControllerClassName),
+			Conditions: []metav1.Condition{
+				backendTLSPolicyCondition(
+					policy.Generation,
+					gatewayv1.PolicyConditionAccepted,
+					metav1.ConditionTrue,
+					gatewayv1.PolicyReasonAccepted,
+					"BackendTLSPolicy is accepted.",
+				),
+				backendTLSPolicyCondition(
+					policy.Generation,
+					gatewayv1.BackendTLSPolicyConditionResolvedRefs,
+					metav1.ConditionTrue,
+					gatewayv1.BackendTLSPolicyReasonResolvedRefs,
+					"BackendTLSPolicy references are resolved.",
+				),
+			},
+		}}
+		targetRef := policy.Spec.TargetRefs[0]
+		ref := policy.Spec.Validation.CACertificateRefs[0]
+		ca := corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: string(ref.Name)},
+			Data:       map[string]string{"ca.crt": testCAPEM(t)},
+		}
+		k8sClient := NewMockk8sClient(t)
+		k8sClient.EXPECT().
+			Get(t.Context(), apitypes.NamespacedName{Namespace: namespace, Name: string(ref.Name)}, mock.Anything).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				typedCA, ok := obj.(*corev1.ConfigMap)
+				require.True(t, ok)
+				*typedCA = ca
+				return nil
+			})
+		k8sClient.EXPECT().
+			Get(
+				t.Context(),
+				apitypes.NamespacedName{Namespace: namespace, Name: "stable"},
+				mock.AnythingOfType("*v1.BackendTLSPolicy"),
+			).
+			RunAndReturn(func(_ context.Context, _ apitypes.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+				typedPolicy, ok := obj.(*gatewayv1.BackendTLSPolicy)
+				require.True(t, ok)
+				*typedPolicy = policy
+				return nil
+			}).
+			Maybe()
+		lbClient := NewMockociLoadBalancerClient(t)
+		lbClient.EXPECT().GetLoadBalancer(t.Context(), mock.Anything).
+			Return(loadbalancer.GetLoadBalancerResponse{
+				LoadBalancer: loadbalancer.LoadBalancer{CompartmentId: &compartmentID},
+			}, nil)
+		model := newBackendTLSPolicyModel(backendTLSPolicyModelDeps{
+			RootLogger:                diag.RootTestLogger(),
+			K8sClient:                 k8sClient,
+			OciLoadBalancerClient:     lbClient,
+			OciCertificatesMgmtClient: newStubCertificatesManagementClient(),
+		})
+
+		_, err := model.resolveAcceptedPolicy(t.Context(), backendTLSPolicyCandidate{
+			policy:    policy,
+			targetRef: targetRef,
+		}, resolveParams)
+
+		require.NoError(t, err)
+	})
+
 	t.Run("resolveAcceptedPolicy returns pending status update errors", func(t *testing.T) {
 		policy := backendTLSPolicy(namespace, "pending-resolve-error", serviceName, "tls", baseOptions, "ca")
 		targetRef := policy.Spec.TargetRefs[0]

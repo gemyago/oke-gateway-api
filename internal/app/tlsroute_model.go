@@ -876,7 +876,7 @@ func (m *tlsRouteModelImpl) reconcileLoadBalancerBackendSet(
 	if existingBackendSet.Name != nil {
 		if loadBalancerBackendSetMatches(existingBackendSet, desiredPolicy, healthChecker, desiredSSLConfig) &&
 			loadBalancerBackendsEqual(existingBackendSet.Backends, backends) &&
-			loadBalancerSSLConfigurationsEqual(
+			loadBalancerSSLConfigurationMatchesDesired(
 				sslConfigurationDetailsFromBackendSet(existingBackendSet.SslConfiguration),
 				desiredSSLConfig,
 			) {
