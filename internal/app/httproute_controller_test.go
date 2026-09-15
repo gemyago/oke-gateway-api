@@ -785,8 +785,6 @@ func TestHTTPRouteController(t *testing.T) {
 
 			mockModel.EXPECT().isProgrammingRequired(wantResolvedData).Return(false, nil)
 
-			expectPending(mockModel, wantResolvedData, wantAcceptedRoute)
-
 			wantBackendRefs := make(map[string]v1.Service)
 			for range 3 {
 				svc := makeRandomService()
@@ -843,6 +841,7 @@ func TestHTTPRouteController(t *testing.T) {
 			result, err := controller.Reconcile(t.Context(), req)
 
 			require.NoError(t, err)
+			mockModel.AssertNotCalled(t, "setPending", mock.Anything, mock.Anything)
 			assertDriftRequeue(t, result, driftInterval)
 		})
 

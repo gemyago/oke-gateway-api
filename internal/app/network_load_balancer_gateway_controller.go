@@ -129,32 +129,35 @@ func (r *NetworkLoadBalancerGatewayController) Reconcile(
 		}
 	}
 
-	if r.gatewayModel.isProgrammed(ctx, &data) && r.driftInterval <= 0 {
+	programmed := r.gatewayModel.isProgrammed(ctx, &data)
+	if programmed && r.driftInterval <= 0 {
 		r.logger.DebugContext(ctx, "Network Load Balancer Gateway already programmed",
 			slog.String("gateway", req.NamespacedName.String()),
 		)
 		return reconcile.Result{}, nil
 	}
 
-	if err = r.resourcesModel.setCondition(ctx, setConditionParams{
-		resource:      &data.gateway,
-		conditions:    &data.gateway.Status.Conditions,
-		conditionType: string(gatewayv1.GatewayConditionProgrammed),
-		status:        metav1.ConditionUnknown,
-		reason:        string(gatewayv1.GatewayReasonPending),
-		message: fmt.Sprintf(
-			"Gateway %s programming by %s is in progress",
-			data.gateway.Name,
-			NetworkLoadBalancerControllerClassName,
-		),
-		annotations: networkLoadBalancerGatewayProtectionAnnotations(&data),
-		finalizer:   NetworkLoadBalancerGatewayProgrammedFinalizer,
-	}); err != nil {
-		return reconcile.Result{}, fmt.Errorf(
-			"failed to persist programming protection for Gateway %s: %w",
-			req.NamespacedName,
-			err,
-		)
+	if !programmed {
+		if err = r.resourcesModel.setCondition(ctx, setConditionParams{
+			resource:      &data.gateway,
+			conditions:    &data.gateway.Status.Conditions,
+			conditionType: string(gatewayv1.GatewayConditionProgrammed),
+			status:        metav1.ConditionUnknown,
+			reason:        string(gatewayv1.GatewayReasonPending),
+			message: fmt.Sprintf(
+				"Gateway %s programming by %s is in progress",
+				data.gateway.Name,
+				NetworkLoadBalancerControllerClassName,
+			),
+			annotations: networkLoadBalancerGatewayProtectionAnnotations(&data),
+			finalizer:   NetworkLoadBalancerGatewayProgrammedFinalizer,
+		}); err != nil {
+			return reconcile.Result{}, fmt.Errorf(
+				"failed to persist programming protection for Gateway %s: %w",
+				req.NamespacedName,
+				err,
+			)
+		}
 	}
 
 	if err = r.gatewayModel.programGateway(ctx, &data); err != nil {

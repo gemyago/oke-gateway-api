@@ -147,25 +147,8 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 			slog.String("loadBalancerID", data.config.Spec.LoadBalancerID),
 		)
 
-		if err = r.resourcesModel.setCondition(ctx, setConditionParams{
-			resource:      &data.gateway,
-			conditions:    &data.gateway.Status.Conditions,
-			conditionType: string(gatewayv1.GatewayConditionProgrammed),
-			status:        v1.ConditionUnknown,
-			reason:        string(gatewayv1.GatewayReasonPending),
-			message: fmt.Sprintf(
-				"Gateway %s programming by %s is in progress",
-				data.gateway.Name,
-				ControllerClassName,
-			),
-			annotations: loadBalancerGatewayProtectionAnnotations(&data),
-			finalizer:   LoadBalancerGatewayProgrammedFinalizer,
-		}); err != nil {
-			return reconcile.Result{}, fmt.Errorf(
-				"failed to persist programming protection for Gateway %s: %w",
-				req.NamespacedName,
-				err,
-			)
+		if err = r.setProgrammingProtection(ctx, req, &data, programmed); err != nil {
+			return reconcile.Result{}, err
 		}
 
 		if err = r.gatewayModel.programGateway(ctx, &data); err != nil {
@@ -192,6 +175,38 @@ func (r *GatewayController) Reconcile(ctx context.Context, req reconcile.Request
 	}
 
 	return driftRequeue(r.driftInterval), nil
+}
+
+func (r *GatewayController) setProgrammingProtection(
+	ctx context.Context,
+	req reconcile.Request,
+	data *resolvedGatewayDetails,
+	programmed bool,
+) error {
+	if programmed {
+		return nil
+	}
+	if err := r.resourcesModel.setCondition(ctx, setConditionParams{
+		resource:      &data.gateway,
+		conditions:    &data.gateway.Status.Conditions,
+		conditionType: string(gatewayv1.GatewayConditionProgrammed),
+		status:        v1.ConditionUnknown,
+		reason:        string(gatewayv1.GatewayReasonPending),
+		message: fmt.Sprintf(
+			"Gateway %s programming by %s is in progress",
+			data.gateway.Name,
+			ControllerClassName,
+		),
+		annotations: loadBalancerGatewayProtectionAnnotations(data),
+		finalizer:   LoadBalancerGatewayProgrammedFinalizer,
+	}); err != nil {
+		return fmt.Errorf(
+			"failed to persist programming protection for Gateway %s: %w",
+			req.NamespacedName,
+			err,
+		)
+	}
+	return nil
 }
 
 func loadBalancerGatewayProtectionAnnotations(data *resolvedGatewayDetails) map[string]string {

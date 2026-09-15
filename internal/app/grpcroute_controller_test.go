@@ -323,6 +323,10 @@ func TestGRPCRouteController(t *testing.T) {
 				assert.Equal(t, []string{"grpc/rule"}, params.programmedPolicyRules)
 				return nil
 			},
+			setPendingFunc: func(context.Context, setGRPCRouteProgrammedParams) error {
+				require.Fail(t, "drift-only reconciliation should not set Pending status")
+				return nil
+			},
 		}
 		backendModel.EXPECT().syncGRPCRouteEndpoints(t.Context(), syncGRPCRouteEndpointsParams{
 			grpcRoute: route,

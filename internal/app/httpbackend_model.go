@@ -10,6 +10,7 @@ import (
 	"go.uber.org/dig"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	client "sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
@@ -272,19 +273,9 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 	}
 	existingBackendSet := getResp.BackendSet
 
-	var endpointSlices discoveryv1.EndpointSliceList
-
-	if err = m.k8sClient.List(ctx, &endpointSlices,
-		client.MatchingLabels{
-			discoveryv1.LabelServiceName: string(backendRef.BackendObjectReference.Name),
-		},
-		client.InNamespace(backendRefNamespace),
-	); err != nil {
-		return fmt.Errorf(
-			"failed to list endpoint slices for backend %s: %w",
-			backendRef.BackendObjectReference.Name,
-			err,
-		)
+	endpointSlices, err := m.listL7EndpointSlices(ctx, backendRefNamespace, backendRef)
+	if err != nil {
+		return err
 	}
 
 	servicePort, err := m.resolveL7ServicePort(ctx, backendRefNamespace, backendRef)
@@ -295,13 +286,21 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 	backendsToUpdate, err := m.self.identifyBackendsToUpdate(ctx, identifyBackendsToUpdateParams{
 		servicePort:     *servicePort,
 		currentBackends: existingBackendSet.Backends,
-		endpointSlices:  endpointSlices.Items,
+		endpointSlices:  endpointSlices,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to identify backends to update: %w", err)
 	}
 
-	if !backendsToUpdate.updateRequired {
+	desiredPolicy := "ROUND_ROBIN"
+	desiredHealthChecker := l7BackendSetHealthChecker(
+		*servicePort,
+		backendsToUpdate.updatedBackends,
+		existingBackendSet,
+	)
+
+	if !backendsToUpdate.updateRequired &&
+		l7BackendSetConfigMatches(existingBackendSet, desiredPolicy, desiredHealthChecker) {
 		m.logger.InfoContext(ctx, "Backend set already up-to-date, skipping update",
 			slog.String("backendSetName", backendSetName),
 			slog.String("routeKind", params.routeKind),
@@ -329,6 +328,8 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 		UpdateBackendSetDetails: makeUpdateOciBackendSetDetails(
 			existingBackendSet,
 			backendsToUpdate.updatedBackends,
+			desiredPolicy,
+			desiredHealthChecker,
 		),
 	})
 	if err != nil {
@@ -343,6 +344,27 @@ func (m *httpBackendModelImpl) syncRouteBackendRefEndpoints(
 		return fmt.Errorf("failed to wait for backend set %s to be updated: %w", backendSetName, err)
 	}
 	return nil
+}
+
+func (m *httpBackendModelImpl) listL7EndpointSlices(
+	ctx context.Context,
+	namespace string,
+	backendRef gatewayv1.BackendRef,
+) ([]discoveryv1.EndpointSlice, error) {
+	var endpointSlices discoveryv1.EndpointSliceList
+	if err := m.k8sClient.List(ctx, &endpointSlices,
+		client.MatchingLabels{
+			discoveryv1.LabelServiceName: string(backendRef.BackendObjectReference.Name),
+		},
+		client.InNamespace(namespace),
+	); err != nil {
+		return nil, fmt.Errorf(
+			"failed to list endpoint slices for backend %s: %w",
+			backendRef.BackendObjectReference.Name,
+			err,
+		)
+	}
+	return endpointSlices.Items, nil
 }
 
 func (m *httpBackendModelImpl) resolveL7ServicePort(
@@ -367,31 +389,16 @@ func (m *httpBackendModelImpl) resolveL7ServicePort(
 func makeUpdateOciBackendSetDetails(
 	existingBackendSet loadbalancer.BackendSet,
 	newBackends []loadbalancer.BackendDetails,
+	desiredPolicy string,
+	desiredHealthChecker loadbalancer.HealthCheckerDetails,
 ) loadbalancer.UpdateBackendSetDetails {
 	updateDetails := loadbalancer.UpdateBackendSetDetails{
 		Backends: newBackends,
 
-		Policy:                                  existingBackendSet.Policy,
+		Policy:                                  new(desiredPolicy),
 		SessionPersistenceConfiguration:         existingBackendSet.SessionPersistenceConfiguration,
 		LbCookieSessionPersistenceConfiguration: existingBackendSet.LbCookieSessionPersistenceConfiguration,
-	}
-
-	if existingBackendSet.HealthChecker != nil {
-		healthCheckerPort := existingBackendSet.HealthChecker.Port
-		if len(newBackends) > 0 {
-			healthCheckerPort = newBackends[0].Port
-		}
-		updateDetails.HealthChecker = &loadbalancer.HealthCheckerDetails{
-			Protocol:          existingBackendSet.HealthChecker.Protocol,
-			UrlPath:           existingBackendSet.HealthChecker.UrlPath,
-			Port:              healthCheckerPort,
-			ReturnCode:        existingBackendSet.HealthChecker.ReturnCode,
-			Retries:           existingBackendSet.HealthChecker.Retries,
-			TimeoutInMillis:   existingBackendSet.HealthChecker.TimeoutInMillis,
-			IntervalInMillis:  existingBackendSet.HealthChecker.IntervalInMillis,
-			ResponseBodyRegex: existingBackendSet.HealthChecker.ResponseBodyRegex,
-			IsForcePlainText:  existingBackendSet.HealthChecker.IsForcePlainText,
-		}
+		HealthChecker:                           &desiredHealthChecker,
 	}
 
 	if existingBackendSet.SslConfiguration != nil {
@@ -411,6 +418,73 @@ func makeUpdateOciBackendSetDetails(
 	}
 
 	return updateDetails
+}
+
+func healthCheckerPortForServicePort(servicePort corev1.ServicePort) (int, bool) {
+	if targetPort := servicePort.TargetPort.IntValue(); targetPort != 0 {
+		return targetPort, true
+	}
+	if servicePort.TargetPort.Type == intstr.String {
+		return 0, false
+	}
+	return int(servicePort.Port), true
+}
+
+func healthCheckerPortForResolvedBackends(backends []loadbalancer.BackendDetails) (int, bool) {
+	ports := lo.Uniq(lo.FilterMap(backends, func(backend loadbalancer.BackendDetails, _ int) (int, bool) {
+		if backend.Port == nil {
+			return 0, false
+		}
+		return *backend.Port, true
+	}))
+	if len(ports) != 1 {
+		return 0, false
+	}
+	return ports[0], true
+}
+
+func l7BackendSetHealthChecker(
+	servicePort corev1.ServicePort,
+	resolvedBackends []loadbalancer.BackendDetails,
+	existingBackendSet loadbalancer.BackendSet,
+) loadbalancer.HealthCheckerDetails {
+	if port, ok := healthCheckerPortForResolvedBackends(resolvedBackends); ok {
+		return loadBalancerBackendSetHealthChecker(port)
+	}
+	if port, ok := healthCheckerPortForServicePort(servicePort); ok {
+		return loadBalancerBackendSetHealthChecker(port)
+	}
+	return healthCheckerDetailsFromExisting(existingBackendSet.HealthChecker)
+}
+
+func healthCheckerDetailsFromExisting(healthChecker *loadbalancer.HealthChecker) loadbalancer.HealthCheckerDetails {
+	if healthChecker == nil {
+		return loadbalancer.HealthCheckerDetails{}
+	}
+	return loadbalancer.HealthCheckerDetails{
+		Protocol:          healthChecker.Protocol,
+		Port:              healthChecker.Port,
+		ReturnCode:        healthChecker.ReturnCode,
+		ResponseBodyRegex: healthChecker.ResponseBodyRegex,
+		UrlPath:           healthChecker.UrlPath,
+		Retries:           healthChecker.Retries,
+		TimeoutInMillis:   healthChecker.TimeoutInMillis,
+		IntervalInMillis:  healthChecker.IntervalInMillis,
+		IsForcePlainText:  healthChecker.IsForcePlainText,
+	}
+}
+
+func l7BackendSetConfigMatches(
+	existingBackendSet loadbalancer.BackendSet,
+	desiredPolicy string,
+	desiredHealthChecker loadbalancer.HealthCheckerDetails,
+) bool {
+	return loadBalancerBackendSetMatches(
+		existingBackendSet,
+		desiredPolicy,
+		desiredHealthChecker,
+		sslConfigurationDetailsFromBackendSet(existingBackendSet.SslConfiguration),
+	)
 }
 
 // httpBackendModelDeps contains the dependencies for the HTTPBackendModel.

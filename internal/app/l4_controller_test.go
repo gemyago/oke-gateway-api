@@ -53,6 +53,10 @@ func (s *stubTCPRouteModel) setProgrammed(context.Context, resolvedTCPRouteDetai
 	return s.setProgrammedErr
 }
 
+func (s *stubTCPRouteModel) isProgrammingRequired(resolvedTCPRouteDetails) bool {
+	return false
+}
+
 func (s *stubTCPRouteModel) setRejected(context.Context, resolvedTCPRouteDetails, tcpRouteStatusError) error {
 	s.rejected = true
 	return s.setRejectedErr
@@ -95,6 +99,10 @@ func (s *stubUDPRouteModel) setProgrammed(context.Context, resolvedUDPRouteDetai
 	return s.setProgrammedErr
 }
 
+func (s *stubUDPRouteModel) isProgrammingRequired(resolvedUDPRouteDetails) bool {
+	return false
+}
+
 func (s *stubUDPRouteModel) setRejected(context.Context, resolvedUDPRouteDetails, udpRouteStatusError) error {
 	s.rejected = true
 	return s.setRejectedErr
@@ -135,6 +143,10 @@ func (s *stubTLSRouteModel) setPending(context.Context, resolvedTLSRouteDetails)
 func (s *stubTLSRouteModel) setProgrammed(context.Context, resolvedTLSRouteDetails) error {
 	s.programmed = true
 	return s.setProgrammedErr
+}
+
+func (s *stubTLSRouteModel) isProgrammingRequired(resolvedTLSRouteDetails) bool {
+	return false
 }
 
 func (s *stubTLSRouteModel) setRejected(context.Context, resolvedTLSRouteDetails, tlsRouteStatusError) error {
@@ -191,6 +203,7 @@ func TestTCPRouteController(t *testing.T) {
 
 		require.NoError(t, err)
 		assertDriftRequeue(t, result, driftInterval)
+		assert.False(t, model.pending)
 		assert.True(t, model.programmed)
 	})
 
@@ -379,6 +392,7 @@ func TestTLSRouteController(t *testing.T) {
 
 		require.NoError(t, err)
 		assertDriftRequeue(t, result, driftInterval)
+		assert.False(t, model.pending)
 		assert.True(t, model.programmed)
 	})
 
@@ -612,6 +626,7 @@ func TestUDPRouteController(t *testing.T) {
 
 		require.NoError(t, err)
 		assertDriftRequeue(t, result, driftInterval)
+		assert.False(t, model.pending)
 		assert.True(t, model.programmed)
 	})
 

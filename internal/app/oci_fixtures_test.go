@@ -59,6 +59,14 @@ func randomOCIBackendSetWithBackendsOpt(backends []loadbalancer.Backend) randomO
 	}
 }
 
+func randomOCIBackendSetWithHealthCheckerOpt(
+	healthChecker loadbalancer.HealthCheckerDetails,
+) randomOCIBackendSetOpt {
+	return func(bs *loadbalancer.BackendSet) {
+		bs.HealthChecker = healthCheckerFromDetails(healthChecker)
+	}
+}
+
 func makeRandomOCIBackend() loadbalancer.Backend {
 	fake := faker.New()
 	return loadbalancer.Backend{

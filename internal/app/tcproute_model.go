@@ -37,6 +37,7 @@ type tcpRouteModel interface {
 	deprovisionRoute(ctx context.Context, details resolvedTCPRouteDetails) error
 	setPending(ctx context.Context, details resolvedTCPRouteDetails) error
 	setProgrammed(ctx context.Context, details resolvedTCPRouteDetails) error
+	isProgrammingRequired(details resolvedTCPRouteDetails) bool
 	setRejected(ctx context.Context, details resolvedTCPRouteDetails, statusErr tcpRouteStatusError) error
 }
 
@@ -1055,10 +1056,12 @@ func (m *tcpRouteModelImpl) updateBackendSet(
 		if err = networkLoadBalancerBusyErrorFromState(nlb); err != nil {
 			return err
 		}
+		healthChecker := networkLoadBalancerHealthCheckerDetails(details.matchedListener.Protocol, nil)
 		if nlb.BackendSets != nil {
 			currentBackendSet, ok := nlb.BackendSets[backendSetName]
 			if ok &&
 				tcpBackendsEqual(currentBackendSet.Backends, backends) &&
+				networkLoadBalancerHealthCheckerMatches(currentBackendSet.HealthChecker, healthChecker) &&
 				currentBackendSet.IsPreserveSource != nil &&
 				!*currentBackendSet.IsPreserveSource {
 				m.logger.DebugContext(ctx, "TCPRoute backend set is already up-to-date",
@@ -1069,7 +1072,6 @@ func (m *tcpRouteModelImpl) updateBackendSet(
 			}
 		}
 
-		healthChecker := networkLoadBalancerHealthCheckerDetails(details.matchedListener.Protocol, nil)
 		m.logger.InfoContext(ctx, "Updating TCPRoute backend set",
 			slog.String("tcpRoute", details.tcpRoute.Name),
 			slog.String("backendSetName", backendSetName),
@@ -1456,6 +1458,17 @@ func (m *tcpRouteModelImpl) setPending(ctx context.Context, details resolvedTCPR
 	})
 }
 
+func (m *tcpRouteModelImpl) isProgrammingRequired(details resolvedTCPRouteDetails) bool {
+	return isL4RouteProgrammingRequired(isL4RouteProgrammingRequiredParams{
+		route:                &details.tcpRoute,
+		parentStatuses:       details.tcpRoute.Status.Parents,
+		matchedRef:           details.matchedRef,
+		controllerName:       NetworkLoadBalancerControllerClassName,
+		loadBalancerAnnotKey: L4RouteProgrammedNetworkLoadBalancerIDAnnotation,
+		loadBalancerID:       details.gatewayDetails.config.Spec.LoadBalancerID,
+	})
+}
+
 type setL4RouteProgrammedParams struct {
 	k8sClient          k8sClient
 	routeKind          string
@@ -1466,6 +1479,37 @@ type setL4RouteProgrammedParams struct {
 	loadBalancerID     string
 	desiredBackendSets map[string]struct{}
 	updateParentStatus func([]metav1.Condition) error
+}
+
+type isL4RouteProgrammingRequiredParams struct {
+	route                client.Object
+	parentStatuses       []gatewayv1.RouteParentStatus
+	matchedRef           gatewayv1.ParentReference
+	controllerName       gatewayv1.GatewayController
+	loadBalancerAnnotKey string
+	loadBalancerID       string
+}
+
+func isL4RouteProgrammingRequired(params isL4RouteProgrammingRequiredParams) bool {
+	parentStatus, found := lo.Find(params.parentStatuses, func(status gatewayv1.RouteParentStatus) bool {
+		return status.ControllerName == params.controllerName &&
+			parentRefSameTarget(status.ParentRef, params.matchedRef)
+	})
+	if !found {
+		return true
+	}
+	if params.loadBalancerAnnotKey != "" &&
+		params.loadBalancerID != "" &&
+		params.route.GetAnnotations()[params.loadBalancerAnnotKey] != params.loadBalancerID {
+		return true
+	}
+	resolvedRefs := meta.FindStatusCondition(
+		parentStatus.Conditions,
+		string(gatewayv1.RouteConditionResolvedRefs),
+	)
+	return resolvedRefs == nil ||
+		resolvedRefs.ObservedGeneration != params.route.GetGeneration() ||
+		resolvedRefs.Status != metav1.ConditionTrue
 }
 
 func setL4RouteProgrammed(ctx context.Context, params setL4RouteProgrammedParams) error {

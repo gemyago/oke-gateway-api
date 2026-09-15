@@ -97,8 +97,8 @@ func (r *HTTPRouteController) reconcileResolvedRoute(
 		slog.String("gateway", resolvedData.gatewayDetails.gateway.Name),
 	)
 
-	if err = r.setPending(ctx, resolvedData, *acceptedRoute); err != nil {
-		return false, fmt.Errorf("failed to set pending status: %w", err)
+	if err = r.setPendingWhenNeeded(ctx, resolvedData, *acceptedRoute, programmingRequired); err != nil {
+		return false, err
 	}
 
 	knownBackends, err := r.httpRouteModel.resolveBackendRefs(ctx, resolveBackendRefsParams{
@@ -162,6 +162,21 @@ func (r *HTTPRouteController) reconcileResolvedRoute(
 	)
 
 	return true, nil
+}
+
+func (r *HTTPRouteController) setPendingWhenNeeded(
+	ctx context.Context,
+	resolvedData resolvedRouteDetails,
+	acceptedRoute gatewayv1.HTTPRoute,
+	programmingRequired bool,
+) error {
+	if !shouldSetPendingForReconcile(programmingRequired, r.driftInterval) {
+		return nil
+	}
+	if err := r.setPending(ctx, resolvedData, acceptedRoute); err != nil {
+		return fmt.Errorf("failed to set pending status: %w", err)
+	}
+	return nil
 }
 
 func (r *HTTPRouteController) deprovisionResolvedRoute(
